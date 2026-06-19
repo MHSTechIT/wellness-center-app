@@ -487,21 +487,21 @@ function getMainContent(): string {
   <section class="screen" id="s-import"><div class="wrap">
     <div class="ph"><div><h1>Lead import &amp; intake</h1><p>Real-time Meta capture, every source, bulk CSV fallback — with control.</p></div>
       <div class="pha"><button class="btn bp" onclick="toast('Single lead form opened')">+ Add single lead</button></div></div>
-    <span class="viewing"><span class="vd"></span> Viewing as ABM / Admin</span>
-    <div class="metrics">
-      <div class="metric g"><div class="ml">Leads today</div><div class="mv">141</div><div class="mt ok">Meta 118 · others 23</div></div>
-      <div class="metric g"><div class="ml">Feed health</div><div class="mv">Live</div><div class="mt ok">last lead 2m ago</div></div>
-      <div class="metric a"><div class="ml">Duplicates flagged</div><div class="mv">6</div><div class="mt warn">review pending</div></div>
-      <div class="metric"><div class="ml">Unassigned</div><div class="mv">12</div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 4px">
+      <span class="viewing"><span class="vd"></span> Viewing as ABM / Admin</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto" id="impFilterBar">
+        <select class="select" id="impMonth" style="height:33px;font-size:12px;width:130px"><option value="all">All Months</option><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5" selected>June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select>
+        <select class="select" id="impYear" style="height:33px;font-size:12px;width:100px"><option value="all">All Years</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026" selected>2026</option></select>
+        <input class="input mono" id="impDateFrom" type="date" style="height:33px;font-size:12px;width:138px">
+        <span style="color:var(--faint);font-size:12px">to</span>
+        <input class="input mono" id="impDateTo" type="date" style="height:33px;font-size:12px;width:138px">
+        <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option></select>
+      </div>
     </div>
+    <div class="metrics" id="impMetrics" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bolt"/></svg> Source connections <span class="arr">▾</span></div>
-      <div class="sec-bd"><table class="tbl"><thead><tr><th>Source</th><th>Status</th><th>Today</th><th>Last lead</th><th>Mode</th></tr></thead><tbody>
-        <tr><td style="font-weight:600">Meta Ads</td><td><span class="chipb ok"><span class="cd"></span> Connected</span></td><td class="mono">118</td><td class="mono">2m</td><td>Real-time webhook</td></tr>
-        <tr><td style="font-weight:600">Website forms</td><td><span class="chipb ok"><span class="cd"></span> Connected</span></td><td class="mono">9</td><td class="mono">26m</td><td>Webhook</td></tr>
-        <tr><td style="font-weight:600">WhatsApp (WATI)</td><td><span class="chipb ok"><span class="cd"></span> Connected</span></td><td class="mono">8</td><td class="mono">11m</td><td>API</td></tr>
-        <tr><td style="font-weight:600">Google / YouTube</td><td><span class="chipb neu">Not connected</span></td><td class="mono">—</td><td class="mono">—</td><td>—</td></tr>
-        <tr><td style="font-weight:600">Walk-in / Referral / Telecalling</td><td><span class="chipb info">Manual</span></td><td class="mono">6</td><td class="mono">38m</td><td>Reception / advisor form</td></tr>
-      </tbody></table>
+      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1100px" id="srcConnTable"><thead><tr><th style="width:36px"><input type="checkbox" id="srcSelAll" style="accent-color:var(--brand)"></th><th>Total leads</th><th>Lead source</th><th>Status</th><th>Today</th><th>Last lead</th><th>Mode</th><th>Valid</th><th>Unique</th><th>Duplicate</th><th>Assigned</th><th>Unassigned</th></tr></thead><tbody id="srcTableBody"></tbody></table></div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn bsm bp" onclick="toast('Bulk action applied to selected sources')">Apply bulk action</button><button class="btn bsm" onclick="toast('Exported selected source data')">Export selected</button></div>
       <div class="rb" style="margin-top:12px;background:var(--alert-bg);border:1px solid var(--alert);border-radius:10px;padding:10px 14px">
         <span style="font-size:12.5px;font-weight:600;color:var(--alert-ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok">Enabled</span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span class="arr">▾</span></div>
@@ -1123,6 +1123,129 @@ export default function Home() {
       toast("Report synced to HC"); addLog("Blood report attached");
     }
     w.addBlood = addBlood;
+
+    // ========== LEAD IMPORT DATA ENGINE ==========
+    const IMP_SRC_CFG=[
+      {name:"Meta Ads",status:"Connected",sc:"ok",mode:"Real-time webhook",lastLead:"2m"},
+      {name:"Website forms",status:"Connected",sc:"ok",mode:"Webhook",lastLead:"26m"},
+      {name:"WhatsApp (WATI)",status:"Connected",sc:"ok",mode:"API",lastLead:"11m"},
+      {name:"Google / YouTube",status:"Not connected",sc:"neu",mode:"—",lastLead:"—"},
+      {name:"Walk-in / Referral / Telecalling",status:"Manual",sc:"info",mode:"Reception / advisor form",lastLead:"38m"}
+    ];
+    const impNm=["A. Kumar","R. Suresh","M. Vel","K. Anu","S. Devi","V. Prasad","L. Priya","D. Kumar","F. Begum","M. John","P. Ravi","N. Singh","G. Patel","H. Khan","B. Sharma","T. Reddy","C. Nair","J. Pillai","E. Das","O. Rao"];
+    const IMP:any[]=[];
+    let _ii=1;
+    function addImp(count:number,src:string,m:number,dS:number,dE:number){
+      const span=dE-dS+1;
+      for(let i=0;i<count;i++){IMP.push({id:_ii,name:impNm[_ii%20],source:src,date:new Date(2026,m,dS+(i%span)),isValid:(_ii%13)!==0,isDuplicate:(_ii%21)===0,isAssigned:(_ii%11)!==0});_ii++;}
+    }
+    addImp(118,"Meta Ads",5,19,19);addImp(9,"Website forms",5,19,19);addImp(8,"WhatsApp (WATI)",5,19,19);addImp(6,"Walk-in / Referral / Telecalling",5,19,19);
+    addImp(420,"Meta Ads",5,1,18);addImp(54,"Website forms",5,1,18);addImp(48,"WhatsApp (WATI)",5,1,18);addImp(36,"Walk-in / Referral / Telecalling",5,1,18);
+    addImp(455,"Meta Ads",4,1,31);addImp(65,"Website forms",4,1,31);addImp(65,"WhatsApp (WATI)",4,1,31);addImp(65,"Walk-in / Referral / Telecalling",4,1,31);
+    addImp(364,"Meta Ads",3,1,30);addImp(52,"Website forms",3,1,30);addImp(52,"WhatsApp (WATI)",3,1,30);addImp(52,"Walk-in / Referral / Telecalling",3,1,30);
+    addImp(315,"Meta Ads",2,1,31);addImp(45,"Website forms",2,1,31);addImp(45,"WhatsApp (WATI)",2,1,31);addImp(45,"Walk-in / Referral / Telecalling",2,1,31);
+    addImp(266,"Meta Ads",1,1,28);addImp(38,"Website forms",1,1,28);addImp(38,"WhatsApp (WATI)",1,1,28);addImp(38,"Walk-in / Referral / Telecalling",1,1,28);
+    addImp(224,"Meta Ads",0,1,31);addImp(32,"Website forms",0,1,31);addImp(32,"WhatsApp (WATI)",0,1,31);addImp(32,"Walk-in / Referral / Telecalling",0,1,31);
+
+    function impFiltered(){
+      let d=[...IMP];
+      const mo=(root.querySelector("#impMonth")as HTMLSelectElement)?.value;
+      const yr=(root.querySelector("#impYear")as HTMLSelectElement)?.value;
+      const df=(root.querySelector("#impDateFrom")as HTMLInputElement)?.value;
+      const dt=(root.querySelector("#impDateTo")as HTMLInputElement)?.value;
+      const src=(root.querySelector("#impSource")as HTMLSelectElement)?.value;
+      if(yr!=="all") d=d.filter(r=>r.date.getFullYear()===Number(yr));
+      if(mo!=="all") d=d.filter(r=>r.date.getMonth()===Number(mo));
+      if(df){const from=new Date(df);from.setHours(0,0,0,0);d=d.filter(r=>r.date>=from);}
+      if(dt){const to=new Date(dt);to.setHours(23,59,59,999);d=d.filter(r=>r.date<=to);}
+      if(src!=="all") d=d.filter(r=>r.source===src);
+      return d;
+    }
+
+    function renderImpKPIs(){
+      const f=impFiltered();
+      const td=new Date(2026,5,19);
+      const todayL=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
+      const cards=[
+        {l:"Total Leads",v:f.length,c:"g",k:"total"},
+        {l:"Today Leads",v:todayL,c:"g",k:"today"},
+        {l:"Valid Leads",v:f.filter(r=>r.isValid).length,c:"g",k:"valid"},
+        {l:"Unique Leads",v:f.filter(r=>!r.isDuplicate).length,c:"",k:"unique"},
+        {l:"Duplicate Leads",v:f.filter(r=>r.isDuplicate).length,c:"a",k:"duplicate"},
+        {l:"Assigned Leads",v:f.filter(r=>r.isAssigned).length,c:"g",k:"assigned"},
+        {l:"Unassigned Leads",v:f.filter(r=>!r.isAssigned).length,c:"a",k:"unassigned"}
+      ];
+      const el=root.querySelector("#impMetrics");
+      if(el) el.innerHTML=cards.map(x=>'<div class="metric '+x.c+'" style="cursor:pointer" onclick="window._impDrill(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
+    }
+
+    function renderSrcTable(){
+      const f=impFiltered();
+      const td=new Date(2026,5,19);
+      const el=root.querySelector("#srcTableBody");
+      if(!el) return;
+      el.innerHTML=IMP_SRC_CFG.map(s=>{
+        const sf=f.filter(r=>r.source===s.name);
+        const todC=sf.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
+        const valid=sf.filter(r=>r.isValid).length;
+        const dup=sf.filter(r=>r.isDuplicate).length;
+        const uniq=sf.length-dup;
+        const asgn=sf.filter(r=>r.isAssigned).length;
+        const unasgn=sf.length-asgn;
+        return '<tr><td><input type="checkbox" class="srcChk" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="font-weight:700;cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'total\')">'+sf.length+'</td>'
+          +'<td style="font-weight:600">'+s.name+'</td>'
+          +'<td><span class="chipb '+s.sc+'"><span class="cd"></span> '+s.status+'</span></td>'
+          +'<td class="mono">'+todC+'</td>'
+          +'<td class="mono">'+s.lastLead+'</td>'
+          +'<td>'+s.mode+'</td>'
+          +'<td class="mono" style="cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'valid\')">'+valid+'</td>'
+          +'<td class="mono" style="cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'unique\')">'+uniq+'</td>'
+          +'<td class="mono" style="cursor:pointer;'+(dup>0?'color:var(--warn-ink);font-weight:600':'')+'" onclick="window._impDrillSrc(\''+s.name+'\',\'duplicate\')">'+dup+'</td>'
+          +'<td class="mono" style="cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'assigned\')">'+asgn+'</td>'
+          +'<td class="mono" style="cursor:pointer;'+(unasgn>0?'color:var(--warn-ink);font-weight:600':'')+'" onclick="window._impDrillSrc(\''+s.name+'\',\'unassigned\')">'+unasgn+'</td></tr>';
+      }).join("");
+      const selAll=root.querySelector("#srcSelAll")as HTMLInputElement;
+      if(selAll) selAll.onchange=()=>{root.querySelectorAll(".srcChk").forEach((c:any)=>{c.checked=selAll.checked;});};
+    }
+
+    function renderImport(){renderImpKPIs();renderSrcTable();}
+
+    w._impDrill=(k:string)=>{
+      const f=impFiltered();
+      const td=new Date(2026,5,19);
+      let count=0;const label=k.charAt(0).toUpperCase()+k.slice(1);
+      if(k==="total") count=f.length;
+      else if(k==="today") count=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
+      else if(k==="valid") count=f.filter(r=>r.isValid).length;
+      else if(k==="unique") count=f.filter(r=>!r.isDuplicate).length;
+      else if(k==="duplicate") count=f.filter(r=>r.isDuplicate).length;
+      else if(k==="assigned") count=f.filter(r=>r.isAssigned).length;
+      else if(k==="unassigned") count=f.filter(r=>!r.isAssigned).length;
+      toast(label+" leads: "+count+" — drill-down view");
+    };
+    w._impDrillSrc=(src:string,k:string)=>{
+      const f=impFiltered().filter(r=>r.source===src);
+      let count=0;
+      if(k==="total") count=f.length;
+      else if(k==="valid") count=f.filter(r=>r.isValid).length;
+      else if(k==="unique") count=f.filter(r=>!r.isDuplicate).length;
+      else if(k==="duplicate") count=f.filter(r=>r.isDuplicate).length;
+      else if(k==="assigned") count=f.filter(r=>r.isAssigned).length;
+      else if(k==="unassigned") count=f.filter(r=>!r.isAssigned).length;
+      toast(src+" — "+k+": "+count+" leads");
+    };
+
+    ["impMonth","impYear","impSource"].forEach(id=>{
+      const el=root.querySelector("#"+id)as HTMLSelectElement;
+      if(el) el.onchange=()=>renderImport();
+    });
+    ["impDateFrom","impDateTo"].forEach(id=>{
+      const el=root.querySelector("#"+id)as HTMLInputElement;
+      if(el) el.onchange=()=>renderImport();
+    });
+
+    renderImport();
 
     // ========== RECEPTION DATA ==========
     const RX: any[] = [
