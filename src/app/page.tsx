@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase";
 
 function getMainContent(): string {
   return `
@@ -490,8 +491,8 @@ function getMainContent(): string {
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 4px">
       <span class="viewing"><span class="vd"></span> Viewing as ABM / Admin</span>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto" id="impFilterBar">
-        <select class="select" id="impMonth" style="height:33px;font-size:12px;width:130px"><option value="all">All Months</option><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5" selected>June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select>
-        <select class="select" id="impYear" style="height:33px;font-size:12px;width:100px"><option value="all">All Years</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026" selected>2026</option></select>
+        <select class="select" id="impMonth" style="height:33px;font-size:12px;width:130px"><option value="all" selected>All Months</option><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5">June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select>
+        <select class="select" id="impYear" style="height:33px;font-size:12px;width:100px"><option value="all" selected>All Years</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
         <input class="input mono" id="impDateFrom" type="date" style="height:33px;font-size:12px;width:138px">
         <span style="color:var(--faint);font-size:12px">to</span>
         <input class="input mono" id="impDateTo" type="date" style="height:33px;font-size:12px;width:138px">
@@ -504,25 +505,49 @@ function getMainContent(): string {
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn bsm bp" onclick="toast('Bulk action applied to selected sources')">Apply bulk action</button><button class="btn bsm" onclick="toast('Exported selected source data')">Export selected</button></div>
       <div class="rb" style="margin-top:12px;background:var(--alert-bg);border:1px solid var(--alert);border-radius:10px;padding:10px 14px">
         <span style="font-size:12.5px;font-weight:600;color:var(--alert-ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok">Enabled</span></div></div></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span class="arr">▾</span></div>
-      <div class="sec-bd"><table class="tbl"><thead><tr><th></th><th>Lead</th><th>Source</th><th>Campaign</th><th>Service</th><th>Lang</th><th>Received</th><th>Dedup</th></tr></thead><tbody>
-        <tr><td><input type="checkbox" style="accent-color:var(--brand)"></td><td style="font-weight:600">K. Anu</td><td><span class="tag">Meta</span></td><td class="mono" style="font-size:11.5px">DR_Jun_Lookalike</td><td>Diabetes</td><td>Tamil</td><td class="mono">2m</td><td><span class="chipb ok">New</span></td></tr>
-        <tr><td><input type="checkbox" style="accent-color:var(--brand)"></td><td style="font-weight:600">R. Suresh</td><td><span class="tag">Meta</span></td><td class="mono" style="font-size:11.5px">DR_Reversal_Q2</td><td>Diabetes</td><td>Telugu</td><td class="mono">6m</td><td><span class="chipb ok">New</span></td></tr>
-        <tr><td><input type="checkbox" style="accent-color:var(--brand)"></td><td style="font-weight:600">M. Vel</td><td><span class="tag">WhatsApp</span></td><td class="mono" style="font-size:11.5px">—</td><td>Diabetes</td><td>Tamil</td><td class="mono">14m</td><td><span class="chipb al">Visited 12 May</span></td></tr>
-      </tbody></table>
-      <div style="display:flex;gap:9px;margin-top:12px"><button class="btn bsm bp" onclick="toast('Sent to assignment pool')">Send to assignment →</button><button class="btn bsm">Mark duplicate</button></div></div></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span style="font-size:11px;color:var(--faint);margin-left:8px" id="metaFeedStatus">Connecting to Meta…</span> <span class="arr">▾</span></div>
+      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1000px"><thead><tr><th></th><th>Date &amp; Time (IST)</th><th>Lead</th><th>Source</th><th>Campaign</th><th>Service</th><th>Lang</th><th>Received</th><th>Dedup</th></tr></thead><tbody id="liveFeedBody">
+        <tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">Loading live leads from Meta ad accounts…</td></tr>
+      </tbody></table></div>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+        <button class="btn bsm" id="metaPrevBtn" onclick="window._metaPage(-1)">← Previous</button>
+        <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="metaPageInfo">Page 1 of 1</span>
+        <button class="btn bsm" id="metaNextBtn" onclick="window._metaPage(1)">Next →</button>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="toast('Sent to assignment pool')">Send to assignment →</button><button class="btn bsm">Mark duplicate</button><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clip"/></svg> Bulk CSV import — wizard <span class="arr">▾</span></div>
       <div class="sec-bd">
-        <div class="steps"><div class="step on"><span class="n">✓</span> Upload</div><div class="step on"><span class="n">2</span> Map columns</div><div class="step"><span class="n">3</span> De-dupe &amp; import</div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div class="steps" style="flex:1;min-width:240px"><div class="step on"><span class="n">✓</span> Upload</div><div class="step on"><span class="n">2</span> Map columns</div><div class="step"><span class="n">3</span> De-dupe &amp; import</div></div>
+          <button class="btn bsm" onclick="window._downloadCSVTemplate()" title="Download a sample CSV with the required columns">⬇ Download template</button>
+        </div>
         <div class="split" style="margin-top:14px">
-          <div><div class="drop"><p style="margin:4px 0 3px;font-weight:600;color:var(--ink)">meta_leads_12jun.csv</p><p style="font-size:12px;margin:0">312 rows · uploaded 09:40</p></div>
+          <div>
+            <label class="drop" id="csvDrop" style="cursor:pointer;display:block;text-align:center">
+              <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display:none">
+              <p style="margin:4px 0 3px;font-weight:600;color:var(--ink)" id="csvFileName">Click to choose a CSV file</p>
+              <p style="font-size:12px;margin:0" id="csvFileInfo">Use the template above for the correct columns</p>
+            </label>
             <div class="g2" style="margin-top:13px">
               <select class="select"><option selected>full_name → Name</option></select><select class="select"><option selected>phone_number → Phone</option></select>
               <select class="select"><option selected>campaign_name → Campaign</option></select><select class="select"><option selected>ad_language → Language</option></select>
             </div></div>
           <div><div class="g2" style="gap:9px;margin-top:0"><select class="select"><option selected>Source: Meta</option></select><select class="select"><option selected>Branch: Chennai</option></select><select class="select"><option selected>Batch: WK-JUN-04</option></select><select class="select"><option selected>Service: Diabetes</option></select></div>
-            <div style="background:var(--warn-bg);border:1px solid var(--warn);border-radius:10px;padding:10px 13px;margin-top:13px;font-size:12.5px;color:var(--warn-ink);font-weight:600">312 rows · 297 new · 9 dup (skip) · 6 repeat-visitor (flag)</div>
-            <button class="btn bp" style="margin-top:13px;width:100%" onclick="toast('297 leads imported')">Import 297 leads</button></div>
+            <div id="csvSummary" style="background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:13px;font-size:12.5px;color:var(--faint);font-weight:600">Upload a CSV to see the de-dupe summary</div>
+            <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
+        </div>
+        <div id="csvImportedWrap" style="display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <svg class="icon"><use href="#i-inbox"/></svg>
+            <span style="font-weight:700;font-size:14px">Imported leads</span>
+            <span class="chipb ok" id="csvImportedCount" style="margin-left:auto">0 records</span>
+          </div>
+          <div style="overflow-x:auto"><table class="tbl" style="min-width:1080px"><thead><tr><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
+          <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+            <button class="btn bsm" id="csvPrevBtn" onclick="window._csvPage(-1)">← Previous</button>
+            <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="csvPageInfo">Page 1 of 1</span>
+            <button class="btn bsm" id="csvNextBtn" onclick="window._csvPage(1)">Next →</button>
+          </div>
         </div></div></div>
   </div></section>
 
@@ -1125,46 +1150,63 @@ export default function Home() {
     w.addBlood = addBlood;
 
     // ========== LEAD IMPORT DATA ENGINE ==========
-    const IMP_SRC_CFG=[
+    let IMP_SRC_CFG=[
       {name:"Meta Ads",status:"Connected",sc:"ok",mode:"Real-time webhook",lastLead:"2m"},
       {name:"Website forms",status:"Connected",sc:"ok",mode:"Webhook",lastLead:"26m"},
       {name:"WhatsApp (WATI)",status:"Connected",sc:"ok",mode:"API",lastLead:"11m"},
       {name:"Google / YouTube",status:"Not connected",sc:"neu",mode:"—",lastLead:"—"},
       {name:"Walk-in / Referral / Telecalling",status:"Manual",sc:"info",mode:"Reception / advisor form",lastLead:"38m"}
     ];
-    const impNm=["A. Kumar","R. Suresh","M. Vel","K. Anu","S. Devi","V. Prasad","L. Priya","D. Kumar","F. Begum","M. John","P. Ravi","N. Singh","G. Patel","H. Khan","B. Sharma","T. Reddy","C. Nair","J. Pillai","E. Das","O. Rao"];
+    // Lead records live in Supabase (synced from Meta). IMP is populated by
+    // fetchMetaLiveFeed() from /api/meta/leads — no mock data.
     const IMP:any[]=[];
-    let _ii=1;
-    function addImp(count:number,src:string,m:number,dS:number,dE:number){
-      const span=dE-dS+1;
-      for(let i=0;i<count;i++){IMP.push({id:_ii,name:impNm[_ii%20],source:src,date:new Date(2026,m,dS+(i%span)),isValid:(_ii%13)!==0,isDuplicate:(_ii%21)===0,isAssigned:(_ii%11)!==0});_ii++;}
-    }
-    addImp(118,"Meta Ads",5,19,19);addImp(9,"Website forms",5,19,19);addImp(8,"WhatsApp (WATI)",5,19,19);addImp(6,"Walk-in / Referral / Telecalling",5,19,19);
-    addImp(420,"Meta Ads",5,1,18);addImp(54,"Website forms",5,1,18);addImp(48,"WhatsApp (WATI)",5,1,18);addImp(36,"Walk-in / Referral / Telecalling",5,1,18);
-    addImp(455,"Meta Ads",4,1,31);addImp(65,"Website forms",4,1,31);addImp(65,"WhatsApp (WATI)",4,1,31);addImp(65,"Walk-in / Referral / Telecalling",4,1,31);
-    addImp(364,"Meta Ads",3,1,30);addImp(52,"Website forms",3,1,30);addImp(52,"WhatsApp (WATI)",3,1,30);addImp(52,"Walk-in / Referral / Telecalling",3,1,30);
-    addImp(315,"Meta Ads",2,1,31);addImp(45,"Website forms",2,1,31);addImp(45,"WhatsApp (WATI)",2,1,31);addImp(45,"Walk-in / Referral / Telecalling",2,1,31);
-    addImp(266,"Meta Ads",1,1,28);addImp(38,"Website forms",1,1,28);addImp(38,"WhatsApp (WATI)",1,1,28);addImp(38,"Walk-in / Referral / Telecalling",1,1,28);
-    addImp(224,"Meta Ads",0,1,31);addImp(32,"Website forms",0,1,31);addImp(32,"WhatsApp (WATI)",0,1,31);addImp(32,"Walk-in / Referral / Telecalling",0,1,31);
 
-    function impFiltered(){
-      let d=[...IMP];
+    // Supabase: source-connection display config only.
+    // Lead data for the dashboard comes from the LIVE META FEED (see fetchMetaLiveFeed
+    // below), which is the single source of truth shared by the KPI cards, the
+    // Source Connections table, and the Live Incoming Feed. We intentionally do NOT
+    // load leads from Supabase here — doing so would race with the Meta fetch and
+    // overwrite real leads with stale/seed rows.
+    (async()=>{
+      try{
+        const srcRes=await supabase.from("source_connections").select("*");
+        if(srcRes.data && srcRes.data.length>0){
+          IMP_SRC_CFG=srcRes.data.map((s:any)=>({name:s.name,status:s.status,sc:s.status_color,mode:s.mode,lastLead:s.last_lead}));
+          renderImport();
+        }
+      }catch(e){
+        // Supabase optional — dashboard still works from the live Meta feed.
+      }
+    })();
+
+    // Shared filter predicate used by BOTH the dashboard (KPI cards + Source
+    // Connections, via IMP) and the Live Incoming Feed (via _metaLeads), so all
+    // three always reflect exactly the same filtered dataset.
+    function leadPasses(dateObj:Date,source:string){
       const mo=(root.querySelector("#impMonth")as HTMLSelectElement)?.value;
       const yr=(root.querySelector("#impYear")as HTMLSelectElement)?.value;
       const df=(root.querySelector("#impDateFrom")as HTMLInputElement)?.value;
       const dt=(root.querySelector("#impDateTo")as HTMLInputElement)?.value;
       const src=(root.querySelector("#impSource")as HTMLSelectElement)?.value;
-      if(yr!=="all") d=d.filter(r=>r.date.getFullYear()===Number(yr));
-      if(mo!=="all") d=d.filter(r=>r.date.getMonth()===Number(mo));
-      if(df){const from=new Date(df);from.setHours(0,0,0,0);d=d.filter(r=>r.date>=from);}
-      if(dt){const to=new Date(dt);to.setHours(23,59,59,999);d=d.filter(r=>r.date<=to);}
-      if(src!=="all") d=d.filter(r=>r.source===src);
-      return d;
+      // An explicit date range takes PRECEDENCE over the Month/Year dropdowns.
+      const rangeActive=!!df||!!dt;
+      if(rangeActive){
+        if(df){const from=new Date(df);from.setHours(0,0,0,0);if(dateObj<from)return false;}
+        if(dt){const to=new Date(dt);to.setHours(23,59,59,999);if(dateObj>to)return false;}
+      }else{
+        if(yr!=="all"&&dateObj.getFullYear()!==Number(yr))return false;
+        if(mo!=="all"&&dateObj.getMonth()!==Number(mo))return false;
+      }
+      if(src!=="all"&&source!==src)return false;
+      return true;
+    }
+    function impFiltered(){
+      return IMP.filter(r=>leadPasses(r.date,r.source));
     }
 
     function renderImpKPIs(){
       const f=impFiltered();
-      const td=new Date(2026,5,19);
+      const td=new Date();td.setHours(0,0,0,0);
       const todayL=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
       const cards=[
         {l:"Total Leads",v:f.length,c:"g",k:"total"},
@@ -1181,7 +1223,7 @@ export default function Home() {
 
     function renderSrcTable(){
       const f=impFiltered();
-      const td=new Date(2026,5,19);
+      const td=new Date();td.setHours(0,0,0,0);
       const el=root.querySelector("#srcTableBody");
       if(!el) return;
       el.innerHTML=IMP_SRC_CFG.map(s=>{
@@ -1213,7 +1255,7 @@ export default function Home() {
 
     w._impDrill=(k:string)=>{
       const f=impFiltered();
-      const td=new Date(2026,5,19);
+      const td=new Date();td.setHours(0,0,0,0);
       let count=0;const label=k.charAt(0).toUpperCase()+k.slice(1);
       if(k==="total") count=f.length;
       else if(k==="today") count=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
@@ -1236,16 +1278,342 @@ export default function Home() {
       toast(src+" — "+k+": "+count+" leads");
     };
 
+    // Reflect filter precedence in the UI: a date range overrides Month/Year.
+    function syncFilterUI(){
+      const monthEl=root.querySelector("#impMonth")as HTMLSelectElement;
+      const yearEl=root.querySelector("#impYear")as HTMLSelectElement;
+      const df=(root.querySelector("#impDateFrom")as HTMLInputElement)?.value;
+      const dt=(root.querySelector("#impDateTo")as HTMLInputElement)?.value;
+      const rangeActive=!!df||!!dt;
+      [monthEl,yearEl].forEach(el=>{if(el){el.disabled=rangeActive;el.style.opacity=rangeActive?"0.45":"1";el.title=rangeActive?"Cleared while a date range is active":"";}});
+    }
+    // Re-render the dashboard AND the feed together so they stay in lockstep.
+    function applyFilters(){syncFilterUI();renderImport();_metaPageNum=1;renderMetaPage();}
     ["impMonth","impYear","impSource"].forEach(id=>{
       const el=root.querySelector("#"+id)as HTMLSelectElement;
-      if(el) el.onchange=()=>renderImport();
+      if(el) el.onchange=()=>{
+        if(id==="impMonth"||id==="impYear"){
+          // Changing month/year clears any active date range to avoid conflicts.
+          const f=root.querySelector("#impDateFrom")as HTMLInputElement;
+          const t=root.querySelector("#impDateTo")as HTMLInputElement;
+          if(f)f.value="";if(t)t.value="";
+        }
+        applyFilters();
+      };
     });
     ["impDateFrom","impDateTo"].forEach(id=>{
       const el=root.querySelector("#"+id)as HTMLInputElement;
-      if(el) el.onchange=()=>renderImport();
+      if(el) el.onchange=()=>applyFilters();
     });
 
+    syncFilterUI();
     renderImport();
+
+    // ========== META LIVE FEED ==========
+    let _metaFeedTimer:any=null;
+    let _metaLeads:any[]=[];
+    let _metaPageNum=1;
+    const META_PER_PAGE=10;
+
+    function fmtIST(iso:string){
+      if(!iso) return "—";
+      try{
+        const d=new Date(iso);
+        // Format in IST (Asia/Kolkata) — day-month-year + 12h time
+        const parts=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).formatToParts(d);
+        const g=(t:string)=>parts.find(p=>p.type===t)?.value||"";
+        return g("day")+" "+g("month")+" "+g("year")+", "+g("hour")+":"+g("minute")+" "+g("dayPeriod").toUpperCase();
+      }catch(e){return "—";}
+    }
+
+    function renderMetaPage(){
+      const tbody=root.querySelector("#liveFeedBody");
+      const pageInfo=root.querySelector("#metaPageInfo");
+      const prevBtn=root.querySelector("#metaPrevBtn")as HTMLButtonElement;
+      const nextBtn=root.querySelector("#metaNextBtn")as HTMLButtonElement;
+      // Apply the SAME active filters as the dashboard cards so the feed,
+      // KPI cards and Source Connections always show one consistent dataset.
+      const filtered=_metaLeads.filter((l:any)=>leadPasses(new Date(l.createdAt),"Meta Ads"));
+      const total=filtered.length;
+      const totalPages=Math.max(1,Math.ceil(total/META_PER_PAGE));
+      if(_metaPageNum>totalPages) _metaPageNum=totalPages;
+      if(_metaPageNum<1) _metaPageNum=1;
+      const start=(_metaPageNum-1)*META_PER_PAGE;
+      const pageLeads=filtered.slice(start,start+META_PER_PAGE);
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(tbody){
+        tbody.innerHTML=pageLeads.map((ld:any)=>{
+          return '<tr>'
+            +'<td><input type="checkbox" style="accent-color:var(--brand)"></td>'
+            +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(ld.createdAt))+'</td>'
+            +'<td style="font-weight:600">'+esc(ld.name)+'</td>'
+            +'<td><span class="tag">'+esc(ld.source)+'</span></td>'
+            +'<td class="mono" style="font-size:11.5px">'+esc(ld.campaign)+'</td>'
+            +'<td>'+esc(ld.service)+'</td>'
+            +'<td>'+esc(ld.lang)+'</td>'
+            +'<td class="mono">'+esc(ld.received)+'</td>'
+            +'<td><span class="chipb ok">New</span></td>'
+            +'</tr>';
+        }).join("");
+      }
+      if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" leads";
+      if(prevBtn){prevBtn.disabled=_metaPageNum<=1;prevBtn.style.opacity=_metaPageNum<=1?"0.45":"1";prevBtn.style.cursor=_metaPageNum<=1?"not-allowed":"pointer";}
+      if(nextBtn){nextBtn.disabled=_metaPageNum>=totalPages;nextBtn.style.opacity=_metaPageNum>=totalPages?"0.45":"1";nextBtn.style.cursor=_metaPageNum>=totalPages?"not-allowed":"pointer";}
+    }
+
+    w._metaPage=(dir:number)=>{
+      _metaPageNum+=dir;
+      renderMetaPage();
+    };
+
+    let _metaFetchInFlight=false;
+    async function fetchMetaLiveFeed(){
+      if(_metaFetchInFlight) return; // prevent overlapping requests piling up
+      _metaFetchInFlight=true;
+      const tbody=root.querySelector("#liveFeedBody");
+      const statusEl=root.querySelector("#metaFeedStatus");
+      const countEl=root.querySelector("#metaFeedCount");
+      try{
+        const res=await fetch("/api/meta/leads");
+        const data=await res.json();
+        if(data.error){
+          _metaLeads=[];IMP.length=0;renderImport();
+          const needsMigration=/column|relation|does not exist|schema/i.test(data.error);
+          if(statusEl) statusEl.textContent="⚠ "+(needsMigration?"Run supabase-migration-meta-sync.sql, then Sync":data.error);
+          if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--warn-ink);padding:24px">Database not ready: '+data.error+'</td></tr>';
+          return;
+        }
+        if(!data.leads||data.leads.length===0){
+          _metaLeads=[];IMP.length=0;renderImport();
+          if(statusEl) statusEl.textContent=(data.lastSync?"Synced · no leads matched your ad accounts":"Not synced yet — click ⟳ Sync from Meta");
+          if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">No synced leads yet. Click <b>⟳ Sync from Meta</b> to pull leads from your ad accounts.</td></tr>';
+          if(countEl) countEl.textContent="0 leads in database";
+          return;
+        }
+        // Sort by latest Date & Time first (newest createdAt at top)
+        _metaLeads=[...data.leads].sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
+        renderMetaPage();
+        // Feed the SAME real Meta leads into the shared IMP array so the
+        // KPI cards and Source Connections table compute from identical data.
+        // Flags (valid/duplicate/assigned) come pre-computed from the Supabase sync.
+        IMP.length=0;
+        _metaLeads.forEach((ld:any)=>{
+          IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned});
+        });
+        renderImport();
+        // Show last sync time from the database
+        let syncMsg="";
+        if(data.lastSync&&data.lastSync.finished_at){
+          const st=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(data.lastSync.finished_at));
+          syncMsg="Synced "+st+" IST";
+        }else{
+          syncMsg="Not synced yet — click Sync from Meta";
+        }
+        if(statusEl) statusEl.textContent=syncMsg;
+        if(countEl) countEl.textContent=data.count+" leads in database";
+      }catch(e:any){
+        if(statusEl) statusEl.textContent="⚠ Connection failed";
+        if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">Could not reach Meta API. Will retry…</td></tr>';
+      }finally{
+        _metaFetchInFlight=false;
+      }
+    }
+    w._refreshMetaFeed=()=>{
+      toast("Reloading from database…");
+      fetchMetaLiveFeed();
+    };
+    let _syncing=false;
+    w._syncFromMeta=async()=>{
+      if(_syncing){toast("Sync already running…");return;}
+      _syncing=true;
+      const btn=root.querySelector("#metaSyncBtn")as HTMLButtonElement;
+      const statusEl=root.querySelector("#metaFeedStatus");
+      if(btn){btn.disabled=true;btn.textContent="⏳ Syncing from Meta… (~2 min)";}
+      if(statusEl) statusEl.textContent="Syncing from Meta — crawling forms & filtering to your ad accounts…";
+      toast("Meta sync started — this can take ~2 minutes");
+      try{
+        const res=await fetch("/api/meta/sync",{method:"POST"});
+        const data=await res.json();
+        if(data.error){
+          toast("Sync failed: "+data.error);
+          if(statusEl) statusEl.textContent="⚠ Sync failed: "+data.error;
+        }else{
+          const s=data.stats||{};
+          toast("Sync complete — "+(s.leadsSynced||0)+" leads from "+((s.accessibleAccounts||[]).length)+" ad account(s)");
+          await fetchMetaLiveFeed();
+        }
+      }catch(e:any){
+        toast("Sync error: "+(e.message||"network"));
+        if(statusEl) statusEl.textContent="⚠ Sync error";
+      }finally{
+        _syncing=false;
+        if(btn){btn.disabled=false;btn.textContent="⟳ Sync from Meta";}
+      }
+    };
+    fetchMetaLiveFeed();
+    // Refresh every 5 minutes (server caches for 10 min; the heavy Meta crawl
+    // must not be triggered on a tight loop).
+    _metaFeedTimer=setInterval(fetchMetaLiveFeed,300000);
+
+    // ========== BULK CSV IMPORT ==========
+    const CSV_COLS=["Date & Time","Campaign","Ad Name","Lead Name","Phone Number","Sugar Poll","City","Street","Source","Service","Name"];
+    let _csvParsed:any[]=[];          // rows parsed from the chosen file (pre-import)
+    const _csvImported:any[]=[];      // accumulated imported rows (displayed in table)
+    const _csvPhones=new Set<string>(); // phones already imported (dedupe across imports)
+    let _csvPage=1;
+    const CSV_PER=10;
+
+    function csvEsc(v:string){return '"'+String(v==null?"":v).replace(/"/g,'""')+'"';}
+    w._downloadCSVTemplate=()=>{
+      const sample=[
+        ["2026-06-12 10:30","DR_Jun_Lookalike","Diabetes Reversal A","K. Anu","+919750126135","150-250","Chennai","Anna Nagar 2nd St","Meta","Diabetes","K. Anu"],
+        ["2026-06-12 11:05","DR_Reversal_Q2","Sugar Control B","R. Suresh","+919884693633","Above 250","Coimbatore","Gandhipuram Main Rd","Meta","Diabetes","R. Suresh"]
+      ];
+      const lines=[CSV_COLS.map(csvEsc).join(","),...sample.map(r=>r.map(csvEsc).join(","))];
+      const blob=new Blob([lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=url;a.download="wellnessos_lead_template.csv";
+      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      toast("Template downloaded");
+    };
+
+    // Minimal RFC-4180 CSV parser (handles quoted fields, commas, escaped quotes)
+    function parseCSV(text:string):string[][]{
+      const rows:string[][]=[];let field="",row:string[]=[],inQ=false,i=0;
+      while(i<text.length){
+        const c=text[i];
+        if(inQ){
+          if(c==='"'){if(text[i+1]==='"'){field+='"';i++;}else inQ=false;}
+          else field+=c;
+        }else{
+          if(c==='"')inQ=true;
+          else if(c===","){row.push(field);field="";}
+          else if(c==="\n"||c==="\r"){if(c==="\r"&&text[i+1]==="\n")i++;row.push(field);field="";if(row.some(x=>x!==""))rows.push(row);row=[];}
+          else field+=c;
+        }
+        i++;
+      }
+      if(field!==""||row.length){row.push(field);if(row.some(x=>x!==""))rows.push(row);}
+      return rows;
+    }
+
+    function colIdx(header:string[],names:string[]){
+      const norm=(s:string)=>s.toLowerCase().replace(/[^a-z0-9]/g,"");
+      const H=header.map(norm);
+      for(const n of names){const k=H.indexOf(norm(n));if(k>=0)return k;}
+      return -1;
+    }
+
+    const csvInput=root.querySelector("#csvFileInput")as HTMLInputElement;
+    const csvImportBtn=root.querySelector("#csvImportBtn")as HTMLButtonElement;
+    if(csvInput){
+      csvInput.onchange=()=>{
+        const f=csvInput.files&&csvInput.files[0];
+        const nameEl=root.querySelector("#csvFileName");
+        const infoEl=root.querySelector("#csvFileInfo");
+        const sumEl=root.querySelector("#csvSummary")as HTMLElement|null;
+        if(!f){return;}
+        const reader=new FileReader();
+        reader.onload=()=>{
+          const rows=parseCSV(String(reader.result||""));
+          if(rows.length<2){_csvParsed=[];if(sumEl)sumEl.textContent="File has no data rows";if(csvImportBtn)csvImportBtn.disabled=true;return;}
+          const header=rows[0];
+          const idx={
+            dt:colIdx(header,["Date & Time","DateTime","date_time","created_time"]),
+            campaign:colIdx(header,["Campaign","campaign_name"]),
+            ad:colIdx(header,["Ad Name","ad_name"]),
+            lead:colIdx(header,["Lead Name","full_name","lead"]),
+            phone:colIdx(header,["Phone Number","phone","phone_number"]),
+            sugar:colIdx(header,["Sugar Poll","sugar"]),
+            city:colIdx(header,["City"]),
+            street:colIdx(header,["Street","address"]),
+            source:colIdx(header,["Source"]),
+            service:colIdx(header,["Service"]),
+            name:colIdx(header,["Name"])
+          };
+          const get=(r:string[],k:number)=>k>=0?(r[k]||"").trim():"";
+          _csvParsed=rows.slice(1).map(r=>({
+            dt:get(r,idx.dt),campaign:get(r,idx.campaign),ad:get(r,idx.ad),
+            lead:get(r,idx.lead)||get(r,idx.name),phone:get(r,idx.phone),sugar:get(r,idx.sugar),
+            city:get(r,idx.city),street:get(r,idx.street),source:get(r,idx.source)||"Meta",
+            service:get(r,idx.service)||"Diabetes",name:get(r,idx.name)||get(r,idx.lead)
+          }));
+          // Validate + dedupe preview (valid = has phone; dup = phone seen in file or already imported)
+          const filePhones=new Set<string>();let valid=0,dup=0,invalid=0;
+          _csvParsed.forEach(r=>{
+            if(!r.phone){invalid++;return;}
+            if(filePhones.has(r.phone)||_csvPhones.has(r.phone)){dup++;return;}
+            filePhones.add(r.phone);valid++;
+          });
+          if(nameEl)nameEl.textContent=f.name;
+          if(infoEl)infoEl.textContent=_csvParsed.length+" rows · parsed";
+          if(sumEl){
+            sumEl.style.background="var(--warn-bg)";sumEl.style.borderColor="var(--warn)";sumEl.style.color="var(--warn-ink)";
+            sumEl.textContent=_csvParsed.length+" rows · "+valid+" new · "+dup+" dup (skip) · "+invalid+" invalid (no phone)";
+          }
+          if(csvImportBtn){csvImportBtn.disabled=valid===0;csvImportBtn.textContent="Import "+valid+" leads";}
+        };
+        reader.readAsText(f);
+      };
+    }
+
+    w._importCSV=()=>{
+      if(!_csvParsed.length){toast("Choose a CSV file first");return;}
+      let added=0,skipped=0;
+      _csvParsed.forEach(r=>{
+        if(!r.phone){skipped++;return;}                 // validation: must have phone
+        if(_csvPhones.has(r.phone)){skipped++;return;}  // dedupe across imports
+        _csvPhones.add(r.phone);
+        _csvImported.unshift({...r,status:"New"});       // newest first
+        added++;
+      });
+      _csvParsed=[];
+      const sumEl=root.querySelector("#csvSummary");
+      if(sumEl)sumEl.textContent=added+" leads imported · "+skipped+" skipped (dup/invalid)";
+      if(csvImportBtn){csvImportBtn.disabled=true;csvImportBtn.textContent="Import leads";}
+      if(csvInput)csvInput.value="";
+      const nameEl=root.querySelector("#csvFileName");if(nameEl)nameEl.textContent="Click to choose a CSV file";
+      _csvPage=1;
+      renderCsvImported();
+      toast(added+" leads imported");
+    };
+
+    function renderCsvImported(){
+      const wrap=root.querySelector("#csvImportedWrap")as HTMLElement;
+      const body=root.querySelector("#csvImportedBody");
+      const cnt=root.querySelector("#csvImportedCount");
+      const info=root.querySelector("#csvPageInfo");
+      const prev=root.querySelector("#csvPrevBtn")as HTMLButtonElement;
+      const next=root.querySelector("#csvNextBtn")as HTMLButtonElement;
+      if(!wrap||!body)return;
+      if(_csvImported.length===0){wrap.style.display="none";return;}
+      wrap.style.display="block";
+      const total=_csvImported.length;
+      const pages=Math.max(1,Math.ceil(total/CSV_PER));
+      if(_csvPage>pages)_csvPage=pages;if(_csvPage<1)_csvPage=1;
+      const start=(_csvPage-1)*CSV_PER;
+      const pageRows=_csvImported.slice(start,start+CSV_PER);
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=pageRows.map(r=>'<tr>'
+        +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
+        +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
+        +'<td>'+e(r.ad||"—")+'</td>'
+        +'<td style="font-weight:600">'+e(r.lead||"—")+'</td>'
+        +'<td class="mono">'+e(r.phone||"—")+'</td>'
+        +'<td>'+e(r.sugar||"—")+'</td>'
+        +'<td>'+e(r.city||"—")+'</td>'
+        +'<td>'+e(r.street||"—")+'</td>'
+        +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
+        +'<td>'+e(r.service||"—")+'</td>'
+        +'<td>'+e(r.name||"—")+'</td>'
+        +'<td><span class="chipb ok">'+e(r.status||"New")+'</span></td></tr>').join("");
+      if(cnt)cnt.textContent=total+" record"+(total===1?"":"s");
+      if(info)info.textContent="Page "+_csvPage+" of "+pages;
+      if(prev){prev.disabled=_csvPage<=1;prev.style.opacity=_csvPage<=1?"0.45":"1";}
+      if(next){next.disabled=_csvPage>=pages;next.style.opacity=_csvPage>=pages?"0.45":"1";}
+    }
+
+    w._csvPage=(dir:number)=>{_csvPage+=dir;renderCsvImported();};
 
     // ========== RECEPTION DATA ==========
     const RX: any[] = [
@@ -1632,7 +2000,7 @@ export default function Home() {
     renderAll();
     seed();
 
-    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); };
+    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); };
   }, []);
 
   return (
