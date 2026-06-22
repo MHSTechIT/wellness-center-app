@@ -179,6 +179,12 @@ export async function crawlAdAccountLeads(adAccountIds: string[]): Promise<AdAcc
 export async function crawlPageFormLeads(pageIds: string[], token: string) {
   const windowCutoff = Date.now() - LEAD_WINDOW_DAYS * 86400000;
 
+  // Optional allowlist: only these lead-form IDs (the forms run by the target ad
+  // accounts). Empty → all forms on the connected pages.
+  const allowForms = new Set(
+    (process.env.META_TARGET_FORM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean)
+  );
+
   const formResults = await Promise.allSettled(
     pageIds.map(async (pageId) => {
       const { items, error } = await fetchAllPages(
@@ -193,7 +199,10 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
   for (const r of formResults) {
     if (r.status === 'fulfilled') {
       if (r.value.error) pageErrors.push({ pageId: r.value.pageId, reason: r.value.error });
-      for (const f of r.value.forms) allForms.push({ pageId: r.value.pageId, formId: f.id, formName: f.name });
+      for (const f of r.value.forms) {
+        if (allowForms.size > 0 && !allowForms.has(String(f.id))) continue;
+        allForms.push({ pageId: r.value.pageId, formId: f.id, formName: f.name });
+      }
     }
   }
 
@@ -319,6 +328,29 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
         created_at: l.createdAt
       };
     });
+
+    // Replace the Meta lead set so the DB matches the current form scope exactly
+    // (removes leads previously synced from now-excluded forms). Keeps only the
+    // meta_lead_ids in this run.
+    const keepIds = new Set(rows.map((r) => r.meta_lead_id));
+    let existingFrom = 0;
+    const staleIds: string[] = [];
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('meta_lead_id')
+        .eq('source', 'Meta Ads')
+        .range(existingFrom, existingFrom + 999);
+      if (error) break;
+      if (!data || data.length === 0) break;
+      data.forEach((r: any) => { if (r.meta_lead_id && !keepIds.has(r.meta_lead_id)) staleIds.push(r.meta_lead_id); });
+      if (data.length < 1000) break;
+      existingFrom += 1000;
+    }
+    for (let i = 0; i < staleIds.length; i += 200) {
+      await supabase.from('leads').delete().in('meta_lead_id', staleIds.slice(i, i + 200));
+    }
 
     let upserted = 0;
     const CHUNK = 500;

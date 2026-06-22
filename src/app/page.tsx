@@ -506,7 +506,7 @@ function getMainContent(): string {
       <div class="rb" style="margin-top:12px;background:var(--alert-bg);border:1px solid var(--alert);border-radius:10px;padding:10px 14px">
         <span style="font-size:12.5px;font-weight:600;color:var(--alert-ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok">Enabled</span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span style="font-size:11px;color:var(--faint);margin-left:8px" id="metaFeedStatus">Connecting to Meta…</span> <span class="arr">▾</span></div>
-      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1000px"><thead><tr><th></th><th>Date &amp; Time (IST)</th><th>Lead</th><th>Source</th><th>Campaign</th><th>Service</th><th>Lang</th><th>Received</th><th>Dedup</th></tr></thead><tbody id="liveFeedBody">
+      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1000px"><thead><tr><th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all on this page"></th><th>Date &amp; Time (IST)</th><th>Lead</th><th>Source</th><th>Campaign</th><th>Service</th><th>Lang</th><th>Received</th><th>Dedup</th></tr></thead><tbody id="liveFeedBody">
         <tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">Loading live leads from Meta ad accounts…</td></tr>
       </tbody></table></div>
       <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
@@ -514,7 +514,7 @@ function getMainContent(): string {
         <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="metaPageInfo">Page 1 of 1</span>
         <button class="btn bsm" id="metaNextBtn" onclick="window._metaPage(1)">Next →</button>
       </div>
-      <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="toast('Sent to assignment pool')">Send to assignment →</button><button class="btn bsm">Mark duplicate</button><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
+      <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="window._sendToAssignment()">Send to assignment →</button><button class="btn bsm">Mark duplicate</button><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clip"/></svg> Bulk CSV import — wizard <span class="arr">▾</span></div>
       <div class="sec-bd">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -532,21 +532,53 @@ function getMainContent(): string {
               <select class="select"><option selected>full_name → Name</option></select><select class="select"><option selected>phone_number → Phone</option></select>
               <select class="select"><option selected>campaign_name → Campaign</option></select><select class="select"><option selected>ad_language → Language</option></select>
             </div></div>
-          <div><div class="g2" style="gap:9px;margin-top:0"><select class="select"><option selected>Source: Meta</option></select><select class="select"><option selected>Branch: Chennai</option></select><select class="select"><option selected>Batch: WK-JUN-04</option></select><select class="select"><option selected>Service: Diabetes</option></select></div>
+          <div><div class="g2" style="gap:9px;margin-top:0"><select class="select" id="csvSource"><option>Meta</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select" id="csvBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select><select class="select" id="csvBatch"><option>WK-JUN-04</option><option>WK-JUN-03</option><option>WK-JUL-01</option></select><select class="select" id="csvService"><option>Diabetes</option><option>Physio</option><option>Blood test</option></select></div>
             <div id="csvSummary" style="background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:13px;font-size:12.5px;color:var(--faint);font-weight:600">Upload a CSV to see the de-dupe summary</div>
             <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
         </div>
         <div id="csvImportedWrap" style="display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <svg class="icon"><use href="#i-inbox"/></svg>
-            <span style="font-weight:700;font-size:14px">Imported leads</span>
-            <span class="chipb ok" id="csvImportedCount" style="margin-left:auto">0 records</span>
+          <div class="tabs" id="csvTabs" style="margin-bottom:12px">
+            <button class="on" data-ct="valid">Imported leads <span class="mini" id="csvValidCount">0</span></button>
+            <button data-ct="dup">Duplicates <span class="mini" id="csvDupCount">0</span></button>
+            <button data-ct="hist">Recent imported leads <span class="mini" id="csvHistCount">0</span></button>
           </div>
-          <div style="overflow-x:auto"><table class="tbl" style="min-width:1080px"><thead><tr><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
-          <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
-            <button class="btn bsm" id="csvPrevBtn" onclick="window._csvPage(-1)">← Previous</button>
-            <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="csvPageInfo">Page 1 of 1</span>
-            <button class="btn bsm" id="csvNextBtn" onclick="window._csvPage(1)">Next →</button>
+
+          <!-- VALID -->
+          <div class="csv-tab" data-ctp="valid">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" id="csvValidSelAll" style="accent-color:var(--brand)"> Select all</label>
+              <button class="btn bsm" onclick="window._csvDownload('valid')">⬇ Download</button>
+              <button class="btn bsm" style="color:var(--alert-ink);border-color:var(--alert)" onclick="window._csvDeleteSelected('valid')">🗑 Delete selected</button>
+              <span class="chipb ok" id="csvImportedCount" style="margin-left:auto">0 records</span>
+            </div>
+            <div style="overflow-x:auto"><table class="tbl" style="min-width:1180px"><thead><tr><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
+            <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="btn bsm" id="csvPrevBtn" onclick="window._csvPage(-1)">← Previous</button>
+              <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="csvPageInfo">Page 1 of 1</span>
+              <button class="btn bsm" id="csvNextBtn" onclick="window._csvPage(1)">Next →</button>
+            </div>
+          </div>
+
+          <!-- DUPLICATES -->
+          <div class="csv-tab" data-ctp="dup" style="display:none">
+            <div class="banner plan" style="margin:0 0 12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Duplicate phone numbers detected on import. Review and <b>Keep</b> (move to Imported leads) or <b>Delete</b>.</span></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" id="csvDupSelAll" style="accent-color:var(--brand)"> Select all</label>
+              <button class="btn bsm" onclick="window._csvKeepSelected()">✓ Keep selected</button>
+              <button class="btn bsm" style="color:var(--alert-ink);border-color:var(--alert)" onclick="window._csvDeleteSelected('dup')">🗑 Delete selected</button>
+              <button class="btn bsm" onclick="window._csvDownload('dup')">⬇ Download</button>
+            </div>
+            <div style="overflow-x:auto"><table class="tbl" style="min-width:1180px"><thead><tr><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Source</th><th>Service</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvDupBody"></tbody></table></div>
+            <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="btn bsm" id="csvDupPrevBtn" onclick="window._csvDupPage(-1)">← Previous</button>
+              <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="csvDupPageInfo">Page 1 of 1</span>
+              <button class="btn bsm" id="csvDupNextBtn" onclick="window._csvDupPage(1)">Next →</button>
+            </div>
+          </div>
+
+          <!-- HISTORY -->
+          <div class="csv-tab" data-ctp="hist" style="display:none">
+            <div style="overflow-x:auto"><table class="tbl" style="min-width:980px"><thead><tr><th>Imported at (IST)</th><th>File name</th><th>Batch</th><th>By</th><th>Total</th><th>Valid</th><th>Duplicate</th><th>Actions</th></tr></thead><tbody id="csvHistBody"></tbody></table></div>
           </div>
         </div></div></div>
   </div></section>
@@ -557,10 +589,8 @@ function getMainContent(): string {
     <span class="viewing"><span class="vd"></span> Viewing as Asst. branch manager</span>
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation · 6</button><button data-t="appr">Approvals · 4</button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (12)</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th>Assign to</th></tr></thead><tbody>
-          <tr><td><input type="checkbox" checked style="accent-color:var(--brand)"></td><td style="font-weight:600">R. Suresh</td><td><span class="tag">Meta · Telugu</span></td><td><span class="chipb warn">150–250</span></td><td class="mono">18m</td><td><select class="select" style="height:31px;font-size:12px"><option>—</option><option>Priya K.</option><option>Vinod M.</option></select></td></tr>
-          <tr><td><input type="checkbox" checked style="accent-color:var(--brand)"></td><td style="font-weight:600">F. Begum</td><td><span class="tag">Website · Tamil</span></td><td><span class="chipb neu">—</span></td><td class="mono">26m</td><td><select class="select" style="height:31px;font-size:12px"><option>—</option><option>Sana R.</option></select></td></tr>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">2</span>)</div>
+        <div class="sec-bd"><table class="tbl"><thead><tr><th></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th>Assign to</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table>
         <div style="display:flex;gap:9px;margin-top:12px"><button class="btn bsm bp" onclick="toast('Assigned')">Assign selected</button><button class="btn bsm" onclick="toast('Distributed round-robin')">Round-robin all →</button></div></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load</div>
@@ -1343,8 +1373,14 @@ export default function Home() {
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       if(tbody){
         tbody.innerHTML=pageLeads.map((ld:any)=>{
-          return '<tr>'
-            +'<td><input type="checkbox" style="accent-color:var(--brand)"></td>'
+          const moved=_movedToPool.has(String(ld.id));
+          // Already-moved leads: checkbox removed/disabled + "Moved" flag (no re-move).
+          const chk=moved
+            ?'<input type="checkbox" disabled title="Already sent to assignment" style="accent-color:var(--brand);opacity:0.4">'
+            :'<input type="checkbox" class="feedChk" data-id="'+esc(String(ld.id))+'" style="accent-color:var(--brand)">';
+          const status=moved?'<span class="chipb vio">Moved</span>':'<span class="chipb ok">New</span>';
+          return '<tr'+(moved?' style="opacity:0.6"':'')+'>'
+            +'<td>'+chk+'</td>'
             +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(ld.createdAt))+'</td>'
             +'<td style="font-weight:600">'+esc(ld.name)+'</td>'
             +'<td><span class="tag">'+esc(ld.source)+'</span></td>'
@@ -1352,10 +1388,13 @@ export default function Home() {
             +'<td>'+esc(ld.service)+'</td>'
             +'<td>'+esc(ld.lang)+'</td>'
             +'<td class="mono">'+esc(ld.received)+'</td>'
-            +'<td><span class="chipb ok">New</span></td>'
+            +'<td>'+status+'</td>'
             +'</tr>';
         }).join("");
       }
+      // Reset the header "select all" each render; it only governs the current page.
+      const selAll=root.querySelector("#feedSelAll")as HTMLInputElement;
+      if(selAll) selAll.checked=false;
       if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" leads";
       if(prevBtn){prevBtn.disabled=_metaPageNum<=1;prevBtn.style.opacity=_metaPageNum<=1?"0.45":"1";prevBtn.style.cursor=_metaPageNum<=1?"not-allowed":"pointer";}
       if(nextBtn){nextBtn.disabled=_metaPageNum>=totalPages;nextBtn.style.opacity=_metaPageNum>=totalPages?"0.45":"1";nextBtn.style.cursor=_metaPageNum>=totalPages?"not-allowed":"pointer";}
@@ -1365,6 +1404,59 @@ export default function Home() {
       _metaPageNum+=dir;
       renderMetaPage();
     };
+
+    // ===== Send-to-assignment → Unassigned Pool =====
+    const _movedToPool=new Set<string>();   // lead ids already transferred (no re-move)
+    // The Unassigned Pool starts with its two seed leads; moved feed leads append.
+    const _unassignedPool:any[]=[
+      {id:"seed-1",name:"R. Suresh",src:"Meta · Telugu",sugar:'<span class="chipb warn">150–250</span>',waiting:"18m",advisors:["Priya K.","Vinod M."]},
+      {id:"seed-2",name:"F. Begum",src:"Website · Tamil",sugar:'<span class="chipb neu">—</span>',waiting:"26m",advisors:["Sana R."]}
+    ];
+    function renderUnassignedPool(){
+      const body=root.querySelector("#unassignedPoolBody");
+      const cnt=root.querySelector("#poolCount");
+      if(cnt) cnt.textContent=String(_unassignedPool.length);
+      if(!body) return;
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=_unassignedPool.map((p:any)=>{
+        const opts='<option>—</option>'+(p.advisors||["Priya K.","Vinod M.","Sana R."]).map((a:string)=>'<option>'+esc(a)+'</option>').join("");
+        const isNew=String(p.id).indexOf("seed-")!==0;
+        return '<tr><td><input type="checkbox" checked style="accent-color:var(--brand)"></td>'
+          +'<td style="font-weight:600">'+esc(p.name)+(isNew?' <span class="chipb ok" style="margin-left:4px">Transferred</span>':'')+'</td>'
+          +'<td><span class="tag">'+esc(p.src)+'</span></td>'
+          +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
+          +'<td class="mono">'+esc(p.waiting)+'</td>'
+          +'<td><select class="select" style="height:31px;font-size:12px">'+opts+'</select></td></tr>';
+      }).join("");
+    }
+    w._sendToAssignment=()=>{
+      const checks=Array.from(root.querySelectorAll(".feedChk:checked"))as HTMLInputElement[];
+      if(checks.length===0){toast("Select one or more leads first");return;}
+      let added=0;
+      checks.forEach(c=>{
+        const id=c.getAttribute("data-id")||"";
+        if(!id||_movedToPool.has(id)) return;            // prevent duplicate transfer
+        const ld=_metaLeads.find((x:any)=>String(x.id)===id);
+        if(!ld) return;
+        _movedToPool.add(id);
+        _unassignedPool.push({
+          id:ld.id,name:ld.name,src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
+          sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",
+          advisors:["Priya K.","Vinod M.","Sana R."]
+        });
+        added++;
+      });
+      if(added===0){toast("Those leads are already in the pool");return;}
+      renderMetaPage();          // disable moved rows + show "Moved" flag
+      renderUnassignedPool();    // reflect in Assign & approve immediately
+      toast(added+" lead"+(added===1?"":"s")+" sent to assignment pool");
+    };
+    // Header "select all" toggles every selectable (not-yet-moved) box on the page.
+    const _feedSelAll=root.querySelector("#feedSelAll")as HTMLInputElement;
+    if(_feedSelAll) _feedSelAll.onchange=()=>{
+      root.querySelectorAll(".feedChk").forEach((c:any)=>{c.checked=_feedSelAll.checked;});
+    };
+    renderUnassignedPool();
 
     let _metaFetchInFlight=false;
     async function fetchMetaLiveFeed(){
@@ -1457,10 +1549,11 @@ export default function Home() {
 
     // ========== BULK CSV IMPORT ==========
     const CSV_COLS=["Date & Time","Campaign","Ad Name","Lead Name","Phone Number","Sugar Poll","City","Street","Source","Service","Name"];
-    let _csvParsed:any[]=[];          // rows parsed from the chosen file (pre-import)
-    const _csvImported:any[]=[];      // accumulated imported rows (displayed in table)
-    const _csvPhones=new Set<string>(); // phones already imported (dedupe across imports)
-    let _csvPage=1;
+    let _csvParsed:any[]=[];            // rows parsed from the chosen file (pre-import)
+    let _csvLeads:any[]=[];             // all imported rows from DB (valid + duplicate)
+    let _csvBatches:any[]=[];           // import history from DB
+    const _csvPhones=new Set<string>(); // valid phones already in DB (dedupe)
+    let _csvPage=1, _csvDupPage=1, _csvTabName="valid";
     const CSV_PER=10;
 
     function csvEsc(v:string){return '"'+String(v==null?"":v).replace(/"/g,'""')+'"';}
@@ -1549,52 +1642,120 @@ export default function Home() {
           if(infoEl)infoEl.textContent=_csvParsed.length+" rows · parsed";
           if(sumEl){
             sumEl.style.background="var(--warn-bg)";sumEl.style.borderColor="var(--warn)";sumEl.style.color="var(--warn-ink)";
-            sumEl.textContent=_csvParsed.length+" rows · "+valid+" new · "+dup+" dup (skip) · "+invalid+" invalid (no phone)";
+            sumEl.textContent=_csvParsed.length+" rows · "+valid+" new · "+dup+" duplicate (kept for review) · "+invalid+" invalid (no phone)";
           }
-          if(csvImportBtn){csvImportBtn.disabled=valid===0;csvImportBtn.textContent="Import "+valid+" leads";}
+          if(csvImportBtn){csvImportBtn.disabled=(valid+dup)===0;csvImportBtn.textContent="Import "+(valid+dup)+" leads";}
         };
         reader.readAsText(f);
       };
     }
 
-    w._importCSV=()=>{
+    // ---- Confirmation modal ----
+    function csvConfirm(message:string,onYes:()=>void){
+      const ov=document.createElement("div");
+      ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center";
+      const box=document.createElement("div");
+      box.style.cssText="background:var(--surf,#fff);border-radius:14px;padding:22px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
+      box.innerHTML='<div style="font-weight:700;font-size:15px;margin-bottom:8px;color:var(--ink)">Please confirm</div>'
+        +'<div style="font-size:13px;color:var(--faint);margin-bottom:18px">'+message+'</div>'
+        +'<div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn bsm" id="cfCancel">Cancel</button><button class="btn bsm bp" id="cfYes" style="background:var(--alert,#c0392b);border-color:var(--alert,#c0392b)">Delete</button></div>';
+      ov.appendChild(box);document.body.appendChild(ov);
+      const close=()=>{if(ov.parentNode)document.body.removeChild(ov);};
+      (box.querySelector("#cfCancel")as HTMLElement).onclick=close;
+      (box.querySelector("#cfYes")as HTMLElement).onclick=()=>{close();onYes();};
+      ov.onclick=(ev)=>{if(ev.target===ov)close();};
+    }
+
+    // ---- Load persisted CSV data from Supabase ----
+    async function loadCsvData(){
+      try{
+        const [lr,br]=await Promise.all([
+          supabase.from("csv_leads").select("*").order("created_at",{ascending:false}),
+          supabase.from("csv_import_batches").select("*").order("created_at",{ascending:false})
+        ]);
+        if(lr.error) throw lr.error;
+        _csvLeads=(lr.data||[]).map((r:any)=>({id:r.id,batch_id:r.batch_id,dt:r.date_time,campaign:r.campaign,ad:r.ad_name,lead:r.lead_name,phone:r.phone,sugar:r.sugar_poll,city:r.city,street:r.street,source:r.source,service:r.service,name:r.name,status:r.status}));
+        _csvBatches=br.data||[];
+        _csvPhones.clear();
+        _csvLeads.forEach((r:any)=>{if(r.status==="valid"&&r.phone)_csvPhones.add(r.phone);});
+        renderCsvValid();renderCsvDup();renderCsvHist();
+      }catch(e:any){
+        const sumEl=root.querySelector("#csvSummary");
+        if(sumEl&&/exist|relation|schema/i.test(e.message||"")) sumEl.textContent="Run supabase-migration-csv-imports.sql to enable saved imports";
+      }
+    }
+
+    w._importCSV=async()=>{
       if(!_csvParsed.length){toast("Choose a CSV file first");return;}
-      let added=0,skipped=0;
+      const valid:any[]=[], dup:any[]=[];
+      const filePhones=new Set<string>();
       _csvParsed.forEach(r=>{
-        if(!r.phone){skipped++;return;}                 // validation: must have phone
-        if(_csvPhones.has(r.phone)){skipped++;return;}  // dedupe across imports
-        _csvPhones.add(r.phone);
-        _csvImported.unshift({...r,status:"New"});       // newest first
-        added++;
+        if(!r.phone) return;                                   // invalid — skip (no phone)
+        const isDup=_csvPhones.has(r.phone)||filePhones.has(r.phone);
+        filePhones.add(r.phone);
+        (isDup?dup:valid).push(r);
       });
-      _csvParsed=[];
-      const sumEl=root.querySelector("#csvSummary");
-      if(sumEl)sumEl.textContent=added+" leads imported · "+skipped+" skipped (dup/invalid)";
-      if(csvImportBtn){csvImportBtn.disabled=true;csvImportBtn.textContent="Import leads";}
-      if(csvInput)csvInput.value="";
-      const nameEl=root.querySelector("#csvFileName");if(nameEl)nameEl.textContent="Click to choose a CSV file";
-      _csvPage=1;
-      renderCsvImported();
-      toast(added+" leads imported");
+      if(valid.length+dup.length===0){toast("No rows with a phone number");return;}
+      if(csvImportBtn){csvImportBtn.disabled=true;csvImportBtn.textContent="Importing…";}
+      try{
+        const sel=(id:string)=>(root.querySelector(id)as HTMLSelectElement)?.value;
+        const meta={
+          file_name:(root.querySelector("#csvFileName")?.textContent)||"upload.csv",
+          batch_name:sel("#csvBatch")||"—",source:sel("#csvSource")||"Meta",
+          branch:sel("#csvBranch")||"—",service:sel("#csvService")||"Diabetes",
+          imported_by:"ABM / Admin",
+          total_records:valid.length+dup.length,valid_records:valid.length,duplicate_records:dup.length
+        };
+        const bres=await supabase.from("csv_import_batches").insert(meta).select("id").single();
+        if(bres.error) throw bres.error;
+        const batchId=bres.data.id;
+        const toRow=(r:any,status:string)=>({batch_id:batchId,date_time:r.dt,campaign:r.campaign,ad_name:r.ad,lead_name:r.lead,phone:r.phone,sugar_poll:r.sugar,city:r.city,street:r.street,source:r.source,service:r.service,name:r.name,status});
+        const rows=[...valid.map(r=>toRow(r,"valid")),...dup.map(r=>toRow(r,"duplicate"))];
+        for(let i=0;i<rows.length;i+=500){const {error}=await supabase.from("csv_leads").insert(rows.slice(i,i+500));if(error) throw error;}
+        _csvParsed=[];
+        if(csvInput)csvInput.value="";
+        const nameEl=root.querySelector("#csvFileName");if(nameEl)nameEl.textContent="Click to choose a CSV file";
+        const sumEl=root.querySelector("#csvSummary");if(sumEl)sumEl.textContent=valid.length+" imported · "+dup.length+" duplicates kept for review";
+        _csvPage=1;
+        await loadCsvData();
+        toast(valid.length+" leads imported"+(dup.length?", "+dup.length+" duplicates for review":""));
+      }catch(e:any){
+        const isMissing=/exist|relation|schema/i.test(e.message||"");
+        toast(isMissing?"Run supabase-migration-csv-imports.sql first":"Import failed: "+(e.message||"db error"));
+      }finally{
+        if(csvImportBtn){csvImportBtn.disabled=false;csvImportBtn.textContent="Import leads";}
+      }
     };
 
-    function renderCsvImported(){
+    // ---- Tabs ----
+    w._csvTab=(name:string)=>{
+      _csvTabName=name;
+      root.querySelectorAll("#csvTabs button").forEach((b:any)=>b.classList.toggle("on",b.getAttribute("data-ct")===name));
+      root.querySelectorAll(".csv-tab").forEach((d:any)=>{d.style.display=d.getAttribute("data-ctp")===name?"block":"none";});
+    };
+    root.querySelectorAll("#csvTabs button").forEach((b:any)=>{b.onclick=()=>w._csvTab(b.getAttribute("data-ct"));});
+
+    // ---- Render: valid imported leads ----
+    function renderCsvValid(){
       const wrap=root.querySelector("#csvImportedWrap")as HTMLElement;
       const body=root.querySelector("#csvImportedBody");
       const cnt=root.querySelector("#csvImportedCount");
+      const vc=root.querySelector("#csvValidCount"),dc=root.querySelector("#csvDupCount"),hc=root.querySelector("#csvHistCount");
       const info=root.querySelector("#csvPageInfo");
-      const prev=root.querySelector("#csvPrevBtn")as HTMLButtonElement;
-      const next=root.querySelector("#csvNextBtn")as HTMLButtonElement;
-      if(!wrap||!body)return;
-      if(_csvImported.length===0){wrap.style.display="none";return;}
-      wrap.style.display="block";
-      const total=_csvImported.length;
-      const pages=Math.max(1,Math.ceil(total/CSV_PER));
-      if(_csvPage>pages)_csvPage=pages;if(_csvPage<1)_csvPage=1;
-      const start=(_csvPage-1)*CSV_PER;
-      const pageRows=_csvImported.slice(start,start+CSV_PER);
+      const prev=root.querySelector("#csvPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvNextBtn")as HTMLButtonElement;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      body.innerHTML=pageRows.map(r=>'<tr>'
+      const valid=_csvLeads.filter((r:any)=>r.status==="valid");
+      const dupN=_csvLeads.filter((r:any)=>r.status==="duplicate").length;
+      if(vc)vc.textContent=String(valid.length);
+      if(dc)dc.textContent=String(dupN);
+      if(hc)hc.textContent=String(_csvBatches.length);
+      if(wrap)wrap.style.display=(_csvLeads.length||_csvBatches.length)?"block":"none";
+      if(!body)return;
+      const total=valid.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
+      if(_csvPage>pages)_csvPage=pages;if(_csvPage<1)_csvPage=1;
+      const pageRows=valid.slice((_csvPage-1)*CSV_PER,(_csvPage-1)*CSV_PER+CSV_PER);
+      body.innerHTML=pageRows.length?pageRows.map((r:any)=>'<tr>'
+        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'" style="accent-color:var(--brand)"></td>'
         +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
         +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
         +'<td>'+e(r.ad||"—")+'</td>'
@@ -1606,14 +1767,114 @@ export default function Home() {
         +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
         +'<td>'+e(r.service||"—")+'</td>'
         +'<td>'+e(r.name||"—")+'</td>'
-        +'<td><span class="chipb ok">'+e(r.status||"New")+'</span></td></tr>').join("");
+        +'<td><span class="chipb ok">Valid</span></td>'
+        +'<td><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></td></tr>').join("")
+        :'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:18px">No imported leads yet</td></tr>';
       if(cnt)cnt.textContent=total+" record"+(total===1?"":"s");
       if(info)info.textContent="Page "+_csvPage+" of "+pages;
       if(prev){prev.disabled=_csvPage<=1;prev.style.opacity=_csvPage<=1?"0.45":"1";}
       if(next){next.disabled=_csvPage>=pages;next.style.opacity=_csvPage>=pages?"0.45":"1";}
+      const sa=root.querySelector("#csvValidSelAll")as HTMLInputElement;if(sa)sa.checked=false;
     }
 
-    w._csvPage=(dir:number)=>{_csvPage+=dir;renderCsvImported();};
+    // ---- Render: duplicates ----
+    function renderCsvDup(){
+      const body=root.querySelector("#csvDupBody");
+      const info=root.querySelector("#csvDupPageInfo");
+      const prev=root.querySelector("#csvDupPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvDupNextBtn")as HTMLButtonElement;
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(!body)return;
+      const dups=_csvLeads.filter((r:any)=>r.status==="duplicate");
+      const total=dups.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
+      if(_csvDupPage>pages)_csvDupPage=pages;if(_csvDupPage<1)_csvDupPage=1;
+      const pageRows=dups.slice((_csvDupPage-1)*CSV_PER,(_csvDupPage-1)*CSV_PER+CSV_PER);
+      body.innerHTML=pageRows.length?pageRows.map((r:any)=>'<tr>'
+        +'<td><input type="checkbox" class="csvDupChk" data-id="'+r.id+'" style="accent-color:var(--brand)"></td>'
+        +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
+        +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
+        +'<td style="font-weight:600">'+e(r.lead||"—")+'</td>'
+        +'<td class="mono">'+e(r.phone||"—")+'</td>'
+        +'<td>'+e(r.sugar||"—")+'</td>'
+        +'<td>'+e(r.city||"—")+'</td>'
+        +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
+        +'<td>'+e(r.service||"—")+'</td>'
+        +'<td><span class="chipb warn">Duplicate</span></td>'
+        +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._csvKeepOne('+r.id+')">Keep</button><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></div></td></tr>').join("")
+        :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">No duplicate leads</td></tr>';
+      if(info)info.textContent="Page "+_csvDupPage+" of "+pages;
+      if(prev){prev.disabled=_csvDupPage<=1;prev.style.opacity=_csvDupPage<=1?"0.45":"1";}
+      if(next){next.disabled=_csvDupPage>=pages;next.style.opacity=_csvDupPage>=pages?"0.45":"1";}
+      const sa=root.querySelector("#csvDupSelAll")as HTMLInputElement;if(sa)sa.checked=false;
+    }
+
+    // ---- Render: import history (batches) ----
+    function renderCsvHist(){
+      const body=root.querySelector("#csvHistBody");
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(!body)return;
+      body.innerHTML=_csvBatches.length?_csvBatches.map((b:any)=>{
+        const dt=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(b.created_at));
+        return '<tr><td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(dt)+'</td>'
+          +'<td>'+e(b.file_name||"—")+'</td><td>'+e(b.batch_name||"—")+'</td><td>'+e(b.imported_by||"—")+'</td>'
+          +'<td class="mono">'+(b.total_records||0)+'</td>'
+          +'<td class="mono" style="color:var(--ok-ink);font-weight:600">'+(b.valid_records||0)+'</td>'
+          +'<td class="mono" style="color:var(--warn-ink);font-weight:600">'+(b.duplicate_records||0)+'</td>'
+          +'<td><div style="display:flex;gap:6px"><button class="btn bsm" title="Download batch" onclick="window._csvDownloadBatch('+b.id+')">⬇</button><button class="btn bsm" title="Delete batch" style="color:var(--alert-ink)" onclick="window._csvDeleteBatch('+b.id+')">🗑</button></div></td></tr>';
+      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No import history</td></tr>';
+    }
+
+    w._csvPage=(dir:number)=>{_csvPage+=dir;renderCsvValid();};
+    w._csvDupPage=(dir:number)=>{_csvDupPage+=dir;renderCsvDup();};
+
+    // ---- Select-all ----
+    const _vSelAll=root.querySelector("#csvValidSelAll")as HTMLInputElement;
+    if(_vSelAll)_vSelAll.onchange=()=>root.querySelectorAll(".csvChk").forEach((c:any)=>{c.checked=_vSelAll.checked;});
+    const _dSelAll=root.querySelector("#csvDupSelAll")as HTMLInputElement;
+    if(_dSelAll)_dSelAll.onchange=()=>root.querySelectorAll(".csvDupChk").forEach((c:any)=>{c.checked=_dSelAll.checked;});
+
+    // ---- Delete / Keep / Download ----
+    async function csvDeleteIds(ids:number[]){
+      for(let i=0;i<ids.length;i+=200){await supabase.from("csv_leads").delete().in("id",ids.slice(i,i+200));}
+      await loadCsvData();
+    }
+    w._csvDeleteOne=(id:number)=>csvConfirm("Delete this lead permanently?",async()=>{await csvDeleteIds([id]);toast("Lead deleted");});
+    w._csvDeleteSelected=(which:string)=>{
+      const sel=which==="dup"?".csvDupChk:checked":".csvChk:checked";
+      const ids=Array.from(root.querySelectorAll(sel)).map((c:any)=>Number(c.getAttribute("data-id")));
+      if(!ids.length){toast("Select one or more rows first");return;}
+      csvConfirm("Delete "+ids.length+" selected lead(s) permanently?",async()=>{await csvDeleteIds(ids);toast(ids.length+" deleted");});
+    };
+    async function csvKeepIds(ids:number[]){
+      for(let i=0;i<ids.length;i+=200){await supabase.from("csv_leads").update({status:"valid"}).in("id",ids.slice(i,i+200));}
+      await loadCsvData();
+    }
+    w._csvKeepOne=async(id:number)=>{await csvKeepIds([id]);toast("Moved to imported leads");};
+    w._csvKeepSelected=()=>{
+      const ids=Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>Number(c.getAttribute("data-id")));
+      if(!ids.length){toast("Select duplicates first");return;}
+      csvKeepIds(ids).then(()=>toast(ids.length+" kept"));
+    };
+    w._csvDeleteBatch=(id:number)=>csvConfirm("Delete this entire import batch and all its leads?",async()=>{await supabase.from("csv_import_batches").delete().eq("id",id);await loadCsvData();toast("Batch deleted");});
+
+    function downloadCsvRows(rows:any[],fname:string){
+      const header=["Date & Time","Campaign","Ad Name","Lead Name","Phone Number","Sugar Poll","City","Street","Source","Service","Name","Status"];
+      const lines=[header.map(csvEsc).join(",")];
+      rows.forEach((r:any)=>lines.push([r.dt,r.campaign,r.ad,r.lead,r.phone,r.sugar,r.city,r.street,r.source,r.service,r.name,r.status].map(csvEsc).join(",")));
+      const blob=new Blob([lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=fname;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    }
+    w._csvDownload=(which:string)=>{
+      const rows=_csvLeads.filter((r:any)=>which==="dup"?r.status==="duplicate":r.status==="valid");
+      if(!rows.length){toast("Nothing to download");return;}
+      downloadCsvRows(rows,"wellnessos_"+which+"_leads.csv");toast("Downloaded "+rows.length+" rows");
+    };
+    w._csvDownloadBatch=(id:number)=>{
+      const rows=_csvLeads.filter((r:any)=>r.batch_id===id);
+      if(!rows.length){toast("No rows left in this batch");return;}
+      downloadCsvRows(rows,"wellnessos_batch_"+id+".csv");toast("Downloaded batch");
+    };
+
+    loadCsvData();
 
     // ========== RECEPTION DATA ==========
     const RX: any[] = [
