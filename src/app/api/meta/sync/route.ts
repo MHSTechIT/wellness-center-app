@@ -1,7 +1,10 @@
 import { syncMetaLeadsToSupabase, getMetaToken } from '@/lib/meta';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // allow up to 5 min (Vercel Pro+); the crawl is heavy
+// Hobby plan caps function duration at 60s. (On Pro+ this can be raised, but
+// values above the plan limit fail the Vercel build.) Long crawls are best run
+// locally or on a paid plan / background job.
+export const maxDuration = 60;
 
 async function runSync() {
   const token = await getMetaToken();
