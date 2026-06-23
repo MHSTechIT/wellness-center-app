@@ -14,7 +14,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from('leads')
-        .select('meta_lead_id,name,phone,email,source,lead_date,campaign,campaign_id,ad_account_id,ad_account_name,form_name,service,language,is_valid,is_duplicate,is_assigned,created_at')
+        .select('*')
         .eq('source', 'Meta Ads')
         .order('created_at', { ascending: false })
         .range(from, from + pageSize - 1);
@@ -48,7 +48,10 @@ export async function GET() {
         adAccountName: r.ad_account_name || '',
         isValid: r.is_valid,
         isDuplicate: r.is_duplicate,
-        isAssigned: r.is_assigned
+        isAssigned: r.is_assigned,
+        inPool: !!r.in_pool,
+        assignedTo: r.assigned_to || '',
+        callStatus: r.call_status || ''
       };
     });
 

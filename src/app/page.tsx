@@ -7,12 +7,31 @@ function getMainContent(): string {
   return `
   <!-- ADVISOR -->
   <section class="screen active" id="s-advisor"><div class="wrap">
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Advisor dashboard
+      <select class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px;margin-left:auto"><option value="all">All call/lead statuses</option></select></div>
+      <div class="sec-bd">
+        <div class="metrics" id="haKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div>
+        <div id="haResultsWrap" style="display:none;margin-top:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-weight:700;font-size:13px" id="haResultsTitle"></span><button class="btn bsm" style="margin-left:auto" onclick="window._haCloseResults()">Close</button></div>
+          <div style="overflow-x:auto"><table class="tbl" style="min-width:640px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
+        </div>
+      </div></div>
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span>
+      <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px;margin-left:auto"><option value="all">All advisors</option></select></div>
+      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+        <button class="btn bsm" id="asnPrevBtn" onclick="window._asnPage(-1)">← Previous</button>
+        <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="asnPageInfo">Page 1 of 1</span>
+        <button class="btn bsm" id="asnNextBtn" onclick="window._asnPage(1)">Next →</button>
+        <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
+      </div></div></div>
+    <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"/></svg> <span id="advCtxText"></span></div>
     <div class="chead">
-      <span class="cav">AK</span>
+      <span class="cav" id="advAv">AK</span>
       <div class="cmeta">
-        <h1>Ajith Kumar</h1>
-        <div class="sub"><span class="mono">+91 98●●● ●●●21</span><span>·</span><span class="mono">Lead #10318</span><span>·</span>Batch <span class="mono">WK-JUN-04</span></div>
-        <div class="cbadges"><span class="chipb ok">First visit</span><span class="chipb neu">Meta · Tamil</span><span class="chipb warn">Sugar 150–250</span></div>
+        <h1 id="advName">Ajith Kumar</h1>
+        <div class="sub" id="advSub"><span class="mono">+91 98●●● ●●●21</span><span>·</span><span class="mono">Lead #10318</span><span>·</span>Batch <span class="mono">WK-JUN-04</span></div>
+        <div class="cbadges" id="advBadges"><span class="chipb ok">First visit</span><span class="chipb neu">Meta · Tamil</span><span class="chipb warn">Sugar 150–250</span></div>
       </div>
       <div class="cacts">
         <div style="text-align:center"><div class="ring"><svg width="62" height="62" viewBox="0 0 62 62"><circle class="bgc" cx="31" cy="31" r="26"/><circle class="fgc" id="aRing" cx="31" cy="31" r="26" stroke="#C07F0E" stroke-dasharray="163.4" stroke-dashoffset="42"/></svg><span class="rc" id="aClock" style="color:var(--warn-ink)">3:09</span></div><div class="rl">SLA · 4h</div></div>
@@ -537,10 +556,14 @@ function getMainContent(): string {
             <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
         </div>
         <div id="csvImportedWrap" style="display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
-          <div class="tabs" id="csvTabs" style="margin-bottom:12px">
-            <button class="on" data-ct="valid">Imported leads <span class="mini" id="csvValidCount">0</span></button>
-            <button data-ct="dup">Duplicates <span class="mini" id="csvDupCount">0</span></button>
-            <button data-ct="hist">Recent imported leads <span class="mini" id="csvHistCount">0</span></button>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+            <div class="tabs" id="csvTabs" style="margin-bottom:0">
+              <button class="on" data-ct="valid">Imported leads <span class="mini" id="csvValidCount">0</span></button>
+              <button data-ct="dup">Duplicates <span class="mini" id="csvDupCount">0</span></button>
+              <button data-ct="hist">Recent imported leads <span class="mini" id="csvHistCount">0</span></button>
+              <button data-ct="repeat">Repeat visitor <span class="mini" id="csvRepeatTabCount">0</span></button>
+            </div>
+            <button class="btn bsm bp" style="margin-left:auto" onclick="window._csvSendToAssignment()">Send to assignment →</button>
           </div>
 
           <!-- VALID -->
@@ -580,6 +603,26 @@ function getMainContent(): string {
           <div class="csv-tab" data-ctp="hist" style="display:none">
             <div style="overflow-x:auto"><table class="tbl" style="min-width:980px"><thead><tr><th>Imported at (IST)</th><th>File name</th><th>Batch</th><th>By</th><th>Total</th><th>Valid</th><th>Duplicate</th><th>Actions</th></tr></thead><tbody id="csvHistBody"></tbody></table></div>
           </div>
+
+          <!-- REPEAT VISITOR -->
+          <div class="csv-tab" data-ctp="repeat" style="display:none">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+              <select class="select" id="rvMonth" style="height:31px;font-size:12px;width:124px"><option value="all">All Months</option><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5">June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select>
+              <select class="select" id="rvYear" style="height:31px;font-size:12px;width:96px"><option value="all">All Years</option><option>2024</option><option>2025</option><option>2026</option></select>
+              <input class="input mono" id="rvFrom" type="date" style="height:31px;font-size:12px;width:130px">
+              <span style="color:var(--faint);font-size:12px">to</span>
+              <input class="input mono" id="rvTo" type="date" style="height:31px;font-size:12px;width:130px">
+              <select class="select" id="rvSource" style="height:31px;font-size:12px;width:150px"><option value="all">All Sources</option></select>
+              <button class="btn bsm" onclick="window._rvDownload()" style="margin-left:auto">⬇ Download</button>
+            </div>
+            <div class="metrics" id="rvKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px"></div>
+            <div style="overflow-x:auto"><table class="tbl" style="min-width:920px"><thead><tr><th>Lead Number</th><th>Lead Name</th><th>Total Visits</th><th>First Visit Date</th><th>Last Visit Date</th><th>Repeat Visitor</th></tr></thead><tbody id="rvBody"></tbody></table></div>
+            <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="btn bsm" id="rvPrevBtn" onclick="window._rvPage(-1)">← Previous</button>
+              <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="rvPageInfo">Page 1 of 1</span>
+              <button class="btn bsm" id="rvNextBtn" onclick="window._rvPage(1)">Next →</button>
+            </div>
+          </div>
         </div></div></div>
   </div></section>
 
@@ -587,32 +630,24 @@ function getMainContent(): string {
   <section class="screen" id="s-abm"><div class="wrap">
     <div class="ph"><div><h1>Assign &amp; approve</h1><p>Distribute, rescue aging leads, gate sensitive actions.</p></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Asst. branch manager</span>
-    <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation · 6</button><button data-t="appr">Approvals · 4</button><button data-t="rules">Auto-assign rules</button></div>
+    <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">2</span>)</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
         <div class="sec-bd"><table class="tbl"><thead><tr><th></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th>Assign to</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table>
-        <div style="display:flex;gap:9px;margin-top:12px"><button class="btn bsm bp" onclick="toast('Assigned')">Assign selected</button><button class="btn bsm" onclick="toast('Distributed round-robin')">Round-robin all →</button></div></div></div>
+        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap"><button class="btn bsm bp" onclick="window._roundRobin(true)">Assign selected (round-robin)</button><button class="btn bsm" onclick="window._roundRobin(false)">Round-robin all →</button></div></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Advisor</th><th>Active</th><th>Calls today</th><th>SLA hit</th><th>Conv 30d</th><th>Status</th></tr></thead><tbody>
-          <tr><td style="font-weight:600">Priya K.</td><td class="mono">28</td><td class="mono">36/50</td><td class="mono" style="color:var(--ok-ink);font-weight:700">94%</td><td class="mono">6.0%</td><td><span class="chipb ok">Available</span></td></tr>
-          <tr><td style="font-weight:600">Sana R.</td><td class="mono">39</td><td class="mono">41/50</td><td class="mono" style="color:var(--warn-ink);font-weight:700">78%</td><td class="mono">3.6%</td><td><span class="chipb warn">Near cap</span></td></tr>
-        </tbody></table></div></div>
+        <div class="sec-bd"><table class="tbl"><thead><tr><th>Advisor</th><th>Role</th><th>Branch</th><th>Active leads</th><th>Status</th></tr></thead><tbody id="advisorLoadBody"></tbody></table></div></div>
     </div>
     <div class="abm-p" data-p="dev" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Deviation — aging &amp; untouched</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Lead</th><th>Owner</th><th>Stage</th><th>Past SLA</th><th></th></tr></thead><tbody>
-          <tr><td style="font-weight:600">A. Khan</td><td>Sana R.</td><td>Assigned</td><td><span class="chipb al">+15m</span></td><td><button class="btn bsm">Reassign</button></td></tr>
-          <tr><td style="font-weight:600">D. Rani</td><td>Priya K.</td><td>Follow-up missed</td><td><span class="chipb al">+2h</span></td><td><button class="btn bsm">Reassign</button></td></tr>
-        </tbody></table>
-        <button class="btn bsm bp" style="margin-top:12px" onclick="toast('Bulk-reassigned')">Bulk reassign breached →</button></div></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Deviation — unassigned &amp; untouched leads</div>
+        <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th></th></tr></thead><tbody id="deviationBody"></tbody></table></div>
+        <button class="btn bsm bp" style="margin-top:12px" onclick="window._roundRobin(false)">Auto-distribute all (round-robin) →</button></div></div></div>
     <div class="abm-p" data-p="appr" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Pending approvals</div><div class="sec-bd">
-        <table class="tbl"><thead><tr><th>Type</th><th>Detail</th><th>Chain</th><th></th></tr></thead><tbody>
-        <tr><td><span class="chipb warn">Discount</span></td><td>₹2,000 off L2 — S. Kumar</td><td class="mono" style="font-size:11px">ABM</td><td><button class="btn bsm bp" onclick="toast('Approved')">Approve</button></td></tr>
-        <tr><td><span class="chipb al">Refund</span></td><td>₹14,500 partial — D. Rao</td><td class="mono" style="font-size:11px">ABM → BM → Accounts</td><td><button class="btn bsm bp" onclick="toast('Forwarded to BM')">Approve &amp; forward</button></td></tr>
-        </tbody></table>
-        <div class="fld" style="max-width:320px"><label class="lbl">Delegate while away</label><select class="select"><option>— Off —</option><option>Branch manager</option></select></div></div></div></div>
+        <table class="tbl"><thead><tr><th>Type</th><th>Detail</th><th>Chain</th><th></th></tr></thead><tbody id="approvalsBody"></tbody></table>
+        <div class="banner plan" style="margin-top:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Approvals (discounts, refunds) will appear here once the approvals workflow is connected to a data source.</span></div>
+        <div class="fld" style="max-width:320px;margin-top:12px"><label class="lbl">Delegate while away</label><select class="select"><option>— Off —</option><option>Branch manager</option></select></div></div></div></div>
     <div class="abm-p" data-p="rules" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Auto-assign rules</div><div class="sec-bd"><div class="g3">
         <div class="fld"><label class="lbl">Mode</label><div class="pills"><button class="pill p-vio on">Manual</button><button class="pill p-info">Round-robin</button><button class="pill p-ok">Rule-based</button></div></div>
@@ -981,7 +1016,23 @@ function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-fld">Screen fields</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-asg">Assignees</button><button data-t="st-fld">Screen fields</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+
+    <div class="st-p" data-p="st-asg" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assignees — single source of truth for everyone who can receive leads</div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="asgName" placeholder="e.g. Priya K." style="height:34px;width:160px"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl">Branch</label><select class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl">Phone</label><input class="input mono" id="asgPhone" placeholder="optional" style="height:34px;width:140px"></div>
+            <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
+            <button class="btn bsm" id="asgCancelBtn" onclick="window._asgCancelEdit()" style="height:34px;display:none">Cancel</button>
+          </div>
+          <div style="overflow-x:auto"><table class="tbl" style="min-width:820px"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Phone</th><th>Active leads</th><th>Status</th><th>Actions</th></tr></thead><tbody id="asgBody"></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Active assignees appear in the “Assign to” dropdown on Assign &amp; approve and in Advisor load. Deactivated assignees keep their history but can’t receive new leads.</p>
+        </div></div>
+    </div>
 
     <div class="st-p" data-p="st-svc">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Service pricing — all services, all variations · dynamic</div>
@@ -1256,6 +1307,11 @@ export default function Home() {
       const td=new Date();td.setHours(0,0,0,0);
       const el=root.querySelector("#srcTableBody");
       if(!el) return;
+      // Age of the most recent lead, derived from real data (not a hardcoded value).
+      const ageStr=(d:Date)=>{
+        const m=Math.floor((Date.now()-d.getTime())/60000);
+        if(m<1)return "now";if(m<60)return m+"m";if(m<1440)return Math.floor(m/60)+"h";return Math.floor(m/1440)+"d";
+      };
       el.innerHTML=IMP_SRC_CFG.map(s=>{
         const sf=f.filter(r=>r.source===s.name);
         const todC=sf.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
@@ -1264,13 +1320,23 @@ export default function Home() {
         const uniq=sf.length-dup;
         const asgn=sf.filter(r=>r.isAssigned).length;
         const unasgn=sf.length-asgn;
+        // Honest, data-driven status/last-lead/mode: a source is "Connected" only
+        // if it actually has leads in the database; otherwise "Not connected".
+        const allForSrc=IMP.filter(r=>r.source===s.name);
+        const connected=allForSrc.length>0;
+        const isManual=s.name.indexOf("Walk-in")===0;
+        const newest=allForSrc.reduce((mx:any,r:any)=>(!mx||r.date>mx)?r.date:mx,null);
+        const lastLead=newest?ageStr(newest):"—";
+        const status=connected?"Connected":(isManual?"Manual":"Not connected");
+        const sc=connected?"ok":(isManual?"info":"neu");
+        const mode=connected?s.mode:"—";
         return '<tr><td><input type="checkbox" class="srcChk" style="accent-color:var(--brand)"></td>'
           +'<td class="mono" style="font-weight:700;cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'total\')">'+sf.length+'</td>'
           +'<td style="font-weight:600">'+s.name+'</td>'
-          +'<td><span class="chipb '+s.sc+'"><span class="cd"></span> '+s.status+'</span></td>'
+          +'<td><span class="chipb '+sc+'"><span class="cd"></span> '+status+'</span></td>'
           +'<td class="mono">'+todC+'</td>'
-          +'<td class="mono">'+s.lastLead+'</td>'
-          +'<td>'+s.mode+'</td>'
+          +'<td class="mono">'+lastLead+'</td>'
+          +'<td>'+mode+'</td>'
           +'<td class="mono" style="cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'valid\')">'+valid+'</td>'
           +'<td class="mono" style="cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'unique\')">'+uniq+'</td>'
           +'<td class="mono" style="cursor:pointer;'+(dup>0?'color:var(--warn-ink);font-weight:600':'')+'" onclick="window._impDrillSrc(\''+s.name+'\',\'duplicate\')">'+dup+'</td>'
@@ -1405,51 +1471,423 @@ export default function Home() {
       renderMetaPage();
     };
 
-    // ===== Send-to-assignment → Unassigned Pool =====
-    const _movedToPool=new Set<string>();   // lead ids already transferred (no re-move)
-    // The Unassigned Pool starts with its two seed leads; moved feed leads append.
-    const _unassignedPool:any[]=[
-      {id:"seed-1",name:"R. Suresh",src:"Meta · Telugu",sugar:'<span class="chipb warn">150–250</span>',waiting:"18m",advisors:["Priya K.","Vinod M."]},
-      {id:"seed-2",name:"F. Begum",src:"Website · Tamil",sugar:'<span class="chipb neu">—</span>',waiting:"26m",advisors:["Sana R."]}
-    ];
+    // ===== Assignee master (loaded from Supabase `assignees`) =====
+    let _assignees:any[]=[];
+    let _asgEditId:number|null=null;
+
+    // ===== Send-to-assignment → Unassigned Pool (persisted via leads.in_pool) =====
+    const _movedToPool=new Set<string>();   // lead ids currently in the pool (from DB)
+    // Pool is 100% live: only leads flagged in_pool in the database (no seed/mock).
+    let _unassignedPool:any[]=[];
+    // Rebuild the pool from the DB-backed feed leads flagged in_pool, so the pool
+    // survives refreshes/sessions. Also refreshes the feed's "Moved" set.
+    // Non-Meta pooled/assigned leads (e.g. CSV leads sent to assignment) — loaded
+    // from the DB so they flow through the SAME pool → assign pipeline.
+    let _poolExtras:any[]=[];
+    let _assignedExtras:any[]=[];
+    async function loadAssignmentExtras(){
+      try{
+        const [pr,ar]=await Promise.all([
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to").eq("is_assigned",true).neq("source","Meta Ads")
+        ]);
+        _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||""}));
+      }catch(_){ /* columns/table may be absent — ignore */ }
+    }
+    function rebuildPoolFromDB(){
+      _movedToPool.clear();
+      const pooled=_metaLeads.filter((ld:any)=>ld.inPool);
+      pooled.forEach((ld:any)=>_movedToPool.add(String(ld.id)));
+      _unassignedPool=[
+        ...pooled.map((ld:any)=>({
+          id:ld.id,name:ld.name,src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
+          sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",assignedTo:""
+        })),
+        ..._poolExtras
+      ];
+    }
     function renderUnassignedPool(){
       const body=root.querySelector("#unassignedPoolBody");
       const cnt=root.querySelector("#poolCount");
       if(cnt) cnt.textContent=String(_unassignedPool.length);
       if(!body) return;
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const activeNames=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
       body.innerHTML=_unassignedPool.map((p:any)=>{
-        const opts='<option>—</option>'+(p.advisors||["Priya K.","Vinod M.","Sana R."]).map((a:string)=>'<option>'+esc(a)+'</option>').join("");
+        const opts='<option value="">—</option>'+activeNames.map((n:string)=>'<option'+(p.assignedTo===n?' selected':'')+'>'+esc(n)+'</option>').join("");
         const isNew=String(p.id).indexOf("seed-")!==0;
         return '<tr><td><input type="checkbox" checked style="accent-color:var(--brand)"></td>'
           +'<td style="font-weight:600">'+esc(p.name)+(isNew?' <span class="chipb ok" style="margin-left:4px">Transferred</span>':'')+'</td>'
           +'<td><span class="tag">'+esc(p.src)+'</span></td>'
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
           +'<td class="mono">'+esc(p.waiting)+'</td>'
-          +'<td><select class="select" style="height:31px;font-size:12px">'+opts+'</select></td></tr>';
+          +'<td><select class="select" style="height:31px;font-size:12px" onchange="window._assignLead(\''+esc(String(p.id))+'\',this.value)">'+opts+'</select></td></tr>';
       }).join("");
+      renderDeviation();
     }
-    w._sendToAssignment=()=>{
+    // Deviation = the live unassigned/untouched leads (same DB-backed pool).
+    function renderDeviation(){
+      const body=root.querySelector("#deviationBody");
+      const tab=root.querySelector("#devTabCount");
+      const appr=root.querySelector("#apprTabCount");
+      const apprBody=root.querySelector("#approvalsBody");
+      if(tab) tab.textContent=String(_unassignedPool.length);
+      if(appr) appr.textContent="0";
+      if(apprBody) apprBody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:18px">No pending approvals</td></tr>';
+      if(!body) return;
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=_unassignedPool.length?_unassignedPool.map((p:any)=>'<tr>'
+        +'<td style="font-weight:600">'+esc(p.name)+'</td>'
+        +'<td><span class="tag">'+esc(p.src)+'</span></td>'
+        +'<td>Unassigned</td>'
+        +'<td><span class="chipb warn">Awaiting assignment</span></td>'
+        +'<td><button class="btn bsm bp" onclick="window._gotoAssign()">Assign →</button></td></tr>').join("")
+        :'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:18px">No untouched leads — every pooled lead is assigned 🎉</td></tr>';
+    }
+    w._gotoAssign=()=>{const b=root.querySelector('#abmTabs button[data-t="assign"]')as HTMLButtonElement;if(b)b.click();};
+
+    // ===== Assignee master: load, render, CRUD =====
+    function _asgActiveLeadCount(name:string){
+      return _metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name).length
+        + _assignedExtras.filter((l:any)=>l.assignedTo===name).length;
+    }
+    function renderAssigneesTable(){
+      const body=root.querySelector("#asgBody");
+      if(!body) return;
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=_assignees.length?_assignees.map((a:any)=>{
+        const cnt=_asgActiveLeadCount(a.name);
+        return '<tr style="'+(a.is_active?'':'opacity:0.55')+'">'
+          +'<td style="font-weight:600">'+esc(a.name)+'</td><td>'+esc(a.role)+'</td><td>'+esc(a.branch)+'</td>'
+          +'<td class="mono">'+esc(a.phone||"—")+'</td><td class="mono">'+cnt+'</td>'
+          +'<td>'+(a.is_active?'<span class="chipb ok">Active</span>':'<span class="chipb neu">Inactive</span>')+'</td>'
+          +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._asgEdit('+a.id+')">Edit</button>'
+          +'<button class="btn bsm" onclick="window._asgToggle('+a.id+','+(a.is_active?'false':'true')+')">'+(a.is_active?'Deactivate':'Activate')+'</button></div></td></tr>';
+      }).join(""):'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No assignees yet — add one above</td></tr>';
+    }
+    function renderAdvisorLoad(){
+      const body=root.querySelector("#advisorLoadBody");
+      if(!body) return;
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const active=_assignees.filter((a:any)=>a.is_active);
+      body.innerHTML=active.length?active.map((a:any)=>{
+        const cnt=_asgActiveLeadCount(a.name);
+        const status=cnt>=40?'<span class="chipb warn">Near cap</span>':'<span class="chipb ok">Available</span>';
+        return '<tr><td style="font-weight:600">'+esc(a.name)+'</td><td>'+esc(a.role)+'</td><td>'+esc(a.branch)+'</td><td class="mono">'+cnt+'</td><td>'+status+'</td></tr>';
+      }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:18px">No active assignees — add them in Settings → Assignees</td></tr>';
+    }
+    async function loadAssignees(){
+      try{
+        const {data,error}=await supabase.from("assignees").select("*").order("name");
+        if(error) throw error;
+        _assignees=data||[];
+      }catch(e){ _assignees=[]; }
+      renderAssigneesTable();renderAdvisorLoad();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();
+    }
+    w._asgCreate=async()=>{
+      const name=((root.querySelector("#asgName")as HTMLInputElement)?.value||"").trim();
+      if(!name){toast("Enter a name");return;}
+      const role=(root.querySelector("#asgRole")as HTMLSelectElement)?.value||"Advisor";
+      const branch=(root.querySelector("#asgBranch")as HTMLSelectElement)?.value||"Chennai";
+      const phone=((root.querySelector("#asgPhone")as HTMLInputElement)?.value||"").trim();
+      try{
+        if(_asgEditId){
+          const {error}=await supabase.from("assignees").update({name,role,branch,phone}).eq("id",_asgEditId);
+          if(error) throw error; toast("Assignee updated");
+        }else{
+          const {error}=await supabase.from("assignees").insert({name,role,branch,phone});
+          if(error) throw error; toast("Assignee added");
+        }
+        (w as any)._asgCancelEdit();
+        await loadAssignees();
+      }catch(e:any){
+        toast(/exist|relation|schema/i.test(e.message||"")?"Run supabase-migration-assignees.sql first":"Save failed: "+(e.message||"db error"));
+      }
+    };
+    w._asgEdit=(id:number)=>{
+      const a=_assignees.find((x:any)=>x.id===id); if(!a) return;
+      (root.querySelector("#asgName")as HTMLInputElement).value=a.name;
+      (root.querySelector("#asgRole")as HTMLSelectElement).value=a.role;
+      (root.querySelector("#asgBranch")as HTMLSelectElement).value=a.branch;
+      (root.querySelector("#asgPhone")as HTMLInputElement).value=a.phone||"";
+      _asgEditId=id;
+      const b=root.querySelector("#asgAddBtn"); if(b)b.textContent="Update assignee";
+      const c=root.querySelector("#asgCancelBtn")as HTMLElement; if(c)c.style.display="";
+    };
+    w._asgCancelEdit=()=>{
+      _asgEditId=null;
+      const n=root.querySelector("#asgName")as HTMLInputElement; if(n)n.value="";
+      const p=root.querySelector("#asgPhone")as HTMLInputElement; if(p)p.value="";
+      const b=root.querySelector("#asgAddBtn"); if(b)b.textContent="+ Add assignee";
+      const c=root.querySelector("#asgCancelBtn")as HTMLElement; if(c)c.style.display="none";
+    };
+    w._asgToggle=async(id:number,active:boolean)=>{
+      try{
+        const {error}=await supabase.from("assignees").update({is_active:active}).eq("id",id);
+        if(error) throw error;
+        await loadAssignees();
+        toast(active?"Assignee activated":"Assignee deactivated");
+      }catch(e:any){ toast("Update failed: "+(e.message||"db error")); }
+    };
+    // Persist a lead → advisor assignment (leaves the unassigned pool).
+    w._assignLead=async(id:string,name:string)=>{
+      if(!name) return;
+      if(String(id).indexOf("seed-")===0){toast("Demo lead — assign a real pooled lead");return;}
+      try{
+        const {error}=await supabase.from("leads").update({assigned_to:name,is_assigned:true,in_pool:false}).eq("meta_lead_id",id);
+        if(error) throw error;
+      }catch(e:any){
+        toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Assign failed: "+(e.message||"db error"));
+        return;
+      }
+      const ld=_metaLeads.find((x:any)=>String(x.id)===String(id));
+      if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
+      await loadAssignmentExtras();   // refresh non-Meta (CSV) pooled/assigned leads
+      rebuildPoolFromDB();
+      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      toast("Lead assigned to "+name);
+    };
+
+    // ===== Assigned leads view (live, from leads where is_assigned) =====
+    let _asnPage=1; const ASN_PER=10;
+    function assignedLeads(){
+      const f=(root.querySelector("#assignedFilter")as HTMLSelectElement)?.value||"all";
+      const all=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
+      return all.filter((l:any)=>f==="all"||l.assignedTo===f);
+    }
+    function renderAssignedLeads(){
+      // populate advisor filter from active assignees (preserve selection)
+      const fsel=root.querySelector("#assignedFilter")as HTMLSelectElement;
+      if(fsel){
+        const cur=fsel.value;
+        const names=_assignees.map((a:any)=>a.name);
+        fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
+        if(Array.from(fsel.options).some(o=>o.value===cur)) fsel.value=cur;
+      }
+      const list=assignedLeads();
+      const body=root.querySelector("#assignedLeadsBody");
+      const cnt=root.querySelector("#assignedCount");
+      const info=root.querySelector("#asnPageInfo");
+      const prev=root.querySelector("#asnPrevBtn")as HTMLButtonElement, next=root.querySelector("#asnNextBtn")as HTMLButtonElement;
+      if(cnt) cnt.textContent=String(list.length);
+      if(!body) return;
+      const total=list.length;const pages=Math.max(1,Math.ceil(total/ASN_PER));
+      if(_asnPage>pages)_asnPage=pages;if(_asnPage<1)_asnPage=1;
+      const rows=list.slice((_asnPage-1)*ASN_PER,(_asnPage-1)*ASN_PER+ASN_PER);
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=rows.length?rows.map((l:any)=>'<tr>'
+        +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" title="Open lead profile →" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
+        +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
+        +'<td class="mono" style="font-size:11.5px">'+e(l.campaign||"—")+'</td>'
+        +'<td style="font-weight:600">'+e(l.assignedTo)+'</td>'
+        +'<td><span class="chipb ok">Assigned</span></td>'
+        +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>').join("")
+        :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
+      if(info)info.textContent="Page "+_asnPage+" of "+pages;
+      if(prev){prev.disabled=_asnPage<=1;prev.style.opacity=_asnPage<=1?"0.45":"1";}
+      if(next){next.disabled=_asnPage>=pages;next.style.opacity=_asnPage>=pages?"0.45":"1";}
+    }
+    w._asnPage=(dir:number)=>{_asnPage+=dir;renderAssignedLeads();renderHealthDashboard();};
+    const _assignedFilterEl=root.querySelector("#assignedFilter")as HTMLSelectElement;
+    if(_assignedFilterEl) _assignedFilterEl.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};
+    // Return an assigned lead to the unassigned pool.
+    w._unassignLead=async(id:string)=>{
+      try{
+        const {error}=await supabase.from("leads").update({assigned_to:null,is_assigned:false,in_pool:true}).eq("meta_lead_id",id);
+        if(error) throw error;
+      }catch(e:any){ toast("Failed: "+(e.message||"db error")); return; }
+      const ld=_metaLeads.find((x:any)=>String(x.id)===String(id));
+      if(ld){ld.isAssigned=false;ld.assignedTo="";ld.inPool=true;}
+      await loadAssignmentExtras();
+      rebuildPoolFromDB();
+      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      toast("Lead returned to pool");
+    };
+    w._assignedDownload=()=>{
+      const list=assignedLeads();
+      if(!list.length){toast("Nothing to download");return;}
+      const esc=(s:any)=>'"'+String(s==null?"":s).replace(/"/g,'""')+'"';
+      const header=["Lead","Phone","Source","Language","Campaign","Assigned to"];
+      const lines=[header.map(esc).join(",")];
+      list.forEach((l:any)=>lines.push([l.name,l.phone,l.source,l.lang,l.campaign,l.assignedTo].map(esc).join(",")));
+      const blob=new Blob([lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="wellnessos_assigned_leads.csv";document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      toast("Downloaded "+list.length+" assigned leads");
+    };
+
+    // Open a lead's profile on the Health Advisor page (populates the header from
+    // the real lead record and navigates there).
+    w._openLeadProfile=(id:string)=>{
+      const l=_metaLeads.find((x:any)=>String(x.id)===String(id))
+        ||_assignedExtras.find((x:any)=>String(x.id)===String(id))
+        ||_poolExtras.find((x:any)=>String(x.id)===String(id));
+      if(!l){toast("Lead not found");return;}
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const name=l.name||l.phone||"Lead";
+      const initials=(name.match(/[A-Za-z0-9]/g)||["L","D"]).slice(0,2).join("").toUpperCase();
+      const srcLang=l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"));
+      const setTxt=(sel:string,txt:string)=>{const el=root.querySelector(sel);if(el)el.textContent=txt;};
+      const setHtml=(sel:string,html:string)=>{const el=root.querySelector(sel);if(el)el.innerHTML=html;};
+      setTxt("#advAv",initials||"LD");
+      setTxt("#advName",name);
+      setHtml("#advSub",'<span class="mono">'+e(l.phone||"—")+'</span><span>·</span><span class="mono">Lead #'+e(String(l.id))+'</span><span>·</span>'+e(l.campaign||"—"));
+      setHtml("#advBadges",
+        '<span class="chipb '+(l.isValid?'ok':'neu')+'">'+(l.isValid?'Valid':'No phone')+'</span>'
+        +'<span class="chipb neu">'+e(srcLang)+'</span>'
+        +(l.isDuplicate?'<span class="chipb warn">Duplicate</span>':'')
+        +(l.assignedTo?'<span class="chipb vio">Assigned: '+e(l.assignedTo)+'</span>':'<span class="chipb info">Unassigned</span>'));
+      setHtml("#consBadge","Status: "+(l.isAssigned?"Assigned":(l.inPool?"In pool":"New")));
+      const banner=root.querySelector("#advCtxBanner")as HTMLElement;
+      if(banner){banner.style.display="";setTxt("#advCtxText",
+        "Viewing lead "+name+" ("+(l.phone||"no phone")+")"+(l.assignedTo?" · assigned to "+l.assignedTo:"")
+        +". Header reflects live data; the activity-history modules below populate once reception/sales/coach/payment/notes/call records exist for this lead.");}
+      const navBtn=root.querySelector('#nav button[data-s="advisor"]')as HTMLButtonElement;
+      if(navBtn) navBtn.click();
+      _advLeadId=String(l.id);
+      // Opening a lead marks it "Open" (if it has no working status yet) — persisted.
+      if(!l.callStatus||l.callStatus==="New"){
+        l.callStatus="Open";
+        supabase.from("leads").update({call_status:"Open"}).eq("meta_lead_id",l.id).then(()=>{});
+      }
+      const csSel=root.querySelector("#callStatus")as HTMLSelectElement;
+      if(csSel){const code=HA_LABEL2CODE[l.callStatus||"Open"];if(code)csSel.value=code;}
+      renderHealthDashboard();
+      toast("Opened profile: "+name);
+    };
+
+    // ===== Health Advisor KPI dashboard (call-status driven) =====
+    let _advLeadId="";
+    let _haActiveBucket="";
+    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Not Interested","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Payment Pending","Payment Completed","Interested","Not Reachable","Callback Requested"];
+    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz",Open:"new"};
+    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom"};
+    function haBucketOf(cs:string){
+      const s=(cs||"").toLowerCase();
+      if(/enrol/.test(s)) return "enrolled";
+      if(/payment completed|converted/.test(s)) return "closed";
+      if(/payment pending|already paid/.test(s)) return "payment";
+      if(/appointment/.test(s)) return "sales";
+      if(/visited/.test(s)) return "health";
+      if(/follow up|call back|callback/.test(s)) return "followup";
+      if(/not interested|no sugar|wrong number|dnd/.test(s)) return "closed";
+      return "open"; // New/Open/RNR/Line Busy/Switched Off/Interested/etc.
+    }
+    const HA_CARDS=[
+      {key:"open",label:"Open Leads",c:"g"},{key:"sales",label:"Walk-in Sales Stage",c:""},
+      {key:"health",label:"Walk-in Health Stage",c:""},{key:"payment",label:"Payment Stage",c:"a"},
+      {key:"enrolled",label:"Enrolled",c:"g"},{key:"followup",label:"Follow-up",c:""},
+      {key:"closed",label:"Closed / Converted",c:"a"}
+    ];
+    function haBook(){
+      // The advisor's book = assigned leads (Meta + Manual/CSV). Role enforcement
+      // (only-own-leads) requires auth; without it, this shows the full assigned book.
+      return [..._metaLeads.filter((l:any)=>l.isAssigned), ..._assignedExtras];
+    }
+    function haEffStatus(l:any){ return l.callStatus || (l.isAssigned?"Open":"New"); }
+    function renderHealthDashboard(){
+      const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
+      if(fsel && fsel.options.length<=1){
+        fsel.innerHTML='<option value="all">All call/lead statuses</option>'+HA_STATUSES.map(s=>'<option>'+s+'</option>').join("");
+      }
+      const filter=fsel?.value||"all";
+      let book=haBook();
+      if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
+      const counts:any={open:0,sales:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
+      book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
+      const kpiEl=root.querySelector("#haKpis");
+      if(kpiEl){
+        const cards=HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer" onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div><div class="mv">'+counts[c.key]+'</div></div>');
+        cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div><div class="mv">'+book.length+'</div></div>');
+        kpiEl.innerHTML=cards.join("");
+      }
+      if(_haActiveBucket) renderHaResults();
+    }
+    function renderHaResults(){
+      const wrap=root.querySelector("#haResultsWrap")as HTMLElement;
+      const body=root.querySelector("#haResultsBody");
+      const title=root.querySelector("#haResultsTitle");
+      if(!wrap||!body) return;
+      const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
+      const filter=fsel?.value||"all";
+      let book=haBook();
+      if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
+      const list=_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket);
+      const card=HA_CARDS.find(c=>c.key===_haActiveBucket);
+      wrap.style.display="";
+      if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=list.length?list.map((l:any)=>'<tr>'
+        +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
+        +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
+        +'<td>'+e(l.assignedTo||"—")+'</td>'
+        +'<td><span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span></td></tr>').join("")
+        :'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:16px">No leads in this status</td></tr>';
+    }
+    w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
+    w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";};
+    {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>renderHealthDashboard();}
+    // Persist a call-status change for the currently-open lead (drives KPIs).
+    w._haSetCallStatus=(label:string)=>{
+      if(!_advLeadId){return;}
+      const l=haBook().find((x:any)=>String(x.id)===_advLeadId)||_metaLeads.find((x:any)=>String(x.id)===_advLeadId);
+      if(l) l.callStatus=label;
+      supabase.from("leads").update({call_status:label}).eq("meta_lead_id",_advLeadId).then(()=>{});
+      renderHealthDashboard();
+    };
+
+    // Round-robin distribute pooled leads across active advisors (persisted).
+    w._roundRobin=async(selectedOnly:boolean)=>{
+      const active=_assignees.filter((a:any)=>a.is_active);
+      if(active.length===0){toast("Add active assignees first (Settings → Assignees)");return;}
+      let targetIds:string[];
+      if(selectedOnly){
+        // Map each checked pool row (by row index) back to its lead id.
+        const rows=Array.from(root.querySelectorAll("#unassignedPoolBody tr"));
+        targetIds=rows.map((tr,idx)=>(tr.querySelector("input[type=checkbox]")as HTMLInputElement)?.checked?_unassignedPool[idx]?.id:null)
+          .filter(Boolean).map(String);
+      }else{
+        targetIds=_unassignedPool.map((p:any)=>String(p.id));
+      }
+      if(targetIds.length===0){toast("No pooled leads to assign");return;}
+      try{
+        for(let i=0;i<targetIds.length;i++){
+          const name=active[i%active.length].name;
+          const {error}=await supabase.from("leads").update({assigned_to:name,is_assigned:true,in_pool:false}).eq("meta_lead_id",targetIds[i]);
+          if(error) throw error;
+          const ld=_metaLeads.find((x:any)=>String(x.id)===targetIds[i]);
+          if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
+        }
+      }catch(e:any){ toast("Distribute failed: "+(e.message||"db error")); }
+      await loadAssignmentExtras();
+      rebuildPoolFromDB();
+      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      toast(targetIds.length+" lead"+(targetIds.length===1?"":"s")+" distributed across "+active.length+" advisor"+(active.length===1?"":"s"));
+    };
+
+    w._sendToAssignment=async()=>{
       const checks=Array.from(root.querySelectorAll(".feedChk:checked"))as HTMLInputElement[];
       if(checks.length===0){toast("Select one or more leads first");return;}
-      let added=0;
-      checks.forEach(c=>{
-        const id=c.getAttribute("data-id")||"";
-        if(!id||_movedToPool.has(id)) return;            // prevent duplicate transfer
-        const ld=_metaLeads.find((x:any)=>String(x.id)===id);
-        if(!ld) return;
-        _movedToPool.add(id);
-        _unassignedPool.push({
-          id:ld.id,name:ld.name,src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
-          sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",
-          advisors:["Priya K.","Vinod M.","Sana R."]
-        });
-        added++;
-      });
-      if(added===0){toast("Those leads are already in the pool");return;}
+      const ids=checks.map(c=>c.getAttribute("data-id")||"").filter(id=>id&&!_movedToPool.has(id));
+      if(ids.length===0){toast("Those leads are already in the pool");return;}
+      // Persist to the database first so the assignment survives refresh.
+      try{
+        const nowIso=new Date().toISOString();
+        for(let i=0;i<ids.length;i+=200){
+          const {error}=await supabase.from("leads").update({in_pool:true,pool_added_at:nowIso}).in("meta_lead_id",ids.slice(i,i+200));
+          if(error) throw error;
+        }
+      }catch(e:any){
+        const isMissing=/in_pool|column|schema|exist/i.test(e.message||"");
+        toast(isMissing?"Run supabase-migration-assignment.sql first":"Save failed: "+(e.message||"db error"));
+        return;
+      }
+      // Reflect locally (mark the in-memory leads in_pool) and re-render.
+      ids.forEach(id=>{const ld=_metaLeads.find((x:any)=>String(x.id)===id);if(ld)ld.inPool=true;});
+      rebuildPoolFromDB();
       renderMetaPage();          // disable moved rows + show "Moved" flag
       renderUnassignedPool();    // reflect in Assign & approve immediately
-      toast(added+" lead"+(added===1?"":"s")+" sent to assignment pool");
+      toast(ids.length+" lead"+(ids.length===1?"":"s")+" sent to assignment pool");
     };
     // Header "select all" toggles every selectable (not-yet-moved) box on the page.
     const _feedSelAll=root.querySelector("#feedSelAll")as HTMLInputElement;
@@ -1457,6 +1895,7 @@ export default function Home() {
       root.querySelectorAll(".feedChk").forEach((c:any)=>{c.checked=_feedSelAll.checked;});
     };
     renderUnassignedPool();
+    loadAssignees();   // load the assignee master (Assign-to dropdown + advisor load + settings)
 
     let _metaFetchInFlight=false;
     async function fetchMetaLiveFeed(){
@@ -1484,7 +1923,13 @@ export default function Home() {
         }
         // Sort by latest Date & Time first (newest createdAt at top)
         _metaLeads=[...data.leads].sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
+        // Restore the assignment pool from the DB (in_pool flag) BEFORE rendering
+        // the feed, so already-pooled leads (incl. CSV extras) show after a refresh.
+        await loadAssignmentExtras();
+        rebuildPoolFromDB();
         renderMetaPage();
+        renderUnassignedPool();
+        renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();  // refresh live counts
         // Feed the SAME real Meta leads into the shared IMP array so the
         // KPI cards and Source Connections table compute from identical data.
         // Flags (valid/duplicate/assigned) come pre-computed from the Supabase sync.
@@ -1543,9 +1988,55 @@ export default function Home() {
       }
     };
     fetchMetaLiveFeed();
-    // Refresh every 5 minutes (server caches for 10 min; the heavy Meta crawl
-    // must not be triggered on a tight loop).
+    // Safety reconciliation poll (realtime below is the primary live mechanism).
     _metaFeedTimer=setInterval(fetchMetaLiveFeed,300000);
+
+    // ===== REAL-TIME: Supabase pushes new/changed leads instantly (no refresh) =====
+    function dbRowToLead(r:any){
+      const createdAt=r.created_at||r.lead_date;
+      const m=Math.floor((Date.now()-new Date(createdAt).getTime())/60000);
+      const received=m<1?"now":(m<60?m+"m":(m<1440?Math.floor(m/60)+"h":Math.floor(m/1440)+"d"));
+      return {id:r.meta_lead_id,name:r.name,phone:r.phone,email:r.email,source:"Meta",
+        campaign:r.campaign||"—",service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
+        adAccountName:r.ad_account_name||"",isValid:r.is_valid,isDuplicate:r.is_duplicate,
+        isAssigned:r.is_assigned,inPool:!!r.in_pool,assignedTo:r.assigned_to||"",callStatus:r.call_status||""};
+    }
+    function liveRerenderAll(){
+      _metaLeads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
+      IMP.length=0;
+      _metaLeads.forEach((ld:any)=>IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned}));
+      rebuildPoolFromDB();
+      renderMetaPage();renderImport();renderUnassignedPool();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      const countEl=root.querySelector("#metaFeedCount");if(countEl)countEl.textContent=_metaLeads.length+" leads in database";
+    }
+    try{
+      const _leadsChannel=supabase
+        .channel("leads-realtime")
+        .on("postgres_changes",{event:"INSERT",schema:"public",table:"leads",filter:"source=eq.Meta Ads"},(payload:any)=>{
+          const lead=dbRowToLead(payload.new);
+          if(_metaLeads.some((x:any)=>String(x.id)===String(lead.id))) return; // dedupe
+          _metaLeads.unshift(lead);
+          _metaPageNum=1;                 // jump to first page so the newest is visible on top
+          liveRerenderAll();
+          const st=root.querySelector("#metaFeedStatus");if(st)st.textContent="🟢 Live — new lead "+(lead.name||"")+" just now";
+          toast("New lead received: "+(lead.name||lead.phone||"Meta lead"));
+        })
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"leads",filter:"source=eq.Meta Ads"},(payload:any)=>{
+          const upd=dbRowToLead(payload.new);
+          const ld=_metaLeads.find((x:any)=>String(x.id)===String(upd.id));
+          if(!ld) return;
+          ld.isAssigned=upd.isAssigned;ld.inPool=upd.inPool;ld.assignedTo=upd.assignedTo;ld.isValid=upd.isValid;ld.isDuplicate=upd.isDuplicate;
+          liveRerenderAll();
+        })
+        .on("postgres_changes",{event:"DELETE",schema:"public",table:"leads"},(payload:any)=>{
+          const oldId=payload.old?.meta_lead_id;
+          if(!oldId) return;
+          const i=_metaLeads.findIndex((x:any)=>String(x.id)===String(oldId));
+          if(i>=0){_metaLeads.splice(i,1);liveRerenderAll();}
+        })
+        .subscribe();
+      w.__leadsChannel=_leadsChannel;   // kept for cleanup on unmount
+    }catch(e){ /* realtime optional — poll fallback still runs */ }
 
     // ========== BULK CSV IMPORT ==========
     const CSV_COLS=["Date & Time","Campaign","Ad Name","Lead Name","Phone Number","Sugar Poll","City","Street","Source","Service","Name"];
@@ -1678,7 +2169,7 @@ export default function Home() {
         _csvBatches=br.data||[];
         _csvPhones.clear();
         _csvLeads.forEach((r:any)=>{if(r.status==="valid"&&r.phone)_csvPhones.add(r.phone);});
-        renderCsvValid();renderCsvDup();renderCsvHist();
+        renderCsvValid();renderCsvDup();renderCsvHist();populateRvSources();renderCsvRepeat();
       }catch(e:any){
         const sumEl=root.querySelector("#csvSummary");
         if(sumEl&&/exist|relation|schema/i.test(e.message||"")) sumEl.textContent="Run supabase-migration-csv-imports.sql to enable saved imports";
@@ -1823,6 +2314,123 @@ export default function Home() {
       }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No import history</td></tr>';
     }
 
+    // ---- Repeat Visitor (aggregate imported leads by phone) ----
+    let _rvPage=1; const RV_PER=10; let _rvData:any[]=[];
+    function rvParseDate(s:string){ if(!s) return null; const d=new Date(s); return isNaN(d.getTime())?null:d; }
+    function populateRvSources(){
+      const sel=root.querySelector("#rvSource")as HTMLSelectElement;
+      if(!sel)return;
+      const cur=sel.value;
+      const srcs=Array.from(new Set(_csvLeads.map((r:any)=>(r.source||"").trim()).filter(Boolean))).sort();
+      sel.innerHTML='<option value="all">All Sources</option>'+srcs.map((s:string)=>'<option>'+s.replace(/</g,"&lt;")+'</option>').join("");
+      if(Array.from(sel.options).some(o=>o.value===cur)) sel.value=cur;
+    }
+    function rvFiltered(){
+      const mo=(root.querySelector("#rvMonth")as HTMLSelectElement)?.value;
+      const yr=(root.querySelector("#rvYear")as HTMLSelectElement)?.value;
+      const df=(root.querySelector("#rvFrom")as HTMLInputElement)?.value;
+      const dt=(root.querySelector("#rvTo")as HTMLInputElement)?.value;
+      const src=(root.querySelector("#rvSource")as HTMLSelectElement)?.value;
+      const rangeActive=!!df||!!dt;
+      let from:Date|null=null,to:Date|null=null;
+      if(df){from=new Date(df);from.setHours(0,0,0,0);}
+      if(dt){to=new Date(dt);to.setHours(23,59,59,999);}
+      return _csvLeads.filter((r:any)=>{
+        if(src&&src!=="all"&&(r.source||"")!==src) return false;
+        const d=rvParseDate(r.dt);
+        if(rangeActive){ if(!d) return false; if(from&&d<from) return false; if(to&&d>to) return false; }
+        else if(yr!=="all"||mo!=="all"){ if(!d) return false; if(yr!=="all"&&d.getFullYear()!==Number(yr)) return false; if(mo!=="all"&&d.getMonth()!==Number(mo)) return false; }
+        return true;
+      });
+    }
+    function rvAggregate(visits:any[]){
+      const map=new Map<string,any>();
+      visits.forEach((r:any)=>{
+        const phone=((r.phone||"").trim())||"(no phone)";
+        let g=map.get(phone);
+        if(!g){g={phone,name:r.lead||r.name||"—",visits:0,first:null,last:null,records:[]};map.set(phone,g);}
+        g.visits++; g.records.push(r);
+        const d=rvParseDate(r.dt);
+        if(d){ if(!g.first||d<g.first)g.first=d; if(!g.last||d>g.last){g.last=d;g.name=r.lead||r.name||g.name;} }
+      });
+      return Array.from(map.values()).sort((a,b)=>b.visits-a.visits);
+    }
+    function renderCsvRepeat(){
+      const visits=rvFiltered();
+      _rvData=rvAggregate(visits);
+      const totalVisits=visits.length, unique=_rvData.length;
+      const repeat=_rvData.filter(g=>g.visits>1).length;
+      const avg=unique?(totalVisits/unique):0;
+      const high=_rvData.reduce((m,g)=>Math.max(m,g.visits),0);
+      const kpiEl=root.querySelector("#rvKpis");
+      if(kpiEl){
+        const cards=[
+          {l:"Total Visitors",v:totalVisits,c:"g"},
+          {l:"Unique Visitors",v:unique,c:""},
+          {l:"Repeat Visitors",v:repeat,c:"a"},
+          {l:"Avg Visits / Lead",v:avg.toFixed(2),c:"g"},
+          {l:"Highest Repeat Count",v:high,c:"a"}
+        ];
+        kpiEl.innerHTML=cards.map(x=>'<div class="metric '+x.c+'"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
+      }
+      const tabCnt=root.querySelector("#csvRepeatTabCount"); if(tabCnt)tabCnt.textContent=String(repeat);
+      const body=root.querySelector("#rvBody");
+      const info=root.querySelector("#rvPageInfo");
+      const prev=root.querySelector("#rvPrevBtn")as HTMLButtonElement, next=root.querySelector("#rvNextBtn")as HTMLButtonElement;
+      if(!body)return;
+      const total=_rvData.length;const pages=Math.max(1,Math.ceil(total/RV_PER));
+      if(_rvPage>pages)_rvPage=pages;if(_rvPage<1)_rvPage=1;
+      const pageRows=_rvData.slice((_rvPage-1)*RV_PER,(_rvPage-1)*RV_PER+RV_PER);
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const fmt=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).format(d):"—";
+      body.innerHTML=pageRows.length?pageRows.map((g:any)=>'<tr>'
+        +'<td class="mono">'+e(g.phone)+'</td>'
+        +'<td style="font-weight:600">'+e(g.name)+'</td>'
+        +'<td class="mono" style="font-weight:700;cursor:pointer;color:var(--brand)" title="View visit history" onclick="window._rvHistory(\''+e(g.phone)+'\')">'+g.visits+(g.visits>1?' ▸':'')+'</td>'
+        +'<td class="mono">'+fmt(g.first)+'</td>'
+        +'<td class="mono">'+fmt(g.last)+'</td>'
+        +'<td>'+(g.visits>1?'<span class="chipb warn">Repeat · '+g.visits+'×</span>':'<span class="chipb neu">First-time</span>')+'</td></tr>').join("")
+        :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No visitor data for this filter</td></tr>';
+      if(info)info.textContent="Page "+_rvPage+" of "+pages+" · "+total+" visitor"+(total===1?"":"s");
+      if(prev){prev.disabled=_rvPage<=1;prev.style.opacity=_rvPage<=1?"0.45":"1";}
+      if(next){next.disabled=_rvPage>=pages;next.style.opacity=_rvPage>=pages?"0.45":"1";}
+    }
+    w._rvPage=(dir:number)=>{_rvPage+=dir;renderCsvRepeat();};
+    w._rvHistory=(phone:string)=>{
+      const g=_rvData.find((x:any)=>x.phone===phone);
+      if(!g){toast("No history");return;}
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const fmt=(s:string)=>{const d=rvParseDate(s);return d?new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(d):(s||"—");};
+      const recs=g.records.slice().sort((a:any,b:any)=>{const da=rvParseDate(a.dt),db=rvParseDate(b.dt);return (db?db.getTime():0)-(da?da.getTime():0);});
+      const ov=document.createElement("div");
+      ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center";
+      const box=document.createElement("div");
+      box.style.cssText="background:var(--surf,#fff);border-radius:14px;padding:20px;max-width:560px;width:92%;max-height:80vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
+      box.innerHTML='<div style="font-weight:700;font-size:15px;margin-bottom:4px;color:var(--ink)">Visit history — '+e(g.name)+'</div>'
+        +'<div style="font-size:12px;color:var(--faint);margin-bottom:14px">'+e(g.phone)+' · '+g.visits+' visit'+(g.visits===1?"":"s")+'</div>'
+        +'<table class="tbl" style="width:100%"><thead><tr><th>#</th><th>Date &amp; Time (IST)</th><th>Campaign</th><th>Source</th></tr></thead><tbody>'
+        +recs.map((r:any,i:number)=>'<tr><td class="mono">'+(i+1)+'</td><td class="mono" style="font-size:11.5px">'+e(fmt(r.dt))+'</td><td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td><td><span class="tag">'+e(r.source||"—")+'</span></td></tr>').join("")
+        +'</tbody></table><div style="text-align:right;margin-top:14px"><button class="btn bsm bp" id="rvHistClose">Close</button></div>';
+      ov.appendChild(box);document.body.appendChild(ov);
+      const close=()=>{if(ov.parentNode)document.body.removeChild(ov);};
+      (box.querySelector("#rvHistClose")as HTMLElement).onclick=close;
+      ov.onclick=(ev)=>{if(ev.target===ov)close();};
+    };
+    w._rvDownload=()=>{
+      if(!_rvData.length){toast("Nothing to download");return;}
+      const fmt=(d:Date|null)=>d?new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(d):"";
+      const header=["Lead Number","Lead Name","Total Visits","First Visit Date","Last Visit Date","Repeat Visitor"];
+      const lines=[header.map(csvEsc).join(",")];
+      _rvData.forEach((g:any)=>lines.push([g.phone,g.name,g.visits,fmt(g.first),fmt(g.last),g.visits>1?"Yes":"No"].map(csvEsc).join(",")));
+      const blob=new Blob([lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="wellnessos_repeat_visitors.csv";document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      toast("Downloaded "+_rvData.length+" visitors");
+    };
+    ["rvMonth","rvYear","rvFrom","rvTo","rvSource"].forEach(id=>{
+      const el=root.querySelector("#"+id)as HTMLInputElement;
+      if(el) el.onchange=()=>{_rvPage=1;renderCsvRepeat();};
+    });
+
     w._csvPage=(dir:number)=>{_csvPage+=dir;renderCsvValid();};
     w._csvDupPage=(dir:number)=>{_csvDupPage+=dir;renderCsvDup();};
 
@@ -1874,7 +2482,52 @@ export default function Home() {
       downloadCsvRows(rows,"wellnessos_batch_"+id+".csv");toast("Downloaded batch");
     };
 
+    // Send selected CSV imported leads to the SAME assignment pool as the feed.
+    // They become DB-backed pooled leads (leads.in_pool=true) handled by the exact
+    // same pool → assign workflow.
+    w._csvSendToAssignment=async()=>{
+      const sel=_csvTabName==="dup"?".csvDupChk:checked":(_csvTabName==="valid"?".csvChk:checked":null);
+      if(!sel){toast("Open the Imported leads or Duplicates tab and select rows");return;}
+      const ids=Array.from(root.querySelectorAll(sel)).map((c:any)=>Number(c.getAttribute("data-id")));
+      if(ids.length===0){toast("Select one or more leads first");return;}
+      const rows=ids.map(id=>_csvLeads.find((r:any)=>r.id===id)).filter(Boolean);
+      if(rows.length===0){toast("Select one or more leads first");return;}
+      try{
+        const nowIso=new Date().toISOString();
+        // Manual-source leads: Source and Language both shown as "Manual".
+        const payload=rows.map((r:any)=>{
+          const d=r.dt?new Date(r.dt):null;
+          return {
+            meta_lead_id:"csv-"+r.id,name:r.lead||r.name||"Lead",phone:(r.phone||"").trim(),
+            source:"Manual",language:"Manual",
+            lead_date:(d&&!isNaN(d.getTime()))?d.toISOString().substring(0,10):nowIso.substring(0,10),
+            campaign:r.campaign||"Manual import",service:r.service||"Diabetes",
+            is_valid:!!(r.phone&&r.phone.trim()),is_duplicate:false,is_assigned:false,
+            in_pool:true,pool_added_at:nowIso,created_at:nowIso
+          };
+        });
+        for(let i=0;i<payload.length;i+=200){
+          const {error}=await supabase.from("leads").upsert(payload.slice(i,i+200),{onConflict:"meta_lead_id"});
+          if(error) throw error;
+        }
+        // Move (not copy): remove the rows from csv_leads so they leave the import
+        // table and can't be pushed again.
+        for(let i=0;i<ids.length;i+=200){
+          await supabase.from("csv_leads").delete().in("id",ids.slice(i,i+200));
+        }
+      }catch(e:any){
+        toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Send failed: "+(e.message||"db error"));
+        return;
+      }
+      await loadCsvData();          // refresh import tables (moved leads now gone)
+      await loadAssignmentExtras();
+      rebuildPoolFromDB();
+      renderUnassignedPool();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      toast(rows.length+" lead"+(rows.length===1?"":"s")+" moved to assignment pool");
+    };
+
     loadCsvData();
+    loadAssignmentExtras().then(()=>{rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
 
     // ========== RECEPTION DATA ==========
     const RX: any[] = [
@@ -2061,6 +2714,8 @@ export default function Home() {
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
       if(v==="afd"||v==="afz"){renderSlots();ach("📅","Appointment fixed!","Pick a slot");boom(26);addLog("Appointment Fixed");}
       if(v==="fu") addLog("Follow Up");
+      // Persist the call status to the open lead so it drives the KPI dashboard.
+      if(w._haSetCallStatus) w._haSetCallStatus(HA_CODE2LABEL[v]||v);
     }
     w.callStatusChange = callStatusChange;
 
@@ -2261,7 +2916,7 @@ export default function Home() {
     renderAll();
     seed();
 
-    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); };
+    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
   }, []);
 
   return (
