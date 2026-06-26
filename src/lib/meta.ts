@@ -181,10 +181,53 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
 
   // Optional allowlist: only these lead-form IDs (the forms run by the target ad
   // accounts). Empty → all forms on the connected pages.
-  const allowForms = new Set(
-    (process.env.META_TARGET_FORM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean)
-  );
+  const allowList = (process.env.META_TARGET_FORM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const allowForms = new Set(allowList);
 
+  // ===== Direct-by-form mode (explicit allowlist) =====
+  // Fetch EACH allowlisted form's leads directly, trying every available token,
+  // so forms on pages the primary token cannot enumerate are still captured.
+  if (allowList.length > 0) {
+    const tokens = [
+      process.env.META_SYSTEM_ACCESS_TOKEN,
+      process.env.META_ACCESS_TOKEN,
+      process.env.META_PAGE_ACCESS_TOKEN,
+      process.env.META_SYSTEM_ACCESS_TOKEN_1
+    ].filter(Boolean) as string[];
+    const collected: any[] = [];
+    let formErrors = 0;
+    const pageErrors: { pageId: string; reason: string }[] = [];
+    for (const fid of allowList) {
+      // Find a token that can read this form, and its name.
+      let workTok: string | null = null;
+      let formName = fid;
+      for (const tk of tokens) {
+        try {
+          const r = await fetchWithTimeout(`${GRAPH_API}/${fid}?fields=name&access_token=${tk}`);
+          const j = await r.json();
+          if (!j.error) { workTok = tk; formName = j.name || fid; break; }
+        } catch (_) { /* try next token */ }
+      }
+      if (!workTok) { formErrors++; pageErrors.push({ pageId: fid, reason: 'no token can read this form' }); continue; }
+      const { items, error } = await fetchAllPages(
+        `${GRAPH_API}/${fid}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,ad_id,ad_name&limit=200&access_token=${workTok}`,
+        100,
+        (pageItems) => {
+          const last = pageItems[pageItems.length - 1];
+          return !!last && new Date(last.created_time).getTime() < windowCutoff;
+        }
+      );
+      if (error) { formErrors++; pageErrors.push({ pageId: fid, reason: error }); continue; }
+      const within = items.filter((l: any) => new Date(l.created_time).getTime() >= windowCutoff);
+      within.forEach((l: any) => collected.push(normalizeLead(l, formName, '')));
+    }
+    const seenD = new Set<string>();
+    const leadsD = collected.filter((l) => { if (seenD.has(l.id)) return false; seenD.add(l.id); return true; });
+    leadsD.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return { leads: leadsD, formsScanned: allowList.length, formErrors, pageErrors };
+  }
+
+  // ===== Page-enumeration mode (no allowlist): scan every form on every page =====
   const formResults = await Promise.allSettled(
     pageIds.map(async (pageId) => {
       const { items, error } = await fetchAllPages(
@@ -293,10 +336,10 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
       if (l.adAccountId) attrMap.set(l.id, { id: l.adAccountId, name: l.adAccountName });
     });
 
-    // Merge: page-form leads are the base; add any ad-account leads not already present.
+    // Only the allowlisted forms' leads are synced. The ad-account crawl is used
+    // SOLELY for attribution (attrMap above) — it must NOT add leads from other forms.
     const byId = new Map<string, any>();
     formCrawl.leads.forEach((l: any) => byId.set(l.id, l));
-    adCrawl.leads.forEach((l: any) => { if (!byId.has(l.id)) byId.set(l.id, l); });
 
     // Sort oldest-first so duplicate-phone detection keeps the earliest as unique.
     const merged = [...byId.values()].sort(
@@ -310,12 +353,16 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
       const attr = attrMap.get(l.id);
       return {
         meta_lead_id: l.id,
-        name: l.name || 'Lead',
+        name: l.name || '(no name)',
         phone,
         email: l.email || '',
         source: 'Meta Ads',
         lead_date: String(l.createdAt).substring(0, 10),
-        campaign: l.campaignName || l.adName || l.formName || '—',
+        campaign: l.campaignName || l.formName || '—',
+        ad_name: l.adName || null,
+        sugar_poll: l.sugar || null,
+        city: l.city || null,
+        street: l.street || null,
         campaign_id: null,
         ad_account_id: attr?.id || l.adAccountId || null,
         ad_account_name: attr?.name || l.adAccountName || null,
@@ -408,11 +455,39 @@ function getPageNames() {
   return _pageNames;
 }
 
+// Normalise a Meta lead-form field key: lowercase, ascii-alnum only.
+// e.g. "Name (பெயர்)" -> "name", "phone_number" -> "phonenumber".
+function _normKey(s: string): string {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+// Extract real lead attributes from Meta field_data by FUZZY key matching, so
+// localized/custom labels (e.g. "Name (பெயர்)", Tamil sugar question) map correctly.
+function extractFields(fieldData: any[]) {
+  const pairs = (fieldData || []).map((f: any) => ({ k: _normKey(f.name), v: (f.values?.[0] || '').trim() }));
+  const first = (test: (k: string) => boolean): string => {
+    const hit = pairs.find((p: any) => p.v && test(p.k));
+    return hit ? hit.v : '';
+  };
+  const phone = first((k) => k === 'phonenumber' || k === 'phone' || k.startsWith('phone') || k === 'mobile' || k.startsWith('mobilenumber'));
+  // name: a key containing "name" but NOT phone-related
+  const name = first((k) => (k === 'name' || k.includes('fullname') || k.includes('firstname') || (k.includes('name') && !k.includes('phone') && !k.includes('username'))));
+  const lastName = first((k) => k.includes('lastname'));
+  const email = first((k) => k.includes('email'));
+  let sugar = first((k) => k.includes('sugar'));
+  // clean values like "150-250_sugar_level" -> "150-250"
+  sugar = sugar.replace(/[_\s]*sugar[_\s]*level/ig, '').replace(/_/g, ' ').trim();
+  const city = first((k) => k === 'city' || k.includes('city'));
+  const street = first((k) => k.includes('street') || k.includes('address') || k === 'postcode' || k.includes('postcode') || k.includes('pincode') || k.includes('zip'));
+  const lang = first((k) => k.includes('language') || k.includes('preferredlanguage'));
+  const service = first((k) => k === 'service' || k.includes('interest') || k.includes('program'));
+  let fullName = name;
+  if (fullName && lastName && !fullName.includes(lastName)) fullName = (fullName + ' ' + lastName).trim();
+  return { name: fullName, phone, email, sugar, city, street, lang, service };
+}
+
 function normalizeLead(raw: any, formName: string, pageId: string, attr?: { accountId: string; accountName: string }) {
-  const fields: Record<string, string> = {};
-  for (const f of raw.field_data || []) {
-    fields[f.name] = f.values?.[0] || '';
-  }
+  const f = extractFields(raw.field_data || []);
 
   const createdAt = new Date(raw.created_time);
   const now = new Date();
@@ -425,19 +500,21 @@ function normalizeLead(raw: any, formName: string, pageId: string, attr?: { acco
 
   const pn = getPageNames();
 
-  const leadName = fields.full_name || fields.name || fields.first_name
-    || (fields.last_name ? (fields.first_name || '') + ' ' + fields.last_name : '')
-    || fields.phone_number || fields.phone || 'Lead';
+  // Real name only — never fall back to the phone (so Lead Name ≠ Phone Number).
+  const name = (f.name || '').trim() || '(no name)';
 
   return {
     id: raw.id,
-    name: leadName.trim() || 'Lead',
-    phone: fields.phone_number || fields.phone || '',
-    email: fields.email || '',
+    name,
+    phone: f.phone || '',
+    email: f.email || '',
+    sugar: f.sugar || '',
+    city: f.city || '',
+    street: f.street || '',
     source: 'Meta',
     campaign: raw.campaign_name || raw.ad_name || formName || '—',
-    service: fields.service || fields.interest || fields.program || 'Diabetes',
-    lang: fields.language || fields.preferred_language || 'Tamil',
+    service: f.service || 'Diabetes',
+    lang: f.lang || 'Tamil',
     received,
     createdAt: raw.created_time,
     formName,

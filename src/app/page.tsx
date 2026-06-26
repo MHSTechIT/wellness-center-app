@@ -25,6 +25,9 @@ function getMainContent(): string {
         <button class="btn bsm" id="asnNextBtn" onclick="window._asnPage(1)">Next →</button>
         <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
       </div></div></div>
+    <div style="display:flex;gap:14px;align-items:flex-start;margin-top:4px">
+    <div id="advOpenList" style="width:212px;flex-shrink:0;display:none"></div>
+    <div id="advDetailPane" style="flex:1;min-width:0">
     <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"/></svg> <span id="advCtxText"></span></div>
     <div class="chead">
       <span class="cav" id="advAv">AK</span>
@@ -48,21 +51,16 @@ function getMainContent(): string {
     <div class="a-p" data-p="recep" style="display:none">
       <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception-entered data — consent, visited time, registration time, service, token. Audit-logged.</span></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">Visited time</td><td class="mono" style="font-weight:600">10:24 AM</td><td style="color:var(--muted)">Registration completed</td><td class="mono" style="font-weight:600">10:31 AM</td></tr>
-          <tr><td style="color:var(--muted)">Service</td><td>Diabetes consultation + Blood test</td><td style="color:var(--muted)">Token</td><td class="mono">T-07</td></tr>
-          <tr><td style="color:var(--muted)">Consent</td><td colspan="3"><span class="chipb ok">DPDP ✓</span> <span class="chipb ok">Health data ✓</span> <span class="chipb ok">Recording ✓</span> <span class="chipb neu">WA ✗</span></td></tr>
-          <tr><td style="color:var(--muted)">Payment at desk</td><td>₹0 (free consultation)</td><td style="color:var(--muted)">Dedup check</td><td>First visit</td></tr>
-        </tbody></table></div></div>
+        <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No reception record for this lead yet.</div></div></div>
     </div>
     <div class="a-p" data-p="sales">
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Basic info <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl">Name</label><input class="input" value="Ajith Kumar"></div>
-          <div class="fld"><label class="lbl">Phone no</label><input class="input mono" value="+91 98000 00021"></div>
+          <div class="fld"><label class="lbl">Name</label><input class="input" id="advfName" value=""></div>
+          <div class="fld"><label class="lbl">Phone no</label><input class="input mono" id="advfPhone" value=""></div>
           <div class="fld"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
-          <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" value="+91 98000 00021"></div>
-          <div class="fld"><label class="lbl">Email</label><input class="input" placeholder="email@example.com"></div>
+          <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" id="advfWhats" value=""></div>
+          <div class="fld"><label class="lbl">Email</label><input class="input" id="advfEmail" placeholder="email@example.com"></div>
           <div class="fld"><label class="lbl">Gender</label><select class="select"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
           <div class="fld"><label class="lbl">Age</label><input class="input mono" type="number" min="1" max="120" value="42" placeholder="e.g. 42"></div>
           <div class="fld"><label class="lbl">Occupation <span class="nb">NEW</span></label><select class="select" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
@@ -140,7 +138,7 @@ function getMainContent(): string {
         <div class="sec-bd">
           <div class="g3">
             <div class="fld"><label class="lbl">Template</label><select class="select" id="waTplSel" onchange="waTpl()"><option value="welcome" selected>Welcome &amp; intro</option><option value="appt">Appointment confirmation</option><option value="fu">Follow-up reminder</option><option value="pay">Payment link</option></select></div>
-            <div class="fld" style="grid-column:span 2"><label class="lbl">Preview</label><textarea class="area" id="waPrev" rows="3">Vanakkam Ajith Kumar! 🙏 Welcome to our Diabetes Reversal family.</textarea></div>
+            <div class="fld" style="grid-column:span 2"><label class="lbl">Preview</label><textarea class="area" id="waPrev" rows="3" placeholder="Template preview will appear here"></textarea></div>
           </div>
           <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg class="icon" style="width:14px;height:14px"><use href="#i-msg"/></svg> Send via WATI</button></div>
         </div></div>
@@ -180,57 +178,29 @@ function getMainContent(): string {
             <div class="fld"><label class="lbl">Status</label><select class="select"><option>Open</option><option selected>Done</option></select></div></div></div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"/></svg> Remarks <span class="arr">▾</span></div>
-        <div class="sec-bd"><div class="fld"><textarea class="area" rows="2">mar16: did not enquiry</textarea></div></div></div>
+        <div class="sec-bd"><div class="fld"><textarea class="area" rows="2" placeholder="Add a remark…"></textarea></div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"/></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
-        <div class="sec-bd"><div class="timeline" id="actLog" style="margin-top:12px">
-          <div class="tl"><div class="t">WhatsApp template sent</div><div class="m">12-Jun 09:05 · Prem Kumar</div></div>
-          <div class="tl"><div class="t">Call · no answer · 0:00</div><div class="m">12-Jun 08:58 · Prem Kumar</div></div>
-          <div class="tl"><div class="t">Assigned to Prem Kumar</div><div class="m">12-Jun 08:21 · ABM</div></div>
-          <div class="tl"><div class="t">Lead captured · Meta</div><div class="m">12-Jun 08:14 · system</div></div>
-        </div></div></div>
+        <div class="sec-bd"><div class="timeline" id="actLog" style="margin-top:12px"><div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div></div></div></div>
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="toast('Lead record saved')">Save lead record</button></div>
     </div>
     <div class="a-p" data-p="health" style="display:none">
       <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> This clinical record is owned by the Health coach — advisors can read everything but edit nothing. Every view is audit-logged.</span></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-stetho"/></svg> Consultation &amp; program <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">Consultation status</td><td><span class="chipb ok">Will Join Immediately</span></td><td style="color:var(--muted)">Attended by</td><td style="font-weight:600">Dr. Suresh</td></tr>
-          <tr><td style="color:var(--muted)">Consultation date</td><td class="mono">13-Jun-2026</td><td style="color:var(--muted)">Recording</td><td><span class="chipb ok">Done</span></td></tr>
-          <tr><td style="color:var(--muted)">Program suggested</td><td style="font-weight:600">L2 — 6-month reversal</td><td style="color:var(--muted)">Quoted price</td><td class="mono" style="font-weight:700">₹29,000</td></tr>
-          <tr><td style="color:var(--muted)">Expectations</td><td colspan="3">HbA1c 8.4 → below 7 in 3 months; morning walks; diet plan</td></tr>
-        </tbody></table></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Assessment snapshot <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">BMI</td><td class="mono">29.1</td><td style="color:var(--muted)">BP / Pulse</td><td class="mono">130/85 · 78</td><td style="color:var(--muted)">Duration</td><td>3–5 yrs</td></tr>
-          <tr><td style="color:var(--muted)">Symptoms</td><td colspan="3">Frequent urination, excessive thirst, fatigue</td><td style="color:var(--muted)">Family history</td><td>Father</td></tr>
-        </tbody></table></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Payment summary <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">Method</td><td>Full · UPI</td><td style="color:var(--muted)">Amount</td><td class="mono" style="font-weight:700">₹29,000</td><td style="color:var(--muted)">Status</td><td><span class="chipb warn">Pending verification</span></td></tr>
-        </tbody></table></div></div>
+        <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No health-coach consultation recorded for this lead yet.</div></div></div>
     </div>
-    <div class="a-p" data-p="pay" style="display:none"><div class="stub">Payment history — read-only ledger (gross / fee / net).</div></div>
-    <div class="a-p" data-p="notes" style="display:none"><div class="stub">Internal notes — team-only thread.</div></div>
-    <div class="a-p" data-p="extra" style="display:none"><div class="stub">Extra info — admin-configured custom fields.</div></div>
+    <div class="a-p" data-p="pay" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Payment history</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No payment records for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="notes" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"/></svg> Internal notes</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No internal notes for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="extra" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-doc"/></svg> Extra info</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No additional information for this lead yet.</div></div></div></div>
     <div class="a-p" data-p="calls" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"/></svg> Call logs — synced from Tata Tele <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Date · time</th><th>Direction</th><th>Duration</th><th>Outcome</th><th>Recording</th><th>Note</th></tr></thead><tbody>
-          <tr><td class="mono">12-Jun 09:14</td><td><span class="chipb info">Outgoing</span></td><td class="mono">4:32</td><td><span class="chipb ok">Connected · Appt fixed</span></td><td><button class="btn bsm">▶ Play</button></td><td>Confirmed walk-in with wife</td></tr>
-          <tr><td class="mono">12-Jun 08:58</td><td><span class="chipb info">Outgoing</span></td><td class="mono">0:00</td><td><span class="chipb warn">RNR</span></td><td>—</td><td>—</td></tr>
-          <tr><td class="mono">12-Jun 08:31</td><td><span class="chipb vio">Incoming</span></td><td class="mono">1:05</td><td><span class="chipb ok">Connected</span></td><td><button class="btn bsm">▶ Play</button></td><td>Asked about centre location</td></tr>
-          <tr><td class="mono">11-Jun 18:40</td><td><span class="chipb info">Outgoing</span></td><td class="mono">0:00</td><td><span class="chipb al">Switched Off</span></td><td>—</td><td>—</td></tr>
-        </tbody></table>
-        <p style="font-size:11.5px;color:var(--faint);margin:10px 0 0">Calls made from the office landline (outside the system) won't appear here — flagged risk OD-17.</p></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"/></svg> Call logs <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
+        <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"/></svg> History of activity</div>
-        <div class="sec-bd"><div class="timeline" style="margin-top:12px">
-          <div class="tl"><div class="t">WA template "Appointment confirmation" sent</div><div class="m">12-Jun 09:16 · auto</div></div>
-          <div class="tl"><div class="t">Slot booked 10:30 AM · Dr. Suresh</div><div class="m">12-Jun 09:15 · Prem Kumar</div></div>
-          <div class="tl"><div class="t">Call status → Appointment Fixed – Direct</div><div class="m">12-Jun 09:14 · Prem Kumar</div></div>
-          <div class="tl"><div class="t">Lead captured · Meta</div><div class="m">12-Jun 08:14 · system</div></div>
-        </div></div></div>
+        <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No activity recorded for this lead yet.</div></div></div>
     </div>
+    </div><!-- /advDetailPane -->
+    </div><!-- /flex row -->
   </div></section>
 
   <!-- COACH -->
@@ -506,34 +476,41 @@ function getMainContent(): string {
   <!-- LEAD IMPORT -->
   <section class="screen" id="s-import"><div class="wrap">
     <div class="ph"><div><h1>Lead import &amp; intake</h1><p>Real-time Meta capture, every source, bulk CSV fallback — with control.</p></div>
-      <div class="pha"><button class="btn bp" onclick="toast('Single lead form opened')">+ Add single lead</button></div></div>
+      <div class="pha"><button class="btn bp" onclick="window._addSingleLead()">+ Add single lead</button></div></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 4px">
       <span class="viewing"><span class="vd"></span> Viewing as ABM / Admin</span>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto" id="impFilterBar">
         <select class="select" id="impMonth" style="height:33px;font-size:12px;width:130px"><option value="all" selected>All Months</option><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5">June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select>
         <select class="select" id="impYear" style="height:33px;font-size:12px;width:100px"><option value="all" selected>All Years</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
-        <input class="input mono" id="impDateFrom" type="date" style="height:33px;font-size:12px;width:138px">
+        <input class="input mono" id="impDateFrom" type="datetime-local" title="From date &amp; time" style="height:33px;font-size:11.5px;width:182px">
         <span style="color:var(--faint);font-size:12px">to</span>
-        <input class="input mono" id="impDateTo" type="date" style="height:33px;font-size:12px;width:138px">
+        <input class="input mono" id="impDateTo" type="datetime-local" title="To date &amp; time" style="height:33px;font-size:11.5px;width:182px">
         <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option></select>
+        <button class="btn bsm bp" onclick="window._impApplyFilters()">Apply</button>
+        <button class="btn bsm" onclick="window._impClearFilters()">Clear</button>
       </div>
     </div>
     <div class="metrics" id="impMetrics" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bolt"/></svg> Source connections <span class="arr">▾</span></div>
       <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1100px" id="srcConnTable"><thead><tr><th style="width:36px"><input type="checkbox" id="srcSelAll" style="accent-color:var(--brand)"></th><th>Total leads</th><th>Lead source</th><th>Status</th><th>Today</th><th>Last lead</th><th>Mode</th><th>Valid</th><th>Unique</th><th>Duplicate</th><th>Assigned</th><th>Unassigned</th></tr></thead><tbody id="srcTableBody"></tbody></table></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn bsm bp" onclick="toast('Bulk action applied to selected sources')">Apply bulk action</button><button class="btn bsm" onclick="toast('Exported selected source data')">Export selected</button></div>
-      <div class="rb" style="margin-top:12px;background:var(--alert-bg);border:1px solid var(--alert);border-radius:10px;padding:10px 14px">
-        <span style="font-size:12.5px;font-weight:600;color:var(--alert-ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok">Enabled</span></div></div></div>
+      <div class="rb" id="metaLeadAlert" style="margin-top:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px">
+        <span id="metaLeadAlertText" style="font-size:12.5px;font-weight:600;color:var(--ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok" id="metaLeadAlertChip">Monitoring</span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span style="font-size:11px;color:var(--faint);margin-left:8px" id="metaFeedStatus">Connecting to Meta…</span> <span class="arr">▾</span></div>
-      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1000px"><thead><tr><th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all on this page"></th><th>Date &amp; Time (IST)</th><th>Lead</th><th>Source</th><th>Campaign</th><th>Service</th><th>Lang</th><th>Received</th><th>Dedup</th></tr></thead><tbody id="liveFeedBody">
-        <tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">Loading live leads from Meta ad accounts…</td></tr>
+      <div class="sec-bd">
+      <div class="tabs" id="feedViewTabs" style="margin-bottom:12px">
+        <button class="on" data-fv="all" onclick="window._feedSetView('all')">All leads</button>
+        <button data-fv="dup" onclick="window._feedSetView('dup')">Duplicates <span class="mini" id="feedDupCount">0</span></button>
+      </div>
+      <div style="overflow-x:auto"><table class="tbl" style="min-width:1480px"><thead><tr><th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all leads matching the current filter (all pages)"></th><th>Date &amp; Time (IST)</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Language</th><th>Received</th><th>Dedup</th></tr></thead><tbody id="liveFeedBody">
+        <tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">Loading live leads from Meta ad accounts…</td></tr>
       </tbody></table></div>
       <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
         <button class="btn bsm" id="metaPrevBtn" onclick="window._metaPage(-1)">← Previous</button>
         <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="metaPageInfo">Page 1 of 1</span>
         <button class="btn bsm" id="metaNextBtn" onclick="window._metaPage(1)">Next →</button>
       </div>
-      <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="window._sendToAssignment()">Send to assignment →</button><button class="btn bsm">Mark duplicate</button><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
+      <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="window._sendToAssignment()">Send to assignment →</button><span style="font-size:12px;font-weight:700;color:var(--brand-600)" id="feedSelCount"></span><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clip"/></svg> Bulk CSV import — wizard <span class="arr">▾</span></div>
       <div class="sec-bd">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -556,6 +533,15 @@ function getMainContent(): string {
             <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
         </div>
         <div id="csvImportedWrap" style="display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:9px 12px">
+            <span style="font-size:12px;font-weight:700;color:var(--ink)">⏱ Time range</span>
+            <select class="select" id="csvRangePreset" style="height:31px;font-size:12px;width:150px"><option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="month">This month</option><option value="custom">Custom range</option></select>
+            <span style="font-size:11px;color:var(--faint)">From</span><input class="input mono" id="csvRangeFrom" type="datetime-local" style="height:31px;font-size:11.5px;width:185px">
+            <span style="font-size:11px;color:var(--faint)">To</span><input class="input mono" id="csvRangeTo" type="datetime-local" style="height:31px;font-size:11.5px;width:185px">
+            <button class="btn bsm bp" onclick="window._csvApplyRange()">Apply</button>
+            <button class="btn bsm" onclick="window._csvClearRange()">Clear</button>
+            <span style="font-size:11px;color:var(--faint);margin-left:auto" id="csvRangeLabel">Showing: all time</span>
+          </div>
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
             <div class="tabs" id="csvTabs" style="margin-bottom:0">
               <button class="on" data-ct="valid">Imported leads <span class="mini" id="csvValidCount">0</span></button>
@@ -584,7 +570,7 @@ function getMainContent(): string {
 
           <!-- DUPLICATES -->
           <div class="csv-tab" data-ctp="dup" style="display:none">
-            <div class="banner plan" style="margin:0 0 12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Duplicate phone numbers detected on import. Review and <b>Keep</b> (move to Imported leads) or <b>Delete</b>.</span></div>
+            <div class="banner plan" style="margin:0 0 12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Duplicate phone numbers detected on import. Review and <b>Keep</b> (move to Imported leads) or <b>Delete</b>. Duplicates are shown here for <b>10 minutes</b>, then auto-removed.</span></div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" id="csvDupSelAll" style="accent-color:var(--brand)"> Select all</label>
               <button class="btn bsm" onclick="window._csvKeepSelected()">✓ Keep selected</button>
@@ -630,6 +616,15 @@ function getMainContent(): string {
   <section class="screen" id="s-abm"><div class="wrap">
     <div class="ph"><div><h1>Assign &amp; approve</h1><p>Distribute, rescue aging leads, gate sensitive actions.</p></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Asst. branch manager</span>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:9px 12px">
+      <span style="font-size:12px;font-weight:700;color:var(--ink)">⏱ Time range</span>
+      <select class="select" id="abmRangePreset" style="height:31px;font-size:12px;width:150px"><option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="month">This month</option><option value="custom">Custom range</option></select>
+      <span style="font-size:11px;color:var(--faint)">From</span><input class="input mono" id="abmRangeFrom" type="datetime-local" style="height:31px;font-size:11.5px;width:185px">
+      <span style="font-size:11px;color:var(--faint)">To</span><input class="input mono" id="abmRangeTo" type="datetime-local" style="height:31px;font-size:11.5px;width:185px">
+      <button class="btn bsm bp" onclick="window._abmApplyRange()">Apply</button>
+      <button class="btn bsm" onclick="window._abmClearRange()">Clear</button>
+      <span style="font-size:11px;color:var(--faint);margin-left:auto" id="abmRangeLabel">Showing: all time</span>
+    </div>
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
@@ -1242,6 +1237,67 @@ export default function Home() {
     // fetchMetaLiveFeed() from /api/meta/leads — no mock data.
     const IMP:any[]=[];
 
+    // ===== Meta connection monitor (Source Connections status + alerts/popups) =====
+    let _metaConn:"unknown"|"connected"|"disconnected"="unknown";
+    let _metaAlertActive=false;          // true while the 30-min no-lead alert is showing
+    let _metaMonitorTimer:any=null;
+    const CAMPAIGN_START_HOUR=9, CAMPAIGN_END_HOUR=21;   // active campaign window (IST)
+    function istHour(){
+      try{ return Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",hour:"2-digit",hour12:false}).format(new Date())); }catch(_){ return new Date().getHours(); }
+    }
+    // A dismissible popup pinned top-centre. type: 'warn' (stays) | 'ok' (auto-dismiss).
+    function _metaPopup(msg:string,type:"warn"|"ok"){
+      const ex=document.getElementById("metaConnPopup"); if(ex&&ex.parentNode) ex.parentNode.removeChild(ex);
+      const wrap=document.createElement("div"); wrap.id="metaConnPopup";
+      const al=type==="warn";
+      wrap.style.cssText="position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.25);font-size:13.5px;font-weight:600;max-width:92vw;"+(al?"background:var(--alert-bg);border:1.5px solid var(--alert);color:var(--alert-ink)":"background:var(--ok-bg);border:1.5px solid var(--ok);color:var(--ok-ink)");
+      wrap.innerHTML='<span style="font-size:16px">'+(al?"⚠":"✓")+'</span><span>'+msg+'</span><button aria-label="Dismiss" style="background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:inherit;font-weight:700">×</button>';
+      (wrap.querySelector("button")as HTMLElement).onclick=()=>{ if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
+      document.body.appendChild(wrap);
+      if(!al) setTimeout(()=>{ if(wrap.parentNode) wrap.parentNode.removeChild(wrap); },6000);
+    }
+    // Transition the Meta connection state; fire toasts/popups + repaint the status cell.
+    function setMetaConn(state:"connected"|"disconnected",reason?:string){
+      const prev=_metaConn;
+      if(prev===state){ return; }
+      _metaConn=state;
+      try{ renderSrcTable(); }catch(_){}
+      if(state==="connected"){
+        if(prev==="disconnected"){ toast("✓ Meta reconnected — leads syncing"); _metaPopup("Meta connection re-established. Leads are syncing again.","ok"); }
+        else { toast("✓ Meta connected — leads syncing"); }
+      }else{
+        toastErr("Meta connection lost"+(reason?" — "+reason:""));
+        _metaPopup("Meta connection lost"+(reason?" ("+reason+")":"")+". New leads may not arrive until it reconnects.","warn");
+      }
+    }
+    // Newest Meta lead timestamp (ms); 0 if none.
+    function newestMetaLeadMs(){ let mx=0; (_metaLeads||[]).forEach((l:any)=>{ const t=new Date(l.createdAt).getTime(); if(t>mx) mx=t; }); return mx; }
+    // Update the "no Meta lead for 30 min during campaign hours" alert banner.
+    function updateMetaAlert(){
+      const box=root.querySelector("#metaLeadAlert")as HTMLElement|null;
+      const txt=root.querySelector("#metaLeadAlertText")as HTMLElement|null;
+      const chip=root.querySelector("#metaLeadAlertChip")as HTMLElement|null;
+      if(!box||!txt||!chip) return;
+      const h=istHour();
+      const inHours=h>=CAMPAIGN_START_HOUR&&h<CAMPAIGN_END_HOUR;
+      const newest=newestMetaLeadMs();
+      const ageMin=newest?Math.floor((Date.now()-newest)/60000):Infinity;
+      const triggered=inHours && ageMin>30;
+      if(triggered){
+        box.style.background="var(--alert-bg)";box.style.borderColor="var(--alert)";
+        txt.textContent="⚠ Alert: No Meta leads received for the last 30 minutes. Please notify the ABM team.";
+        txt.style.color="var(--alert-ink)";
+        chip.className="chipb al"; chip.textContent="ACTIVE";
+        if(!_metaAlertActive){ _metaAlertActive=true; toastErr("No Meta leads for 30+ min — notify the ABM team"); _metaPopup("No Meta leads received in the last 30 minutes during campaign hours. Please notify the ABM team.","warn"); }
+      }else{
+        box.style.background="var(--surface-2)";box.style.borderColor="var(--line)";
+        txt.textContent="Alert: notify ABM if no Meta lead for 30 min during campaign hours"+(inHours?"":" · outside campaign hours ("+CAMPAIGN_START_HOUR+":00–"+CAMPAIGN_END_HOUR+":00 IST)");
+        txt.style.color="var(--ink)";
+        chip.className="chipb ok"; chip.textContent=inHours?"Monitoring":"Idle";
+        _metaAlertActive=false;
+      }
+    }
+
     // Supabase: source-connection display config only.
     // Lead data for the dashboard comes from the LIVE META FEED (see fetchMetaLiveFeed
     // below), which is the single source of truth shared by the KPI cards, the
@@ -1263,17 +1319,29 @@ export default function Home() {
     // Shared filter predicate used by BOTH the dashboard (KPI cards + Source
     // Connections, via IMP) and the Live Incoming Feed (via _metaLeads), so all
     // three always reflect exactly the same filtered dataset.
+    // Parse a date/datetime-local input value into a timezone-safe LOCAL Date.
+    // Handles "YYYY-MM-DDTHH:mm" (date+time) and "YYYY-MM-DD" (date only). For a
+    // date-only value, isEnd snaps to end-of-day so the whole day is included.
+    function parseRangeBound(v:string,isEnd:boolean):Date|null{
+      if(!v) return null;
+      let m=v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})/);
+      if(m) return new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],isEnd?59:0,isEnd?999:0);
+      m=v.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if(m) return new Date(+m[1],+m[2]-1,+m[3],isEnd?23:0,isEnd?59:0,isEnd?59:0,isEnd?999:0);
+      const d=new Date(v); return isNaN(d.getTime())?null:d;
+    }
     function leadPasses(dateObj:Date,source:string){
+      if(!dateObj||isNaN(dateObj.getTime())) return false;
       const mo=(root.querySelector("#impMonth")as HTMLSelectElement)?.value;
       const yr=(root.querySelector("#impYear")as HTMLSelectElement)?.value;
       const df=(root.querySelector("#impDateFrom")as HTMLInputElement)?.value;
       const dt=(root.querySelector("#impDateTo")as HTMLInputElement)?.value;
       const src=(root.querySelector("#impSource")as HTMLSelectElement)?.value;
-      // An explicit date range takes PRECEDENCE over the Month/Year dropdowns.
+      // An explicit date/time range takes PRECEDENCE over the Month/Year dropdowns.
       const rangeActive=!!df||!!dt;
       if(rangeActive){
-        if(df){const from=new Date(df);from.setHours(0,0,0,0);if(dateObj<from)return false;}
-        if(dt){const to=new Date(dt);to.setHours(23,59,59,999);if(dateObj>to)return false;}
+        const from=parseRangeBound(df,false); if(from&&dateObj<from) return false;
+        const to=parseRangeBound(dt,true);    if(to&&dateObj>to) return false;
       }else{
         if(yr!=="all"&&dateObj.getFullYear()!==Number(yr))return false;
         if(mo!=="all"&&dateObj.getMonth()!==Number(mo))return false;
@@ -1327,8 +1395,15 @@ export default function Home() {
         const isManual=s.name.indexOf("Walk-in")===0;
         const newest=allForSrc.reduce((mx:any,r:any)=>(!mx||r.date>mx)?r.date:mx,null);
         const lastLead=newest?ageStr(newest):"—";
-        const status=connected?"Connected":(isManual?"Manual":"Not connected");
-        const sc=connected?"ok":(isManual?"info":"neu");
+        const isMeta=s.name==="Meta Ads";
+        let status=connected?"Connected":(isManual?"Manual":"Not connected");
+        let sc=connected?"ok":(isManual?"info":"neu");
+        // Meta's status reflects the live connection monitor (sync reachability).
+        if(isMeta){
+          if(_metaConn==="disconnected"){ status="Disconnected"; sc="al"; }
+          else if(_metaConn==="connected"||connected){ status="Connected"; sc="ok"; }
+          else { status="Connecting…"; sc="neu"; }
+        }
         const mode=connected?s.mode:"—";
         return '<tr><td><input type="checkbox" class="srcChk" style="accent-color:var(--brand)"></td>'
           +'<td class="mono" style="font-weight:700;cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'total\')">'+sf.length+'</td>'
@@ -1343,6 +1418,23 @@ export default function Home() {
           +'<td class="mono" style="cursor:pointer" onclick="window._impDrillSrc(\''+s.name+'\',\'assigned\')">'+asgn+'</td>'
           +'<td class="mono" style="cursor:pointer;'+(unasgn>0?'color:var(--warn-ink);font-weight:600':'')+'" onclick="window._impDrillSrc(\''+s.name+'\',\'unassigned\')">'+unasgn+'</td></tr>';
       }).join("");
+      // TOTAL row — sums every source so the table ties out to the Total Leads card
+      // (Total Leads = Meta + Walk-in + …). Uses the SAME filtered dataset (f) as the KPIs.
+      const tTot=f.length, tTod=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length,
+        tVal=f.filter(r=>r.isValid).length, tDup=f.filter(r=>r.isDuplicate).length, tUniq=tTot-tDup,
+        tAsg=f.filter(r=>r.isAssigned).length, tUna=tTot-tAsg;
+      el.innerHTML+='<tr style="background:var(--surface-2);font-weight:800;border-top:2px solid var(--line)">'
+        +'<td></td>'
+        +'<td class="mono" style="font-weight:800">'+tTot+'</td>'
+        +'<td style="font-weight:800">TOTAL · all sources</td>'
+        +'<td></td>'
+        +'<td class="mono" style="font-weight:800">'+tTod+'</td>'
+        +'<td></td><td></td>'
+        +'<td class="mono" style="font-weight:800">'+tVal+'</td>'
+        +'<td class="mono" style="font-weight:800">'+tUniq+'</td>'
+        +'<td class="mono" style="font-weight:800">'+tDup+'</td>'
+        +'<td class="mono" style="font-weight:800">'+tAsg+'</td>'
+        +'<td class="mono" style="font-weight:800">'+tUna+'</td></tr>';
       const selAll=root.querySelector("#srcSelAll")as HTMLInputElement;
       if(selAll) selAll.onchange=()=>{root.querySelectorAll(".srcChk").forEach((c:any)=>{c.checked=selAll.checked;});};
     }
@@ -1405,11 +1497,201 @@ export default function Home() {
     syncFilterUI();
     renderImport();
 
+    // Explicit Apply / Clear for the Lead Import filter bar.
+    w._impApplyFilters=()=>{ applyFilters(); toast("Filters applied"); };
+    w._impClearFilters=()=>{
+      const m=root.querySelector("#impMonth")as HTMLSelectElement;if(m)m.value="all";
+      const y=root.querySelector("#impYear")as HTMLSelectElement;if(y)y.value="all";
+      const f=root.querySelector("#impDateFrom")as HTMLInputElement;if(f)f.value="";
+      const t=root.querySelector("#impDateTo")as HTMLInputElement;if(t)t.value="";
+      const s=root.querySelector("#impSource")as HTMLSelectElement;if(s)s.value="all";
+      applyFilters();
+    };
+
+    // ===== Add single lead (manual entry → saved to DB → assignment pool) =====
+    w._addSingleLead=()=>{
+      const ov=document.createElement("div");
+      ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+      const box=document.createElement("div");
+      box.style.cssText="background:var(--surf,#fff);border-radius:14px;padding:22px;max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
+      box.innerHTML='<div style="font-weight:700;font-size:16px;margin-bottom:3px;color:var(--ink)">Add single lead</div>'
+        +'<div style="font-size:12px;color:var(--faint);margin-bottom:16px">Manually capture a lead — it is saved to the database and added to the Unassigned pool.</div>'
+        +'<div class="g2" style="gap:11px">'
+        +'<div class="fld"><label class="lbl">Name *</label><input class="input" id="slName" placeholder="Full name"></div>'
+        +'<div class="fld"><label class="lbl">Phone *</label><input class="input mono" id="slPhone" placeholder="+91…"></div>'
+        +'<div class="fld"><label class="lbl">Email</label><input class="input" id="slEmail" placeholder="email@example.com"></div>'
+        +'<div class="fld"><label class="lbl">Source</label><select class="select" id="slSource"><option>Walk-in / Referral / Telecalling</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Manual</option></select></div>'
+        +'<div class="fld"><label class="lbl">Service</label><select class="select" id="slService"><option>Diabetes</option><option>Physio</option><option>Blood test</option></select></div>'
+        +'<div class="fld"><label class="lbl">Language</label><select class="select" id="slLang"><option>Tamil</option><option>Telugu</option><option>English</option><option>Hindi</option></select></div>'
+        +'<div class="fld"><label class="lbl">City</label><input class="input" id="slCity" placeholder="City"></div>'
+        +'<div class="fld"><label class="lbl">Sugar level</label><select class="select" id="slSugar"><option value="">—</option><option>No Sugar</option><option>150-250</option><option>Above 250</option></select></div>'
+        +'</div>'
+        +'<div id="slMsg" style="font-size:12px;color:var(--alert-ink);margin-top:8px;min-height:16px"></div>'
+        +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px"><button class="btn bsm" id="slCancel">Cancel</button><button class="btn bsm bp" id="slSave">Save lead</button></div>';
+      ov.appendChild(box);document.body.appendChild(ov);
+      const close=()=>{if(ov.parentNode)document.body.removeChild(ov);};
+      (box.querySelector("#slCancel")as HTMLElement).onclick=close;
+      ov.onclick=(ev)=>{if(ev.target===ov)close();};
+      (box.querySelector("#slSave")as HTMLButtonElement).onclick=async()=>{
+        const val=(id:string)=>(box.querySelector(id)as HTMLInputElement)?.value.trim()||"";
+        const name=val("#slName"),phone=val("#slPhone");
+        const msg=box.querySelector("#slMsg")as HTMLElement;
+        if(!name||!phone){ if(msg)msg.textContent="Name and phone are required."; return; }
+        // Duplicate check: does this phone already exist anywhere in the feed
+        // (Meta-synced OR a previously-added manual/other-source lead)?
+        const np=normPhone(phone);
+        const feedMatch=np?feedAll().find((x:any)=>normPhone(x.phone)===np):null;
+        const isDup=!!feedMatch;
+        const saveBtn=box.querySelector("#slSave")as HTMLButtonElement;saveBtn.disabled=true;saveBtn.textContent="Saving…";
+        const nowIso=new Date().toISOString();
+        const row={
+          meta_lead_id:"manual-"+Date.now()+"-"+Math.floor(Math.random()*1e6),
+          name,phone,email:val("#slEmail"),source:val("#slSource")||"Manual",
+          language:val("#slLang")||"Tamil",service:val("#slService")||"Diabetes",
+          city:val("#slCity"),sugar_poll:val("#slSugar"),campaign:"Manual entry",
+          lead_date:nowIso.substring(0,10),is_valid:true,is_duplicate:isDup,is_assigned:false,
+          in_pool:true,pool_added_at:nowIso,created_at:nowIso
+        };
+        try{
+          const {error}=await supabase.from("leads").insert(row);
+          if(error) throw error;
+        }catch(e:any){
+          if(msg)msg.textContent="Save failed: "+(e.message||"db error");
+          saveBtn.disabled=false;saveBtn.textContent="Save lead";return;
+        }
+        close();
+        await loadOtherSourceLeads();   // reload non-Meta leads (feed + dashboard)
+        await loadAssignmentExtras();rebuildPoolFromDB();
+        rebuildIMP();renderImport();renderUnassignedPool();renderAdvisorLoad();renderAssigneesTable();
+        // If an active filter would HIDE the just-added lead (e.g. a To-date earlier
+        // than now, or a different Source), clear it so the lead is always visible.
+        const impSrc=(row.source==="Manual")?"Walk-in / Referral / Telecalling":row.source;
+        if(!leadPasses(new Date(nowIso),impSrc) && w._impClearFilters){ w._impClearFilters(); }
+        const _cE=root.querySelector("#metaFeedCount"); if(_cE) _cE.textContent=feedAll().length+" leads in database";
+        if(isDup){
+          // Surface the colliding leads (manual + the existing one) in the Duplicates tab.
+          _manualDupPhones.add(np);
+          if(w._feedSetView) w._feedSetView("dup");   // switch to the Duplicates view
+          const filtered=feedFiltered();
+          const idx=filtered.findIndex((x:any)=>normPhone(x.phone)===np);
+          if(idx>=0){ _metaPageNum=Math.floor(idx/META_PER_PAGE)+1; }
+          renderMetaPage();
+          toastErr("Duplicate: "+name+" ("+phone+") already exists — shown in the Duplicates tab");
+        }else{
+          if(w._feedSetView) w._feedSetView("all");
+          _metaPageNum=1; renderMetaPage();
+          toast("Lead added: "+name+" — now in the feed, Source Connections & Unassigned pool");
+        }
+      };
+      setTimeout(()=>{(box.querySelector("#slName")as HTMLInputElement)?.focus();},50);
+    };
+
     // ========== META LIVE FEED ==========
     let _metaFeedTimer:any=null;
     let _metaLeads:any[]=[];
+    let _otherLeads:any[]=[];      // non-Meta leads (compact shape) for KPI cards + Source Connections
+    let _otherFeedLeads:any[]=[];  // non-Meta leads (full feed shape) so they show in the Live feed too
     let _metaPageNum=1;
     const META_PER_PAGE=10;
+    // The Live feed shows EVERY source: Meta-synced leads + manual/other-source leads.
+    function feedAll(){ return _otherFeedLeads.length?_metaLeads.concat(_otherFeedLeads):_metaLeads; }
+    // IMP/source name for a feed lead (Meta → "Meta Ads", Manual → Walk-in bucket).
+    function feedSrcName(l:any){ return l.source==="Meta"?"Meta Ads":(l.source==="Manual"?"Walk-in / Referral / Telecalling":(l.source||"Meta Ads")); }
+
+    // ===== Live-feed duplicate highlighting =====
+    // Toggled by the "Mark duplicate" button. Colours each duplicate-phone GROUP a
+    // distinct tint so matching leads are easy to spot. Phones added via "+ Add single
+    // lead" that collide with a feed lead are tracked here so they highlight too.
+    let _feedHighlightDups=false;
+    let _dupColorMap:Record<string,string>={};
+    const _manualDupPhones=new Set<string>();
+    const DUP_PALETTE=["#FDE2E1","#E1ECFD","#FDF3E1","#E8E1FD","#E1FDE9","#FDE1F4","#E1FAFD","#F6F0D6"];
+    function normPhone(p:string){ return (p||"").replace(/[^0-9]/g,"").slice(-10); }   // last 10 digits
+    function buildDupColorMap(){
+      const counts:Record<string,number>={};
+      feedAll().forEach((l:any)=>{ const p=normPhone(l.phone); if(p) counts[p]=(counts[p]||0)+1; });
+      const map:Record<string,string>={};
+      let ci=0;
+      // colour any phone seen >1 across the feed, plus any manual-entry collision phone
+      const dupPhones=new Set<string>();
+      Object.keys(counts).forEach(p=>{ if(counts[p]>1) dupPhones.add(p); });
+      _manualDupPhones.forEach(p=>dupPhones.add(p));
+      Array.from(dupPhones).sort().forEach(p=>{ map[p]=DUP_PALETTE[ci%DUP_PALETTE.length]; ci++; });
+      return map;
+    }
+    function dupGroupCount(){ return Object.keys(_dupColorMap).length; }
+    // Set of phones that are duplicated across the feed (count>1) + manual collisions.
+    function feedDupPhoneSet(){
+      const counts:Record<string,number>={};
+      feedAll().forEach((l:any)=>{ const p=normPhone(l.phone); if(p) counts[p]=(counts[p]||0)+1; });
+      const s=new Set<string>();
+      Object.keys(counts).forEach(p=>{ if(counts[p]>1) s.add(p); });
+      _manualDupPhones.forEach(p=>s.add(p));
+      return s;
+    }
+
+    // ===== Live-feed view (All / Duplicates) + cross-page selection =====
+    let _feedView:"all"|"dup"="all";
+    const _feedSelected=new Set<string>();   // selected lead ids, persists across pages/filters
+    // Leads matching the active dashboard filters AND the current All/Duplicates view.
+    function feedFiltered(){
+      let list=feedAll().filter((l:any)=>leadPasses(new Date(l.createdAt),feedSrcName(l)));
+      list=list.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
+      if(_feedView==="dup"){ const ds=feedDupPhoneSet(); list=list.filter((l:any)=>ds.has(normPhone(l.phone))); }
+      return list;
+    }
+    // Keep the "select all" checkbox + selection counter in sync with _feedSelected
+    // without re-rendering the table (so individual ticks don't flicker).
+    function syncFeedSelUI(){
+      const selectable=feedFiltered().filter((l:any)=>!_movedToPool.has(String(l.id)));
+      const allSel=selectable.length>0 && selectable.every((l:any)=>_feedSelected.has(String(l.id)));
+      const someSel=selectable.some((l:any)=>_feedSelected.has(String(l.id)));
+      const selAll=root.querySelector("#feedSelAll")as HTMLInputElement;
+      if(selAll){ selAll.checked=allSel; selAll.indeterminate=!allSel&&someSel; }
+      const c=root.querySelector("#feedSelCount"); if(c) c.textContent=_feedSelected.size?(_feedSelected.size+" selected"):"";
+    }
+
+    // Load non-Meta leads so the KPI cards, Source Connections AND the Live feed
+    // reflect ALL sources (manual / walk-in / website / WhatsApp etc.).
+    async function loadOtherSourceLeads(){
+      try{
+        const {data}=await supabase.from("leads")
+          .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,call_status")
+          .neq("source","Meta Ads");
+        const rows=data||[];
+        _otherLeads=rows.map((r:any)=>({id:r.meta_lead_id,name:r.name,
+          source:(r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source,
+          date:new Date(r.created_at||r.lead_date),isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned}));
+        // Full feed-shaped objects for the Live Incoming Feed.
+        _otherFeedLeads=rows.map((r:any)=>{
+          const createdAt=r.created_at||r.lead_date;
+          const m=Math.floor((Date.now()-new Date(createdAt).getTime())/60000);
+          const received=m<1?"now":(m<60?m+"m":(m<1440?Math.floor(m/60)+"h":Math.floor(m/1440)+"d"));
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone||"",email:r.email||"",
+            source:r.source||"Manual",campaign:r.campaign||"Manual entry",adName:"",
+            sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
+            service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
+            isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned,
+            inPool:!!r.in_pool,assignedTo:r.assigned_to||"",callStatus:r.call_status||""};
+        });
+      }catch(_){ _otherLeads=[]; _otherFeedLeads=[]; }
+    }
+    // Rebuild the shared IMP dataset = Meta leads + other-source leads.
+    function rebuildIMP(){
+      IMP.length=0;
+      _metaLeads.forEach((ld:any)=>IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned}));
+      _otherLeads.forEach((o:any)=>IMP.push(o));
+    }
+
+    // "26 Jun, 10:59 AM IST" — shared formatter for the Last Synced label.
+    function fmtSyncTime(d:Date){
+      const parts=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:true}).formatToParts(d);
+      const g=(t:string)=>parts.find(p=>p.type===t)?.value||"";
+      return g("day")+" "+g("month")+", "+g("hour")+":"+g("minute")+" "+g("dayPeriod").toUpperCase()+" IST";
+    }
+    function setSyncedLabel(d:Date){
+      const el=root.querySelector("#metaFeedStatus"); if(el) el.textContent="Last Synced: "+fmtSyncTime(d);
+    }
 
     function fmtIST(iso:string){
       if(!iso) return "—";
@@ -1429,7 +1711,9 @@ export default function Home() {
       const nextBtn=root.querySelector("#metaNextBtn")as HTMLButtonElement;
       // Apply the SAME active filters as the dashboard cards so the feed,
       // KPI cards and Source Connections always show one consistent dataset.
-      const filtered=_metaLeads.filter((l:any)=>leadPasses(new Date(l.createdAt),"Meta Ads"));
+      const hl=_feedHighlightDups||_feedView==="dup";   // Duplicates view always colours
+      if(hl) _dupColorMap=buildDupColorMap();
+      const filtered=feedFiltered();
       const total=filtered.length;
       const totalPages=Math.max(1,Math.ceil(total/META_PER_PAGE));
       if(_metaPageNum>totalPages) _metaPageNum=totalPages;
@@ -1438,32 +1722,42 @@ export default function Home() {
       const pageLeads=filtered.slice(start,start+META_PER_PAGE);
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       if(tbody){
-        tbody.innerHTML=pageLeads.map((ld:any)=>{
+        tbody.innerHTML=pageLeads.length?pageLeads.map((ld:any)=>{
           const moved=_movedToPool.has(String(ld.id));
+          const sel=_feedSelected.has(String(ld.id));
           // Already-moved leads: checkbox removed/disabled + "Moved" flag (no re-move).
           const chk=moved
             ?'<input type="checkbox" disabled title="Already sent to assignment" style="accent-color:var(--brand);opacity:0.4">'
-            :'<input type="checkbox" class="feedChk" data-id="'+esc(String(ld.id))+'" style="accent-color:var(--brand)">';
-          const status=moved?'<span class="chipb vio">Moved</span>':'<span class="chipb ok">New</span>';
-          return '<tr'+(moved?' style="opacity:0.6"':'')+'>'
+            :'<input type="checkbox" class="feedChk" data-id="'+esc(String(ld.id))+'"'+(sel?" checked":"")+' onchange="window._feedToggleSel(this)" style="accent-color:var(--brand)">';
+          const dupColor=hl?(_dupColorMap[normPhone(ld.phone)]||null):null;
+          let status=moved?'<span class="chipb vio">Moved</span>':'<span class="chipb ok">New</span>';
+          if(dupColor) status+=' <span class="chipb al" style="margin-left:4px">Duplicate</span>';
+          const rowStyle=(moved?'opacity:0.6;':'')+(dupColor?'background:'+dupColor+';box-shadow:inset 4px 0 0 rgba(0,0,0,0.18);':'');
+          return '<tr'+(rowStyle?' style="'+rowStyle+'"':'')+'>'
             +'<td>'+chk+'</td>'
             +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(ld.createdAt))+'</td>'
-            +'<td style="font-weight:600">'+esc(ld.name)+'</td>'
+            +'<td class="mono" style="font-size:11.5px">'+esc(ld.campaign||"—")+'</td>'
+            +'<td>'+esc(ld.adName||"—")+'</td>'
+            +'<td style="font-weight:600">'+esc(ld.name||"—")+'</td>'
+            +'<td class="mono" style="font-weight:600">'+esc(ld.phone||"—")+'</td>'
+            +'<td>'+esc(ld.sugar||"—")+'</td>'
+            +'<td>'+esc(ld.city||"—")+'</td>'
+            +'<td>'+esc(ld.street||"—")+'</td>'
             +'<td><span class="tag">'+esc(ld.source)+'</span></td>'
-            +'<td class="mono" style="font-size:11.5px">'+esc(ld.campaign)+'</td>'
             +'<td>'+esc(ld.service)+'</td>'
             +'<td>'+esc(ld.lang)+'</td>'
             +'<td class="mono">'+esc(ld.received)+'</td>'
             +'<td>'+status+'</td>'
             +'</tr>';
-        }).join("");
+        }).join(""):'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:22px">'+(_feedView==="dup"?"No duplicate leads in this range":"No leads in this range")+'</td></tr>';
       }
-      // Reset the header "select all" each render; it only governs the current page.
-      const selAll=root.querySelector("#feedSelAll")as HTMLInputElement;
-      if(selAll) selAll.checked=false;
-      if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" leads";
+      if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" "+(_feedView==="dup"?"duplicate ":"")+"leads";
       if(prevBtn){prevBtn.disabled=_metaPageNum<=1;prevBtn.style.opacity=_metaPageNum<=1?"0.45":"1";prevBtn.style.cursor=_metaPageNum<=1?"not-allowed":"pointer";}
       if(nextBtn){nextBtn.disabled=_metaPageNum>=totalPages;nextBtn.style.opacity=_metaPageNum>=totalPages?"0.45":"1";nextBtn.style.cursor=_metaPageNum>=totalPages?"not-allowed":"pointer";}
+      // Duplicates tab count (within the active dashboard filter)
+      const dupTab=root.querySelector("#feedDupCount");
+      if(dupTab){ const ds=feedDupPhoneSet(); dupTab.textContent=String(_metaLeads.filter((l:any)=>leadPasses(new Date(l.createdAt),"Meta Ads")).filter((l:any)=>ds.has(normPhone(l.phone))).length); }
+      syncFeedSelUI();   // header select-all + "N selected" counter
     }
 
     w._metaPage=(dir:number)=>{
@@ -1488,13 +1782,66 @@ export default function Home() {
     async function loadAssignmentExtras(){
       try{
         const [pr,ar]=await Promise.all([
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,pool_added_at,created_at").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
-        _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source}));
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||""}));
+        _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
       }catch(_){ /* columns/table may be absent — ignore */ }
     }
+
+    // ---- Assign & Approve time-range filter (pool / deviation / advisor load) ----
+    const _abmRange:{from:Date|null,to:Date|null}={from:null,to:null};
+    function inAbmRange(ts:any){
+      if(!_abmRange.from&&!_abmRange.to) return true;
+      const d=ts?new Date(ts):null;
+      if(!d||isNaN(d.getTime())) return false;
+      if(_abmRange.from&&d<_abmRange.from) return false;
+      if(_abmRange.to&&d>_abmRange.to) return false;
+      return true;
+    }
+    function _abmApplyPreset(name:string){
+      const fromEl=root.querySelector("#abmRangeFrom")as HTMLInputElement;
+      const toEl=root.querySelector("#abmRangeTo")as HTMLInputElement;
+      const fmt=(d:Date)=>{const p=(n:number)=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());};
+      const now=new Date();let from:Date|null=null,to:Date|null=new Date(now);
+      const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;};
+      const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+      if(name==="today"){from=sod(now);to=eod(now);}
+      else if(name==="yesterday"){const y=new Date(now);y.setDate(y.getDate()-1);from=sod(y);to=eod(y);}
+      else if(name==="7d"){from=new Date(now);from.setDate(from.getDate()-7);to=now;}
+      else if(name==="30d"){from=new Date(now);from.setDate(from.getDate()-30);to=now;}
+      else if(name==="month"){from=new Date(now.getFullYear(),now.getMonth(),1,0,0,0);to=now;}
+      else if(name==="all"){if(fromEl)fromEl.value="";if(toEl)toEl.value="";return;}
+      else return;
+      if(fromEl&&from)fromEl.value=fmt(from);
+      if(toEl&&to)toEl.value=fmt(to);
+    }
+    function _abmRenderAll(){renderUnassignedPool();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();}
+    w._abmApplyRange=()=>{
+      const fromEl=root.querySelector("#abmRangeFrom")as HTMLInputElement;
+      const toEl=root.querySelector("#abmRangeTo")as HTMLInputElement;
+      _abmRange.from=fromEl&&fromEl.value?new Date(fromEl.value):null;
+      _abmRange.to=toEl&&toEl.value?new Date(toEl.value):null;
+      const lab=root.querySelector("#abmRangeLabel");
+      if(lab){
+        if(!_abmRange.from&&!_abmRange.to) lab.textContent="Showing: all time";
+        else{const f=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(d):"…";lab.textContent="Showing: "+f(_abmRange.from)+" → "+f(_abmRange.to);}
+      }
+      _abmRenderAll();
+      toast("Time-range filter applied");
+    };
+    w._abmClearRange=()=>{
+      _abmRange.from=null;_abmRange.to=null;
+      const fromEl=root.querySelector("#abmRangeFrom")as HTMLInputElement;if(fromEl)fromEl.value="";
+      const toEl=root.querySelector("#abmRangeTo")as HTMLInputElement;if(toEl)toEl.value="";
+      const ps=root.querySelector("#abmRangePreset")as HTMLSelectElement;if(ps)ps.value="all";
+      const lab=root.querySelector("#abmRangeLabel");if(lab)lab.textContent="Showing: all time";
+      _abmRenderAll();
+    };
+    const _abmPresetEl=root.querySelector("#abmRangePreset")as HTMLSelectElement;
+    if(_abmPresetEl) _abmPresetEl.onchange=()=>{ _abmApplyPreset(_abmPresetEl.value); if(_abmPresetEl.value!=="custom") w._abmApplyRange(); };
+
     function rebuildPoolFromDB(){
       _movedToPool.clear();
       const pooled=_metaLeads.filter((ld:any)=>ld.inPool);
@@ -1502,19 +1849,21 @@ export default function Home() {
       _unassignedPool=[
         ...pooled.map((ld:any)=>({
           id:ld.id,name:ld.name,src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
-          sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",assignedTo:""
+          sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",assignedTo:"",
+          ts:ld.poolAddedAt||ld.createdAt
         })),
-        ..._poolExtras
+        ..._poolExtras.map((p:any)=>({...p,ts:p.poolAddedAt||p.createdAt}))
       ];
     }
     function renderUnassignedPool(){
       const body=root.querySelector("#unassignedPoolBody");
       const cnt=root.querySelector("#poolCount");
-      if(cnt) cnt.textContent=String(_unassignedPool.length);
+      const pool=_unassignedPool.filter((p:any)=>inAbmRange(p.ts));   // time-range filter
+      if(cnt) cnt.textContent=String(pool.length);
       if(!body) return;
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const activeNames=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
-      body.innerHTML=_unassignedPool.map((p:any)=>{
+      body.innerHTML=pool.map((p:any)=>{
         const opts='<option value="">—</option>'+activeNames.map((n:string)=>'<option'+(p.assignedTo===n?' selected':'')+'>'+esc(n)+'</option>').join("");
         const isNew=String(p.id).indexOf("seed-")!==0;
         return '<tr><td><input type="checkbox" checked style="accent-color:var(--brand)"></td>'
@@ -1532,12 +1881,13 @@ export default function Home() {
       const tab=root.querySelector("#devTabCount");
       const appr=root.querySelector("#apprTabCount");
       const apprBody=root.querySelector("#approvalsBody");
-      if(tab) tab.textContent=String(_unassignedPool.length);
+      const dev=_unassignedPool.filter((p:any)=>inAbmRange(p.ts));   // time-range filter
+      if(tab) tab.textContent=String(dev.length);
       if(appr) appr.textContent="0";
-      if(apprBody) apprBody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:18px">No pending approvals</td></tr>';
+      if(apprBody) apprBody.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:18px">No pending approvals in this period</td></tr>';
       if(!body) return;
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      body.innerHTML=_unassignedPool.length?_unassignedPool.map((p:any)=>'<tr>'
+      body.innerHTML=dev.length?dev.map((p:any)=>'<tr>'
         +'<td style="font-weight:600">'+esc(p.name)+'</td>'
         +'<td><span class="tag">'+esc(p.src)+'</span></td>'
         +'<td>Unassigned</td>'
@@ -1549,8 +1899,9 @@ export default function Home() {
 
     // ===== Assignee master: load, render, CRUD =====
     function _asgActiveLeadCount(name:string){
-      return _metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name).length
-        + _assignedExtras.filter((l:any)=>l.assignedTo===name).length;
+      // Advisor workload within the selected time range (by pool/lead timestamp).
+      return _metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt)).length
+        + _assignedExtras.filter((l:any)=>l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt)).length;
     }
     function renderAssigneesTable(){
       const body=root.querySelector("#asgBody");
@@ -1716,13 +2067,51 @@ export default function Home() {
       toast("Downloaded "+list.length+" assigned leads");
     };
 
-    // Open a lead's profile on the Health Advisor page (populates the header from
-    // the real lead record and navigates there).
-    w._openLeadProfile=(id:string)=>{
-      const l=_metaLeads.find((x:any)=>String(x.id)===String(id))
+    // ===== Open-leads vertical list (left) + detail pane (right) =====
+    let _advLeadId="";         // id of the lead currently shown in the detail pane
+    let _openLeads:any[]=[];   // leads opened from the Assigned table — kept until closed
+    let _openRelinked=false;
+    const _OPEN_KEY="wos_open_leads";
+    // Persist the open-leads workspace so it survives page refreshes / new sessions.
+    function saveOpenLeads(){
+      try{ localStorage.setItem(_OPEN_KEY,JSON.stringify({active:String(_advLeadId||""),leads:_openLeads.map((o:any)=>({id:String(o.id),name:o.lead.name||"",phone:o.lead.phone||""}))})); }catch(_){/* storage unavailable */}
+    }
+    function findLeadById(id:string){
+      return _metaLeads.find((x:any)=>String(x.id)===String(id))
         ||_assignedExtras.find((x:any)=>String(x.id)===String(id))
-        ||_poolExtras.find((x:any)=>String(x.id)===String(id));
-      if(!l){toast("Lead not found");return;}
+        ||_poolExtras.find((x:any)=>String(x.id)===String(id))||null;
+    }
+    // Restore the open-leads list IMMEDIATELY from localStorage using saved
+    // name/phone placeholders, so the workspace shows before the feed loads.
+    function restoreOpenLeads(){
+      let saved:any=null;
+      try{ saved=JSON.parse(localStorage.getItem(_OPEN_KEY)||"null"); }catch(_){/* */}
+      if(!saved||!Array.isArray(saved.leads)||saved.leads.length===0) return;
+      _openLeads=saved.leads.map((s:any)=>({id:String(s.id),lead:{id:s.id,name:s.name||"",phone:s.phone||"",_placeholder:true}}));
+      const activeOpen=_openLeads.some((o:any)=>String(o.id)===String(saved.active));
+      _advLeadId=activeOpen?String(saved.active):String(_openLeads[0].id);
+      const act=_openLeads.find((o:any)=>String(o.id)===String(_advLeadId));
+      renderOpenList();
+      if(act) fillAdvisorDetail(act.lead);   // partial detail (name/phone) until relinked
+    }
+    // Once the real lead data has loaded, swap placeholders for live lead objects
+    // (and drop any leads that no longer exist). Runs once after the feed loads.
+    function relinkOpenLeads(){
+      if(_openRelinked||_openLeads.length===0) return;
+      _openRelinked=true;
+      const linked:any[]=[];
+      _openLeads.forEach((o:any)=>{ const real=findLeadById(o.id); if(real) linked.push({id:real.id,lead:real}); });
+      _openLeads=linked;
+      if(_openLeads.length===0){ _advLeadId=""; _advClearDetail(); renderOpenList(); saveOpenLeads(); return; }
+      if(!_openLeads.some((o:any)=>String(o.id)===String(_advLeadId))) _advLeadId=String(_openLeads[0].id);
+      const act=_openLeads.find((o:any)=>String(o.id)===String(_advLeadId));
+      renderOpenList();
+      if(act) fillAdvisorDetail(act.lead);   // upgrade to full live data
+      saveOpenLeads();
+    }
+
+    // Populate the right-hand detail pane from a real lead record (no demo data).
+    function fillAdvisorDetail(l:any){
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const name=l.name||l.phone||"Lead";
       const initials=(name.match(/[A-Za-z0-9]/g)||["L","D"]).slice(0,2).join("").toUpperCase();
@@ -1739,25 +2128,95 @@ export default function Home() {
         +(l.assignedTo?'<span class="chipb vio">Assigned: '+e(l.assignedTo)+'</span>':'<span class="chipb info">Unassigned</span>'));
       setHtml("#consBadge","Status: "+(l.isAssigned?"Assigned":(l.inPool?"In pool":"New")));
       const banner=root.querySelector("#advCtxBanner")as HTMLElement;
-      if(banner){banner.style.display="";setTxt("#advCtxText",
-        "Viewing lead "+name+" ("+(l.phone||"no phone")+")"+(l.assignedTo?" · assigned to "+l.assignedTo:"")
-        +". Header reflects live data; the activity-history modules below populate once reception/sales/coach/payment/notes/call records exist for this lead.");}
-      const navBtn=root.querySelector('#nav button[data-s="advisor"]')as HTMLButtonElement;
-      if(navBtn) navBtn.click();
+      if(banner) banner.style.display="none";
       _advLeadId=String(l.id);
-      // Opening a lead marks it "Open" (if it has no working status yet) — persisted.
-      if(!l.callStatus||l.callStatus==="New"){
+      root.querySelectorAll("#s-advisor .a-p input").forEach((i:any)=>{ if(i.type==="checkbox"||i.type==="radio") i.checked=false; else i.value=""; });
+      root.querySelectorAll("#s-advisor .a-p textarea").forEach((t:any)=>{ t.value=""; });
+      root.querySelectorAll("#s-advisor .a-p select").forEach((s:any)=>{ s.selectedIndex=0; });
+      const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
+      setV("#advfName",l.name||"");setV("#advfPhone",l.phone||"");setV("#advfWhats",l.phone||"");setV("#advfEmail",l.email||"");
+      // Mark "Open" on real leads only (never from a restore placeholder, which
+      // doesn't know the lead's real call status — that would overwrite it).
+      if(!l._placeholder&&(!l.callStatus||l.callStatus==="New")){
         l.callStatus="Open";
         supabase.from("leads").update({call_status:"Open"}).eq("meta_lead_id",l.id).then(()=>{});
       }
       const csSel=root.querySelector("#callStatus")as HTMLSelectElement;
       if(csSel){const code=HA_LABEL2CODE[l.callStatus||"Open"];if(code)csSel.value=code;}
       renderHealthDashboard();
-      toast("Opened profile: "+name);
+    }
+
+    // Render the vertical list of opened leads (left panel); highlight the active one.
+    function renderOpenList(){
+      const el=root.querySelector("#advOpenList")as HTMLElement;
+      if(!el) return;
+      if(_openLeads.length===0){ el.style.display="none"; return; }
+      el.style.display="block";
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      el.innerHTML='<div style="font-weight:700;font-size:11px;color:var(--faint);margin-bottom:8px;letter-spacing:.05em">OPEN LEADS ('+_openLeads.length+')</div>'
+        +_openLeads.map((o:any)=>{
+          const l=o.lead;const active=String(o.id)===String(_advLeadId);
+          const nm=l.name||l.phone||"Lead";
+          return '<div onclick="window._selectOpenLead(\''+e(String(o.id))+'\')" style="display:flex;align-items:center;gap:6px;padding:8px 9px;border-radius:9px;cursor:pointer;margin-bottom:6px;border:1px solid '+(active?'var(--brand)':'var(--line)')+';background:'+(active?'var(--brand-50,#e7f4ec)':'var(--surf,#fff)')+'">'
+            +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(nm)+'</div><div class="mono" style="font-size:10px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(l.phone||"")+'</div></div>'
+            +'<span onclick="event.stopPropagation();window._closeOpenLead(\''+e(String(o.id))+'\')" title="Close" style="cursor:pointer;color:var(--faint);font-size:16px;line-height:1;padding:0 3px">×</span>'
+          +'</div>';
+        }).join("");
+    }
+
+    // Click a lead in the Assigned table → add it to the open list + show its detail.
+    w._openLeadProfile=(id:string)=>{
+      const l=_metaLeads.find((x:any)=>String(x.id)===String(id))
+        ||_assignedExtras.find((x:any)=>String(x.id)===String(id))
+        ||_poolExtras.find((x:any)=>String(x.id)===String(id));
+      if(!l){toast("Lead not found");return;}
+      if(!_openLeads.some((o:any)=>String(o.id)===String(l.id))) _openLeads.push({id:l.id,lead:l});
+      _advLeadId=String(l.id);
+      const navBtn=root.querySelector('#nav button[data-s="advisor"]')as HTMLButtonElement;
+      if(navBtn) navBtn.click();
+      renderOpenList();
+      fillAdvisorDetail(l);
+      saveOpenLeads();
+      toast("Opened: "+(l.name||l.phone||"Lead"));
+    };
+    // Click a lead in the vertical list → switch the detail pane to that lead.
+    w._selectOpenLead=(id:string)=>{
+      const o=_openLeads.find((x:any)=>String(x.id)===String(id));
+      if(!o) return;
+      _advLeadId=String(id);
+      fillAdvisorDetail(o.lead);
+      renderOpenList();
+      saveOpenLeads();
+    };
+    // Close a lead from the list; if it was active, switch to another (or clear).
+    w._closeOpenLead=(id:string)=>{
+      _openLeads=_openLeads.filter((x:any)=>String(x.id)!==String(id));
+      if(String(_advLeadId)===String(id)){
+        if(_openLeads.length){ _advLeadId=String(_openLeads[0].id); fillAdvisorDetail(_openLeads[0].lead); }
+        else { _advLeadId=""; _advClearDetail(); }
+      }
+      renderOpenList();
+      saveOpenLeads();
     };
 
+    // Clear the advisor detail to a neutral state on first load (no demo data
+    // until a real lead is opened from the Assigned leads table).
+    function _advClearDetail(){
+      root.querySelectorAll("#s-advisor .a-p input").forEach((i:any)=>{ if(i.type==="checkbox"||i.type==="radio") i.checked=false; else i.value=""; });
+      root.querySelectorAll("#s-advisor .a-p textarea").forEach((t:any)=>{ t.value=""; });
+      root.querySelectorAll("#s-advisor .a-p select").forEach((s:any)=>{ s.selectedIndex=0; });
+      const setTxt=(sel:string,t:string)=>{const el=root.querySelector(sel);if(el)el.textContent=t;};
+      const setHtml=(sel:string,h:string)=>{const el=root.querySelector(sel);if(el)el.innerHTML=h;};
+      setTxt("#advAv","—");
+      setTxt("#advName","No lead selected");
+      setHtml("#advSub",'<span>Open a lead from the Assigned leads table below to view its profile.</span>');
+      setHtml("#advBadges","");
+      setHtml("#consBadge","Status: —");
+      const b=root.querySelector("#advCtxBanner")as HTMLElement; if(b)b.style.display="none";
+    }
+    _advClearDetail();
+
     // ===== Health Advisor KPI dashboard (call-status driven) =====
-    let _advLeadId="";
     let _haActiveBucket="";
     const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Not Interested","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Payment Pending","Payment Completed","Interested","Not Reachable","Callback Requested"];
     const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz",Open:"new"};
@@ -1866,10 +2325,9 @@ export default function Home() {
     };
 
     w._sendToAssignment=async()=>{
-      const checks=Array.from(root.querySelectorAll(".feedChk:checked"))as HTMLInputElement[];
-      if(checks.length===0){toast("Select one or more leads first");return;}
-      const ids=checks.map(c=>c.getAttribute("data-id")||"").filter(id=>id&&!_movedToPool.has(id));
-      if(ids.length===0){toast("Those leads are already in the pool");return;}
+      // Use the cross-page selection set (every lead the user ticked, on any page).
+      const ids=Array.from(_feedSelected).filter(id=>id&&!_movedToPool.has(id));
+      if(ids.length===0){toast("Select one or more leads first");return;}
       // Persist to the database first so the assignment survives refresh.
       try{
         const nowIso=new Date().toISOString();
@@ -1884,43 +2342,109 @@ export default function Home() {
       }
       // Reflect locally (mark the in-memory leads in_pool) and re-render.
       ids.forEach(id=>{const ld=_metaLeads.find((x:any)=>String(x.id)===id);if(ld)ld.inPool=true;});
+      ids.forEach(id=>_feedSelected.delete(id));   // clear the moved leads from the selection
       rebuildPoolFromDB();
       renderMetaPage();          // disable moved rows + show "Moved" flag
       renderUnassignedPool();    // reflect in Assign & approve immediately
       toast(ids.length+" lead"+(ids.length===1?"":"s")+" sent to assignment pool");
     };
-    // Header "select all" toggles every selectable (not-yet-moved) box on the page.
+    // Toggle a single lead in the cross-page selection set.
+    w._feedToggleSel=(el:HTMLInputElement)=>{
+      const id=el.getAttribute("data-id"); if(!id) return;
+      if(el.checked) _feedSelected.add(id); else _feedSelected.delete(id);
+      syncFeedSelUI();
+    };
+    // Switch the live feed between All leads and Duplicates-only views.
+    w._feedSetView=(v:"all"|"dup")=>{
+      _feedView=v; _metaPageNum=1;
+      root.querySelectorAll("#feedViewTabs button").forEach((b:any)=>b.classList.toggle("on",b.getAttribute("data-fv")===v));
+      if(v==="dup"){ _dupColorMap=buildDupColorMap(); }   // colour the duplicates view
+      renderMetaPage();
+    };
+    // Header "select all" → select EVERY lead matching the active filter, across ALL
+    // pages (not just the 10 on screen), so bulk actions apply to the whole result set.
     const _feedSelAll=root.querySelector("#feedSelAll")as HTMLInputElement;
     if(_feedSelAll) _feedSelAll.onchange=()=>{
-      root.querySelectorAll(".feedChk").forEach((c:any)=>{c.checked=_feedSelAll.checked;});
+      const selectable=feedFiltered().filter((l:any)=>!_movedToPool.has(String(l.id)));
+      if(_feedSelAll.checked) selectable.forEach((l:any)=>_feedSelected.add(String(l.id)));
+      else selectable.forEach((l:any)=>_feedSelected.delete(String(l.id)));
+      renderMetaPage();
+      toast(_feedSelAll.checked?(_feedSelected.size+" lead"+(_feedSelected.size===1?"":"s")+" selected across all pages"):"Selection cleared");
     };
     renderUnassignedPool();
     loadAssignees();   // load the assignee master (Assign-to dropdown + advisor load + settings)
 
     let _metaFetchInFlight=false;
+    let _metaFetchRetries=0;
+    let _autoSyncInFlight=false;
+    // Auto-pull from Meta when the DB hasn't been synced recently, so today's leads
+    // appear without anyone clicking "Sync from Meta". Meta doesn't push to us, so a
+    // poll is the only way to capture new leads — this is self-throttled by STALE_MS.
+    const AUTO_SYNC_STALE_MS=5*60*1000; // re-sync if last sync older than 5 min
+    let _autoSyncFails=0;               // consecutive auto-sync failures
+    async function maybeAutoSync(lastSync:any){
+      if(_autoSyncInFlight||_syncing) return;
+      const finished=lastSync&&lastSync.finished_at?new Date(lastSync.finished_at).getTime():0;
+      if(finished&&(Date.now()-finished)<AUTO_SYNC_STALE_MS) return; // fresh enough
+      await runAutoSync();
+    }
+    // Pull fresh leads from Meta and keep the "Last Synced" label current. Drives the
+    // automatic 5-minute sync; updates the timestamp on success and shows the error
+    // states on failure — all without a manual page refresh.
+    async function runAutoSync(){
+      if(_autoSyncInFlight||_syncing) return;
+      _autoSyncInFlight=true;
+      const statusEl=root.querySelector("#metaFeedStatus");
+      if(statusEl) statusEl.textContent="Syncing from Meta…";
+      try{
+        const res=await fetch("/api/meta/sync",{method:"POST"});
+        const data=await res.json().catch(()=>({}));
+        if(data&&data.ok){
+          _autoSyncFails=0;
+          setMetaConn("connected");
+          setSyncedLabel(new Date());     // immediate "Last Synced: <now> IST"
+          await fetchMetaLiveFeed();        // pull the new leads (re-confirms label from DB)
+        }else{
+          _autoSyncFails++;
+          if(data&&data.error) setMetaConn("disconnected",data.error);
+          if(statusEl) statusEl.textContent=_autoSyncFails>=2?"⚠ Unable to sync data. Please check the Meta connection.":"⚠ Last sync failed. Retrying…";
+        }
+      }catch(_){
+        _autoSyncFails++;
+        if(statusEl) statusEl.textContent=_autoSyncFails>=2?"⚠ Unable to sync data. Please check the Meta connection.":"⚠ Last sync failed. Retrying…";
+      }finally{ _autoSyncInFlight=false; }
+    }
     async function fetchMetaLiveFeed(){
       if(_metaFetchInFlight) return; // prevent overlapping requests piling up
       _metaFetchInFlight=true;
       const tbody=root.querySelector("#liveFeedBody");
       const statusEl=root.querySelector("#metaFeedStatus");
       const countEl=root.querySelector("#metaFeedCount");
+      const haveData=_metaLeads&&_metaLeads.length>0;
       try{
         const res=await fetch("/api/meta/leads");
         const data=await res.json();
         if(data.error){
-          _metaLeads=[];IMP.length=0;renderImport();
-          const needsMigration=/column|relation|does not exist|schema/i.test(data.error);
-          if(statusEl) statusEl.textContent="⚠ "+(needsMigration?"Run supabase-migration-meta-sync.sql, then Sync":data.error);
-          if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--warn-ink);padding:24px">Database not ready: '+data.error+'</td></tr>';
-          return;
+          // Only a real schema problem is permanent; everything else (e.g. a
+          // transient "fetch failed" to Supabase) is retried, WITHOUT wiping data.
+          const schemaErr=/column|relation|does not exist|schema/i.test(data.error)&&!/fetch failed/i.test(data.error);
+          if(schemaErr){
+            if(!haveData){_metaLeads=[];IMP.length=0;renderImport();}
+            if(statusEl) statusEl.textContent="⚠ Run the SQL migrations, then Sync";
+            if(tbody&&!haveData) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--warn-ink);padding:24px">Database not ready: '+data.error+'</td></tr>';
+            return;
+          }
+          throw new Error(data.error||"fetch failed");   // transient → handled in catch (retry)
         }
         if(!data.leads||data.leads.length===0){
           _metaLeads=[];IMP.length=0;renderImport();
-          if(statusEl) statusEl.textContent=(data.lastSync?"Synced · no leads matched your ad accounts":"Not synced yet — click ⟳ Sync from Meta");
-          if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">No synced leads yet. Click <b>⟳ Sync from Meta</b> to pull leads from your ad accounts.</td></tr>';
+          if(statusEl) statusEl.textContent=(data.lastSync?"Synced · no leads matched your ad accounts":"Not synced yet — pulling from Meta…");
+          if(tbody) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">No synced leads yet. Pulling from Meta…</td></tr>';
           if(countEl) countEl.textContent="0 leads in database";
+          maybeAutoSync(data.lastSync);   // empty DB → trigger an initial sync
           return;
         }
+        _metaFetchRetries=0;   // success — reset retry counter
         // Sort by latest Date & Time first (newest createdAt at top)
         _metaLeads=[...data.leads].sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
         // Restore the assignment pool from the DB (in_pool flag) BEFORE rendering
@@ -1930,33 +2454,53 @@ export default function Home() {
         renderMetaPage();
         renderUnassignedPool();
         renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();  // refresh live counts
-        // Feed the SAME real Meta leads into the shared IMP array so the
-        // KPI cards and Source Connections table compute from identical data.
-        // Flags (valid/duplicate/assigned) come pre-computed from the Supabase sync.
-        IMP.length=0;
-        _metaLeads.forEach((ld:any)=>{
-          IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned});
-        });
+        // Upgrade the restored open-leads placeholders to live lead objects (once).
+        relinkOpenLeads();
+        // Build the shared IMP dataset (Meta + all other sources) so the KPI cards
+        // and Source Connections table reflect EVERY source, incl. manual leads.
+        await loadOtherSourceLeads();
+        rebuildIMP();
         renderImport();
-        // Show last sync time from the database
+        renderMetaPage();   // re-render the feed now that manual/other-source leads are loaded
+        // Show the latest successful sync time from the database (auto-refreshes
+        // on every 5-min poll, so the label always reflects the newest sync).
         let syncMsg="";
         if(data.lastSync&&data.lastSync.finished_at){
-          const st=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(data.lastSync.finished_at));
-          syncMsg="Synced "+st+" IST";
+          syncMsg="Last Synced: "+fmtSyncTime(new Date(data.lastSync.finished_at));
         }else{
           syncMsg="Not synced yet — click Sync from Meta";
         }
         if(statusEl) statusEl.textContent=syncMsg;
-        if(countEl) countEl.textContent=data.count+" leads in database";
+        if(countEl) countEl.textContent=feedAll().length+" leads in database";
+        // Connection monitor: leads loaded → connected (unless the last sync errored).
+        setMetaConn((data.lastSync&&data.lastSync.status==="error")?"disconnected":"connected",data.lastSync&&data.lastSync.error);
+        updateMetaAlert();
+        // If the DB is stale, pull fresh leads from Meta in the background (captures today's leads).
+        maybeAutoSync(data.lastSync);
       }catch(e:any){
-        if(statusEl) statusEl.textContent="⚠ Connection failed";
-        if(tbody) tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:24px">Could not reach Meta API. Will retry…</td></tr>';
+        // Transient failure (e.g. Supabase "fetch failed" on a cold start / network
+        // blip). NEVER wipe already-loaded data — just retry with backoff so the
+        // page recovers automatically instead of looking "reset".
+        _metaFetchInFlight=false;
+        if(_metaFetchRetries<8){
+          _metaFetchRetries++;
+          const delay=Math.min(1500*_metaFetchRetries,8000);
+          if(statusEl) statusEl.textContent="Reconnecting to database… (attempt "+_metaFetchRetries+")";
+          if(tbody&&!haveData) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">Loading leads from the database…</td></tr>';
+          setTimeout(()=>{ fetchMetaLiveFeed(); }, delay);
+          return;
+        }
+        if(statusEl) statusEl.textContent="⚠ Could not reach the database — click ↻ Reload";
+        if(tbody&&!haveData) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">Could not reach the database. Click ↻ Reload to retry.</td></tr>';
+        setMetaConn("disconnected","database unreachable");   // leads aren't flowing → flag it
+        return;
       }finally{
         _metaFetchInFlight=false;
       }
     }
     w._refreshMetaFeed=()=>{
       toast("Reloading from database…");
+      _metaFetchRetries=0;_metaFetchInFlight=false;
       fetchMetaLiveFeed();
     };
     let _syncing=false;
@@ -1974,22 +2518,36 @@ export default function Home() {
         if(data.error){
           toast("Sync failed: "+data.error);
           if(statusEl) statusEl.textContent="⚠ Sync failed: "+data.error;
+          setMetaConn("disconnected",data.error);
         }else{
           const s=data.stats||{};
           toast("Sync complete — "+(s.leadsSynced||0)+" leads from "+((s.accessibleAccounts||[]).length)+" ad account(s)");
+          setMetaConn("connected");
           await fetchMetaLiveFeed();
         }
       }catch(e:any){
         toast("Sync error: "+(e.message||"network"));
         if(statusEl) statusEl.textContent="⚠ Sync error";
+        setMetaConn("disconnected",e.message||"network");
       }finally{
         _syncing=false;
         if(btn){btn.disabled=false;btn.textContent="⟳ Sync from Meta";}
       }
     };
+    // Restore the open-leads list instantly from localStorage (placeholder names),
+    // before the feed finishes loading. relinkOpenLeads() upgrades to live data later.
+    // Placed here so the dashboard/HA_* constants it touches are already initialised.
+    restoreOpenLeads();
+
     fetchMetaLiveFeed();
-    // Safety reconciliation poll (realtime below is the primary live mechanism).
-    _metaFeedTimer=setInterval(fetchMetaLiveFeed,300000);
+    // AUTOMATIC SYNC every 5 minutes: pull fresh leads from Meta and update the
+    // "Last Synced" timestamp — no manual refresh needed. runAutoSync re-reads the
+    // feed on success, so the dashboard + label always reflect the newest sync.
+    _metaFeedTimer=setInterval(runAutoSync,300000);
+    // Connection/alert monitor: refresh the 30-min no-lead banner every 60s so it
+    // fires (and clears) on time even when no new leads arrive.
+    updateMetaAlert();
+    _metaMonitorTimer=setInterval(updateMetaAlert,60000);
 
     // ===== REAL-TIME: Supabase pushes new/changed leads instantly (no refresh) =====
     function dbRowToLead(r:any){
@@ -1997,17 +2555,18 @@ export default function Home() {
       const m=Math.floor((Date.now()-new Date(createdAt).getTime())/60000);
       const received=m<1?"now":(m<60?m+"m":(m<1440?Math.floor(m/60)+"h":Math.floor(m/1440)+"d"));
       return {id:r.meta_lead_id,name:r.name,phone:r.phone,email:r.email,source:"Meta",
-        campaign:r.campaign||"—",service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
+        campaign:r.campaign||"—",adName:r.ad_name||"",sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
+        service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
         adAccountName:r.ad_account_name||"",isValid:r.is_valid,isDuplicate:r.is_duplicate,
-        isAssigned:r.is_assigned,inPool:!!r.in_pool,assignedTo:r.assigned_to||"",callStatus:r.call_status||""};
+        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||""};
     }
     function liveRerenderAll(){
       _metaLeads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
-      IMP.length=0;
-      _metaLeads.forEach((ld:any)=>IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned}));
+      rebuildIMP();   // Meta + other-source leads (don't drop manual/walk-in from the dashboard)
       rebuildPoolFromDB();
       renderMetaPage();renderImport();renderUnassignedPool();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
-      const countEl=root.querySelector("#metaFeedCount");if(countEl)countEl.textContent=_metaLeads.length+" leads in database";
+      const countEl=root.querySelector("#metaFeedCount");if(countEl)countEl.textContent=feedAll().length+" leads in database";
+      updateMetaAlert();   // a live change refreshes the 30-min no-lead alert
     }
     try{
       const _leadsChannel=supabase
@@ -2017,6 +2576,7 @@ export default function Home() {
           if(_metaLeads.some((x:any)=>String(x.id)===String(lead.id))) return; // dedupe
           _metaLeads.unshift(lead);
           _metaPageNum=1;                 // jump to first page so the newest is visible on top
+          setMetaConn("connected");       // leads flowing → connected
           liveRerenderAll();
           const st=root.querySelector("#metaFeedStatus");if(st)st.textContent="🟢 Live — new lead "+(lead.name||"")+" just now";
           toast("New lead received: "+(lead.name||lead.phone||"Meta lead"));
@@ -2046,6 +2606,89 @@ export default function Home() {
     const _csvPhones=new Set<string>(); // valid phones already in DB (dedupe)
     let _csvPage=1, _csvDupPage=1, _csvTabName="valid";
     const CSV_PER=10;
+    // Duplicates are review items: they live in the Duplicates tab for 10 minutes
+    // after upload, then are auto-removed (hidden immediately, deleted from the DB
+    // by a periodic sweep). Valid imported leads are never touched.
+    const DUP_TTL_MS=10*60*1000;
+    function dupAgeMs(r:any){ return r.created_at?(Date.now()-new Date(r.created_at).getTime()):0; }
+    function isActiveDup(r:any){ return r.status==="duplicate" && (!r.created_at || dupAgeMs(r)<DUP_TTL_MS); }
+    let _csvSweepTimer:any=null;
+    async function sweepExpiredDups(){
+      const expired=_csvLeads.filter((r:any)=>r.status==="duplicate"&&r.created_at&&dupAgeMs(r)>=DUP_TTL_MS);
+      if(expired.length){
+        const ids=expired.map((r:any)=>r.id);
+        try{ for(let i=0;i<ids.length;i+=200){ await supabase.from("csv_leads").delete().in("id",ids.slice(i,i+200)); } }catch(_){}
+        _csvLeads=_csvLeads.filter((r:any)=>!ids.includes(r.id));
+      }
+      renderCsvValid();renderCsvDup();   // refresh counts + table even if nothing expired this tick
+    }
+
+    // ---- Shared time-range filter (applies to all 4 CSV tabs) ----
+    const _csvRange:{from:Date|null,to:Date|null}={from:null,to:null};
+    // Robust date parser: CSV "Date & Time" values arrive in mixed formats
+    // (YYYY-MM-DD HH:mm, DD-MM-YYYY HH:mm, DD/MM/YYYY) which `new Date()` can't
+    // parse reliably (it returned NaN → every row was filtered out → "0 records").
+    function parseFlexDate(s:any):Date|null{
+      if(!s) return null;
+      s=String(s).trim();
+      if(/^\d{4}-\d{2}-\d{2}T/.test(s)){ const d=new Date(s); return isNaN(d.getTime())?null:d; }  // ISO (created_at)
+      let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);                       // YYYY-MM-DD [HH:mm]
+      if(m) return new Date(+m[1],+m[2]-1,+m[3],+(m[4]||0),+(m[5]||0));
+      m=s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[ T](\d{1,2}):(\d{2}))?/);                     // DD-MM-YYYY [HH:mm]
+      if(m) return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0));
+      const d=new Date(s); return isNaN(d.getTime())?null:d;
+    }
+    function inCsvRange(dateStr:string){
+      if(!_csvRange.from&&!_csvRange.to) return true;   // no range = all
+      const d=parseFlexDate(dateStr);
+      if(!d) return false;                              // can't place undated/unparseable rows in a range
+      if(_csvRange.from&&d<_csvRange.from) return false;
+      if(_csvRange.to&&d>_csvRange.to) return false;
+      return true;
+    }
+    function _csvApplyPreset(name:string){
+      const fromEl=root.querySelector("#csvRangeFrom")as HTMLInputElement;
+      const toEl=root.querySelector("#csvRangeTo")as HTMLInputElement;
+      const fmt=(d:Date)=>{const p=(n:number)=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());};
+      const now=new Date();let from:Date|null=null,to:Date|null=new Date(now);
+      const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;};
+      const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+      if(name==="today"){from=sod(now);to=eod(now);}
+      else if(name==="yesterday"){const y=new Date(now);y.setDate(y.getDate()-1);from=sod(y);to=eod(y);}
+      else if(name==="7d"){from=new Date(now);from.setDate(from.getDate()-7);to=now;}
+      else if(name==="30d"){from=new Date(now);from.setDate(from.getDate()-30);to=now;}
+      else if(name==="month"){from=new Date(now.getFullYear(),now.getMonth(),1,0,0,0);to=now;}
+      else if(name==="all"){if(fromEl)fromEl.value="";if(toEl)toEl.value="";return;}
+      else return; // custom — leave inputs as the user set them
+      if(fromEl&&from)fromEl.value=fmt(from);
+      if(toEl&&to)toEl.value=fmt(to);
+    }
+    w._csvApplyRange=()=>{
+      const fromEl=root.querySelector("#csvRangeFrom")as HTMLInputElement;
+      const toEl=root.querySelector("#csvRangeTo")as HTMLInputElement;
+      _csvRange.from=fromEl&&fromEl.value?new Date(fromEl.value):null;
+      _csvRange.to=toEl&&toEl.value?new Date(toEl.value):null;
+      const lab=root.querySelector("#csvRangeLabel");
+      if(lab){
+        if(!_csvRange.from&&!_csvRange.to) lab.textContent="Showing: all time";
+        else{const f=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(d):"…";lab.textContent="Showing: "+f(_csvRange.from)+" → "+f(_csvRange.to);}
+      }
+      _csvPage=1;_csvDupPage=1;
+      renderCsvValid();renderCsvDup();renderCsvHist();renderCsvRepeat();
+      toast("Time-range filter applied");
+    };
+    w._csvClearRange=()=>{
+      _csvRange.from=null;_csvRange.to=null;
+      const fromEl=root.querySelector("#csvRangeFrom")as HTMLInputElement;if(fromEl)fromEl.value="";
+      const toEl=root.querySelector("#csvRangeTo")as HTMLInputElement;if(toEl)toEl.value="";
+      const ps=root.querySelector("#csvRangePreset")as HTMLSelectElement;if(ps)ps.value="all";
+      const lab=root.querySelector("#csvRangeLabel");if(lab)lab.textContent="Showing: all time";
+      _csvPage=1;_csvDupPage=1;
+      renderCsvValid();renderCsvDup();renderCsvHist();renderCsvRepeat();
+    };
+    // Selecting a preset fills From/To and applies immediately (Custom waits for Apply).
+    const _csvPresetEl=root.querySelector("#csvRangePreset")as HTMLSelectElement;
+    if(_csvPresetEl) _csvPresetEl.onchange=()=>{ _csvApplyPreset(_csvPresetEl.value); if(_csvPresetEl.value!=="custom") w._csvApplyRange(); };
 
     function csvEsc(v:string){return '"'+String(v==null?"":v).replace(/"/g,'""')+'"';}
     w._downloadCSVTemplate=()=>{
@@ -2165,7 +2808,7 @@ export default function Home() {
           supabase.from("csv_import_batches").select("*").order("created_at",{ascending:false})
         ]);
         if(lr.error) throw lr.error;
-        _csvLeads=(lr.data||[]).map((r:any)=>({id:r.id,batch_id:r.batch_id,dt:r.date_time,campaign:r.campaign,ad:r.ad_name,lead:r.lead_name,phone:r.phone,sugar:r.sugar_poll,city:r.city,street:r.street,source:r.source,service:r.service,name:r.name,status:r.status}));
+        _csvLeads=(lr.data||[]).map((r:any)=>({id:r.id,batch_id:r.batch_id,dt:r.date_time,campaign:r.campaign,ad:r.ad_name,lead:r.lead_name,phone:r.phone,sugar:r.sugar_poll,city:r.city,street:r.street,source:r.source,service:r.service,name:r.name,status:r.status,created_at:r.created_at}));
         _csvBatches=br.data||[];
         _csvPhones.clear();
         _csvLeads.forEach((r:any)=>{if(r.status==="valid"&&r.phone)_csvPhones.add(r.phone);});
@@ -2207,9 +2850,10 @@ export default function Home() {
         if(csvInput)csvInput.value="";
         const nameEl=root.querySelector("#csvFileName");if(nameEl)nameEl.textContent="Click to choose a CSV file";
         const sumEl=root.querySelector("#csvSummary");if(sumEl)sumEl.textContent=valid.length+" imported · "+dup.length+" duplicates kept for review";
-        _csvPage=1;
-        await loadCsvData();
-        toast(valid.length+" leads imported"+(dup.length?", "+dup.length+" duplicates for review":""));
+        _csvPage=1;_csvDupPage=1;
+        await loadCsvData();   // auto-refreshes all CSV tabs incl. Duplicates with the latest records
+        if(dup.length){ w._csvTab("dup"); toast(dup.length+" duplicate"+(dup.length===1?"":"s")+" detected — shown for 10 min in the Duplicates tab"); }
+        else toast(valid.length+" leads imported");
       }catch(e:any){
         const isMissing=/exist|relation|schema/i.test(e.message||"");
         toast(isMissing?"Run supabase-migration-csv-imports.sql first":"Import failed: "+(e.message||"db error"));
@@ -2235,11 +2879,12 @@ export default function Home() {
       const info=root.querySelector("#csvPageInfo");
       const prev=root.querySelector("#csvPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvNextBtn")as HTMLButtonElement;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      const valid=_csvLeads.filter((r:any)=>r.status==="valid");
-      const dupN=_csvLeads.filter((r:any)=>r.status==="duplicate").length;
+      const valid=_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt));
+      const dupN=_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)).length;
+      const histN=_csvBatches.filter((b:any)=>inCsvRange(b.created_at)).length;
       if(vc)vc.textContent=String(valid.length);
       if(dc)dc.textContent=String(dupN);
-      if(hc)hc.textContent=String(_csvBatches.length);
+      if(hc)hc.textContent=String(histN);
       if(wrap)wrap.style.display=(_csvLeads.length||_csvBatches.length)?"block":"none";
       if(!body)return;
       const total=valid.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
@@ -2275,11 +2920,15 @@ export default function Home() {
       const prev=root.querySelector("#csvDupPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvDupNextBtn")as HTMLButtonElement;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       if(!body)return;
-      const dups=_csvLeads.filter((r:any)=>r.status==="duplicate");
+      const dups=_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt));
       const total=dups.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
       if(_csvDupPage>pages)_csvDupPage=pages;if(_csvDupPage<1)_csvDupPage=1;
       const pageRows=dups.slice((_csvDupPage-1)*CSV_PER,(_csvDupPage-1)*CSV_PER+CSV_PER);
-      body.innerHTML=pageRows.length?pageRows.map((r:any)=>'<tr>'
+      body.innerHTML=pageRows.length?pageRows.map((r:any)=>{
+        const leftMs=r.created_at?Math.max(0,DUP_TTL_MS-dupAgeMs(r)):DUP_TTL_MS;
+        const leftMin=Math.ceil(leftMs/60000);
+        const expChip='<span class="chipb '+(leftMin<=2?"al":"warn")+'" style="margin-left:6px" title="Auto-removed after 10 minutes">⏱ '+leftMin+'m left</span>';
+        return '<tr style="background:var(--warn-bg)">'
         +'<td><input type="checkbox" class="csvDupChk" data-id="'+r.id+'" style="accent-color:var(--brand)"></td>'
         +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
         +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
@@ -2289,9 +2938,10 @@ export default function Home() {
         +'<td>'+e(r.city||"—")+'</td>'
         +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
         +'<td>'+e(r.service||"—")+'</td>'
-        +'<td><span class="chipb warn">Duplicate</span></td>'
-        +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._csvKeepOne('+r.id+')">Keep</button><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></div></td></tr>').join("")
-        :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">No duplicate leads</td></tr>';
+        +'<td><span class="chipb warn">Duplicate</span>'+expChip+'</td>'
+        +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._csvKeepOne('+r.id+')">Keep</button><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></div></td></tr>';
+      }).join("")
+        :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">No duplicate leads (shown for 10 minutes after import)</td></tr>';
       if(info)info.textContent="Page "+_csvDupPage+" of "+pages;
       if(prev){prev.disabled=_csvDupPage<=1;prev.style.opacity=_csvDupPage<=1?"0.45":"1";}
       if(next){next.disabled=_csvDupPage>=pages;next.style.opacity=_csvDupPage>=pages?"0.45":"1";}
@@ -2303,7 +2953,8 @@ export default function Home() {
       const body=root.querySelector("#csvHistBody");
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       if(!body)return;
-      body.innerHTML=_csvBatches.length?_csvBatches.map((b:any)=>{
+      const batches=_csvBatches.filter((b:any)=>inCsvRange(b.created_at));   // import-time range
+      body.innerHTML=batches.length?batches.map((b:any)=>{
         const dt=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(b.created_at));
         return '<tr><td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(dt)+'</td>'
           +'<td>'+e(b.file_name||"—")+'</td><td>'+e(b.batch_name||"—")+'</td><td>'+e(b.imported_by||"—")+'</td>'
@@ -2316,7 +2967,7 @@ export default function Home() {
 
     // ---- Repeat Visitor (aggregate imported leads by phone) ----
     let _rvPage=1; const RV_PER=10; let _rvData:any[]=[];
-    function rvParseDate(s:string){ if(!s) return null; const d=new Date(s); return isNaN(d.getTime())?null:d; }
+    function rvParseDate(s:string){ return parseFlexDate(s); }   // handles DD-MM-YYYY etc.
     function populateRvSources(){
       const sel=root.querySelector("#rvSource")as HTMLSelectElement;
       if(!sel)return;
@@ -2336,6 +2987,7 @@ export default function Home() {
       if(df){from=new Date(df);from.setHours(0,0,0,0);}
       if(dt){to=new Date(dt);to.setHours(23,59,59,999);}
       return _csvLeads.filter((r:any)=>{
+        if(!inCsvRange(r.dt)) return false;   // shared time-range filter (applies to all tabs)
         if(src&&src!=="all"&&(r.source||"")!==src) return false;
         const d=rvParseDate(r.dt);
         if(rangeActive){ if(!d) return false; if(from&&d<from) return false; if(to&&d>to) return false; }
@@ -2496,7 +3148,7 @@ export default function Home() {
         const nowIso=new Date().toISOString();
         // Manual-source leads: Source and Language both shown as "Manual".
         const payload=rows.map((r:any)=>{
-          const d=r.dt?new Date(r.dt):null;
+          const d=parseFlexDate(r.dt);
           return {
             meta_lead_id:"csv-"+r.id,name:r.lead||r.name||"Lead",phone:(r.phone||"").trim(),
             source:"Manual",language:"Manual",
@@ -2527,6 +3179,8 @@ export default function Home() {
     };
 
     loadCsvData();
+    // Sweep expired CSV duplicates (>10 min) and keep the countdown chips fresh.
+    _csvSweepTimer=setInterval(()=>{ sweepExpiredDups(); },30000);
     loadAssignmentExtras().then(()=>{rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
 
     // ========== RECEPTION DATA ==========
@@ -2916,7 +3570,7 @@ export default function Home() {
     renderAll();
     seed();
 
-    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
+    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
   }, []);
 
   return (

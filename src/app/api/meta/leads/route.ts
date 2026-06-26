@@ -10,15 +10,29 @@ export async function GET() {
     const pageSize = 1000;
     let from = 0;
     const all: any[] = [];
+    // Fetch one page, retrying on transient network errors ("fetch failed").
+    async function fetchPage(start: number): Promise<any[]> {
+      let lastErr: any = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { data, error } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('source', 'Meta Ads')
+            .order('created_at', { ascending: false })
+            .range(start, start + pageSize - 1);
+          if (error) throw new Error(error.message);
+          return data || [];
+        } catch (e: any) {
+          lastErr = e;
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        }
+      }
+      throw lastErr || new Error('fetch failed');
+    }
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .eq('source', 'Meta Ads')
-        .order('created_at', { ascending: false })
-        .range(from, from + pageSize - 1);
-      if (error) throw new Error(error.message);
+      const data = await fetchPage(from);
       if (!data || data.length === 0) break;
       all.push(...data);
       if (data.length < pageSize) break;
@@ -41,6 +55,10 @@ export async function GET() {
         email: r.email,
         source: 'Meta',
         campaign: r.campaign || '—',
+        adName: r.ad_name || '',
+        sugar: r.sugar_poll || '',
+        city: r.city || '',
+        street: r.street || '',
         service: r.service || 'Diabetes',
         lang: r.language || 'Tamil',
         received,
@@ -50,6 +68,7 @@ export async function GET() {
         isDuplicate: r.is_duplicate,
         isAssigned: r.is_assigned,
         inPool: !!r.in_pool,
+        poolAddedAt: r.pool_added_at || null,
         assignedTo: r.assigned_to || '',
         callStatus: r.call_status || ''
       };
