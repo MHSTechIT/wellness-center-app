@@ -99,9 +99,9 @@ function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"/></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Salesperson</label><select class="select"><option selected>Prem Kumar</option><option>Ravi S</option><option>Divya M</option><option>Karthik R</option></select></div>
-          <div class="fld"><label class="lbl">Sales team</label><select class="select"><option selected>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
-          <div class="fld"><label class="lbl">HC assigned <span class="nb">NEW</span></label><select class="select" id="hcSel"><option selected>Dr. Suresh</option><option>Dr. Priya</option><option>Dr. Anand</option><option>Dr. Latha</option></select></div>
+          <div class="fld"><label class="lbl">Salesperson</label><select class="select" id="salesSel"><option value="">— Select —</option></select></div>
+          <div class="fld"><label class="lbl">Sales team</label><select class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
+          <div class="fld"><label class="lbl">HC assigned <span class="nb">NEW</span></label><select class="select" id="hcSel"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star on">★</span><span class="star on">★</span><span class="star">★</span></div></div>
           <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="62" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">62%</span></div></div>
           <div class="fld"><label class="lbl">Tags</label><input class="input" value="hot-lead, walk-in-jun"></div>
@@ -114,7 +114,7 @@ function getMainContent(): string {
               <select class="select" id="callStatus" onchange="callStatusChange(this.value)">
                 <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="ni">Not Interested</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option>
               </select></div>
-            <div class="fld"><label class="lbl">Next follow-up date &amp; time</label><input class="input" type="datetime-local" value="2026-06-13T11:00"></div>
+            <div class="fld"><label class="lbl">Next follow-up date &amp; time</label><input class="input" id="nextFollowUp" type="datetime-local"></div>
           </div>
           <div class="fld"><label class="lbl">Call notes <span class="nb">NEW</span></label><textarea class="area" rows="3" placeholder="What was discussed, objections, next step…"></textarea></div>
           <div class="banner plan hideblock" id="fuPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
@@ -158,7 +158,7 @@ function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Visited status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok" onclick="visitedFx()">Visited</button></div></div>
+          <div class="fld"><label class="lbl">Visited status</label><div class="pills"><button class="pill p-vio on" onclick="window._advSetOpen()">Open</button><button class="pill p-ok" onclick="visitedFx()">Visited</button></div></div>
           <div class="fld"><label class="lbl">Visited date <span class="ab">AUTO</span></label><input class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
@@ -183,7 +183,7 @@ function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"/></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="timeline" id="actLog" style="margin-top:12px"><div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div></div></div></div>
 
-      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="toast('Lead record saved')">Save lead record</button></div>
+      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._advSaveRecord()">Save lead record</button></div>
     </div>
     <div class="a-p" data-p="health" style="display:none">
       <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> This clinical record is owned by the Health coach — advisors can read everything but edit nothing. Every view is audit-logged.</span></div>
@@ -205,12 +205,13 @@ function getMainContent(): string {
 
   <!-- COACH -->
   <section class="screen" id="s-coach"><div class="wrap">
+    <div id="coachOpenList" style="margin-bottom:14px"></div>
     <div class="chead">
-      <span class="cav" style="background:linear-gradient(135deg,#378ADD,#185FA5)">AK</span>
-      <div class="cmeta"><h1>Ajith Kumar</h1>
-        <div class="sub"><span class="mono">Client #C-2088</span><span>·</span>HC: Dr. Suresh <span class="ab">AUTO</span></div>
-        <div class="cbadges"><span class="chipb warn">HbA1c 8.4%</span><span class="chipb neu">Appt 13 Jun · 10:30</span><span class="chipb ok">Visited</span></div></div>
-      <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: Open</span><button class="btn bp"><svg class="icon"><use href="#i-phone"/></svg> Call</button><button class="btn bwa"><svg class="icon"><use href="#i-msg"/></svg> WA</button></div>
+      <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
+      <div class="cmeta"><h1 id="coachName">No client open</h1>
+        <div class="sub" id="coachSub"><span class="mono">Pick a visited client below</span></div>
+        <div class="cbadges" id="coachBadges"></div></div>
+      <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: —</span><button class="btn bp" id="coachCallBtn"><svg class="icon"><use href="#i-phone"/></svg> Call</button><button class="btn bwa"><svg class="icon"><use href="#i-msg"/></svg> WA</button></div>
     </div>
     <div class="rtabs" id="cTabs">
       <button data-t="recep2">Walk-in Receptionist</button><button data-t="sales2">Walk-in Sales</button><button class="on" data-t="health2">Walk-in Health</button>
@@ -226,7 +227,7 @@ function getMainContent(): string {
           <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" value="8.4" readonly></div>
           <div class="fld"><label class="lbl">Walk-in status</label><select class="select"><option>Open</option><option selected>Visited</option><option>Not Visited</option><option>Rescheduled</option></select></div>
           <div class="fld fw"><label class="lbl">Blood reports — from Health advisor <span class="ab">SYNCED</span></label>
-            <div class="atts" id="coachAtts"><span class="att"><svg class="icon"><use href="#i-clip"/></svg> sugar_report_may26.pdf · advisor</span></div></div>
+            <div class="atts" id="coachAtts"></div></div>
           <div class="fld fw"><label class="lbl">Remarks</label><textarea class="area" rows="2">mar16: did not enquiry</textarea></div>
         </div></div></div>
 
@@ -281,8 +282,8 @@ function getMainContent(): string {
             <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
           </div>
           <div class="mic"><button class="micb" id="micBtn"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
-            <div style="flex:1"><b style="font-size:13px" id="micTxt">Start recording</b><div style="font-size:11.5px;color:var(--muted)">Consent captured at reception · Zoom link field for online</div></div>
-            <input class="input" style="max-width:260px" placeholder="https://zoom.us/rec/…"></div>
+            <div style="flex:1"><b style="font-size:13px" id="micTxt">Start recording</b><div style="font-size:11.5px;color:var(--muted)">Calls are recorded via Smartflo · Zoom link for online consults</div></div>
+            <input class="input" id="coachRecUrl" style="max-width:260px" placeholder="https://zoom.us/rec/… or call recording"></div>
 
           <div class="fld"><label class="lbl">Consultation status — drives payment &amp; follow-up flow</label>
             <div class="pills" id="consStatus">
@@ -446,7 +447,7 @@ function getMainContent(): string {
             <div class="pills"><button class="pill p-ok" onclick="toast('Kit issued · logged')">Given</button><button class="pill p-warn">Need to Ship</button><button class="pill p-vio on">Not Required</button></div></div>
         </div></div></div>
 
-      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="toast('Health record saved')">Save health record</button><button class="btn" style="height:45px" onclick="toast('Printing consultation prescription for client…')">📋 Print prescription</button></div>
+      <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._coachSaveRecord()">Save health record</button><button class="btn" style="height:45px" onclick="window._coachPrint()">📋 Print prescription</button></div>
     </div>
     <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono">10:24</td><td style="color:var(--muted)">Registered</td><td class="mono">10:31</td><td style="color:var(--muted)">Consent</td><td><span class="chipb ok">All ✓</span></td></tr></tbody></table></div></div></div>
     <div class="c-p" data-p="sales2" style="display:none">
@@ -493,7 +494,11 @@ function getMainContent(): string {
     <div class="metrics" id="impMetrics" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bolt"/></svg> Source connections <span class="arr">▾</span></div>
       <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:1100px" id="srcConnTable"><thead><tr><th style="width:36px"><input type="checkbox" id="srcSelAll" style="accent-color:var(--brand)"></th><th>Total leads</th><th>Lead source</th><th>Status</th><th>Today</th><th>Last lead</th><th>Mode</th><th>Valid</th><th>Unique</th><th>Duplicate</th><th>Assigned</th><th>Unassigned</th></tr></thead><tbody id="srcTableBody"></tbody></table></div>
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn bsm bp" onclick="toast('Bulk action applied to selected sources')">Apply bulk action</button><button class="btn bsm" onclick="toast('Exported selected source data')">Export selected</button></div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
+        <select class="select" id="srcBulkAction" style="height:32px;font-size:12px;width:250px"><option value="pool">Send unassigned leads → assignment</option><option value="export">Export leads (CSV)</option></select>
+        <button class="btn bsm bp" onclick="window._srcBulkAction()">Apply bulk action</button>
+        <button class="btn bsm" onclick="window._srcExportSelected()">Export selected</button>
+      </div>
       <div class="rb" id="metaLeadAlert" style="margin-top:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px">
         <span id="metaLeadAlertText" style="font-size:12.5px;font-weight:600;color:var(--ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok" id="metaLeadAlertChip">Monitoring</span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span style="font-size:11px;color:var(--faint);margin-left:8px" id="metaFeedStatus">Connecting to Meta…</span> <span class="arr">▾</span></div>
@@ -523,11 +528,7 @@ function getMainContent(): string {
               <input type="file" id="csvFileInput" accept=".csv,text/csv" style="display:none">
               <p style="margin:4px 0 3px;font-weight:600;color:var(--ink)" id="csvFileName">Click to choose a CSV file</p>
               <p style="font-size:12px;margin:0" id="csvFileInfo">Use the template above for the correct columns</p>
-            </label>
-            <div class="g2" style="margin-top:13px">
-              <select class="select"><option selected>full_name → Name</option></select><select class="select"><option selected>phone_number → Phone</option></select>
-              <select class="select"><option selected>campaign_name → Campaign</option></select><select class="select"><option selected>ad_language → Language</option></select>
-            </div></div>
+            </label></div>
           <div><div class="g2" style="gap:9px;margin-top:0"><select class="select" id="csvSource"><option>Meta</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select" id="csvBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select><select class="select" id="csvBatch"><option>WK-JUN-04</option><option>WK-JUN-03</option><option>WK-JUL-01</option></select><select class="select" id="csvService"><option>Diabetes</option><option>Physio</option><option>Blood test</option></select></div>
             <div id="csvSummary" style="background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:13px;font-size:12.5px;color:var(--faint);font-weight:600">Upload a CSV to see the de-dupe summary</div>
             <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
@@ -657,7 +658,7 @@ function getMainContent(): string {
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;align-items:center;gap:9px"><svg class="icon" style="stroke:#fff;width:18px;height:18px"><use href="#i-coin"/></svg><div><div style="font-size:9px;opacity:.8;font-weight:600;letter-spacing:.06em">REVENUE</div><div style="font-family:var(--disp);font-size:20px;font-weight:700" id="revTotal">₹0</div></div></div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:14px" id="revSvc"></div>
-      <div style="margin-left:auto;display:flex;gap:7px"><button class="btn bsm" onclick="showInbound()">📞 Simulate inbound</button><button class="btn bp" onclick="nwToggle()">+ New walk-in</button></div>
+      <div style="margin-left:auto;display:flex;gap:7px"><button class="btn bp" onclick="nwToggle()">+ New walk-in</button></div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
       <div id="svcFilt" style="display:flex;gap:5px"></div>
@@ -1018,7 +1019,7 @@ function getMainContent(): string {
         <div class="sec-bd">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
             <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="asgName" placeholder="e.g. Priya K." style="height:34px;width:160px"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option><option>Health Coach</option></select></div>
             <div class="fld" style="margin:0"><label class="lbl">Branch</label><select class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
             <div class="fld" style="margin:0"><label class="lbl">Phone</label><input class="input mono" id="asgPhone" placeholder="optional" style="height:34px;width:140px"></div>
             <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
@@ -1218,11 +1219,8 @@ export default function Home() {
     root.querySelectorAll("#stars .star").forEach((s, i, a) => { (s as HTMLElement).onclick = () => a.forEach((x, j) => x.classList.toggle("on", j <= i)); });
     root.querySelectorAll("#bdm button").forEach((b) => { (b as HTMLElement).onclick = () => { root.querySelectorAll("#bdm button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); }; });
 
-    function addBlood() {
-      const ba = root.querySelector("#bloodAtts"); if (ba) ba.insertAdjacentHTML("afterbegin", '<span class="att"><svg class="icon"><use href="#i-clip"></use></svg> new_report.pdf</span>');
-      const ca = root.querySelector("#coachAtts"); if (ca) ca.insertAdjacentHTML("afterbegin", '<span class="att"><svg class="icon"><use href="#i-clip"></use></svg> new_report.pdf · advisor</span>');
-      toast("Report synced to HC"); addLog("Blood report attached");
-    }
+    // Real upload is wired in w._advAddBlood (Supabase Storage). Keep addBlood as an alias.
+    function addBlood(){ if((w as any)._advAddBlood)(w as any)._advAddBlood(); }
     w.addBlood = addBlood;
 
     // ========== LEAD IMPORT DATA ENGINE ==========
@@ -1464,6 +1462,62 @@ export default function Home() {
       else if(k==="assigned") count=f.filter(r=>r.isAssigned).length;
       else if(k==="unassigned") count=f.filter(r=>!r.isAssigned).length;
       toast(src+" — "+k+": "+count+" leads");
+    };
+
+    // ===== Source Connections: Export selected + Apply bulk action =====
+    // Names of the source rows whose checkbox is ticked (index-aligned to IMP_SRC_CFG).
+    function _srcSelectedSources():string[]{
+      const chks=Array.from(root.querySelectorAll(".srcChk"))as HTMLInputElement[];
+      const names:string[]=[];
+      chks.forEach((c,i)=>{ if(c.checked&&IMP_SRC_CFG[i]) names.push(IMP_SRC_CFG[i].name); });
+      return names;
+    }
+    // Leads belonging to the given source(s), honoring the active dashboard filter.
+    function _srcLeadsFor(names:string[]){
+      const set=new Set(names);
+      return feedAll().filter((l:any)=>set.has(feedSrcName(l))&&leadPasses(new Date(l.createdAt),feedSrcName(l)));
+    }
+    function _downloadCsv(filename:string,rows:string[][]){
+      const esc=(v:any)=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+      const blob=new Blob([rows.map(r=>r.map(esc).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=url;a.download=filename;
+      document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    }
+    w._srcExportSelected=()=>{
+      const names=_srcSelectedSources();
+      if(!names.length){ toast("Tick one or more source rows first"); return; }
+      const leads=_srcLeadsFor(names);
+      if(!leads.length){ toast("No leads to export for the selected source(s)"); return; }
+      const cols=["Date & Time (IST)","Source","Campaign","Ad Name","Lead Name","Phone","Sugar","City","Street","Service","Language","Valid","Duplicate","Assigned"];
+      const rows=[cols];
+      leads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime())
+        .forEach((l:any)=>rows.push([fmtIST(l.createdAt),feedSrcName(l),l.campaign||"",l.adName||"",l.name||"",l.phone||"",l.sugar||"",l.city||"",l.street||"",l.service||"",l.lang||"",l.isValid?"Yes":"No",l.isDuplicate?"Yes":"No",l.isAssigned?"Yes":"No"]));
+      _downloadCsv("wellnessos_leads_"+names.length+"src_"+leads.length+".csv",rows);
+      toast(leads.length+" lead"+(leads.length===1?"":"s")+" exported from "+names.length+" source"+(names.length===1?"":"s"));
+    };
+    w._srcBulkAction=async()=>{
+      const action=(root.querySelector("#srcBulkAction")as HTMLSelectElement)?.value||"pool";
+      const names=_srcSelectedSources();
+      if(!names.length){ toast("Tick one or more source rows first"); return; }
+      if(action==="export"){ w._srcExportSelected(); return; }
+      // action === "pool": send all not-yet-pooled, unassigned leads of the selected sources to the pool
+      const leads=_srcLeadsFor(names).filter((l:any)=>!l.isAssigned&&!l.inPool&&!_movedToPool.has(String(l.id)));
+      if(!leads.length){ toast("No unassigned leads to send for the selected source(s)"); return; }
+      const ids=leads.map((l:any)=>String(l.id));
+      const btn=root.querySelector("#srcBulkAction") as HTMLSelectElement;
+      try{
+        const nowIso=new Date().toISOString();
+        for(let i=0;i<ids.length;i+=200){
+          const {error}=await supabase.from("leads").update({in_pool:true,pool_added_at:nowIso}).in("meta_lead_id",ids.slice(i,i+200));
+          if(error) throw error;
+        }
+      }catch(e:any){ toast("Bulk action failed: "+(e.message||"db error")); return; }
+      // Reflect locally + re-render every affected view.
+      ids.forEach(id=>{ const ld=_metaLeads.find((x:any)=>String(x.id)===id); if(ld)ld.inPool=true; });
+      await loadOtherSourceLeads(); await loadAssignmentExtras(); rebuildPoolFromDB(); rebuildIMP();
+      renderImport(); renderMetaPage(); renderUnassignedPool(); renderAdvisorLoad();
+      toast(ids.length+" unassigned lead"+(ids.length===1?"":"s")+" from "+names.length+" source"+(names.length===1?"":"s")+" sent to assignment");
     };
 
     // Reflect filter precedence in the UI: a date range overrides Month/Year.
@@ -1934,7 +1988,21 @@ export default function Home() {
         if(error) throw error;
         _assignees=data||[];
       }catch(e){ _assignees=[]; }
-      renderAssigneesTable();renderAdvisorLoad();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();
+      renderAssigneesTable();renderAdvisorLoad();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();populateAdvisorDropdowns();
+    }
+    // Fill the lead-profile Salesperson + HC dropdowns from the live Assignees master.
+    // Salesperson = active staff (any role except Health Coach); HC = active Health Coaches.
+    function populateAdvisorDropdowns(){
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const active=_assignees.filter((a:any)=>a.is_active);
+      const sales=root.querySelector("#salesSel")as HTMLSelectElement|null;
+      const hc=root.querySelector("#hcSel")as HTMLSelectElement|null;
+      if(sales){ const cur=sales.value; const ppl=active.filter((a:any)=>a.role!=="Health Coach");
+        sales.innerHTML='<option value="">— Select —</option>'+ppl.map((a:any)=>'<option>'+esc(a.name)+'</option>').join("");
+        if(cur)sales.value=cur; }
+      if(hc){ const cur=hc.value; const docs=active.filter((a:any)=>a.role==="Health Coach");
+        hc.innerHTML='<option value="">— Select —</option>'+docs.map((a:any)=>'<option>'+esc(a.name)+'</option>').join("");
+        if(cur)hc.value=cur; }
     }
     w._asgCreate=async()=>{
       const name=((root.querySelector("#asgName")as HTMLInputElement)?.value||"").trim();
@@ -2071,6 +2139,13 @@ export default function Home() {
     let _advLeadId="";         // id of the lead currently shown in the detail pane
     let _openLeads:any[]=[];   // leads opened from the Assigned table — kept until closed
     let _openRelinked=false;
+    let _advAttachments:any[]=[];   // blood-report files for the active lead [{name,url,at}]
+    let _advFuNotes:any[]=[];       // follow-up notes for the active lead [{text,at}]
+    let _advApplying=false;         // true while restoring a saved profile (suppress activity logging)
+    let _advProfileColMissing=false;// once we learn advisor_profile column isn't there, skip the DB read
+    const ADV_ACTOR="ABM / Admin";  // no auth yet → record the active role
+    // Call-status codes that REQUIRE a "Next follow-up date & time".
+    const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so"];
     const _OPEN_KEY="wos_open_leads";
     // Persist the open-leads workspace so it survives page refreshes / new sessions.
     function saveOpenLeads(){
@@ -2133,6 +2208,18 @@ export default function Home() {
       root.querySelectorAll("#s-advisor .a-p input").forEach((i:any)=>{ if(i.type==="checkbox"||i.type==="radio") i.checked=false; else i.value=""; });
       root.querySelectorAll("#s-advisor .a-p textarea").forEach((t:any)=>{ t.value=""; });
       root.querySelectorAll("#s-advisor .a-p select").forEach((s:any)=>{ s.selectedIndex=0; });
+      // Clear demo/sample widget states so a fresh lead shows nothing pre-selected.
+      const _sp=root.querySelector('#s-advisor .a-p[data-p="sales"]');
+      if(_sp){
+        _sp.querySelectorAll(".chip-o.on").forEach((c:any)=>c.classList.remove("on"));
+        _sp.querySelectorAll("#stars .star.on").forEach((s:any)=>s.classList.remove("on"));
+        _sp.querySelectorAll("#bdm button.on").forEach((b:any)=>b.classList.remove("on"));
+        const pills=_sp.querySelectorAll(".pill"); pills.forEach((b:any,i:number)=>b.classList.toggle("on",i===0));   // default: Open
+        const range=_sp.querySelector("input[type=range]")as HTMLInputElement|null; const pv=_sp.querySelector("#pv"); if(range){ range.value="50"; if(pv)pv.textContent="50%"; }
+      }
+      _advAttachments=[]; renderAdvAtts();
+      _advFuNotes=[]; renderAdvFuNotes();
+      populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
       setV("#advfName",l.name||"");setV("#advfPhone",l.phone||"");setV("#advfWhats",l.phone||"");setV("#advfEmail",l.email||"");
       // Mark "Open" on real leads only (never from a restore placeholder, which
@@ -2144,7 +2231,205 @@ export default function Home() {
       const csSel=root.querySelector("#callStatus")as HTMLSelectElement;
       if(csSel){const code=HA_LABEL2CODE[l.callStatus||"Open"];if(code)csSel.value=code;}
       renderHealthDashboard();
+      loadAndApplyProfile(l);   // restore the saved "Save lead record" form for this lead
+      renderActivityLog(l.id);  // show this lead's audit history (latest first)
     }
+
+    // ===== Persisted lead profile (Health Advisor "Save lead record") =====
+    // The editable form is a single template reused for every lead, so we can
+    // serialize it index-based (positions are stable across saves & refreshes).
+    function _advPanelEl(){ return root.querySelector('#s-advisor .a-p[data-p="sales"]')as HTMLElement|null; }
+    function _advCtrls(){ const p=_advPanelEl(); return p?(Array.from(p.querySelectorAll("input,select,textarea"))as any[]):[]; }
+    // Human label per control (from its .fld > .lbl), deduped — powers the Activity Log diff.
+    function _advLabels(){
+      const seen:Record<string,number>={};
+      return _advCtrls().map((el:any,i:number)=>{
+        const fld=el.closest?el.closest(".fld"):null; const lab=fld?fld.querySelector(".lbl"):null;
+        let t=lab?(lab.textContent||"").replace(/\b(NEW|AUTO|SYNCED)\b/g,"").replace(/\s+/g," ").trim():"";
+        if(!t) t="Field "+(i+1);
+        seen[t]=(seen[t]||0)+1; if(seen[t]>1) t=t+" ("+seen[t]+")";
+        return t;
+      });
+    }
+    // {label: value} snapshot for diffing. profileF (optional) reads from a saved profile.
+    function _advNamed(profileF?:any[]){
+      const labels=_advLabels(); const ctrls=_advCtrls(); const out:Record<string,string>={};
+      ctrls.forEach((el:any,i:number)=>{
+        if(el.readOnly) return;
+        let v:any;
+        if(profileF){ const rec=profileF[i]; v=rec?("c" in rec?(rec.c?"Yes":"No"):(rec.v||"")):""; }
+        else { v=(el.type==="checkbox"||el.type==="radio")?(el.checked?"Yes":"No"):el.value; }
+        out[labels[i]]=v==null?"":String(v);
+      });
+      return out;
+    }
+    function collectAdvisorProfile(){
+      const p=_advPanelEl(); if(!p) return null;
+      const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
+      const states=(sel:string)=>Array.from(p.querySelectorAll(sel)).map((b:any)=>b.classList.contains("on"));
+      return {v:2,f,chips:states(".chip-o"),stars:states("#stars .star"),pills:states(".pill"),score:states("#bdm button"),attachments:_advAttachments.slice(),fuNotes:_advFuNotes.slice()};
+    }
+    function applyAdvisorProfile(obj:any){
+      const p=_advPanelEl(); if(!p||!obj) return;
+      _advApplying=true;
+      try{
+        const els=Array.from(p.querySelectorAll("input,select,textarea"));
+        (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
+        const setStates=(sel:string,arr:any[])=>{ if(!arr) return; const list=Array.from(p.querySelectorAll(sel)); arr.forEach((on:boolean,i:number)=>{ if(list[i]) (list[i]as HTMLElement).classList.toggle("on",!!on); }); };
+        setStates(".chip-o",obj.chips); setStates("#stars .star",obj.stars); setStates(".pill",obj.pills); setStates("#bdm button",obj.score);
+        _advAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderAdvAtts();
+        _advFuNotes=Array.isArray(obj.fuNotes)?obj.fuNotes.slice():[]; renderAdvFuNotes();
+        const range=p.querySelector("input[type=range]")as HTMLInputElement|null; const pv=p.querySelector("#pv"); if(range&&pv) pv.textContent=range.value+"%";
+        const cs=p.querySelector("#callStatus")as HTMLSelectElement|null; if(cs&&(w as any).callStatusChange){ try{ (w as any).callStatusChange(cs.value); }catch(_){} }
+      } finally { _advApplying=false; }
+    }
+    // ---- Blood-report attachments + follow-up notes renderers ----
+    function renderAdvAtts(){
+      const ba=root.querySelector("#bloodAtts"); if(!ba) return;
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      ba.innerHTML=_advAttachments.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(a.url||"#")+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
+        +'<span class="att add" onclick="window._advAddBlood()"><svg class="icon"><use href="#i-clip"/></svg> Add report</span>';
+    }
+    function renderAdvFuNotes(){
+      const el=root.querySelector("#fuNotesA"); if(!el) return;
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      el.innerHTML=_advFuNotes.length?_advFuNotes.map((n:any)=>'<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">'+e(n.at||"")+'</b> — '+e(n.text||"")+'</div>').join(""):'<div style="font-size:12px;color:var(--faint)">No follow-up notes yet.</div>';
+    }
+    const _advpKey=(id:any)=>"wos_advp_"+id;
+    function readProfileLocal(id:any){ try{ const s=localStorage.getItem(_advpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
+    function saveProfileLocal(id:any,obj:any){ try{ localStorage.setItem(_advpKey(id),JSON.stringify(obj)); }catch(_){/* storage full/unavailable */} }
+    // Fetch (once) + apply the saved profile for a lead, if it's still the active one.
+    // Prefers the DB; falls back to device-local storage (e.g. before the migration is run).
+    async function loadAndApplyProfile(l:any){
+      if(!l) return;
+      // 1) INSTANT apply. The device-local copy is the authoritative latest (every
+      //    save writes it synchronously), so prefer it over any stale in-memory cache.
+      let prof:any = readProfileLocal(l.id);
+      if(prof==null) prof = (l.advisorProfile!=null ? l.advisorProfile : null);
+      l.advisorProfile = prof || null;
+      if(prof && String(_advLeadId)===String(l.id)) applyAdvisorProfile(prof);
+      // 2) BACKGROUND reconcile with the DB (skip once we know the column is absent).
+      if(_advProfileColMissing) return;
+      try{
+        const {data,error}=await supabase.from("leads").select("advisor_profile").eq("meta_lead_id",l.id).limit(1);
+        if(error){ if(/advisor_profile|column|exist|schema/i.test(error.message||"")) _advProfileColMissing=true; return; }
+        const dbProf=data&&data[0]&&data[0].advisor_profile;
+        if(dbProf){ l.advisorProfile=dbProf; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(dbProf); }
+      }catch(_){/* network error — local copy already applied */}
+    }
+    function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
+    // Save the profile WITHOUT toast/diff (used after attachment / note changes).
+    function persistAdvProfileQuiet(id:string){
+      const obj=collectAdvisorProfile();
+      saveProfileLocal(id,obj);
+      const l=_advFindLead(id); if(l) l.advisorProfile=obj;
+      supabase.from("leads").update({advisor_profile:obj}).eq("meta_lead_id",id).then(()=>{},()=>{});
+    }
+    w._advSaveRecord=()=>{
+      if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
+      // Validate: statuses that need a follow-up must have a Next follow-up date.
+      const _csSel=root.querySelector("#callStatus")as HTMLSelectElement|null;
+      if(_csSel && FU_REQUIRED_CODES.indexOf(_csSel.value)>=0){
+        const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
+        if(nf && !nf.value){ toastErr("Set a Next follow-up date & time for status: "+(HA_CODE2LABEL[_csSel.value]||_csSel.value)); try{nf.focus();}catch(_){} return; }
+      }
+      const id=String(_advLeadId);
+      const lead=_advFindLead(id);
+      const prev=lead?lead.advisorProfile:null;
+      const obj=collectAdvisorProfile();
+      // ---- build the Activity Log diff (named, prev → new) ----
+      const entries:any[]=[];
+      if(!prev){ entries.push({action:"Created",field:"Lead record",new:"created"}); }
+      else{
+        const before=_advNamed(prev.f); const after=_advNamed();
+        Object.keys(after).forEach(k=>{ if(/call status/i.test(k)) return; const o=before[k]==null?"":before[k]; const n=after[k]; if(o!==n) entries.push({action:"Updated",field:k,old:o,new:n}); });
+        const grp=(label:string,a:any,b:any)=>{ if(JSON.stringify(a||[])!==JSON.stringify(b||[])) entries.push({action:"Updated",field:label,new:"changed"}); };
+        grp("Priority",prev.stars,obj.stars); grp("Managing-now / Health issues",prev.chips,obj.chips); grp("Visited status",prev.pills,obj.pills); grp("BDM score",prev.score,obj.score);
+      }
+      saveProfileLocal(id,obj);
+      const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
+      const csLabel=cs?(HA_CODE2LABEL[cs.value]||""):"";
+      [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].forEach((x:any)=>{ if(x&&String(x.id)===id){ x.advisorProfile=obj; if(csLabel)x.callStatus=csLabel; } });
+      renderHealthDashboard();
+      toast("Lead record saved");
+      if(entries.length) logActivity(id,entries);
+      const upd:any={advisor_profile:obj}; if(csLabel) upd.call_status=csLabel;
+      supabase.from("leads").update(upd).eq("meta_lead_id",id).then(({error}:any)=>{
+        if(error && /advisor_profile|column|schema|exist/i.test(error.message||"")){
+          toast("Saved on this device — run supabase-migration-advisor-profile.sql for cross-device sync");
+        }
+      },()=>{/* network error — local copy already saved */});
+    };
+    w._advAddBlood=()=>{
+      if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
+      const id=String(_advLeadId);
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".pdf,.jpg,.jpeg,.png,.webp,.heic";
+      inp.onchange=async()=>{
+        const file=inp.files&&inp.files[0]; if(!file) return;
+        if(file.size>15*1024*1024){ toast("File too large (max 15 MB)"); return; }
+        toast("Uploading "+file.name+"…");
+        const path=id.replace(/[^a-zA-Z0-9._-]/g,"_")+"/"+Date.now()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+        try{
+          const up=await supabase.storage.from("lead-files").upload(path,file,{upsert:false});
+          if(up.error) throw up.error;
+          const {data}=supabase.storage.from("lead-files").getPublicUrl(path);
+          _advAttachments.unshift({name:file.name,url:(data&&data.publicUrl)||"",at:new Date().toISOString()});
+          renderAdvAtts();
+          persistAdvProfileQuiet(id);
+          logActivity(id,[{action:"File Uploaded",field:"Blood report",new:file.name}]);
+          toast("Report uploaded");
+        }catch(e:any){
+          const miss=/bucket|not found|does not exist|404/i.test(e.message||"");
+          toast(miss?"Create a PUBLIC Storage bucket named 'lead-files' in Supabase first":"Upload failed: "+(e.message||"error"));
+        }
+      };
+      inp.click();
+    };
+    w._advRemoveAtt=(i:number)=>{
+      if(!_advLeadId) return; const id=String(_advLeadId);
+      const a=_advAttachments[i]; if(!a) return;
+      _advAttachments.splice(i,1); renderAdvAtts();
+      persistAdvProfileQuiet(id);
+      logActivity(id,[{action:"Updated",field:"Blood report removed",old:a.name}]);
+    };
+    // ---- Activity log (per-lead audit history) ----
+    const _actKey=(id:any)=>"wos_act_"+id;
+    function readActLocal(id:any){ try{ return JSON.parse(localStorage.getItem(_actKey(id))||"[]"); }catch(_){ return []; } }
+    function writeActLocal(id:any,arr:any[]){ try{ localStorage.setItem(_actKey(id),JSON.stringify(arr.slice(0,200))); }catch(_){} }
+    function _actTime(iso:string){ try{ return new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(iso)); }catch(_){ return iso; } }
+    function _actColor(a:string){ a=(a||"").toLowerCase(); if(a.indexOf("creat")>=0)return "ok"; if(a.indexOf("assign")>=0)return "vio"; if(a.indexOf("status")>=0)return "warn"; if(a.indexOf("file")>=0||a.indexOf("follow")>=0)return "info"; return "neu"; }
+    async function logActivity(leadId:any,entries:any[]){
+      if(!leadId||!entries||!entries.length) return;
+      const nowIso=new Date().toISOString();
+      const rows=entries.map((e:any)=>({lead_id:String(leadId),action:e.action,field:e.field||null,old_value:(e.old==null||e.old==="")?null:String(e.old),new_value:(e.new==null||e.new==="")?null:String(e.new),actor:ADV_ACTOR,created_at:nowIso}));
+      const local=readActLocal(leadId); rows.slice().reverse().forEach((r:any)=>local.unshift(r)); writeActLocal(leadId,local);
+      if(String(_advLeadId)===String(leadId)) renderActivityLog(leadId);
+      try{ await supabase.from("lead_activity").insert(rows); }catch(_){/* table not migrated yet — local copy kept */}
+    }
+    async function renderActivityLog(leadId:any){
+      const el=root.querySelector("#actLog"); if(!el) return;
+      let rows:any[]=[];
+      try{ const {data}=await supabase.from("lead_activity").select("*").eq("lead_id",String(leadId)).order("created_at",{ascending:false}).limit(200); rows=data||[]; }catch(_){ rows=[]; }
+      if(!rows.length) rows=readActLocal(leadId);
+      if(String(_advLeadId)!==String(leadId)) return;   // user switched away during the fetch
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div>'; return; }
+      el.innerHTML=rows.map((r:any)=>{
+        const chg=r.field?('<b>'+e(r.field)+'</b>'+((r.old_value!=null||r.new_value!=null)?': <span style="color:var(--faint)">'+e(r.old_value||"—")+'</span> &rarr; <b>'+e(r.new_value||"—")+'</b>':'')):'';
+        return '<div class="tl"><div class="t"><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span> '+chg+'</div><div class="m">'+e(r.actor||ADV_ACTOR)+' &middot; '+_actTime(r.created_at)+'</div></div>';
+      }).join("");
+    }
+    w.addFuNoteA=()=>{
+      if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
+      const id=String(_advLeadId);
+      const inp=root.querySelector("#fuNoteA")as HTMLInputElement|null; const txt=inp?inp.value.trim():"";
+      if(!txt){ toast("Enter a follow-up note"); return; }
+      const at=new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date());
+      _advFuNotes.unshift({text:txt,at}); renderAdvFuNotes(); if(inp) inp.value="";
+      persistAdvProfileQuiet(id);
+      logActivity(id,[{action:"Follow-up Added",field:"Follow-up note",new:txt}]);
+      toast("Follow-up note added");
+    };
 
     // Render the vertical list of opened leads (left panel); highlight the active one.
     function renderOpenList(){
@@ -3183,22 +3468,59 @@ export default function Home() {
     _csvSweepTimer=setInterval(()=>{ sweepExpiredDups(); },30000);
     loadAssignmentExtras().then(()=>{rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
 
-    // ========== RECEPTION DATA ==========
-    const RX: any[] = [
-      { id:1,name:"Ajith Kumar",ph:"98000 00021",svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time:"10:30",hc:"Dr. Suresh",status:"visited",visitedAt:"10:24",payStatus:"paid",payAmt:29000,stage:"screening",session:"",notes:"Confirmed walk-in with wife",calls:2,source:"Meta",lang:"Tamil",sugar:"150–250",hba1c:"8.4",priority:"★★☆",prob:"62%",eligibility:"✓ Eligible",advisor:"Prem Kumar",consultStatus:"Will Join Immediately",bmi:"29.1",bp:"130/85",assessment:"Good L2 candidate"},
-      { id:2,name:"R. Kumar",ph:"97114 20832",svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time:"11:15",hc:"Dr. Priya",status:"expected",visitedAt:"",payStatus:"free",payAmt:0,stage:"",session:"",notes:"",calls:0,source:"Meta",lang:"Tamil",sugar:"Above 250",hba1c:"9.1",priority:"★★★",prob:"78%",eligibility:"✓ Eligible",advisor:"Vinod M.",consultStatus:"Open",bmi:"",bp:"",assessment:""},
-      { id:3,name:"P. Ravi",ph:"96448 44281",svc:"physio",svcLabel:"💪 Physio 3/8",date:"16-Jun",time:"11:30",hc:"Ganesh (PT)",status:"expected",visitedAt:"",payStatus:"prepaid",payAmt:6400,stage:"Session 3",session:"3/8",notes:"Lower back pain, improving",calls:0,source:"Referral",lang:"Tamil",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:"Rehab L4-L5"},
-      { id:4,name:"M. John",ph:"96448 11290",svc:"bt",svcLabel:"🩸 Blood test",date:"16-Jun",time:"11:45",hc:"—",status:"expected",visitedAt:"",payStatus:"due",payAmt:800,stage:"",session:"",notes:"",calls:0,source:"Walk-in",lang:"Tamil",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:""},
-      { id:5,name:"K. Mani",ph:"98873 64101",svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time:"10:00",hc:"Dr. Latha",status:"noshow",visitedAt:"",payStatus:"",payAmt:0,stage:"",session:"",notes:"No answer on 3 calls",calls:3,source:"Meta",lang:"Telugu",sugar:"150–250",hba1c:"7.8",priority:"★☆☆",prob:"30%",eligibility:"✓ Eligible",advisor:"Sana R.",consultStatus:"Open",bmi:"",bp:"",assessment:""},
-      { id:6,name:"S. Devi",ph:"99876 54321",svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time:"9:30",hc:"Dr. Suresh",status:"visited",visitedAt:"9:28",payStatus:"paid",payAmt:29000,stage:"enrolled",session:"",notes:"Enrolled L2 — kit issued",calls:1,source:"Meta",lang:"Tamil",sugar:"Above 250",hba1c:"10.2",priority:"★★★",prob:"90%",eligibility:"✓ Eligible",advisor:"Priya K.",consultStatus:"Enrolled – L2",bmi:"32.4",bp:"140/90",assessment:"Highly motivated, family support"},
-      { id:7,name:"V. Prasad",ph:"98412 33007",svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time:"12:00",hc:"Dr. Priya",status:"expected",visitedAt:"",payStatus:"free",payAmt:0,stage:"",session:"",notes:"Called yesterday — said will visit today",calls:2,source:"Meta",lang:"Telugu",sugar:"150–250",hba1c:"8.0",priority:"★★☆",prob:"55%",eligibility:"✓ Eligible",advisor:"Vinod M.",consultStatus:"Open",bmi:"",bp:"",assessment:""},
-      { id:8,name:"F. Begum",ph:"96001 78234",svc:"bt",svcLabel:"🩸 Blood test",date:"16-Jun",time:"10:15",hc:"—",status:"visited",visitedAt:"10:12",payStatus:"paid",payAmt:1200,stage:"sample",session:"",notes:"Thyroid + HbA1c panel",calls:0,source:"Website",lang:"Tamil",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:""},
-      { id:9,name:"L. Priya",ph:"98765 43210",svc:"physio",svcLabel:"💪 Physio 5/12",date:"16-Jun",time:"10:00",hc:"Ganesh (PT)",status:"visited",visitedAt:"9:55",payStatus:"prepaid",payAmt:10800,stage:"done",session:"5/12",notes:"Knee rehab post-op, good progress",calls:0,source:"Referral",lang:"Tamil",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:"ROM 85% recovered"},
-      { id:10,name:"M. Lakshmi",ph:"97654 32109",svc:"physio",svcLabel:"💪 Physio 1/6",date:"16-Jun",time:"12:30",hc:"Ganesh (PT)",status:"expected",visitedAt:"",payStatus:"due",payAmt:800,stage:"",session:"1/6",notes:"Cervical spondylosis — first visit",calls:1,source:"Walk-in",lang:"Tamil",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:""},
-      { id:11,name:"D. Kumar",ph:"99887 76543",svc:"bt",svcLabel:"🩸 Blood test",date:"16-Jun",time:"2:00 PM",hc:"—",status:"rescheduled",visitedAt:"",payStatus:"",payAmt:0,stage:"→ 18 Jun",session:"",notes:"Fasting not done — rescheduled",calls:1,source:"Meta",lang:"Hindi",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:""},
-      { id:12,name:"A. Raman",ph:"98000 11122",svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time:"2:30 PM",hc:"Dr. Anand",status:"cancelled",visitedAt:"",payStatus:"refunded",payAmt:-4000,stage:"",session:"",notes:"Relocated to Bangalore",calls:2,source:"Meta",lang:"Tamil",sugar:"150–250",hba1c:"7.5",priority:"★★☆",prob:"40%",eligibility:"✓ Eligible",advisor:"Priya K.",consultStatus:"Cancelled",bmi:"",bp:"",assessment:""},
-    ];
-    w.RX = RX;
+    // ========== RECEPTION DATA (live: appointments + payments) ==========
+    let RX: any[] = [];        // current date-filtered appointments (shape used by renderers)
+    let _recAll: any[] = [];   // all loaded appointments
+    function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
+    function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
+    function _recFmtDate(d:string){ if(!d)return ""; try{ return new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short"}).format(new Date(d+"T12:00:00")); }catch(_){ return d; } }
+    async function loadReceptionData(){
+      try{
+        const [ar,pr]=await Promise.all([
+          supabase.from("appointments").select("*").order("appt_date",{ascending:false}).limit(500),
+          supabase.from("payments").select("*").order("created_at",{ascending:false})
+        ]);
+        const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
+        _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":"free"),amount:0}; return {
+          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
+          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"",
+          payStatus:pay.status, payAmt:pay.amount||0, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
+          sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:"" };
+        });
+      }catch(_){ _recAll=[]; }
+      applyRecDate();
+    }
+    function _recDateRange():[Date|null,Date|null]{
+      const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+      if(curDate==="today") return [sod(now),eod(now)];
+      if(curDate==="tmr"){ const t=new Date(now);t.setDate(t.getDate()+1); return [sod(t),eod(t)]; }
+      if(curDate==="wk"){ const e=new Date(now);e.setDate(e.getDate()+7); return [sod(now),eod(e)]; }
+      if(curDate==="cust"){ const f=(root.querySelector("#dtFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#dtTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
+      return [null,null];
+    }
+    function applyRecDate(){
+      const [from,to]=_recDateRange();
+      RX=_recAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      renderAll();
+    }
+    // Booking hook: Advisor "Appointment Fixed" → create/update an appointment row.
+    async function _bookApptForLead(leadId:string,mode:string){
+      const lead=(typeof _advFindLead==="function")?_advFindLead(String(leadId)):null;
+      const name=lead?(lead.name||lead.phone||"Client"):"Client";
+      const phone=lead?(lead.phone||""):"";
+      const lang=lead?(lead.lang||"Tamil"):"Tamil";
+      const hc=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||"";
+      const sd=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
+      const apptDate=sd||new Date().toISOString().substring(0,10);
+      const apptTime=selSlot||"";
+      try{
+        const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).eq("appt_date",apptDate).neq("status","cancelled").limit(1);
+        if(data&&data[0]) await supabase.from("appointments").update({appt_time:apptTime,hc_pt:hc,source:"Advisor ("+mode+")"}).eq("id",data[0].id);
+        else await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone,service:"Diabetes",hc_pt:hc,appt_date:apptDate,appt_time:apptTime,status:"expected",source:"Advisor ("+mode+")",language:lang});
+        toast("Appointment booked → Reception");
+        loadReceptionData();
+      }catch(e:any){ if(/appointment|relation|column|schema|exist/i.test(e.message||"")) toast("Run supabase-migration-reception.sql to enable appointments"); }
+    }
 
     let curSvc = "all", curDate = "today", curScFilter: string | null = null;
     const SVC_LABELS: Record<string,string> = { all:"All", dia:"🩺 Diabetes", bt:"🩸 Blood test", physio:"💪 Physio" };
@@ -3256,7 +3578,7 @@ export default function Home() {
       f.forEach((r:any) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        html += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+' '+r.time+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt||"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Calling '+r.ph+'…\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        html += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+' '+r.time+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt||"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       html += '</tbody></table>';
       const aw = root.querySelector("#apptWrap"); if (aw) aw.innerHTML = html;
@@ -3264,14 +3586,19 @@ export default function Home() {
     function renderPay() {
       const el = root.querySelector("#recPayList");
       if (el) {
-        el.innerHTML = RX.filter((r:any)=>r.payStatus==="due").map((r:any)=>'<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+' · ₹'+r.payAmt.toLocaleString("en-IN")+'</div></div><button class="btn bsm bp" onclick="window._recOpen(\''+r.name+'\',\''+r.svc+'\',\''+r.payAmt+'\')">Collect</button></div>').join("") +
-        RX.filter((r:any)=>r.payStatus==="prepaid").map((r:any)=>'<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+' · Prepaid ✓</div></div><button class="btn bsm" onclick="window._toast(\'Visit marked · '+r.session+'\')">Mark visit</button></div>').join("");
+        const due=RX.filter((r:any)=>r.payStatus==="due");
+        el.innerHTML = (due.length?due.map((r:any)=>'<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+' · ₹'+(r.payAmt||0).toLocaleString("en-IN")+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+(r.payAmt||0)+',\''+(r.lead_id||"")+'\')">Collect</button></div>').join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
 
+    w._recCall = async (leadId:string,phone:string) => {
+      if(leadId){ const r=await _callInitiate(leadId); if(r&&r.ok){ toast("📞 Calling — your phone rings first, then the customer"); _pollRecordings(leadId,"reception"); return; } if(r&&r.error){ toastErr(r.error); return; } }
+      toast("Calling "+(phone||"")+"…");
+    };
     w._svcF2 = (s:string) => { curSvc=s; curScFilter=null; renderFilters(); renderAll(); };
     w._svcF = (s:string) => { curSvc=s; curScFilter=null; renderFilters(); renderAll(); };
-    w._dtF = (d:string) => { curDate=d; const show=d==="cust"; ["dtFrom","dtTo","dtTo2"].forEach((id)=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); renderFilters(); renderAll(); };
+    w._dtF = (d:string) => { curDate=d; const show=d==="cust"; ["dtFrom","dtTo","dtTo2"].forEach((id)=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); renderFilters(); applyRecDate(); };
+    ["dtFrom","dtTo"].forEach((id)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.onchange=()=>{ if(curDate==="cust") applyRecDate(); }; });
     w._scClick = (k:string) => { curScFilter=curScFilter===k?null:k; renderSc(); renderAppt(); };
 
     function renderFilters() {
@@ -3292,16 +3619,27 @@ export default function Home() {
       const drp=root.querySelector('[data-p="dr"]');
       if(drp) drp.innerHTML='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Reception record</div><div class="sec-bd" style="padding:4px 14px 14px"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono" style="font-weight:600">'+(r.visitedAt||"—")+'</td><td style="color:var(--muted)">Service</td><td>'+r.svcLabel+'</td></tr><tr><td style="color:var(--muted)">HC / PT</td><td style="font-weight:600">'+r.hc+'</td><td style="color:var(--muted)">Status</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td></tr><tr><td style="color:var(--muted)">Payment</td><td class="mono" style="font-weight:700">'+(r.payAmt?"₹"+r.payAmt.toLocaleString("en-IN"):"—")+'</td><td style="color:var(--muted)">Pay status</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td></tr></tbody></table></div></div>';
     }
-    w._openDrawer = (id:number) => { const r=RX.find((x:any)=>x.id===id); if(r) openDrawer(r); };
+    w._openDrawer = (id:number) => { const r=_recAll.find((x:any)=>String(x.id)===String(id))||RX.find((x:any)=>String(x.id)===String(id)); if(r) openDrawer(r); };
     function closeDrawer() { const d=root.querySelector("#drawer")as HTMLElement; const o=root.querySelector("#dOverlay")as HTMLElement; if(d)d.classList.remove("open"); if(o)o.classList.remove("open"); }
     w.closeDrawer = closeDrawer;
 
-    // Cross-check
-    function ccSearch() {
+    // Cross-check — search ALL appointments, then fall back to the live leads DB.
+    async function ccSearch() {
       const qEl=root.querySelector("#ccQ")as HTMLInputElement; if(!qEl) return;
       const q=qEl.value.trim().toLowerCase(); if(!q){toastErr("Enter phone or name");return;}
-      const match=RX.find((r:any)=>r.ph.replace(/\s/g,"").includes(q.replace(/\s/g,""))||r.name.toLowerCase().includes(q));
       const res=root.querySelector("#ccRes")as HTMLElement; if(!res) return;
+      const match=_recAll.find((r:any)=>(r.ph||"").replace(/\s/g,"").includes(q.replace(/\s/g,""))||(r.name||"").toLowerCase().includes(q));
+      if(!match){
+        // No appointment — check the leads DB so we can tell "exists but unbooked" vs "new".
+        try{
+          const d=q.replace(/\D/g,"");
+          let qb=supabase.from("leads").select("meta_lead_id,name,phone").limit(1);
+          qb=d.length>=4?qb.ilike("phone","%"+d+"%"):qb.ilike("name","%"+q+"%");
+          const {data}=await qb;
+          const lead=data&&data[0];
+          if(lead){ res.innerHTML='<div style="border:1.5px solid var(--warn);border-radius:12px;padding:12px 14px;background:var(--warn-bg)"><b>'+ (lead.name||lead.phone) +'</b> <span class="mono" style="color:var(--muted)">'+(lead.phone||"")+'</span><p style="font-size:12px;color:var(--warn-ink);margin:6px 0 0">In the system, but <b>no appointment booked</b>. Use “+ New walk-in” to book.</p></div>'; toast("Found lead — no appointment"); return; }
+        }catch(_){}
+      }
       if(match){
         const hasAppt=match.status!=="noshow"&&match.status!=="cancelled";
         res.innerHTML='<div style="border:1.5px solid var(--brand-line);border-radius:12px;padding:12px 14px;background:linear-gradient(180deg,#F7FCFA,#fff)"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-family:var(--disp)">'+match.name+'</b><span class="mono" style="color:var(--muted)">'+match.ph+'</span></div><table class="tbl" style="margin-top:8px"><tbody><tr><td style="color:var(--muted)">Service</td><td>'+match.svcLabel+'</td><td style="color:var(--muted)">Appointment</td><td>'+(hasAppt?'<span class="chipb ok">'+match.date+' · '+match.time+' with '+match.hc+'</span>':'<span class="chipb al">None booked</span>')+'</td></tr></tbody></table><div style="display:flex;gap:6px;margin-top:10px"><button class="btn bsm bp" onclick="window._openDrawer('+match.id+')">Open full record</button></div></div>';
@@ -3322,28 +3660,50 @@ export default function Home() {
       else sr.innerHTML='<span class="chipb ok">✓ '+time+' available — '+booked.length+'/'+cap+' booked</span>';
     }
     w.nwCheckSlot = nwCheckSlot;
-    function nwBook() {
-      const name=(root.querySelector("#nwName")as HTMLInputElement)?.value||"New Client";
-      const ph=(root.querySelector("#nwPhone")as HTMLInputElement)?.value||"99999 00000";
-      const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value;
-      const prov=(root.querySelector("#nwProv")as HTMLSelectElement)?.value;
-      const newR:any={id:RX.length+1,name,ph,svc:"dia",svcLabel:"🩺 Diabetes",date:"16-Jun",time,hc:prov,status:"visited",visitedAt:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),payStatus:"free",payAmt:0,stage:"screening",session:"",notes:"Walk-in registered at reception",calls:0,source:"Direct Walk-in",lang:"Tamil",sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"Open",bmi:"",bp:"",assessment:""};
-      RX.push(newR); nwToggle(); renderAll();
-      ach("📌","Walk-in registered!",name+" · "+time); boom(26);
+    async function nwBook() {
+      const name=((root.querySelector("#nwName")as HTMLInputElement)?.value||"").trim();
+      const ph=((root.querySelector("#nwPhone")as HTMLInputElement)?.value||"").trim();
+      const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value||"";
+      const prov=(root.querySelector("#nwProv")as HTMLSelectElement)?.value||"";
+      if(!name||!ph){ toastErr("Enter name and phone"); return; }
+      const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
+      const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
+      const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+      try{
+        // 1) create the lead so the walk-in shows everywhere (Lead Import, pool, etc.)
+        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,source:"Walk-in / Referral / Telecalling",language:"Tamil",service:"Diabetes",lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,created_at:nowIso});
+      }catch(_){ /* lead insert best-effort */ }
+      try{
+        // 2) create the appointment (checked in → screening)
+        await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:"Diabetes",hc_pt:prov,appt_date:today,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:"Tamil",notes:"Walk-in registered at reception"});
+      }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
+      nwToggle(); await loadReceptionData();
+      ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
       toast("Created + booked + checked in → screening");
     }
     w.nwBook = nwBook;
 
-    function recOpen(name:string,plan:string,amt:string) {
+    let _recCollect:{apptId:any,leadId:string,amt:number}|null=null;
+    function recOpen(apptId:any,name:string,amt:any,leadId:string) {
+      _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
       const wb=root.querySelector("#recWb")as HTMLElement; if(wb) wb.style.display="block";
-      const p:Record<string,string>={full:"Full",i2:"Installment",emi:"EMI",adv:"Advance",bt:"Blood test",dia:"Diabetes",physio:"Physio"};
       const rn=root.querySelector("#recWbName"); if(rn) rn.textContent=name;
-      const rp=root.querySelector("#recWbPlan"); if(rp) rp.textContent=p[plan]||plan;
-      const rd=root.querySelector("#recWbDue")as HTMLInputElement; if(rd) rd.value="₹"+Number(amt).toLocaleString("en-IN");
-      const ra=root.querySelector("#recWbAmt")as HTMLInputElement; if(ra) ra.value=Number(amt).toLocaleString("en-IN");
+      const rp=root.querySelector("#recWbPlan"); if(rp) rp.textContent="Collection";
+      const rd=root.querySelector("#recWbDue")as HTMLInputElement; if(rd) rd.value="₹"+(Number(amt)||0).toLocaleString("en-IN");
+      const ra=root.querySelector("#recWbAmt")as HTMLInputElement; if(ra) ra.value=String(Number(amt)||0);
     }
     w._recOpen = recOpen;
-    function recConfirm() { const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none"; toast("Collected → Accounts verification"); }
+    async function recConfirm() {
+      const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none";
+      if(!_recCollect){ toast("Nothing to collect"); return; }
+      const amt=Number(((root.querySelector("#recWbAmt")as HTMLInputElement)?.value||"").replace(/[^0-9.]/g,""))||_recCollect.amt||0;
+      try{
+        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method:"reception",paid_at:new Date().toISOString()});
+        toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
+        await loadReceptionData();
+      }catch(e:any){ toastErr(/payment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Collect failed: "+(e.message||"db error")); }
+      _recCollect=null;
+    }
     w.recConfirm = recConfirm;
     function recBack() { const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none"; toast("↩ Moved back"); }
     w.recBack = recBack;
@@ -3363,13 +3723,25 @@ export default function Home() {
       if(v==="afd"){const m=root.querySelector("#apptMode");if(m)m.textContent="Direct (Walk-in)";}
       if(v==="afz"){const m=root.querySelector("#apptMode");if(m)m.textContent="Zoom / Online";}
       if(fu) fu.style.display=(v==="fu")?"flex":"none";
+      // Next follow-up date is REQUIRED for statuses that imply a retry/follow-up,
+      // and disabled+cleared for the rest. (Appointment statuses use the slot board.)
+      const needsFu=FU_REQUIRED_CODES.indexOf(v)>=0;
+      const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
+      if(nf){
+        nf.disabled=!needsFu;
+        nf.style.opacity=needsFu?"1":"0.45";
+        nf.title=needsFu?"Required for this status":"Only used for Call Back / Follow Up / RNR / Line Busy / Switched Off";
+        if(!needsFu){ nf.value=""; }
+        else if(!nf.value && !_advApplying){ const d=new Date(); d.setDate(d.getDate()+1); d.setHours(11,0,0,0); const p=(n:number)=>String(n).padStart(2,"0"); nf.value=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes()); }
+      }
       const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:["Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"]};
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
-      if(v==="afd"||v==="afz"){renderSlots();ach("📅","Appointment fixed!","Pick a slot");boom(26);addLog("Appointment Fixed");}
-      if(v==="fu") addLog("Follow Up");
+      if(v==="afd"||v==="afz"){renderSlots();ach("📅","Appointment fixed!","Pick a slot");boom(26); if(!_advApplying && _advLeadId) _bookApptForLead(_advLeadId, v==="afz"?"Zoom":"Direct"); }
       // Persist the call status to the open lead so it drives the KPI dashboard.
       if(w._haSetCallStatus) w._haSetCallStatus(HA_CODE2LABEL[v]||v);
+      // Audit: log a real status change (but not when restoring a saved profile).
+      if(!_advApplying && _advLeadId) logActivity(_advLeadId,[{action:"Status Changed",field:"Call status",new:HA_CODE2LABEL[v]||v}]);
     }
     w.callStatusChange = callStatusChange;
 
@@ -3416,23 +3788,68 @@ export default function Home() {
     function visitedFx(){
       const vd=root.querySelector("#visDt")as HTMLInputElement;
       if(vd)vd.value=new Date().toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
-      ach("🏥","Visited!","→ screening");boom(34);addLog("Visited");
+      // reflect the pill selection (Visited on, Open off)
+      const sp=root.querySelector('#s-advisor .a-p[data-p="sales"]'); if(sp){ const pills=sp.querySelectorAll(".pill"); pills.forEach((b:any,i:number)=>b.classList.toggle("on",i===1)); }
+      ach("🏥","Visited!","→ screening");boom(34);
+      if(_advLeadId){
+        persistAdvProfileQuiet(String(_advLeadId));
+        logActivity(_advLeadId,[{action:"Status Changed",field:"Visited status",old:"Open",new:"Visited"}]);
+        // Mark visited in the DB so the lead becomes eligible in the Health Coach list.
+        supabase.from("leads").update({visited_at:new Date().toISOString()}).eq("meta_lead_id",_advLeadId).then(()=>{},()=>{});
+      }
     }
     w.visitedFx = visitedFx;
+    // Toggle back to "Open" — clears the auto Visited date.
+    w._advSetOpen=()=>{
+      const sp=root.querySelector('#s-advisor .a-p[data-p="sales"]');
+      if(sp){ const pills=sp.querySelectorAll(".pill"); pills.forEach((b:any,i:number)=>b.classList.toggle("on",i===0)); }
+      const vd=root.querySelector("#visDt")as HTMLInputElement|null; if(vd) vd.value="";
+      if(_advLeadId && !_advApplying){
+        persistAdvProfileQuiet(String(_advLeadId));
+        logActivity(_advLeadId,[{action:"Status Changed",field:"Visited status",old:"Visited",new:"Open"}]);
+        supabase.from("leads").update({visited_at:null}).eq("meta_lead_id",_advLeadId).then(()=>{},()=>{});
+      }
+    };
 
-    // Call timer
+    // ===== Click-to-call (Tata Tele / Smartflo) — server keeps the API key =====
+    async function _callInitiate(id:string){ try{ const r=await fetch("/api/calls/initiate/"+encodeURIComponent(id),{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
+    async function _callRecordings(id:string){ try{ const r=await fetch("/api/calls/"+encodeURIComponent(id)+"/recordings"); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
+    async function _callTagLatest(id:string,t:string){ try{ const r=await fetch("/api/calls/"+encodeURIComponent(id)+"/latest-type",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({callType:t})}); return await r.json(); }catch(_){ return {ok:false}; } }
+    // After a call, poll for the recording the webhook delivers, then auto-tag it.
+    function _pollRecordings(id:string,callType:string){
+      const delays=[3000,15000,45000,120000,300000]; let surfaced=false;
+      delays.forEach(d=>setTimeout(async()=>{
+        if(surfaced) return;
+        const res=await _callRecordings(id);
+        const recs=(res&&res.recordings)||[];
+        const ready=recs.find((r:any)=>r.recording_url);
+        if(ready){
+          surfaced=true;
+          await _callTagLatest(id,callType);
+          logActivity(id,[{action:"File Uploaded",field:"Call recording",new:ready.recording_url}]);
+          if(String(_advLeadId)===String(id)) toast("Call recording ready");
+        }
+      },d));
+    }
+    // Call button: initiate the dial (agent rings first), then run a timer + polling.
     let onCall=0,ct=0,cti:ReturnType<typeof setInterval>|null=null;
     const cbtn=root.querySelector("#callBtn")as HTMLElement;
-    if(cbtn) cbtn.onclick=()=>{
+    if(cbtn) cbtn.onclick=async()=>{
+      const sp=cbtn.querySelector("span");
       if(!onCall){
-        onCall=1;cbtn.style.background="linear-gradient(135deg,#E2553B,#A8351F)";
-        const sp=cbtn.querySelector("span");if(sp)sp.textContent="…";
-        ct=0;setTimeout(()=>{if(onCall)cti=setInterval(()=>{ct++;const sp2=cbtn.querySelector("span");if(sp2)sp2.textContent=(ct/60|0)+":"+String(ct%60).padStart(2,"0");},1000);},1200);
+        if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
+        const id=String(_advLeadId); const nm=(root.querySelector("#advName")?.textContent)||"lead";
+        onCall=1; cbtn.style.background="linear-gradient(135deg,#E2553B,#A8351F)"; if(sp)sp.textContent="Calling…";
+        const r=await _callInitiate(id);
+        if(!r||!r.ok){ onCall=0; cbtn.style.background=""; if(sp)sp.textContent="Call"; toastErr((r&&r.error)||"Call could not be placed"); return; }
+        toast("📞 Calling "+nm+" — your phone rings first, then the customer");
+        logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
+        ct=0; if(cti)clearInterval(cti); cti=setInterval(()=>{ct++;const s2=cbtn.querySelector("span");if(s2)s2.textContent=(ct/60|0)+":"+String(ct%60).padStart(2,"0");},1000);
+        _pollRecordings(id,"outbound");
       } else {
-        onCall=0;if(cti)clearInterval(cti);cbtn.style.background="";
-        const sp=cbtn.querySelector("span");if(sp)sp.textContent="Call";
-        addLog("Call "+(ct/60|0)+":"+String(ct%60).padStart(2,"0"));
-        if(ct<1800){ach("⚡","Speed hero!","<30 min");boom(30);} else toast("Call ended");
+        onCall=0; if(cti)clearInterval(cti); cbtn.style.background=""; if(sp)sp.textContent="Call";
+        if(_advLeadId) logActivity(_advLeadId,[{action:"Updated",field:"Call ended",new:(ct/60|0)+":"+String(ct%60).padStart(2,"0")}]);
+        toast("Call ended");
       }
     };
 
@@ -3478,11 +3895,8 @@ export default function Home() {
       el.style.color=c[1];
     },1000);
 
-    function addLog(txt:string){
-      const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
-      const el=root.querySelector("#actLog");
-      if(el)el.insertAdjacentHTML("afterbegin",'<div class="tl now"><div class="t">'+txt+'</div><div class="m">today '+now+'</div></div>');
-    }
+    // Route legacy addLog() calls into the persistent per-lead activity log.
+    function addLog(txt:string){ if(_advLeadId) logActivity(_advLeadId,[{action:"Updated",field:txt}]); }
 
     function ach(em:string,title:string,sub:string){
       const a=root.querySelector("#ach")as HTMLElement;
@@ -3538,9 +3952,7 @@ export default function Home() {
     function waTpl(){const el=root.querySelector("#waPrev")as HTMLTextAreaElement;if(el)el.value="Template preview loaded";}
     w.waTpl = waTpl;
 
-    let fuAttA=3;
-    function addFuNoteA(){const el=root.querySelector("#fuNoteA")as HTMLInputElement;if(!el||!el.value.trim()){toastErr("Type note");return;}const now=new Date().toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});const notes=root.querySelector("#fuNotesA");if(notes)notes.insertAdjacentHTML("afterbegin",'<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt '+fuAttA++ +' · '+now+'</b> — '+el.value+'</div>');el.value="";toast("Note added");addLog("Follow-up note");}
-    w.addFuNoteA = addFuNoteA;
+    // addFuNoteA + Add-report (blood) are defined earlier with DB persistence + activity logging.
 
     let fuAtt=3;
     function addFuNote(){const el=root.querySelector("#fuNote")as HTMLInputElement;if(!el||!el.value.trim()){toastErr("Type note");return;}const now=new Date().toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});const notes=root.querySelector("#fuNotes");if(notes)notes.insertAdjacentHTML("afterbegin",'<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt '+fuAtt++ +' · '+now+'</b> — '+el.value+'</div>');el.value="";toast("Note added");}
@@ -3565,10 +3977,168 @@ export default function Home() {
 
     root.querySelectorAll(".rep").forEach((r)=>r.addEventListener("click",()=>{root.querySelectorAll(".rep").forEach((x)=>x.classList.remove("on"));r.classList.add("on");}));
 
+    // ===================== HEALTH COACH (live clients) =====================
+    let _coachLeadId="";
+    let _coachAttachments:any[]=[];
+    let _coachApplying=false;
+    let _coachClients:any[]=[];
+    function _coachPanelEl(){ return root.querySelector('#s-coach .c-p[data-p="health2"]')as HTMLElement|null; }
+    function collectCoachProfile(){
+      const p=_coachPanelEl(); if(!p) return null;
+      const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
+      const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
+      return {v:1,f,pills,attachments:_coachAttachments.slice()};
+    }
+    function applyCoachProfile(obj:any){
+      const p=_coachPanelEl(); if(!p||!obj) return;
+      _coachApplying=true;
+      try{
+        const els=Array.from(p.querySelectorAll("input,select,textarea"));
+        (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
+        const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
+        _coachAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderCoachAtts();
+      } finally { _coachApplying=false; }
+    }
+    function renderCoachAtts(){
+      const ba=root.querySelector("#coachAtts"); if(!ba) return;
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      ba.innerHTML=_coachAttachments.length?_coachAttachments.map((a:any)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(a.url||"#")+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+(a.src==="advisor"?" · advisor":"")+'</a></span>').join(""):'<span style="font-size:12px;color:var(--faint)">No reports synced from the advisor yet.</span>';
+    }
+    const _coachpKey=(id:any)=>"wos_coachp_"+id;
+    function readCoachLocal(id:any){ try{ const s=localStorage.getItem(_coachpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
+    function saveCoachLocal(id:any,obj:any){ try{ localStorage.setItem(_coachpKey(id),JSON.stringify(obj)); }catch(_){} }
+    async function loadAndApplyCoach(lead:any){
+      if(!lead) return;
+      if(lead.coachProfile===undefined){
+        let prof:any=null;
+        try{ const {data}=await supabase.from("leads").select("coach_profile").eq("meta_lead_id",lead.id).limit(1); prof=(data&&data[0]&&data[0].coach_profile)||null; }catch(_){ prof=null; }
+        if(!prof) prof=readCoachLocal(lead.id);
+        lead.coachProfile=prof;
+      }
+      if(lead.coachProfile && String(_coachLeadId)===String(lead.id)) applyCoachProfile(lead.coachProfile);
+    }
+    // Pull blood-report attachments the advisor saved (advisor_profile.attachments).
+    async function _coachSyncAdvisorReports(lead:any){
+      let atts:any[]=[];
+      try{ const {data}=await supabase.from("leads").select("advisor_profile").eq("meta_lead_id",lead.id).limit(1); const ap=data&&data[0]&&data[0].advisor_profile; if(ap&&Array.isArray(ap.attachments)) atts=ap.attachments; }catch(_){}
+      if(!atts.length){ try{ const s=localStorage.getItem("wos_advp_"+lead.id); if(s){ const ap=JSON.parse(s); if(ap&&Array.isArray(ap.attachments)) atts=ap.attachments; } }catch(_){} }
+      if(atts.length && String(_coachLeadId)===String(lead.id)){ const have=new Set(_coachAttachments.map((a:any)=>a.url)); atts.forEach((a:any)=>{ if(!have.has(a.url)) _coachAttachments.push({name:a.name,url:a.url,src:"advisor"}); }); renderCoachAtts(); }
+    }
+    // Surface this client's Smartflo call recording into the recording-url field.
+    async function _coachRenderRecordings(id:string){
+      const fld=root.querySelector("#coachRecUrl")as HTMLInputElement|null; if(!fld) return;
+      try{ const res=await _callRecordings(id); const recs=(res&&res.recordings)||[]; const ready=recs.find((r:any)=>r.recording_url); if(ready&&!fld.value&&String(_coachLeadId)===String(id)) fld.value=ready.recording_url; }catch(_){}
+    }
+    function fillCoachDetail(lead:any){
+      if(!lead) return;
+      _coachLeadId=String(lead.id);
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const name=lead.name||lead.phone||"Client";
+      const initials=(name.match(/[A-Za-z0-9]/g)||["C","L"]).slice(0,2).join("").toUpperCase();
+      const setT=(sel:string,t:string)=>{const el=root.querySelector(sel);if(el)el.textContent=t;};
+      const setHt=(sel:string,h:string)=>{const el=root.querySelector(sel);if(el)el.innerHTML=h;};
+      setT("#coachAv",initials||"CL"); setT("#coachName",name);
+      setHt("#coachSub",'<span class="mono">'+e(lead.phone||"—")+'</span><span>·</span><span class="mono">Lead #'+e(String(lead.id))+'</span>');
+      setHt("#coachBadges",'<span class="chipb '+(lead.isValid?'ok':'neu')+'">'+(lead.isValid?'Valid':'No phone')+'</span><span class="chipb neu">'+e((lead.source==="Manual"?"Manual":(lead.source||"Meta"))+" · "+(lead.lang||"Tamil"))+'</span><span class="chipb ok">Visited</span>');
+      const cb=root.querySelector("#coachBadge"); if(cb) cb.textContent="Status: Open";
+      // Clear demo/sample data in the consultation panel.
+      const p=_coachPanelEl();
+      if(p){
+        p.querySelectorAll("input").forEach((i:any)=>{ if(i.type==="checkbox"||i.type==="radio")i.checked=false; else i.value=""; });
+        p.querySelectorAll("textarea").forEach((t:any)=>t.value="");
+        p.querySelectorAll("select").forEach((s:any)=>s.selectedIndex=0);
+        p.querySelectorAll(".pill.on").forEach((b:any)=>b.classList.remove("on"));
+      }
+      _coachAttachments=[]; renderCoachAtts();
+      renderCoachOpenList();
+      loadAndApplyCoach(lead);
+      _coachSyncAdvisorReports(lead);
+      _coachRenderRecordings(_coachLeadId);
+    }
+    async function loadCoachClients(){
+      try{
+        const {data}=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,is_valid").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        _coachClients=(data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,isValid:r.is_valid}));
+      }catch(_){ _coachClients=[]; }
+      renderCoachOpenList();
+    }
+    function renderCoachOpenList(){
+      const el=root.querySelector("#coachOpenList")as HTMLElement|null; if(!el) return;
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(!_coachClients.length){ el.innerHTML='<div style="font-size:12px;color:var(--faint);padding:6px 0">No visited clients yet — mark a lead “Visited” in the Health Advisor to see them here.</div>'; return; }
+      el.innerHTML='<div style="font-weight:700;font-size:11px;color:var(--faint);margin-bottom:8px;letter-spacing:.05em">VISITED CLIENTS ('+_coachClients.length+')</div><div style="display:flex;gap:8px;flex-wrap:wrap">'+_coachClients.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>';
+    }
+    w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client")); };
+    w._coachSaveRecord=()=>{
+      if(!_coachLeadId){ toast("Open a visited client first"); return; }
+      const id=String(_coachLeadId);
+      const obj=collectCoachProfile();
+      saveCoachLocal(id,obj);
+      const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
+      toast("Health record saved");
+      logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
+      supabase.from("leads").update({coach_profile:obj}).eq("meta_lead_id",id).then(({error}:any)=>{ if(error && /coach_profile|column|schema|exist/i.test(error.message||"")) toast("Saved on this device — run supabase-migration-coach-profile.sql for cross-device sync"); },()=>{});
+    };
+    w._coachPrint=()=>{
+      if(!_coachLeadId){ toast("Open a visited client first"); return; }
+      const p=_coachPanelEl(); if(!p) return;
+      const name=(root.querySelector("#coachName")?.textContent)||"Client";
+      const rows:string[]=[];
+      p.querySelectorAll(".fld").forEach((fld:any)=>{
+        const lab=fld.querySelector(".lbl"); const ctrl=fld.querySelector("input,select,textarea");
+        if(!lab||!ctrl) return; const v=(ctrl as any).value; if(!v) return;
+        rows.push('<tr><td style="color:#666;padding:4px 14px 4px 0;vertical-align:top">'+(lab.textContent||"").replace(/\s+/g," ").trim()+'</td><td style="font-weight:600;padding:4px 0">'+String(v).replace(/</g,"&lt;")+'</td></tr>');
+      });
+      const win=window.open("","_blank","width=760,height=1000"); if(!win){ toast("Allow pop-ups to print the prescription"); return; }
+      win.document.write('<html><head><title>Consultation — '+name+'</title></head><body style="font-family:system-ui,Arial,sans-serif;padding:28px;color:#111"><h2 style="margin:0">WellnessOS — Consultation Record</h2><div style="color:#666;margin:2px 0 18px">'+name+' &middot; Lead #'+_coachLeadId+' &middot; '+new Date().toLocaleString("en-IN")+'</div><table style="border-collapse:collapse;font-size:13px">'+(rows.join("")||'<tr><td>No details entered yet.</td></tr>')+'</table></body></html>');
+      win.document.close(); win.focus(); setTimeout(()=>{ try{ win.print(); }catch(_){} },300);
+    };
+    const _ccb=root.querySelector("#coachCallBtn")as HTMLElement|null;
+    if(_ccb) _ccb.onclick=async()=>{
+      if(!_coachLeadId){ toast("Open a visited client first"); return; }
+      const id=String(_coachLeadId); const nm=(root.querySelector("#coachName")?.textContent)||"client";
+      const r=await _callInitiate(id);
+      if(!r||!r.ok){ toastErr((r&&r.error)||"Call could not be placed"); return; }
+      toast("📞 Calling "+nm+" — your phone rings first, then the customer");
+      logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
+      _pollRecordings(id,"coach"); setTimeout(()=>_coachRenderRecordings(id),50000);
+    };
+    // Make the consultation pill groups single-select toggles (Recording / Consultation / Welcome-kit status).
+    {
+      const cp=_coachPanelEl();
+      if(cp) cp.querySelectorAll(".pills").forEach((grp:any)=>{
+        grp.querySelectorAll(".pill").forEach((b:any)=>{
+          b.addEventListener("click",()=>{ grp.querySelectorAll(".pill").forEach((x:any)=>x.classList.remove("on")); b.classList.add("on"); });
+        });
+      });
+    }
+    // Clear the static demo values on load so nothing shows until a real client is opened.
+    {
+      const p=_coachPanelEl();
+      if(p){
+        p.querySelectorAll("input").forEach((i:any)=>{ if(i.type==="checkbox"||i.type==="radio")i.checked=false; else i.value=""; });
+        p.querySelectorAll("textarea").forEach((t:any)=>t.value="");
+        p.querySelectorAll("select").forEach((s:any)=>s.selectedIndex=0);
+        p.querySelectorAll(".pill.on").forEach((b:any)=>b.classList.remove("on"));
+      }
+      _coachAttachments=[]; renderCoachAtts();
+    }
+    // Refresh the coach's visited-client list when the Health Coach screen is opened.
+    {
+      const coachNav=root.querySelector('#nav button[data-s="coach"]')as HTMLButtonElement|null;
+      if(coachNav) coachNav.addEventListener("click",()=>{ loadCoachClients(); });
+    }
+    loadCoachClients();
+
     // INIT
     renderFilters();
     renderAll();
     seed();
+    loadReceptionData();   // live appointments + payments
+    {
+      const recNav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null;
+      if(recNav) recNav.addEventListener("click",()=>{ loadReceptionData(); });
+    }
 
     return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
   }, []);

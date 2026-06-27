@@ -74,15 +74,22 @@ export async function GET() {
       };
     });
 
-    // Last sync info
+    // Last sync info — the latest SUCCESSFUL sync. A sync that's still 'running' or
+    // that timed out has no finished_at, which would wrongly show "Not synced yet".
     let lastSync: any = null;
     try {
       const { data } = await supabase
         .from('meta_sync_state')
         .select('finished_at,status,leads_synced,accounts_accessible')
-        .order('started_at', { ascending: false })
+        .eq('status', 'success')
+        .not('finished_at', 'is', null)
+        .order('finished_at', { ascending: false })
         .limit(1);
       lastSync = data?.[0] || null;
+      // Fallback: no success row yet but leads exist → use the newest lead's time.
+      if (!lastSync && all.length) {
+        lastSync = { finished_at: all[0].created_at || all[0].lead_date, status: 'success', leads_synced: all.length };
+      }
     } catch (_) {}
 
     const adAccountIds = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').filter(Boolean);
