@@ -1788,9 +1788,12 @@ export default function Home() {
     // Leads matching the active dashboard filters AND the current tab view.
     function feedFiltered(){
       let list=feedActive().sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
-      if(_feedView==="dup"){ const ds=feedDupPhoneSet(); list=list.filter((l:any)=>ds.has(normPhone(l.phone))); }
-      else if(_feedView==="valid"){ list=list.filter((l:any)=>feedIsValid(l)); }
-      else if(_feedView==="invalid"){ list=list.filter((l:any)=>!feedIsValid(l)); }
+      if(_feedView==="dup"){ const ds=feedDupPhoneSet(); return list.filter((l:any)=>ds.has(normPhone(l.phone))); }
+      // All / Valid / Invalid show ONLY unique (non-duplicate) leads —
+      // duplicates live exclusively in the Duplicates tab.
+      list=list.filter((l:any)=>!l.isDuplicate);
+      if(_feedView==="valid") list=list.filter((l:any)=>feedIsValid(l));
+      else if(_feedView==="invalid") list=list.filter((l:any)=>!feedIsValid(l));
       return list;
     }
     // Keep the "select all" checkbox + selection counter in sync with _feedSelected
@@ -1914,7 +1917,9 @@ export default function Home() {
           tbody.innerHTML=pageLeads.length?pageLeads.map((ld:any)=>{
             const sel=_feedSelected.has(String(ld.id));
             const chk='<input type="checkbox" class="feedChk" data-id="'+esc(String(ld.id))+'"'+(sel?" checked":"")+' onchange="window._feedToggleSel(this)" style="accent-color:var(--brand)">';
-            return '<tr>'
+            // Highlight ONLY duplicate leads (unique leads stay unchanged).
+            const dupStyle=ld.isDuplicate?' style="background:var(--warn-bg);box-shadow:inset 4px 0 0 var(--warn)"':'';
+            return '<tr'+dupStyle+'>'
               +'<td>'+chk+'</td>'
               +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(ld.createdAt))+'</td>'
               +'<td class="mono" style="font-size:11.5px">'+esc(ld.campaign||"—")+'</td>'
@@ -1937,11 +1942,12 @@ export default function Home() {
       }
       if(prevBtn){prevBtn.disabled=_metaPageNum<=1;prevBtn.style.opacity=_metaPageNum<=1?"0.45":"1";prevBtn.style.cursor=_metaPageNum<=1?"not-allowed":"pointer";}
       if(nextBtn){nextBtn.disabled=_metaPageNum>=totalPages;nextBtn.style.opacity=_metaPageNum>=totalPages?"0.45":"1";nextBtn.style.cursor=_metaPageNum>=totalPages?"not-allowed":"pointer";}
-      // Tab counts (active, unprocessed leads within the active dashboard filter)
+      // Tab counts. Valid/Invalid exclude duplicates (those live only in the Duplicates tab).
       const _active=feedActive();
+      const _uniqueActive=_active.filter((l:any)=>!l.isDuplicate);
       const dupTab=root.querySelector("#feedDupCount"); if(dupTab) dupTab.textContent=String(feedDupGroups().length);
-      const validTab=root.querySelector("#feedValidCount"); if(validTab) validTab.textContent=String(_active.filter((l:any)=>feedIsValid(l)).length);
-      const invalidTab=root.querySelector("#feedInvalidCount"); if(invalidTab) invalidTab.textContent=String(_active.filter((l:any)=>!feedIsValid(l)).length);
+      const validTab=root.querySelector("#feedValidCount"); if(validTab) validTab.textContent=String(_uniqueActive.filter((l:any)=>feedIsValid(l)).length);
+      const invalidTab=root.querySelector("#feedInvalidCount"); if(invalidTab) invalidTab.textContent=String(_uniqueActive.filter((l:any)=>!feedIsValid(l)).length);
       syncFeedSelUI();   // header select-all + "N selected" counter
     }
 
