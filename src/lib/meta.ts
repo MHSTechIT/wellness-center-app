@@ -371,14 +371,20 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
         language: l.lang || 'Tamil',
         is_valid: phone !== '',
         is_duplicate: isDuplicate,
-        is_assigned: false,
+        // NOTE: do NOT set is_assigned here. Upsert would overwrite the assignment
+        // flag on every sync, wiping assignments. Omitting it preserves the existing
+        // value on update; new leads use the DB default (false).
         created_at: l.createdAt
       };
     });
 
-    // Replace the Meta lead set so the DB matches the current form scope exactly
-    // (removes leads previously synced from now-excluded forms). Keeps only the
-    // meta_lead_ids in this run.
+    // Prune leads previously synced from now-excluded forms, but NEVER delete a
+    // lead the team has already worked: a crawl can miss leads it returned before
+    // (pagination / rate limits / time windows), and deleting an assigned/pooled/
+    // called lead would wipe its workflow state. When it reappeared in a later
+    // crawl it would come back as a fresh, unassigned row — the cause of
+    // "assignments disappear after refresh". So a lead is only stale if it is
+    // absent from this crawl AND carries no workflow state.
     const keepIds = new Set(rows.map((r) => r.meta_lead_id));
     let existingFrom = 0;
     const staleIds: string[] = [];
@@ -386,12 +392,16 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     while (true) {
       const { data, error } = await supabase
         .from('leads')
-        .select('meta_lead_id')
+        .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status')
         .eq('source', 'Meta Ads')
         .range(existingFrom, existingFrom + 999);
       if (error) break;
       if (!data || data.length === 0) break;
-      data.forEach((r: any) => { if (r.meta_lead_id && !keepIds.has(r.meta_lead_id)) staleIds.push(r.meta_lead_id); });
+      data.forEach((r: any) => {
+        if (!r.meta_lead_id || keepIds.has(r.meta_lead_id)) return;
+        const worked = r.is_assigned || (r.assigned_to && r.assigned_to !== '') || r.in_pool || (r.call_status && r.call_status !== '');
+        if (!worked) staleIds.push(r.meta_lead_id);
+      });
       if (data.length < 1000) break;
       existingFrom += 1000;
     }
