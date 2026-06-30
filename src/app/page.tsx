@@ -2470,6 +2470,7 @@ export default function Home() {
       const lead=_advFindLead(id);
       const prev=lead?lead.advisorProfile:null;
       const obj=collectAdvisorProfile();
+      if(!obj){ toast("Open a lead first (from Assigned leads)"); return; }
       // ---- build the Activity Log diff (named, prev → new) ----
       const entries:any[]=[];
       if(!prev){ entries.push({action:"Created",field:"Lead record",new:"created"}); }
