@@ -7,6 +7,9 @@
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS blood_test_data JSONB;
 -- Example: {"panel":"HbA1c · FBS","sample_status":"collected","sample_at":"...","report_status":"pending","report_url":"","shared":false,"shared_at":"","thyrocare_cost":400,"our_price":800}
 
+-- Screening vitals captured at the screening desk
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS screening_vitals_data JSONB;
+
 -- Physio data: SOAP notes, pain level, treatment plan, session history
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS physio_data JSONB;
 -- Example: {"condition":"Frozen shoulder","sessions_planned":10,"payment_model":"pack","pack_price":8000,"soap":{"subjective":"...","objective":"...","assessment":"...","plan":"..."},"pain_level":4,"rom_improvement":"","exercises":"","next_session":"2026-07-05"}

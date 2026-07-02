@@ -217,7 +217,7 @@ function getMainContent(): string {
     <div class="rtabs" id="cTabs">
       <button data-t="recep2">Walk-in Receptionist</button><button data-t="sales2">Walk-in Sales</button><button class="on" data-t="health2">Walk-in Health</button>
       <button data-t="pay2">Payment History</button><button data-t="notes2">Internal Notes</button>
-      <button data-t="extra2">Extra Info</button><button data-t="calls2">Call History <span class="mini">6</span></button>
+      <button data-t="extra2">Extra Info</button><button data-t="calls2">Call History <span class="mini" id="coachCallCount">0</span></button>
     </div>
     <div class="c-p" data-p="health2">
 
@@ -229,7 +229,7 @@ function getMainContent(): string {
           <div class="fld"><label class="lbl">Walk-in status</label><select class="select" id="crWalkIn"><option>Open</option><option selected>Visited</option><option>Not Visited</option><option>Rescheduled</option></select></div>
           <div class="fld fw"><label class="lbl">Blood reports — from Health advisor <span class="ab">SYNCED</span></label>
             <div class="atts" id="coachAtts"></div></div>
-          <div class="fld fw"><label class="lbl">Remarks</label><textarea class="area" rows="2">mar16: did not enquiry</textarea></div>
+          <div class="fld fw"><label class="lbl">Remarks</label><textarea class="area" rows="2" id="crRemarks"></textarea></div>
         </div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Screening results — clinic floor <span class="chipb warn" id="scrChip" style="margin-left:8px">Awaiting screening</span> <span class="arr">▾</span></div>
@@ -268,7 +268,7 @@ function getMainContent(): string {
             <div class="fld"><label class="lbl">Smoking</label><select class="select"><option selected>Never</option><option>Occasional</option><option>Regular</option><option>Quit</option></select></div>
             <div class="fld"><label class="lbl">Alcohol</label><select class="select"><option>Never</option><option selected>Occasional</option><option>Regular</option><option>Quit</option></select></div></div></div>
           <div class="aud" style="background:#fff"><div class="ahd">Symptoms reported</div>
-            <div class="chips" data-oth="syOth"><button class="chip-o on">Frequent Urination</button><button class="chip-o on">Excessive Thirst</button><button class="chip-o on">Fatigue</button><button class="chip-o">Blurred Vision</button><button class="chip-o">Tingling/Numbness</button><button class="chip-o">Slow Healing Wounds</button><button class="chip-o">Weight Loss</button><button class="chip-o">Headache</button><button class="chip-o" data-others="1">Others</button></div>
+            <div class="chips" data-oth="syOth"><button class="chip-o">Frequent Urination</button><button class="chip-o">Excessive Thirst</button><button class="chip-o">Fatigue</button><button class="chip-o">Blurred Vision</button><button class="chip-o">Tingling/Numbness</button><button class="chip-o">Slow Healing Wounds</button><button class="chip-o">Weight Loss</button><button class="chip-o">Headache</button><button class="chip-o" data-others="1">Others</button></div>
             <input class="input hideblock" id="syOth" style="margin-top:8px;max-width:360px" placeholder="Enter details…"></div>
           <div class="fld"><label class="lbl">Doctor / consultant notes</label><textarea class="area" id="haDocNotes"></textarea></div>
           <button class="btn bp" style="margin-top:12px" onclick="window._coachSaveRecord()">Save health assessment</button>
@@ -447,7 +447,7 @@ function getMainContent(): string {
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._coachSaveRecord()">Save health record</button><button class="btn" style="height:45px" onclick="window._coachPrint()">📋 Print prescription</button></div>
     </div>
-    <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono">10:24</td><td style="color:var(--muted)">Registered</td><td class="mono">10:31</td><td style="color:var(--muted)">Consent</td><td><span class="chipb ok">All ✓</span></td></tr></tbody></table></div></div></div>
+    <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody id="coachRecepBody"><tr><td style="color:var(--muted)">Visited</td><td class="mono">—</td><td style="color:var(--muted)">Registered</td><td class="mono">—</td><td style="color:var(--muted)">Consent</td><td>—</td></tr></tbody></table></div></div></div>
     <div class="c-p" data-p="sales2" style="display:none">
       <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> This sales record is owned by the Health advisor — coaches can read the full journey but edit nothing.</span></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Basic &amp; pipeline <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
@@ -695,7 +695,7 @@ function getMainContent(): string {
 
   <!-- RECEPTION -->
   <section class="screen" id="s-reception"><div style="padding:10px 14px 60px;max-width:100%">
-    <div class="inbound" id="inboundBar"><span style="font-size:22px">📞</span><div><b>Incoming call — +91 98412 33007 (V. Prasad)</b><div style="font-size:12px;opacity:.85">Called earlier · likely callback from your outbound attempt</div></div><button class="btn bsm" style="background:#fff;color:var(--brand-600);margin-left:auto" onclick="hideInbound()">Dismiss</button><button class="btn bsm" style="background:#fff;color:var(--brand-600)" onclick="openDrawer(RX.find(r=>r.name==='V. Prasad'));hideInbound()">Open record</button></div>
+    <div class="inbound" id="inboundBar" style="display:none"><span style="font-size:22px">📞</span><div><b id="inboundName">Incoming call</b><div style="font-size:12px;opacity:.85" id="inboundSub"></div></div><button class="btn bsm" style="background:#fff;color:var(--brand-600);margin-left:auto" onclick="hideInbound()">Dismiss</button></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;align-items:center;gap:9px"><svg class="icon" style="stroke:#fff;width:18px;height:18px"><use href="#i-coin"/></svg><div><div style="font-size:9px;opacity:.8;font-weight:600;letter-spacing:.06em">REVENUE</div><div style="font-family:var(--disp);font-size:20px;font-weight:700" id="revTotal">₹0</div></div></div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:14px" id="revSvc"></div>
@@ -737,7 +737,7 @@ function getMainContent(): string {
             </div>
             <div class="fld"><label class="lbl">Service(s)</label><div class="chips" id="nwSvc"><button class="chip-o on" data-svc="dia">🩺 Diabetes</button><button class="chip-o" data-svc="bt">🩸 Blood test</button><button class="chip-o" data-svc="physio">💪 Physio</button></div></div>
             <div class="g4" style="gap:8px;margin-top:6px">
-              <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:34px" id="nwDate" value="2026-06-16"></div>
+              <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:34px" id="nwDate"></div>
               <div class="fld"><label class="lbl">Time</label><select class="select" style="height:34px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
               <div class="fld"><label class="lbl">Provider</label><select class="select" style="height:34px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
               <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:34px">Check slot</button></div>
@@ -779,61 +779,47 @@ function getMainContent(): string {
   <section class="screen" id="s-screening"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Health screening</h1>
-      <div class="pills" id="scrDateF"><button class="pill on">Today</button><button class="pill">Yesterday</button><button class="pill">Custom</button></div>
-      <button class="btn" style="margin-left:auto"><svg class="icon"><use href="#i-dl"/></svg> Print</button>
+      <div class="pills" id="scrDateF"><button class="pill on" onclick="window._scDateF('today')">Today</button><button class="pill" onclick="window._scDateF('yest')">Yesterday</button><button class="pill" onclick="window._scDateF('cust')">Custom</button></div>
+      <input type="date" class="input" id="scFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._scApplyDate()">
+      <input type="date" class="input" id="scTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._scApplyDate()">
+      <button class="btn" style="margin-left:auto" onclick="window._scExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
     </div>
-    <div class="metrics" style="margin:10px 0">
-      <div class="metric"><div class="ml">Expected</div><div class="mv">14</div></div>
-      <div class="metric g"><div class="ml">Screened</div><div class="mv">7</div></div>
-      <div class="metric a"><div class="ml">In progress</div><div class="mv">1</div></div>
-      <div class="metric"><div class="ml">Waiting</div><div class="mv">3</div></div>
-      <div class="metric g"><div class="ml">Eligible for service</div><div class="mv">6</div></div>
-      <div class="metric r"><div class="ml">Not eligible</div><div class="mv">1</div></div>
-    </div>
+    <div class="metrics" style="margin:10px 0" id="scMetrics"></div>
     <div style="display:grid;grid-template-columns:1fr 310px;gap:14px">
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Assessment — Ajith Kumar <span class="chipb info" style="margin-left:8px">Baseline · M0</span></div>
+        <div class="sec" id="scAssessPanel" style="margin-top:0;display:none"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Assessment — <span id="scAssessName">Select a client</span> <span class="chipb info" style="margin-left:8px" id="scAssessChip">Baseline · M0</span>
+          <button class="btn bsm" style="margin-left:auto" onclick="window._scCloseAssess()">Close</button></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl">Height (cm) <span class="nb">dynamic</span></label><input class="input mono" id="sc_h" value="168" oninput="window._scBmiCalc()"></div>
-              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" value="82" oninput="window._scBmiCalc()"></div>
-              <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="sc_bmi" value="29.1" readonly></div>
-              <div class="fld"><label class="lbl">BP systolic</label><input class="input mono" id="sc_bp" value="130/85"></div>
-              <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="sc_pu" value="78"></div>
-              <div class="fld"><label class="lbl">SpO2 (%)</label><input class="input mono" id="sc_sp" value="98"></div>
-              <div class="fld"><label class="lbl">Waist (cm)</label><input class="input mono" id="sc_wa" value="96"></div>
-              <div class="fld"><label class="lbl">Temperature</label><input class="input mono" id="sc_te" value="98.6°F"></div>
-              <div class="fld"><label class="lbl">Desk glucose (mg/dL)</label><input class="input mono" id="sc_gl" value="186"></div>
+              <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="sc_h" oninput="window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" oninput="window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="sc_bmi" readonly></div>
+              <div class="fld"><label class="lbl">BP</label><input class="input mono" id="sc_bp"></div>
+              <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="sc_pu"></div>
+              <div class="fld"><label class="lbl">SpO2 (%)</label><input class="input mono" id="sc_sp"></div>
+              <div class="fld"><label class="lbl">Waist (cm)</label><input class="input mono" id="sc_wa"></div>
+              <div class="fld"><label class="lbl">Temperature</label><input class="input mono" id="sc_te"></div>
+              <div class="fld"><label class="lbl">Desk glucose (mg/dL)</label><input class="input mono" id="sc_gl"></div>
             </div>
-            <p style="font-size:11px;color:var(--faint);margin:8px 0 0">Fields are dynamic — add/remove in <b>Settings → Screening fields</b>. Prior visit data preserved as separate records.</p>
             <div class="g3" style="margin-top:6px">
-              <div class="fld"><label class="lbl">Screened by <span class="ab">AUTO</span></label><input class="input" value="Lakshmi R. (screening)" readonly></div>
-              <div class="fld"><label class="lbl">Screen date &amp; time <span class="ab">AUTO</span></label><input class="input mono" value="" readonly placeholder="— stamped on save"></div>
-              <div class="fld"><label class="lbl">Eligible for service?</label><div class="pills"><button class="pill p-ok">✓ Yes</button><button class="pill p-al">✗ No (refer out)</button></div></div>
+              <div class="fld"><label class="lbl">Screened by <span class="ab">AUTO</span></label><input class="input" id="sc_by" readonly></div>
+              <div class="fld"><label class="lbl">Screen date &amp; time <span class="ab">AUTO</span></label><input class="input mono" id="sc_dt" readonly placeholder="— stamped on save"></div>
+              <div class="fld"><label class="lbl">Eligible?</label><div class="pills" id="scEligPills"><button class="pill p-ok" onclick="window._scElig('yes',this)">✓ Yes</button><button class="pill p-al" onclick="window._scElig('no',this)">✗ No</button></div></div>
             </div>
-            <div class="fld"><label class="lbl">Notes</label><textarea class="area"></textarea></div>
-            <div class="fld"><label class="lbl">Route to Health coach</label>
-              <div style="display:flex;gap:8px;align-items:center"><select class="select" style="max-width:200px"><option>Dr. Suresh (3 in queue)</option><option>Dr. Priya (1 in queue)</option><option>Dr. Anand (0 in queue)</option></select><button class="btn bsm bp" onclick="screeningDone()"><svg class="icon" style="width:14px;height:14px"><use href="#i-check"/></svg> Save &amp; send to HC</button><button class="btn bsm" onclick="toast('Printing screening report…')">🖨 Print</button></div></div>
-            <div class="fld" style="margin-top:8px"><label class="lbl">Retest / rescreening</label><button class="btn bsm" onclick="toast('Rescreening opened — new record, old data preserved')">Request rescreen (new record)</button></div>
+            <div class="fld"><label class="lbl">Notes</label><textarea class="area" id="sc_notes"></textarea></div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+              <button class="btn bsm bp" onclick="screeningDone()"><svg class="icon" style="width:14px;height:14px"><use href="#i-check"/></svg> Save &amp; send to HC</button>
+              <button class="btn bsm" onclick="window._scPrint()">🖨 Print</button>
+            </div>
           </div></div>
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"/></svg> Previous screenings — same client <span class="arr">▾</span></div>
-          <div class="sec-bd"><table class="tbl"><thead><tr><th>Date</th><th>BMI</th><th>BP</th><th>Glucose</th><th>Eligible</th><th>By</th><th></th></tr></thead><tbody>
-            <tr><td class="mono">14-Jun-2026</td><td class="mono">29.1</td><td class="mono">130/85</td><td class="mono">186</td><td><span class="chipb ok">Yes</span></td><td>Lakshmi R.</td><td><button class="btn bsm">View / print</button></td></tr>
-          </tbody></table><p style="font-size:11px;color:var(--faint);margin:6px 0 0">All screening records maintained — never overwritten. Each visit = new row.</p></div></div>
+          <div class="sec-bd" id="scHistoryWrap"><div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">Open a client to see history.</div></div></div>
       </div>
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Queue</div>
-          <div class="sec-bd">
-            <div class="li"><span class="avs" style="background:linear-gradient(135deg,#17A87B,#0B6B4C)">AK</span><div style="flex:1"><b>Ajith Kumar</b><div style="font-size:11px;color:var(--muted)">🩺 Diabetes · 10:30</div></div><span class="chipb info">In progress</span></div>
-            <div class="li"><span class="avs" style="background:linear-gradient(135deg,#378ADD,#185FA5)">RK</span><div style="flex:1"><b>R. Kumar</b><div style="font-size:11px;color:var(--muted)">🩺 Diabetes · 11:15</div></div><span class="chipb neu">Queued</span></div>
-            <div class="li"><span class="avs" style="background:linear-gradient(135deg,#7B6CD9,#534AB7)">MJ</span><div style="flex:1"><b>M. John</b><div style="font-size:11px;color:var(--muted)">🩸 Blood test · 11:45</div></div><span class="chipb neu">Queued</span></div>
-          </div></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Queue <span class="chipb info" style="margin-left:6px" id="scQueueCount">0</span></div>
+          <div class="sec-bd" id="scQueueList"><div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No clients in screening queue.</div></div></div>
         <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Breakdown</div>
-          <div class="sec-bd"><table class="tbl"><tbody>
-            <tr><td style="font-weight:600">🩺 Diabetes</td><td class="mono" style="text-align:right">5 screened · 2 waiting</td></tr>
-            <tr><td style="font-weight:600">🩸 Blood test</td><td class="mono" style="text-align:right">2 screened · 1 waiting</td></tr>
-            <tr><td style="font-weight:600">💪 Physio</td><td class="mono" style="text-align:right">0 screened · 0 waiting</td></tr>
-          </tbody></table></div></div>
+          <div class="sec-bd" id="scBreakdown"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">—</div></div></div>
         <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Quick test order</div>
           <div class="sec-bd"><div class="pills"><button class="pill p-ok on">HbA1c</button><button class="pill p-ok on">FBS</button><button class="pill">Lipid</button><button class="pill">Thyroid</button></div>
             <button class="btn bp bsm" style="margin-top:10px" onclick="toast('Ordered · slip printed')">Order &amp; print</button></div></div>
@@ -3806,7 +3792,7 @@ export default function Home() {
     }
     w.ccSearch = ccSearch;
 
-    function nwToggle() { const p=root.querySelector("#nwPanel")as HTMLElement; if(p){p.style.display=p.style.display==="none"?"block":"none"; if(p.style.display==="block")p.scrollIntoView({behavior:"smooth"});} }
+    function nwToggle() { const p=root.querySelector("#nwPanel")as HTMLElement; if(p){p.style.display=p.style.display==="none"?"block":"none"; if(p.style.display==="block"){p.scrollIntoView({behavior:"smooth"}); const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=new Date().toISOString().substring(0,10);}} }
     w.nwToggle = nwToggle;
     function nwCheckSlot() {
       const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value;
@@ -4205,7 +4191,109 @@ export default function Home() {
     function _haBmiCalc(){ _bmiCalc(root.querySelector("#haHeight"),root.querySelector("#haWeight"),root.querySelector("#haBmi")); }
     w._haBmiCalc = _haBmiCalc;
 
+    // ========== SCREENING MODULE (live data) ==========
+    let _scAll:any[]=[], _scFiltered:any[]=[], _scDate="today", _scOpenAppt:any=null, _scEligVal="";
+    function _scDateRange():[Date|null,Date|null]{
+      const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+      if(_scDate==="today") return [sod(now),eod(now)];
+      if(_scDate==="yest"){ const y=new Date(now);y.setDate(y.getDate()-1); return [sod(y),eod(y)]; }
+      if(_scDate==="cust"){ const f=(root.querySelector("#scFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#scTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
+      return [null,null];
+    }
+    async function loadScreeningData(){
+      try{
+        const {data}=await supabase.from("appointments").select("*").in("stage",["screening","screened","done"]).order("appt_date",{ascending:false}).limit(500);
+        _scAll=(data||[]).map((a:any)=>{
+          const sv=a.screening_vitals_data||{};
+          return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
+            status:a.status||"expected", stage:a.stage||"", service:a.service||"Diabetes",
+            vitals:sv, eligible:sv.eligible||"", screenedAt:sv.screened_at||"", screenedBy:sv.screened_by||"",
+            raw:a };
+        });
+      }catch(_){ _scAll=[]; }
+      _scApplyDateFilter();
+    }
+    function _scApplyDateFilter(){
+      const [from,to]=_scDateRange();
+      _scFiltered=_scAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      _scRenderAll();
+    }
+    w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
+    w._scApplyDate=()=>{ if(_scDate==="cust") _scApplyDateFilter(); };
+    function _scRenderAll(){
+      const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const screened=f.filter((r:any)=>r.stage==="screened"||r.stage==="done");
+      const waiting=f.filter((r:any)=>r.stage==="screening"&&!r.screenedAt);
+      const inProg=f.filter((r:any)=>r.stage==="screening"&&_scOpenAppt&&_scOpenAppt.id===r.id);
+      const eligible=screened.filter((r:any)=>r.eligible==="yes");
+      const notEligible=screened.filter((r:any)=>r.eligible==="no");
+      const metrics=[{l:"Expected",v:f.length,c:""},{l:"Screened",v:screened.length,c:"g"},{l:"In progress",v:inProg.length,c:"a"},
+        {l:"Waiting",v:waiting.length,c:""},{l:"Eligible",v:eligible.length,c:"g"},{l:"Not eligible",v:notEligible.length,c:"r"}];
+      const mel=root.querySelector("#scMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+      // Queue
+      const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5"];
+      const queue=f.filter((r:any)=>r.stage==="screening");
+      const ql=root.querySelector("#scQueueList"); const qc=root.querySelector("#scQueueCount");
+      if(qc) qc.textContent=String(queue.length);
+      if(ql) ql.innerHTML=queue.length?queue.map((r:any,i:number)=>{
+        const init=(r.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
+        const svcIcon=r.service?.toLowerCase().includes("blood")?"🩸":r.service?.toLowerCase().includes("physio")?"💪":"🩺";
+        const active=_scOpenAppt&&_scOpenAppt.id===r.id;
+        return '<div class="li" style="cursor:pointer'+(active?";background:var(--brand-tint)":"")+'" onclick="window._scOpenAssess('+r.id+')"><span class="avs" style="background:'+colors[i%colors.length]+'">'+init+'</span><div style="flex:1"><b>'+e(r.name)+'</b><div style="font-size:11px;color:var(--muted)">'+svcIcon+' '+e(r.service)+' · '+e(r.time)+'</div></div>'
+          +(r.screenedAt?'<span class="chipb ok">Done</span>':'<span class="chipb info">Queued</span>')+'</div>';
+      }).join(""):'<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No clients in screening queue.</div>';
+      // Breakdown by service
+      const bySvc:Record<string,{screened:number;waiting:number}>={};
+      f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(r.screenedAt) bySvc[s].screened++; else bySvc[s].waiting++; });
+      const svcIcon=(s:string)=>s.toLowerCase().includes("blood")?"🩸":s.toLowerCase().includes("physio")?"💪":"🩺";
+      const bd=root.querySelector("#scBreakdown"); if(bd) bd.innerHTML=Object.keys(bySvc).length?'<table class="tbl"><tbody>'+Object.entries(bySvc).map(([s,d])=>
+        '<tr><td style="font-weight:600">'+svcIcon(s)+' '+e(s)+'</td><td class="mono" style="text-align:right">'+d.screened+' screened · '+d.waiting+' waiting</td></tr>').join("")+'</tbody></table>'
+        :'<div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">—</div>';
+    }
+    w._scOpenAssess=(id:number)=>{
+      const r=_scAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;} _scOpenAppt=r;
+      const el=(s:string)=>root.querySelector("#"+s)as any;
+      if(el("scAssessName")) el("scAssessName").textContent=r.name;
+      if(el("scAssessChip")) el("scAssessChip").textContent="Baseline · M0";
+      const v=r.vitals||{};
+      if(el("sc_h")) el("sc_h").value=v.height||"";
+      if(el("sc_w")) el("sc_w").value=v.weight||"";
+      if(el("sc_bmi")) el("sc_bmi").value=v.bmi||"";
+      if(el("sc_bp")) el("sc_bp").value=v.bp||"";
+      if(el("sc_pu")) el("sc_pu").value=v.pulse||"";
+      if(el("sc_sp")) el("sc_sp").value=v.spo2||"";
+      if(el("sc_wa")) el("sc_wa").value=v.waist||"";
+      if(el("sc_te")) el("sc_te").value=v.temp||"";
+      if(el("sc_gl")) el("sc_gl").value=v.glucose||"";
+      if(el("sc_by")) el("sc_by").value=v.screened_by||("");
+      if(el("sc_dt")) el("sc_dt").value=v.screened_at?new Date(v.screened_at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"";
+      if(el("sc_notes")) el("sc_notes").value=v.notes||"";
+      _scEligVal=v.eligible||"";
+      root.querySelectorAll("#scEligPills .pill").forEach((b:any)=>b.classList.remove("on"));
+      if(_scEligVal==="yes") root.querySelector("#scEligPills .pill.p-ok")?.classList.add("on");
+      if(_scEligVal==="no") root.querySelector("#scEligPills .pill.p-al")?.classList.add("on");
+      const ap=root.querySelector("#scAssessPanel")as HTMLElement; if(ap) ap.style.display="block";
+      // Load history
+      _scLoadHistory(r.lead_id);
+      _scRenderAll();
+    };
+    w._scCloseAssess=()=>{ _scOpenAppt=null; const ap=root.querySelector("#scAssessPanel")as HTMLElement; if(ap)ap.style.display="none"; _scRenderAll(); };
+    w._scElig=(val:string,btn:HTMLElement)=>{ _scEligVal=val; root.querySelectorAll("#scEligPills .pill").forEach((b:any)=>b.classList.remove("on")); btn.classList.add("on"); };
+    async function _scLoadHistory(leadId:string){
+      const wrap=root.querySelector("#scHistoryWrap"); if(!wrap)return;
+      if(!leadId){ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No history.</div>'; return; }
+      try{
+        const {data}=await supabase.from("leads").select("screening_vitals").eq("meta_lead_id",leadId).limit(1);
+        const sv=(data&&data[0]&&data[0].screening_vitals)||null;
+        if(!sv){ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No previous screening records.</div>'; return; }
+        const e=(s:any)=>String(s??"—");
+        wrap.innerHTML='<table class="tbl"><thead><tr><th>Date</th><th>BMI</th><th>BP</th><th>Glucose</th><th>By</th></tr></thead><tbody>'
+          +'<tr><td class="mono">'+(sv.screened_at?new Date(sv.screened_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—")+'</td><td class="mono">'+e(sv.bmi)+'</td><td class="mono">'+e(sv.bp)+'</td><td class="mono">'+e(sv.glucose)+'</td><td>'+e(sv.screened_by)+'</td></tr>'
+          +'</tbody></table><p style="font-size:11px;color:var(--faint);margin:6px 0 0">Screening records from leads.screening_vitals.</p>';
+      }catch(_){ wrap.innerHTML='<div style="color:var(--faint);padding:8px;font-size:12px">Could not load history.</div>'; }
+    }
     async function screeningDone(){
+      if(!_scOpenAppt){ toast("Open a client first"); return; }
       const ids=["sc_h","sc_w","sc_bmi","sc_bp","sc_pu","sc_sp","sc_wa","sc_te","sc_gl"];
       const cids=["cs_h","cs_w","cs_bmi","cs_bp","cs_pu","cs_sp","cs_wa","cs_te","cs_gl"];
       _scBmiCalc();
@@ -4214,11 +4302,10 @@ export default function Home() {
       const vMap:Record<string,string>={sc_h:"height",sc_w:"weight",sc_bmi:"bmi",sc_bp:"bp",sc_pu:"pulse",sc_sp:"spo2",sc_wa:"waist",sc_te:"temp",sc_gl:"glucose"};
       ids.forEach(id=>{const el=root.querySelector("#"+id)as HTMLInputElement; if(el&&el.value) vitals[vMap[id]]=el.value;});
       vitals.screened_at=new Date().toISOString();
-      // Persist to DB — screening_vitals JSONB column on leads
-      const scrTitle=root.querySelector("#s-screening .sec-hd")?.textContent||"";
-      const scrName=(scrTitle.match(/Assessment\s*—\s*(.+?)(?:\s*Baseline|\s*$)/i)||[])[1]||"";
-      let leadId="";
-      if(scrName){ try{ const {data}=await supabase.from("leads").select("meta_lead_id").ilike("name","%"+scrName.trim()+"%").limit(1); leadId=(data&&data[0]&&data[0].meta_lead_id)||""; }catch(_){} }
+      vitals.screened_by=(root.querySelector("#sc_by")as HTMLInputElement)?.value||("");
+      vitals.notes=(root.querySelector("#sc_notes")as HTMLTextAreaElement)?.value||"";
+      vitals.eligible=_scEligVal;
+      const leadId=_scOpenAppt.lead_id||"";
       if(leadId){
         try{
           const {error}=await supabase.from("leads").update({screening_vitals:vitals}).eq("meta_lead_id",leadId);
@@ -4227,12 +4314,27 @@ export default function Home() {
           }
         }catch(e:any){ toastErr("Screening save failed: "+(e.message||"network error")); return; }
       }
-      const e=root.querySelector("#scrEmpty")as HTMLElement;if(e)e.style.display="none";
-      const d=root.querySelector("#scrData")as HTMLElement;if(d)d.style.display="grid";
+      try{
+        await supabase.from("appointments").update({stage:"screened",screening_vitals_data:vitals}).eq("id",_scOpenAppt.id);
+      }catch(_){}
+      const e2=root.querySelector("#scrEmpty")as HTMLElement;if(e2)e2.style.display="none";
+      const d2=root.querySelector("#scrData")as HTMLElement;if(d2)d2.style.display="grid";
       const ch=root.querySelector("#scrChip")as HTMLElement;if(ch){ch.textContent="Completed · M0 locked";ch.className="chipb ok";}
       toast("Baseline saved → coach screen");
+      await loadScreeningData();
     }
     w.screeningDone = screeningDone;
+    w._scPrint=()=>{ if(!_scOpenAppt){toast("Open a client first");return;}
+      const v=(id:string)=>(root.querySelector("#"+id)as HTMLInputElement|HTMLTextAreaElement)?.value||"—";
+      const win=window.open("","_blank","width=700,height=700"); if(!win){toast("Allow pop-ups");return;}
+      win.document.write('<html><head><title>Screening — '+(_scOpenAppt.name||"")+'</title></head><body style="font-family:system-ui;padding:28px"><h2>Health Screening Report</h2><p>'+_scOpenAppt.name+' · '+new Date().toLocaleDateString("en-IN")+'</p><table style="border-collapse:collapse;width:100%;font-size:13px">'
+        +[["Height",v("sc_h")+"cm"],["Weight",v("sc_w")+"kg"],["BMI",v("sc_bmi")],["BP",v("sc_bp")],["Pulse",v("sc_pu")],["SpO2",v("sc_sp")+"%"],["Waist",v("sc_wa")+"cm"],["Temp",v("sc_te")],["Glucose",v("sc_gl")+"mg/dL"]]
+        .map(r=>'<tr><td style="padding:6px;border:1px solid #ddd;font-weight:600;width:120px">'+r[0]+'</td><td style="padding:6px;border:1px solid #ddd">'+r[1]+'</td></tr>').join("")
+        +'</table></body></html>'); win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
+    };
+    w._scExport=()=>{ if(!_scFiltered.length){toast("Nothing to export");return;} const out:string[][]=[["Client","Phone","Service","Stage","Height","Weight","BMI","BP","Glucose","Eligible","Screened at"]];
+      _scFiltered.forEach((r:any)=>{ const v=r.vitals||{}; out.push([r.name,r.ph,r.service,r.stage,v.height||"",v.weight||"",v.bmi||"",v.bp||"",v.glucose||"",v.eligible||"",v.screened_at||""]); });
+      _downloadCsv("screening_export.csv",out); toast("Exported "+_scFiltered.length+" rows"); };
 
     function togMsg(b:HTMLElement){b.textContent=b.textContent?.trim()==="On"?"Off":"On";b.className=b.textContent?.trim()==="On"?"chipb ok":"chipb neu";}
     w.togMsg = togMsg;
@@ -5080,6 +5182,8 @@ export default function Home() {
     {
       const recNav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null;
       if(recNav) recNav.addEventListener("click",()=>{ loadReceptionData(); });
+      const scrNav=root.querySelector('#nav button[data-s="screening"]')as HTMLButtonElement|null;
+      if(scrNav) scrNav.addEventListener("click",()=>{ loadScreeningData(); });
       const btNav=root.querySelector('#nav button[data-s="bloodtest"]')as HTMLButtonElement|null;
       if(btNav) btNav.addEventListener("click",()=>{ loadBloodTestData(); });
       const phNav=root.querySelector('#nav button[data-s="physio"]')as HTMLButtonElement|null;
@@ -5186,26 +5290,26 @@ export default function Home() {
           </div>
           <div className="d-p" data-p="dr">
             <div className="sec"><div className="sec-hd" style={{cursor:"default",padding:"10px 14px"}}><svg className="icon"><use href="#i-door"/></svg> Reception record</div>
-              <div className="sec-bd" style={{padding:"4px 14px 14px"}}><table className="tbl"><tbody>
-                <tr><td style={{color:"var(--muted)"}}>Visited time</td><td className="mono" style={{fontWeight:600}}>10:24 AM</td><td style={{color:"var(--muted)"}}>Registered</td><td className="mono" style={{fontWeight:600}}>10:31 AM</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Service</td><td>Diabetes + Blood test</td><td style={{color:"var(--muted)"}}>Token</td><td className="mono">T-07</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Consent</td><td colSpan={3}><span className="chipb ok">DPDP ✓</span> <span className="chipb ok">Health data ✓</span> <span className="chipb ok">Recording ✓</span></td></tr>
+              <div className="sec-bd" style={{padding:"4px 14px 14px"}}><table className="tbl"><tbody id="drRecepBody">
+                <tr><td style={{color:"var(--muted)"}}>Visited time</td><td className="mono">—</td><td style={{color:"var(--muted)"}}>Registered</td><td className="mono">—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Service</td><td>—</td><td style={{color:"var(--muted)"}}>Token</td><td className="mono">—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Consent</td><td colSpan={3}>—</td></tr>
               </tbody></table></div></div></div>
           <div className="d-p" data-p="ds" style={{display:"none"}}>
             <div className="sec"><div className="sec-hd" style={{cursor:"default",padding:"10px 14px"}}><svg className="icon"><use href="#i-user"/></svg> Sales record</div>
-              <div className="sec-bd" style={{padding:"4px 14px 14px"}}><table className="tbl"><tbody>
-                <tr><td style={{color:"var(--muted)"}}>Lead source</td><td>Meta · DR_Jun_Lookalike</td><td style={{color:"var(--muted)"}}>Language</td><td>Tamil</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Advisor</td><td style={{fontWeight:600}}>Prem Kumar</td><td style={{color:"var(--muted)"}}>Priority</td><td>★★☆ · 62%</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Sugar</td><td>150–250</td><td style={{color:"var(--muted)"}}>HbA1c</td><td className="mono" style={{fontWeight:700}}>8.4%</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Eligibility</td><td colSpan={3}><span className="chipb ok">✓ Eligible — no exclusions</span></td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Call notes</td><td colSpan={3}>Confirmed walk-in with wife; concerned about cost — explained EMI option.</td></tr>
+              <div className="sec-bd" style={{padding:"4px 14px 14px"}}><table className="tbl"><tbody id="drSalesBody">
+                <tr><td style={{color:"var(--muted)"}}>Lead source</td><td>—</td><td style={{color:"var(--muted)"}}>Language</td><td>—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Advisor</td><td>—</td><td style={{color:"var(--muted)"}}>Priority</td><td>—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Sugar</td><td>—</td><td style={{color:"var(--muted)"}}>HbA1c</td><td className="mono">—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Eligibility</td><td colSpan={3}>—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Call notes</td><td colSpan={3}>—</td></tr>
               </tbody></table></div></div></div>
           <div className="d-p" data-p="dh" style={{display:"none"}}>
             <div className="sec"><div className="sec-hd" style={{cursor:"default",padding:"10px 14px"}}><svg className="icon"><use href="#i-stetho"/></svg> Health record</div>
-              <div className="sec-bd" style={{padding:"4px 14px 14px"}}><table className="tbl"><tbody>
-                <tr><td style={{color:"var(--muted)"}}>Consult status</td><td><span className="chipb ok">Will Join Immediately</span></td><td style={{color:"var(--muted)"}}>HC</td><td>Dr. Suresh</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>BMI</td><td className="mono">29.1</td><td style={{color:"var(--muted)"}}>BP</td><td className="mono">130/85</td></tr>
-                <tr><td style={{color:"var(--muted)"}}>Assessment</td><td colSpan={3}>Motivated; mild BP; sedentary job. Good L2 candidate.</td></tr>
+              <div className="sec-bd" style={{padding:"4px 14px 14px"}}><table className="tbl"><tbody id="drHealthBody">
+                <tr><td style={{color:"var(--muted)"}}>Consult status</td><td>—</td><td style={{color:"var(--muted)"}}>HC</td><td>—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>BMI</td><td className="mono">—</td><td style={{color:"var(--muted)"}}>BP</td><td className="mono">—</td></tr>
+                <tr><td style={{color:"var(--muted)"}}>Assessment</td><td colSpan={3}>—</td></tr>
               </tbody></table></div></div></div>
           <div className="d-p" data-p="dp" style={{display:"none"}}>
             <div className="sec"><div className="sec-hd" style={{cursor:"default",padding:"10px 14px"}}><svg className="icon"><use href="#i-wallet"/></svg> Payment</div>
