@@ -767,7 +767,7 @@ function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
             <div id="recWb" class="hideblock" style="display:none;border:1.5px solid var(--brand-line);border-radius:11px;padding:11px 13px;margin-top:8px;background:linear-gradient(180deg,#F7FCFA,#fff)">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b id="recWbName" style="font-family:var(--disp);font-size:14px">—</b><span class="chipb info" id="recWbPlan">—</span></div>
-              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt"></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px"><option>UPI</option><option>Cash</option><option>Card</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px"></div></div>
+              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt"></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px" id="recWbTxn"></div></div>
               <div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" onclick="recConfirm()">Confirm → Accounts</button><button class="btn bsm" onclick="recBack()">↩ Back</button></div>
             </div>
           </div></div>
@@ -3623,7 +3623,7 @@ export default function Home() {
           supabase.from("payments").select("*").order("created_at",{ascending:false})
         ]);
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
-        _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":"free"),amount:0}; return {
+        _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":(a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free"),amount:0}; return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"",
           payStatus:pay.status, payAmt:pay.amount||0, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
@@ -3728,8 +3728,8 @@ export default function Home() {
     function renderPay() {
       const el = root.querySelector("#recPayList");
       if (el) {
-        const due=RX.filter((r:any)=>r.payStatus==="due");
-        el.innerHTML = (due.length?due.map((r:any)=>'<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+' · ₹'+(r.payAmt||0).toLocaleString("en-IN")+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+(r.payAmt||0)+',\''+(r.lead_id||"")+'\')">Collect</button></div>').join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
+        const due=RX.filter((r:any)=>r.payStatus==="due"&&r.status==="visited");
+        el.innerHTML = (due.length?due.map((r:any)=>'<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(r.payAmt?' · ₹'+r.payAmt.toLocaleString("en-IN"):'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+(r.payAmt||0)+',\''+(r.lead_id||"")+'\')">Collect</button></div>').join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
 
@@ -3839,8 +3839,17 @@ export default function Home() {
       const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none";
       if(!_recCollect){ toast("Nothing to collect"); return; }
       const amt=Number(((root.querySelector("#recWbAmt")as HTMLInputElement)?.value||"").replace(/[^0-9.]/g,""))||_recCollect.amt||0;
+      const modeEl=root.querySelector("#recWbMode")as HTMLSelectElement|null;
+      const method=(modeEl?.value||"UPI").toLowerCase();
+      const txnEl=root.querySelector("#recWbTxn")as HTMLInputElement|null;
+      const txnRef=(txnEl?.value||"").trim();
+      if(method!=="cash"&&!txnRef){ toastErr("Enter the transaction reference for "+method.toUpperCase()+" payments"); return; }
       try{
-        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method:"reception",paid_at:new Date().toISOString()});
+        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString()});
+        await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
+        if(_recCollect.leadId){
+          await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
+        }
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         await loadReceptionData();
       }catch(e:any){ toastErr(/payment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Collect failed: "+(e.message||"db error")); }
@@ -4315,13 +4324,14 @@ export default function Home() {
         }catch(e:any){ toastErr("Screening save failed: "+(e.message||"network error")); return; }
       }
       try{
-        await supabase.from("appointments").update({stage:"screened",screening_vitals_data:vitals}).eq("id",_scOpenAppt.id);
+        await supabase.from("appointments").update({stage:"screened",status:"visited",screening_vitals_data:vitals}).eq("id",_scOpenAppt.id);
       }catch(_){}
       const e2=root.querySelector("#scrEmpty")as HTMLElement;if(e2)e2.style.display="none";
       const d2=root.querySelector("#scrData")as HTMLElement;if(d2)d2.style.display="grid";
       const ch=root.querySelector("#scrChip")as HTMLElement;if(ch){ch.textContent="Completed · M0 locked";ch.className="chipb ok";}
-      toast("Baseline saved → coach screen");
+      toast("Screening confirmed → proceed to Payment Collection");
       await loadScreeningData();
+      await loadReceptionData();
     }
     w.screeningDone = screeningDone;
     w._scPrint=()=>{ if(!_scOpenAppt){toast("Open a client first");return;}
