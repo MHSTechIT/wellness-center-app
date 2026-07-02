@@ -26,6 +26,42 @@ export function pickAlias(obj: any, keys: string[]): any {
   return null;
 }
 
+// Normalise the many raw Smartflo dispositions into one stable status set:
+//   answered | missed | rejected | busy | no-answer | failed | initiated | ringing | unknown
+// `duration` (talk time / billsec) is a strong signal: any talk time => answered.
+export function normalizeCallStatus(raw: string, duration = 0, direction = ''): string {
+  const s = String(raw || '').toLowerCase().trim();
+  if (duration && Number(duration) > 0) return 'answered';
+  if (/answer|complete|success|bridg|connect/.test(s)) return 'answered';
+  if (/reject|declin|cancel/.test(s)) return 'rejected';
+  if (/busy/.test(s)) return 'busy';
+  if (/miss/.test(s)) return /out/.test(String(direction).toLowerCase()) ? 'no-answer' : 'missed';
+  if (/no.?ans|noans|unanswer|not.?answer|timeout/.test(s)) {
+    return /in\b|inbound|incoming/.test(String(direction).toLowerCase()) ? 'missed' : 'no-answer';
+  }
+  if (/fail|error|invalid|unreach|offline|congest/.test(s)) return 'failed';
+  if (/initiat|origin/.test(s)) return 'initiated';
+  if (/ring|dial|progress/.test(s)) return 'ringing';
+  return s || 'unknown';
+}
+// A terminal status is one the call cannot move on from (used for de-duping activity).
+export function isTerminalStatus(norm: string): boolean {
+  return ['answered', 'missed', 'rejected', 'busy', 'no-answer', 'failed'].indexOf(String(norm)) >= 0;
+}
+// Human-facing label for a normalised status.
+export function callStatusLabel(norm: string): string {
+  const m: Record<string, string> = {
+    answered: 'Answered', missed: 'Missed', rejected: 'Rejected', busy: 'Busy',
+    'no-answer': 'No Answer', failed: 'Failed', initiated: 'Initiated', ringing: 'Ringing', unknown: 'Unknown',
+  };
+  return m[String(norm)] || (norm ? String(norm) : 'Unknown');
+}
+// mm:ss from a seconds count.
+export function formatDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
 export interface CallResult { ok: boolean; callId?: string | null; status?: number; error?: string; raw?: any; }
 
 // Primary: JSON click_to_call. Rings the agent first, then bridges the customer.

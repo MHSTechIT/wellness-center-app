@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { pickAlias, digits10, downloadRecordingToStorage } from '@/lib/tata';
+import { pickAlias, digits10, downloadRecordingToStorage, normalizeCallStatus, isTerminalStatus, callStatusLabel, formatDuration } from '@/lib/tata';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,13 +40,40 @@ async function processRecording(p: any) {
     }
   }
 
+  const norm = normalizeCallStatus(status, duration, direction);
+
+  // Read the prior status (if any) so we only log the outcome to Activity once,
+  // even though Smartflo may POST several times per call (ring → answer → hangup).
+  let prevNorm = '';
+  try {
+    const { data: ex } = await supabase.from('call_recordings').select('contact_id,call_status').eq('call_id', String(callId)).limit(1);
+    if (ex && ex[0]) {
+      prevNorm = normalizeCallStatus(ex[0].call_status || '', 0, direction);
+      if (!contactId && ex[0].contact_id) contactId = String(ex[0].contact_id);   // recover contact from the pre-insert
+    }
+  } catch (_) {}
+
   // Dedup on call_id: upsert merges into the pre-inserted 'initiated' row if present.
   const row: any = {
     call_id: String(callId), contact_id: contactId, recording_url: recUrl || null,
     duration_seconds: duration, from_number: fromNum || null, to_number: toNum || null,
-    direction: direction || null, call_status: status || null, raw_payload: p,
+    direction: direction || null, call_status: norm, raw_payload: p,
   };
   try { await supabase.from('call_recordings').upsert(row, { onConflict: 'call_id' }); } catch (_) { return; }
+
+  // Log the call outcome into the lead's Activity History — once, on the first
+  // terminal event (answered / missed / rejected / busy / no-answer / failed).
+  if (contactId && isTerminalStatus(norm) && !isTerminalStatus(prevNorm)) {
+    const dir = /in\b|inbound|incoming/.test(String(direction || '').toLowerCase()) ? 'Incoming' : 'Outgoing';
+    const dur = duration ? (' · ' + formatDuration(duration)) : '';
+    const desc = dir + ' call — ' + callStatusLabel(norm) + dur;
+    try {
+      await supabase.from('lead_activity').insert({
+        lead_id: String(contactId), action: 'Call', field: 'Call ' + callStatusLabel(norm),
+        old_value: null, new_value: desc, actor: 'Telephony', created_at: new Date().toISOString(),
+      });
+    } catch (_) { /* lead_activity not migrated — recording row still captured the outcome */ }
+  }
 
   // Re-host the recording (background, already inside after()).
   if (recUrl) {

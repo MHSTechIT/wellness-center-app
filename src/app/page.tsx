@@ -206,6 +206,7 @@ function getMainContent(): string {
   <!-- COACH -->
   <section class="screen" id="s-coach"><div class="wrap">
     <div id="coachOpenList" style="margin-bottom:14px"></div>
+    <div id="coachKanban" style="display:none;margin-bottom:14px;overflow-x:auto"></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
       <div class="cmeta"><h1 id="coachName">No client open</h1>
@@ -222,10 +223,10 @@ function getMainContent(): string {
 
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl">Sugar level</label><input class="input" value="150–250" readonly></div>
-          <div class="fld"><label class="lbl">Fasting / PP</label><input class="input mono" value="162 / 231" readonly></div>
-          <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" value="8.4" readonly></div>
-          <div class="fld"><label class="lbl">Walk-in status</label><select class="select"><option>Open</option><option selected>Visited</option><option>Not Visited</option><option>Rescheduled</option></select></div>
+          <div class="fld"><label class="lbl">Sugar level</label><input class="input" id="crSugar" readonly></div>
+          <div class="fld"><label class="lbl">Fasting / PP</label><input class="input mono" id="crFasting" readonly></div>
+          <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" id="crHba1c" readonly></div>
+          <div class="fld"><label class="lbl">Walk-in status</label><select class="select" id="crWalkIn"><option>Open</option><option selected>Visited</option><option>Not Visited</option><option>Rescheduled</option></select></div>
           <div class="fld fw"><label class="lbl">Blood reports — from Health advisor <span class="ab">SYNCED</span></label>
             <div class="atts" id="coachAtts"></div></div>
           <div class="fld fw"><label class="lbl">Remarks</label><textarea class="area" rows="2">mar16: did not enquiry</textarea></div>
@@ -250,15 +251,15 @@ function getMainContent(): string {
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="aud" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
-            <div class="fld fw"><label class="lbl">Chief complaint</label><input class="input" value="High sugar 3 yrs, fatigue"></div>
+            <div class="fld fw"><label class="lbl">Chief complaint</label><input class="input" id="haChief"></div>
             <div class="fld"><label class="lbl">Duration of diabetes</label><select class="select"><option>Newly Diagnosed</option><option>1–3 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
             <div class="fld"><label class="lbl">Family history</label><select class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
-            <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" value="168"></div>
-            <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" value="82"></div>
-            <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" value="29.1" readonly></div>
-            <div class="fld"><label class="lbl">BP</label><input class="input mono" value="130/85"></div>
-            <div class="fld"><label class="lbl">Pulse</label><input class="input mono" value="78 bpm"></div>
-            <div class="fld"><label class="lbl">Temp</label><input class="input mono" value="98.6°F"></div></div></div>
+            <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="haHeight" oninput="window._haBmiCalc()"></div>
+            <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="haWeight" oninput="window._haBmiCalc()"></div>
+            <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="haBmi" readonly></div>
+            <div class="fld"><label class="lbl">BP</label><input class="input mono" id="haBp"></div>
+            <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="haPulse"></div>
+            <div class="fld"><label class="lbl">Temp</label><input class="input mono" id="haTemp"></div></div></div>
           <div class="aud" style="background:#fff"><div class="ahd">Lifestyle &amp; diet</div><div class="g4">
             <div class="fld"><label class="lbl">Diet type</label><select class="select"><option>Vegetarian</option><option selected>Non-Vegetarian</option><option>Vegan</option><option>Eggetarian</option></select></div>
             <div class="fld"><label class="lbl">Physical activity</label><select class="select"><option selected>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
@@ -269,15 +270,15 @@ function getMainContent(): string {
           <div class="aud" style="background:#fff"><div class="ahd">Symptoms reported</div>
             <div class="chips" data-oth="syOth"><button class="chip-o on">Frequent Urination</button><button class="chip-o on">Excessive Thirst</button><button class="chip-o on">Fatigue</button><button class="chip-o">Blurred Vision</button><button class="chip-o">Tingling/Numbness</button><button class="chip-o">Slow Healing Wounds</button><button class="chip-o">Weight Loss</button><button class="chip-o">Headache</button><button class="chip-o" data-others="1">Others</button></div>
             <input class="input hideblock" id="syOth" style="margin-top:8px;max-width:360px" placeholder="Enter details…"></div>
-          <div class="fld"><label class="lbl">Doctor / consultant notes</label><textarea class="area">Motivated; mild BP; sedentary job. Good L2 candidate.</textarea></div>
-          <button class="btn bp" style="margin-top:12px" onclick="toast('Health assessment saved')">Save health assessment</button>
+          <div class="fld"><label class="lbl">Doctor / consultant notes</label><textarea class="area" id="haDocNotes"></textarea></div>
+          <button class="btn bp" style="margin-top:12px" onclick="window._coachSaveRecord()">Save health assessment</button>
         </div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-stetho"/></svg> Consultation status &amp; program <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
-            <div class="fld"><label class="lbl">Attended by (HC)</label><input class="input" value="Dr. Suresh" readonly></div>
-            <div class="fld"><label class="lbl">Consultation date</label><input class="input" type="date" value="2026-06-13"></div>
+            <div class="fld"><label class="lbl">Attended by (HC)</label><input class="input" id="haAttendedBy" readonly></div>
+            <div class="fld"><label class="lbl">Consultation date</label><input class="input" type="date" id="haConsultDate"></div>
             <div class="fld"><label class="lbl">Next review date</label><input class="input" type="date"></div>
             <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
           </div>
@@ -303,7 +304,7 @@ function getMainContent(): string {
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--vio-ink)">Commitment date *</label><input class="input" style="height:36px" type="date"></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Owner</label><select class="select" style="height:36px"><option selected>Dr. Suresh (HC)</option><option>Prem Kumar (HA)</option></select></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Owner</label><select class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input class="input" style="height:36px" type="date"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Reminder before <span class="nb">NEW</span></label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
@@ -311,19 +312,16 @@ function getMainContent(): string {
             </div>
             <div><label class="lbl" style="color:var(--vio-ink)">Follow-up notes — every attempt logged (clients may take 5–6 follow-ups)</label>
               <div style="display:flex;gap:8px"><input class="input" id="fuNote" style="height:36px;background:#fff" placeholder="e.g. Spoke to wife, salary on 1st — call on 2nd…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNote()">Add note</button></div>
-              <div id="fuNotes" style="margin-top:9px;display:flex;flex-direction:column;gap:6px">
-                <div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt 2 · 08-Jun 17:10</b> — Asked for EMI details again; wife supportive. Wants call after salary credit.</div>
-                <div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt 1 · 02-Jun 11:30</b> — Positive on program; blocker is school-fee month. Hold offer requested.</div>
-              </div></div>
+              <div id="fuNotes" style="margin-top:9px;display:flex;flex-direction:column;gap:6px"></div></div>
             <div style="font-size:11.5px;font-weight:500">Auto-touch plan: ① WA summary + program PDF today · ② call T+2 days · ③ WA offer-reminder T+5 · ④ call on commitment date − 1 · ⑤ missed → Deviation + ABM. Every touch logged.</div>
           </div>
           <div class="banner bad hideblock" id="refundPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-coin"/></svg><b>Refund request — routes through ABM → BM → Accounts (rule-enforced)</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--alert-ink)">Reason *</label><select class="select" style="height:36px"><option>Medical — cannot continue</option><option>Relocation</option><option>Dissatisfied with program</option><option>Financial difficulty</option><option>Duplicate payment</option><option>Others</option></select></div>
-              <div><label class="lbl" style="color:var(--alert-ink)">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" value="₹29,000" readonly></div>
-              <div><label class="lbl" style="color:var(--alert-ink)">Days since payment <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" value="4 — Full refund rule" readonly></div>
-              <div><label class="lbl" style="color:var(--alert-ink)">Eligible refund <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" value="₹29,000" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refPaid" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)">Days since payment <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refDays" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)">Eligible refund <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refEligible" readonly></div>
             </div>
             <button class="btn bsm" style="background:#fff;align-self:flex-start" onclick="toast('Refund request submitted → ABM approval queue')">Submit refund request → ABM</button>
           </div>
@@ -332,14 +330,14 @@ function getMainContent(): string {
             <div class="fld"><label class="lbl">Program suggested</label><select class="select"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
             <div class="fld"><label class="lbl">L1 price · full only</label><select class="select"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
             <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono"></div>
-            <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" value="29,000"></div>
+            <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" oninput="window._payCalcAll()"></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code — special discount <span class="nb">NEW</span></label>
               <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
               <div id="couponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
             <div class="fld"><label class="lbl">Client category</label><select class="select"><option>-- Select --</option><option>VIP</option><option>Staff Relatives</option><option>Officers</option><option>Complicated</option></select></div>
             <div class="fld"><label class="lbl">Date of joining</label><input class="input" type="date"></div>
             <div class="fld"><label class="lbl">Access planned</label><input class="input" type="date"></div>
-            <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" value="Dr. Suresh" readonly></div>
+            <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" id="haAttendedBy2" readonly></div>
           </div>
         </div></div>
 
@@ -349,9 +347,9 @@ function getMainContent(): string {
           <div class="banner good" style="margin-top:10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-check"/></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
           <div class="g3" style="margin-top:6px">
             <div class="fld"><label class="lbl">Payment method</label>
-              <select class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2×)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
+              <select class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2x)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
             <div class="fld"><label class="lbl">Collected by</label><select class="select" id="collectedBy"><option selected>Reception desk</option><option>Razorpay link (online)</option><option>EMI provider</option></select></div>
-            <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills"><button class="pill p-warn on">Pending</button><button class="pill p-ok">Verified</button></div></div>
+            <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills" id="payVerify"><button class="pill p-warn on" onclick="window._payVerify('pending',this)">Pending</button><button class="pill p-ok" onclick="window._payVerify('verified',this)">Verified</button></div></div>
           </div>
           <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
             <button class="btn bsm bp" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"/></svg> Send collection request to Reception</button>
@@ -360,32 +358,32 @@ function getMainContent(): string {
 
           <div class="payblk on" id="pb-full"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Full payment</div>
             <div class="g4">
-              <div class="fld"><label class="lbl">Amount due <span class="ab">AUTO</span></label><input class="input mono" value="₹29,000" readonly></div>
-              <div class="fld"><label class="lbl">Amount received (₹)</label><input class="input mono" value="29,000"></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" placeholder="Mandatory"></div>
-              <div class="fld"><label class="lbl">Actual paid date</label><input class="input" type="date"></div>
-              <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts"><span class="att add" onclick="toast('Proof attached · pending Accounts verification')"><svg class="icon"><use href="#i-clip"/></svg> Attach screenshot / receipt</span></div></div>
+              <div class="fld"><label class="lbl">Amount due <span class="ab">AUTO</span></label><input class="input mono" id="payAmtDue" readonly></div>
+              <div class="fld"><label class="lbl">Amount received (₹)</label><input class="input mono" id="payFullRcvd" oninput="window._payCalcFull()"></div>
+              <div class="fld"><label class="lbl">Mode</label><select class="select" id="payFullMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="payFullRef" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl">Actual paid date</label><input class="input" type="date" id="payFullDate"></div>
+              <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach screenshot / receipt</span></div></div>
               <div class="fld fw"><label class="lbl">Status</label><div class="pills"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
             </div></div>
 
-          <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2×) · ₹30,000 — balance never untracked</div>
+          <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Total <span class="ab">AUTO</span></label><input class="input mono" value="₹30,000" readonly></div>
-              <div class="fld"><label class="lbl">Inst-1 received (₹)</label><input class="input mono" placeholder="e.g. 16000"></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts"><span class="att add" onclick="toast('Inst-1 proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld"><label class="lbl">Total <span class="ab">AUTO</span></label><input class="input mono" id="i2Total" readonly></div>
+              <div class="fld"><label class="lbl">Inst-1 received (₹)</label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" oninput="window._payCalcI2()"></div>
+              <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date"></div>
+              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
+              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
-              <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" value="₹14,000" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono"></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts"><span class="att add" onclick="toast('Balance proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="i2BalDue" readonly></div>
+              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="i2BalDueDate"></div>
+              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="i2BalRcvd"></div>
+              <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="i2BalDate"></div>
+              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
+              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="fld fw"><label class="lbl">Status</label><div class="pills"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
             </div>
@@ -393,38 +391,38 @@ function getMainContent(): string {
           <div class="payblk" id="pb-emi"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> EMI (BFL / SaveIn) — client pays financier; we track down payment &amp; disbursement</div>
             <div class="g4">
               <div class="fld"><label class="lbl">Provider</label><select class="select"><option selected>BFL (Bajaj Finserv)</option><option>SaveIn</option></select></div>
-              <div class="fld"><label class="lbl">Eligibility (provider tool)</label><div class="pills"><button class="pill p-ok on">✓ Eligible</button><button class="pill p-al">✗ Not Eligible</button></div></div>
+              <div class="fld"><label class="lbl">Eligibility (provider tool)</label><div class="pills"><button class="pill p-ok on">Eligible</button><button class="pill p-al">Not Eligible</button></div></div>
               <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code <span class="nb">NEW</span></label>
                 <div style="display:flex;gap:7px"><input class="input mono" id="emiCoupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCouponEmi()">Apply</button></div>
                 <div id="emiCouponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
-              <div class="fld"><label class="lbl">Program cost <span class="ab">AUTO</span></label><input class="input mono" id="emiCost" value="32000" readonly></div>
+              <div class="fld"><label class="lbl">Program cost <span class="ab">AUTO</span></label><input class="input mono" id="emiCost" readonly></div>
               <div class="fld"><label class="lbl">Down payment (₹) — drives calculator</label><input class="input mono" id="emiDown" placeholder="e.g. 5000" oninput="emiCalc()"></div>
-              <div class="fld"><label class="lbl">Financed balance <span class="ab">AUTO</span></label><input class="input mono" id="emiRemain" value="₹32,000" readonly></div>
+              <div class="fld"><label class="lbl">Financed balance <span class="ab">AUTO</span></label><input class="input mono" id="emiRemain" readonly></div>
               <div class="fld"><label class="lbl">Tenure (months) — drives calculator</label><select class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
-              <div class="fld"><label class="lbl">EMI / month <span class="ab">AUTO calculated</span></label><input class="input mono" id="emiPer" value="—" readonly></div>
+              <div class="fld"><label class="lbl">EMI / month <span class="ab">AUTO calculated</span></label><input class="input mono" id="emiPer" readonly></div>
               <div class="fld"><label class="lbl">Documentation date</label><input class="input" type="date"></div>
               <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Net after subvention <span class="ab">AUTO</span></label><input class="input mono" id="emiNet" value="₹29,920 (−6.5%)" readonly></div>
-              <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts"><span class="att add" onclick="toast('Down-payment proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach down-payment proof</span><span class="att add" onclick="toast('Approval proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach approval</span><span class="att add" onclick="toast('Disbursement proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach credit proof</span></div></div>
+              <div class="fld"><label class="lbl">Net after subvention <span class="ab">AUTO</span></label><input class="input mono" id="emiNet" readonly></div>
+              <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach credit proof</span></div></div>
               <div class="fld fw"><label class="lbl">EMI payment collection — status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
             </div></div>
 
           <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Advance booking — locks the price, starts the clock</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Advance (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Advance (₹2K–5K)</label><input class="input mono" placeholder="e.g. 2000"></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Advance date</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" placeholder="Mandatory"></div>
-              <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts"><span class="att add" onclick="toast('Advance proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld"><label class="lbl">Advance (₹2K–5K)</label><input class="input mono" id="advAmt" placeholder="e.g. 2000" oninput="window._payCalcAdv()"></div>
+              <div class="fld"><label class="lbl">Mode</label><select class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl">Advance date</label><input class="input" type="date" id="advDate"></div>
+              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advRef" placeholder="Mandatory"></div>
+              <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
-              <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" value="₹27,000" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono"></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts"><span class="att add" onclick="toast('Balance proof attached')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="advBalDue" readonly></div>
+              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="advBalDueDate"></div>
+              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="advBalRcvd"></div>
+              <div class="fld"><label class="lbl">Mode</label><select class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="advBalDate"></div>
+              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advBalRef" placeholder="Mandatory"></div>
+              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="fld fw"><label class="lbl">Status</label><div class="pills"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
             </div>
@@ -442,7 +440,7 @@ function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-gift"/></svg> Welcome kit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" value="Dr. Suresh" readonly></div>
+          <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" id="haAttendedBy3" readonly></div>
           <div class="fld" style="grid-column:span 2"><label class="lbl">Welcome kit status</label>
             <div class="pills"><button class="pill p-ok" onclick="toast('Kit issued · logged')">Given</button><button class="pill p-warn">Need to Ship</button><button class="pill p-vio on">Not Required</button></div></div>
         </div></div></div>
@@ -453,19 +451,19 @@ function getMainContent(): string {
     <div class="c-p" data-p="sales2" style="display:none">
       <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> This sales record is owned by the Health advisor — coaches can read the full journey but edit nothing.</span></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Basic &amp; pipeline <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">Occupation</td><td>Business</td><td style="color:var(--muted)">Language</td><td>Tamil</td><td style="color:var(--muted)">Source · campaign</td><td>Meta · DR_Jun_Lookalike</td></tr>
-          <tr><td style="color:var(--muted)">Location</td><td>Poonamalle</td><td style="color:var(--muted)">Salesperson</td><td style="font-weight:600">Prem Kumar</td><td style="color:var(--muted)">Priority · probability</td><td>★★☆ · <span class="mono">62%</span></td></tr>
+        <div class="sec-bd"><table class="tbl"><tbody id="roBasic">
+          <tr><td style="color:var(--muted)">Occupation</td><td>—</td><td style="color:var(--muted)">Language</td><td>—</td><td style="color:var(--muted)">Source · campaign</td><td>—</td></tr>
+          <tr><td style="color:var(--muted)">Location</td><td>—</td><td style="color:var(--muted)">Salesperson</td><td style="font-weight:600">—</td><td style="color:var(--muted)">Priority · probability</td><td>—</td></tr>
         </tbody></table></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Sugar profile &amp; eligibility <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">Sugar level</td><td>150–250</td><td style="color:var(--muted)">Fasting / PP</td><td class="mono">162 / 231</td><td style="color:var(--muted)">HbA1c</td><td class="mono" style="font-weight:700">8.4%</td></tr>
-          <tr><td style="color:var(--muted)">Treatment</td><td>Allopathy · 3–5 yrs</td><td style="color:var(--muted)">Managing now</td><td>Medicine, Diet</td><td style="color:var(--muted)">Eligibility</td><td><span class="chipb ok">✓ Eligible — no exclusions</span></td></tr>
+        <div class="sec-bd"><table class="tbl"><tbody id="roSugar">
+          <tr><td style="color:var(--muted)">Sugar level</td><td>—</td><td style="color:var(--muted)">Fasting / PP</td><td class="mono">—</td><td style="color:var(--muted)">HbA1c</td><td class="mono" style="font-weight:700">—</td></tr>
+          <tr><td style="color:var(--muted)">Treatment</td><td>—</td><td style="color:var(--muted)">Managing now</td><td>—</td><td style="color:var(--muted)">Eligibility</td><td>—</td></tr>
         </tbody></table></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"/></svg> Call journey &amp; appointment <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
-        <div class="sec-bd"><table class="tbl"><tbody>
-          <tr><td style="color:var(--muted)">Call status</td><td><span class="chipb ok">Appointment Fixed – Direct</span></td><td style="color:var(--muted)">Appointment</td><td class="mono">13 Jun · 10:30 AM</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">Dr. Suresh</td></tr>
-          <tr><td style="color:var(--muted)">Last call note</td><td colspan="5">"Receptive; concerned about cost — explained EMI option; confirmed walk-in with wife."</td></tr>
+        <div class="sec-bd"><table class="tbl"><tbody id="roCalls">
+          <tr><td style="color:var(--muted)">Call status</td><td>—</td><td style="color:var(--muted)">Appointment</td><td class="mono">—</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">—</td></tr>
+          <tr><td style="color:var(--muted)">Last call note</td><td colspan="5">—</td></tr>
         </tbody></table></div></div>
     </div>
     <div class="c-p" data-p="pay2" style="display:none"><div class="stub">Payment history — full ledger.</div></div>
@@ -797,8 +795,8 @@ function getMainContent(): string {
         <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Assessment — Ajith Kumar <span class="chipb info" style="margin-left:8px">Baseline · M0</span></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl">Height (cm) <span class="nb">dynamic</span></label><input class="input mono" id="sc_h" value="168"></div>
-              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" value="82"></div>
+              <div class="fld"><label class="lbl">Height (cm) <span class="nb">dynamic</span></label><input class="input mono" id="sc_h" value="168" oninput="window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" value="82" oninput="window._scBmiCalc()"></div>
               <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="sc_bmi" value="29.1" readonly></div>
               <div class="fld"><label class="lbl">BP systolic</label><input class="input mono" id="sc_bp" value="130/85"></div>
               <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="sc_pu" value="78"></div>
@@ -847,111 +845,100 @@ function getMainContent(): string {
   <section class="screen" id="s-bloodtest"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Blood test — Thyrocare</h1>
-      <div class="pills"><button class="pill on">Today</button><button class="pill">Yesterday</button><button class="pill">This week</button><button class="pill">Custom</button></div>
-      <button class="btn" style="margin-left:auto"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
+      <div class="pills" id="btDateFilt"><button class="pill on" onclick="window._btDateF('today')">Today</button><button class="pill" onclick="window._btDateF('yest')">Yesterday</button><button class="pill" onclick="window._btDateF('wk')">This week</button><button class="pill" onclick="window._btDateF('cust')">Custom</button></div>
+      <input type="date" class="input" id="btFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._btApplyDate()">
+      <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._btApplyDate()">
+      <button class="btn" style="margin-left:auto" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
     </div>
-    <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap">
-      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700">₹14,400</div></div></div>
-      <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:16px"><div><div style="font-size:9px;color:var(--faint);font-weight:600">THYROCARE COST</div><div class="mono" style="font-weight:700;color:var(--alert-ink)">₹7,200</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">OUR MARGIN</div><div class="mono" style="font-weight:700;color:var(--ok-ink)">₹7,200</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">PAID TO THYROCARE</div><div class="mono" style="font-weight:700">₹5,400</div></div></div>
+    <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap" id="btRevCards">
+      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div></div></div>
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:16px"><div><div style="font-size:9px;color:var(--faint);font-weight:600">THYROCARE COST</div><div class="mono" style="font-weight:700;color:var(--alert-ink)" id="btThyroCost">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">OUR MARGIN</div><div class="mono" style="font-weight:700;color:var(--ok-ink)" id="btMargin">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">PAID TO THYROCARE</div><div class="mono" style="font-weight:700" id="btPaidThyro">₹0</div></div></div>
     </div>
-    <div class="metrics" style="margin:6px 0">
-      <div class="metric"><div class="ml">Expected</div><div class="mv">11</div></div>
-      <div class="metric g"><div class="ml">Visited</div><div class="mv">8</div></div>
-      <div class="metric g"><div class="ml">Sample collected</div><div class="mv">6</div></div>
-      <div class="metric a"><div class="ml">Waiting for sample</div><div class="mv">2</div></div>
-      <div class="metric g"><div class="ml">Payment collected</div><div class="mv">6</div></div>
-      <div class="metric r"><div class="ml">Not paid</div><div class="mv">2</div></div>
-      <div class="metric g"><div class="ml">Report received</div><div class="mv">4</div></div>
-      <div class="metric g"><div class="ml">Shared to client</div><div class="mv">3</div></div>
-      <div class="metric a"><div class="ml">Retest request</div><div class="mv">1</div></div>
+    <div class="metrics" style="margin:6px 0" id="btMetrics"></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Worklist <span class="arr">▾</span></div>
+      <div class="sec-bd" id="btWorklistWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test data…</div></div></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bell"/></svg> Outcome reminders <span class="arr">▾</span></div>
+      <div class="sec-bd" id="btRemindersWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div>
+
+    <!-- Blood test detail panel (hidden by default) -->
+    <div id="btDetailPanel" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Blood test record — <span id="btDetailName">Client</span>
+        <button class="btn bsm" style="margin-left:auto" onclick="window._btCloseDetail()">Close</button></div>
+        <div class="sec-bd">
+          <div class="g4">
+            <div class="fld"><label class="lbl">Panel / tests</label><input class="input" id="btdPanel" placeholder="e.g. HbA1c · FBS · Lipid"></div>
+            <div class="fld"><label class="lbl">Checkpoint</label><select class="select" id="btdCheckpoint"><option>M0</option><option>M2</option><option>M4</option><option>M6</option></select></div>
+            <div class="fld"><label class="lbl">Sample status</label><select class="select" id="btdSample"><option value="pending">Pending</option><option value="collected">Collected</option><option value="sent_to_lab">Sent to lab</option><option value="done">Done</option></select></div>
+            <div class="fld"><label class="lbl">Report status</label><select class="select" id="btdReport"><option value="pending">Pending</option><option value="ready">Ready</option><option value="shared">Shared to client</option></select></div>
+            <div class="fld"><label class="lbl">Thyrocare cost (₹)</label><input class="input mono" id="btdThyroCost" type="number" placeholder="e.g. 400"></div>
+            <div class="fld"><label class="lbl">Our price (₹)</label><input class="input mono" id="btdOurPrice" type="number" placeholder="e.g. 800"></div>
+          </div>
+          <div class="fld fw" style="margin-top:6px"><label class="lbl">Report attachment</label>
+            <div id="btdAtts" style="display:flex;gap:8px;flex-wrap:wrap"><span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span></div></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn bp" onclick="window._btSaveDetail()"><svg class="icon"><use href="#i-check"/></svg> Save</button>
+            <button class="btn" onclick="window._btShareWA()"><svg class="icon"><use href="#i-msg"/></svg> Share via WA</button>
+            <button class="btn" onclick="window._btCollectPay()">💰 Collect payment</button>
+          </div>
+        </div></div>
     </div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Worklist — click any scorecard number to filter <span class="arr">▾</span></div>
-      <div class="sec-bd"><table class="tbl"><thead><tr><th>Client</th><th>Phone</th><th>Panel</th><th>Visit #</th><th>Checkpoint</th><th>Sample</th><th>Payment</th><th>Report</th><th>Shared</th><th>Actions</th></tr></thead><tbody>
-        <tr><td style="font-weight:600">Ajith Kumar</td><td class="mono">98●●●21</td><td>HbA1c · FBS</td><td class="mono">1st</td><td><span class="chipb info">M0</span></td><td><span class="chipb warn">Collected</span></td><td><span class="chipb ok">₹800 ✓</span></td><td><span class="chipb warn">Pending</span></td><td>—</td><td><div style="display:flex;gap:4px"><button class="btn bsm" onclick="toast('Upload opened')">📎 Report</button></div></td></tr>
-        <tr><td style="font-weight:600">R. Banu</td><td class="mono">97●●●14</td><td>HbA1c · Thyroid</td><td class="mono">2nd</td><td><span class="chipb vio">M2</span></td><td><span class="chipb ok">Done</span></td><td><span class="chipb ok">₹1,200 ✓</span></td><td><span class="chipb ok">Ready</span></td><td><span class="chipb ok">WA ✓</span></td><td><div style="display:flex;gap:4px"><button class="btn bsm" onclick="toast('Report PDF downloaded')">⬇</button><button class="btn bsm" onclick="toast('Printing…')">🖨</button><button class="btn bsm" onclick="toast('Shared via WhatsApp')">WA</button></div></td></tr>
-        <tr><td style="font-weight:600">K. Mani</td><td class="mono">98●●●41</td><td>HbA1c</td><td class="mono">3rd</td><td><span class="chipb vio">M4</span></td><td><span class="chipb al">Overdue 52h</span></td><td><span class="chipb al">Not paid</span></td><td>—</td><td>—</td><td><div style="display:flex;gap:4px"><button class="btn bsm" onclick="toast('Chased Thyrocare')">Chase</button><button class="btn bsm bp" onclick="recOpen('K. Mani','bt','600')">Collect</button></div></td></tr>
-        <tr><td style="font-weight:600">New walk-in</td><td class="mono">—</td><td colspan="8" style="text-align:center"><button class="btn bp" onclick="toast('New blood test client — adding to system')">+ Add client &amp; order test</button> <span style="font-size:11.5px;color:var(--muted)">New clients get added to database + discount/coupon option</span></td></tr>
-      </tbody></table></div></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bell"/></svg> Outcome reminders (auto) <span class="arr">▾</span></div>
-      <div class="sec-bd"><table class="tbl"><thead><tr><th>Client</th><th>Due</th><th>Date</th><th>Reminder</th><th></th></tr></thead><tbody>
-        <tr><td style="font-weight:600">P. Selvam</td><td><span class="chipb vio">M2</span></td><td class="mono">15 Jun</td><td><span class="chipb ok">WA sent</span></td><td><button class="btn bsm">Book slot</button></td></tr>
-        <tr><td style="font-weight:600">L. Banu</td><td><span class="chipb vio">M6</span></td><td class="mono">18 Jun</td><td><span class="chipb warn">Due</span></td><td><button class="btn bsm" onclick="toast('WA sent')">Send WA</button></td></tr>
-      </tbody></table></div></div>
   </div></section>
 
   <!-- PHYSIO -->
   <section class="screen" id="s-physio"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">💪 Physiotherapy</h1>
-      <div class="pills"><button class="pill on">Today</button><button class="pill">This week</button><button class="pill">Custom</button></div>
-      <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Revenue today</span>
-      <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)">₹46,400</span>
-      <button class="btn" style="margin-left:auto"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
+      <div class="pills" id="phDateFilt"><button class="pill on" onclick="window._phDateF('today')">Today</button><button class="pill" onclick="window._phDateF('wk')">This week</button><button class="pill" onclick="window._phDateF('cust')">Custom</button></div>
+      <input type="date" class="input" id="phFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._phApplyDate()">
+      <input type="date" class="input" id="phTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._phApplyDate()">
+      <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Revenue</span>
+      <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)" id="phRevenue">₹0</span>
+      <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
     </div>
-    <div class="metrics" style="margin:10px 0">
-      <div class="metric"><div class="ml">Patients today</div><div class="mv">5</div></div>
-      <div class="metric g"><div class="ml">Sessions done</div><div class="mv">3</div></div>
-      <div class="metric"><div class="ml">Pending</div><div class="mv">2</div></div>
-      <div class="metric g"><div class="ml">Active treatment plans</div><div class="mv">18</div></div>
-      <div class="metric a"><div class="ml">Expiring this week</div><div class="mv">3</div></div>
-      <div class="metric g"><div class="ml">Paid upfront</div><div class="mv">12</div></div>
-      <div class="metric a"><div class="ml">Per-session (need payment)</div><div class="mv">6</div></div>
-    </div>
+    <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
     <div style="display:grid;grid-template-columns:1fr 340px;gap:14px">
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"/></svg> Today's sessions</div>
-          <div class="sec-bd"><table class="tbl"><thead><tr><th>Time</th><th>Patient</th><th>Condition</th><th>Session</th><th>Payment</th><th>Status</th><th></th></tr></thead><tbody>
-            <tr><td class="mono">9:30</td><td style="font-weight:600">V. Ram</td><td>Frozen shoulder</td><td><span class="chipb info">2 / 10</span></td><td><span class="chipb ok">Pack · ₹8,000 ✓</span></td><td><span class="chipb ok">Done</span></td><td><div style="display:flex;gap:4px"><button class="btn bsm" onclick="toast('SOAP note opened')">Notes</button><button class="btn bsm" onclick="toast('Calling V. Ram…')">📞</button><button class="btn bsm" onclick="openDrawer('V. Ram')">Details</button></div></td></tr>
-            <tr><td class="mono">10:00</td><td style="font-weight:600">L. Priya</td><td>Knee rehab (post-op)</td><td><span class="chipb info">5 / 12</span></td><td><span class="chipb ok">Pack · ₹14,400 ✓</span></td><td><span class="chipb ok">Done</span></td><td><button class="btn bsm">Notes</button></td></tr>
-            <tr><td class="mono">11:00</td><td style="font-weight:600">P. Ravi</td><td>Lower back pain</td><td><span class="chipb warn">3 / 8</span></td><td><span class="chipb ok">Pack · ₹6,400 ✓</span></td><td><span class="chipb info">In session</span></td><td><button class="btn bsm bp">Complete</button></td></tr>
-            <tr><td class="mono">11:30</td><td style="font-weight:600">M. Lakshmi</td><td>Cervical spondylosis</td><td><span class="chipb warn">1 / 6</span></td><td><span class="chipb warn">Per-visit · ₹800 due</span></td><td><span class="chipb neu">Waiting</span></td><td><button class="btn bsm bp" onclick="toast('Session started')">Start</button></td></tr>
-            <tr><td class="mono">12:00</td><td style="font-weight:600">S. Anbu</td><td>Sports injury</td><td><span class="chipb warn">1 / 8</span></td><td><span class="chipb warn">Per-visit · ₹1,000 due</span></td><td><span class="chipb warn">Expected</span></td><td><button class="btn bsm" onclick="toast('Calling…')">📞 Call</button></td></tr>
-          </tbody></table></div></div>
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Session record — P. Ravi · Session 3 / 8 <span class="arr">▾</span></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"/></svg> Sessions</div>
+          <div class="sec-bd" id="phSessionsWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading physiotherapy data…</div></div></div>
+
+        <!-- SOAP notes panel (hidden until a session is opened) -->
+        <div id="phSoapPanel" style="display:none">
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Session record — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g2">
-              <div class="fld"><label class="lbl">Subjective (patient says)</label><textarea class="area" placeholder="Pain level 4/10, better since last session…"></textarea></div>
-              <div class="fld"><label class="lbl">Objective (therapist observes)</label><textarea class="area" placeholder="ROM improved 15°, swelling reduced…"></textarea></div>
-              <div class="fld"><label class="lbl">Assessment</label><textarea class="area" placeholder="Progressing well, add resistance band exercises…"></textarea></div>
-              <div class="fld"><label class="lbl">Plan (next session)</label><textarea class="area" placeholder="Increase reps, introduce core stability…"></textarea></div>
+              <div class="fld"><label class="lbl">Subjective (patient says)</label><textarea class="area" id="phSoapS" placeholder="Pain level, better since last session…"></textarea></div>
+              <div class="fld"><label class="lbl">Objective (therapist observes)</label><textarea class="area" id="phSoapO" placeholder="ROM improved, swelling reduced…"></textarea></div>
+              <div class="fld"><label class="lbl">Assessment</label><textarea class="area" id="phSoapA" placeholder="Progressing well, add resistance…"></textarea></div>
+              <div class="fld"><label class="lbl">Plan (next session)</label><textarea class="area" id="phSoapP" placeholder="Increase reps, core stability…"></textarea></div>
             </div>
             <div class="g4" style="margin-top:6px">
-              <div class="fld"><label class="lbl">Pain (0–10)</label><input class="input mono" value="4" style="max-width:80px"></div>
-              <div class="fld"><label class="lbl">ROM improvement</label><input class="input" placeholder="e.g. +15°"></div>
-              <div class="fld"><label class="lbl">Exercises prescribed</label><input class="input" placeholder="e.g. stretches, resistance band"></div>
-              <div class="fld"><label class="lbl">Next session</label><input class="input" type="date"></div>
+              <div class="fld"><label class="lbl">Pain (0–10)</label><input class="input mono" id="phPain" type="number" min="0" max="10" style="max-width:80px"></div>
+              <div class="fld"><label class="lbl">ROM improvement</label><input class="input" id="phRom" placeholder="e.g. +15°"></div>
+              <div class="fld"><label class="lbl">Exercises prescribed</label><input class="input" id="phExercises" placeholder="e.g. stretches, resistance band"></div>
+              <div class="fld"><label class="lbl">Next session</label><input class="input" type="date" id="phNextDate"></div>
             </div>
-            <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" onclick="toast('Session 3 saved · visit marked · 5 remaining')"><svg class="icon"><use href="#i-check"/></svg> Save &amp; mark complete</button><button class="btn" onclick="toast('Printing session note…')">🖨 Print notes</button><button class="btn" onclick="toast('Printing prescription for client…')">📋 Print prescription</button></div>
+            <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Save &amp; mark complete</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
           </div></div>
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Treatment plan — P. Ravi <span class="arr">▾</span></div>
+
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Treatment plan — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl">Condition</label><input class="input" value="Lower back pain (L4-L5)"></div>
-              <div class="fld"><label class="lbl">Sessions planned</label><input class="input mono" value="8"></div>
-              <div class="fld"><label class="lbl">Sessions completed</label><input class="input mono" value="3" readonly></div>
-              <div class="fld"><label class="lbl">Remaining</label><input class="input mono" value="5" readonly></div>
-              <div class="fld"><label class="lbl">Payment model</label><div class="pills"><button class="pill p-ok on">Upfront pack</button><button class="pill">Per visit</button></div></div>
-              <div class="fld"><label class="lbl">Pack price <span class="ab">from Settings</span></label><input class="input mono" value="₹6,400" readonly></div>
-              <div class="fld"><label class="lbl">Paid</label><span class="chipb ok" style="margin-top:6px;display:inline-block">₹6,400 · Prepaid ✓</span></div>
-              <div class="fld"><label class="lbl">Extend sessions?</label><button class="btn bsm" onclick="toast('Extension: +4 sessions added · ₹3,200 due · sent to reception')">+ Extend (add sessions)</button></div>
+              <div class="fld"><label class="lbl">Condition</label><input class="input" id="phCondition"></div>
+              <div class="fld"><label class="lbl">Sessions planned</label><input class="input mono" id="phPlanned" type="number"></div>
+              <div class="fld"><label class="lbl">Sessions completed</label><input class="input mono" id="phCompleted" readonly></div>
+              <div class="fld"><label class="lbl">Remaining</label><input class="input mono" id="phRemaining" readonly></div>
+              <div class="fld"><label class="lbl">Payment model</label><div class="pills" id="phPayModel"><button class="pill p-ok" onclick="window._phPayModel('pack')">Upfront pack</button><button class="pill" onclick="window._phPayModel('per_visit')">Per visit</button></div></div>
+              <div class="fld"><label class="lbl">Pack / session price (₹)</label><input class="input mono" id="phPackPrice" type="number"></div>
             </div>
             <div class="fld fw"><label class="lbl">Visit history</label>
-              <table class="tbl"><thead><tr><th>Session</th><th>Date</th><th>Pain</th><th>Notes</th><th>Payment</th></tr></thead><tbody>
-                <tr><td class="mono">3 / 8</td><td class="mono">14-Jun</td><td class="mono">4/10</td><td>In progress</td><td><span class="chipb ok">Prepaid</span></td></tr>
-                <tr><td class="mono">2 / 8</td><td class="mono">11-Jun</td><td class="mono">5/10</td><td>ROM improved, added resistance</td><td><span class="chipb ok">Prepaid</span></td></tr>
-                <tr><td class="mono">1 / 8</td><td class="mono">08-Jun</td><td class="mono">7/10</td><td>Initial assessment, heat therapy</td><td><span class="chipb ok">Prepaid</span></td></tr>
-              </tbody></table></div>
+              <div id="phVisitHistory"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">Open a patient to see visit history.</div></div></div>
+            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"/></svg> Save plan</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
           </div></div>
+        </div>
       </div>
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Active patients (18)</div>
-          <div class="sec-bd">
-            <div class="li"><span class="avs" style="background:#17A87B">VR</span><div style="flex:1"><b>V. Ram</b><div style="font-size:10.5px;color:var(--muted)">Frozen shoulder · 2/10 · Pack ✓</div></div></div>
-            <div class="li"><span class="avs" style="background:#378ADD">LP</span><div style="flex:1"><b>L. Priya</b><div style="font-size:10.5px;color:var(--muted)">Knee rehab · 5/12 · Pack ✓</div></div></div>
-            <div class="li"><span class="avs" style="background:#7B6CD9">PR</span><div style="flex:1"><b>P. Ravi</b><div style="font-size:10.5px;color:var(--muted)">Lower back · 3/8 · Pack ✓</div></div><span class="chipb info">Now</span></div>
-            <div class="li"><span class="avs" style="background:#C07F0E">ML</span><div style="flex:1"><b>M. Lakshmi</b><div style="font-size:10.5px;color:var(--muted)">Cervical · 1/6 · Per-visit</div></div><span class="chipb warn">Due ₹800</span></div>
-            <div class="li"><span class="avs" style="background:#D8442B">SA</span><div style="flex:1"><b>S. Anbu</b><div style="font-size:10.5px;color:var(--muted)">Sports injury · 1/8 · Per-visit</div></div><span class="chipb warn">Due ₹1,000</span></div>
-          </div></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Active patients <span id="phPatientCount">(0)</span></div>
+          <div class="sec-bd" id="phPatientList"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No patients yet.</div></div></div>
         <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Pricing <span class="ab">from Settings</span></div>
           <div class="sec-bd"><table class="tbl"><tbody>
             <tr><td>Consultation</td><td class="mono" style="text-align:right;font-weight:700">₹500</td></tr>
@@ -959,8 +946,7 @@ function getMainContent(): string {
             <tr><td>6-session pack</td><td class="mono" style="text-align:right;font-weight:700">₹4,200</td></tr>
             <tr><td>8-session pack</td><td class="mono" style="text-align:right;font-weight:700">₹6,400</td></tr>
             <tr><td>12-session pack</td><td class="mono" style="text-align:right;font-weight:700">₹10,800</td></tr>
-            <tr><td>Equipment rental</td><td class="mono" style="text-align:right;font-weight:700">per item</td></tr>
-          </tbody></table><p style="font-size:11px;color:var(--faint);margin-top:6px">All prices configurable in Settings → Service pricing</p></div></div>
+          </tbody></table><p style="font-size:11px;color:var(--faint);margin-top:6px">Configurable in Settings → Service pricing</p></div></div>
       </div>
     </div>
   </div></section>
@@ -968,87 +954,46 @@ function getMainContent(): string {
   <!-- ACCOUNTS -->
   <section class="screen" id="s-accounts"><div class="wrap">
     <div class="ph"><div><h1>Accounts &amp; finance</h1><p>Gross vs net always two numbers. Verification closes the loop.</p></div>
-      <div class="pha"><button class="btn"><svg class="icon"><use href="#i-dl"/></svg> Export Excel</button></div></div>
+      <div class="pha"><button class="btn" onclick="window._accExport()"><svg class="icon"><use href="#i-dl"/></svg> Export Excel</button></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Accounts</span>
-    <div class="metrics">
-      <div class="metric g"><div class="ml">Collected today</div><div class="mv">₹3.4L</div></div>
-      <div class="metric a"><div class="ml">Pending verification</div><div class="mv">4</div><div class="mt warn">proofs to verify</div></div>
-      <div class="metric a"><div class="ml">Outstanding</div><div class="mv">₹86K</div></div>
-      <div class="metric r"><div class="ml">Refunds pending</div><div class="mv">2</div></div>
-      <div class="metric"><div class="ml">EMI subvention</div><div class="mv">₹11.2K</div></div>
-    </div>
-    <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs · 4</button><button data-t="out">Outstanding · 14</button><button data-t="ref">Refunds · 2</button></div>
+    <div class="metrics" id="accMetrics"></div>
+    <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
     <div class="acc-p" data-p="tx">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Transactions</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Date</th><th>Client</th><th>Method</th><th>Gross</th><th>Fee/subv.</th><th>Net</th><th>GST inv.</th><th>Status</th></tr></thead><tbody>
-          <tr><td class="mono">12 Jun</td><td style="font-weight:600">S. Devi</td><td>Full · UPI</td><td class="mono">₹29,000</td><td class="mono">—</td><td class="mono" style="font-weight:700">₹29,000</td><td><button class="btn bsm" onclick="toast('GST PDF sent on WA')">PDF</button></td><td><span class="chipb ok">Verified</span></td></tr>
-          <tr><td class="mono">12 Jun</td><td style="font-weight:600">A. Raman</td><td>EMI · BFL</td><td class="mono">₹32,000</td><td class="mono" style="color:var(--alert-ink)">−₹2,080</td><td class="mono" style="font-weight:700">₹29,920</td><td><button class="btn bsm">PDF</button></td><td><span class="chipb ok">Settled</span></td></tr>
-          <tr><td class="mono">11 Jun</td><td style="font-weight:600">M. Latha</td><td>Inst 2×</td><td class="mono">₹30,000</td><td class="mono">—</td><td class="mono" style="font-weight:700">₹15,000</td><td><button class="btn bsm">PDF</button></td><td><span class="chipb warn">₹15K due</span></td></tr>
-        </tbody></table></div></div></div>
+        <div class="sec-bd" id="accTxBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading transactions…</div></div></div></div>
     <div class="acc-p" data-p="ver" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Proof verification — nothing counts as received until verified</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Client</th><th>Claimed</th><th>Mode</th><th>Ref</th><th>Proof</th><th></th></tr></thead><tbody>
-          <tr><td style="font-weight:600">Ajith Kumar</td><td class="mono">₹29,000</td><td>UPI</td><td class="mono">UTR…4821</td><td><button class="btn bsm">View</button></td><td><button class="btn bsm bp" onclick="toast('Verified vs bank · receipt issued')">Verify vs bank</button></td></tr>
-          <tr><td style="font-weight:600">D. Kumar</td><td class="mono">₹2,000</td><td>Cash · receipt #117</td><td class="mono">—</td><td><button class="btn bsm">View</button></td><td><button class="btn bsm bp">Verify</button></td></tr>
-        </tbody></table></div></div></div>
+        <div class="sec-bd" id="accVerBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
     <div class="acc-p" data-p="out" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Outstanding — balance chasing lives here (moved off coach screen)</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Client</th><th>Type</th><th>Due</th><th>Date</th><th>Reminder</th><th></th></tr></thead><tbody>
-          <tr><td style="font-weight:600">M. Latha</td><td>Inst 2 of 2</td><td class="mono">₹15,000</td><td class="mono">20 Jun</td><td><span class="chipb ok">Auto-WA</span></td><td><button class="btn bsm bp" onclick="toast('Pay link sent')">Pay link</button></td></tr>
-          <tr><td style="font-weight:600">P. Selvam</td><td>Inst 1 of 2</td><td class="mono">₹10,000</td><td class="mono" style="color:var(--alert-ink);font-weight:700">overdue 3d</td><td><span class="chipb al">Escalated → ABM</span></td><td><button class="btn bsm">Collection call</button></td></tr>
-        </tbody></table></div></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Outstanding — balance chasing lives here</div>
+        <div class="sec-bd" id="accOutBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
     <div class="acc-p" data-p="ref" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Refund console — rule-enforced</div>
-        <div class="sec-bd"><table class="tbl"><thead><tr><th>Client</th><th>Paid</th><th>Days</th><th>Rule</th><th>Refund</th><th>Chain</th><th></th></tr></thead><tbody>
-          <tr><td style="font-weight:600">D. Rao</td><td class="mono">₹29,000</td><td class="mono">34</td><td><span class="chipb warn">Partial</span></td><td class="mono">₹14,500</td><td class="mono" style="font-size:11px">ABM ✓ → <b>BM</b> → Accounts</td><td><button class="btn bsm">Track</button></td></tr>
-          <tr><td style="font-weight:600">N. Devi</td><td class="mono">₹4,000</td><td class="mono">4</td><td><span class="chipb ok">Full</span></td><td class="mono">₹4,000</td><td class="mono" style="font-size:11px">ABM ✓ → BM ✓ → <b>Accounts</b></td><td><button class="btn bsm bp" onclick="toast('Refund processed via Razorpay')">Process</button></td></tr>
-        </tbody></table></div></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Refund console</div>
+        <div class="sec-bd" id="accRefBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
   </div></section>
 
   <!-- REPORTS -->
   <section class="screen" id="s-reports"><div class="wrap">
     <div class="ph"><div><h1>Reports centre</h1><p>Every report = a slice of the same event stream.</p></div>
-      <div class="pha"><button class="btn"><svg class="icon"><use href="#i-dl"/></svg> Excel</button><button class="btn"><svg class="icon"><use href="#i-doc"/></svg> PDF</button><button class="btn bp" onclick="toast('Daily 8am email scheduled')">Schedule email</button></div></div>
-    <span class="viewing"><span class="vd"></span> Viewing as Branch manager / Management</span>
+      <div class="pha"><button class="btn" onclick="window._repExport('csv')"><svg class="icon"><use href="#i-dl"/></svg> Excel</button><button class="btn" onclick="window._repExport('pdf')"><svg class="icon"><use href="#i-doc"/></svg> PDF</button></div></div>
+    <span class="viewing"><span class="vd"></span> Viewing as <span id="repViewRole">Management</span></span>
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Filters</div>
       <div class="sec-bd"><div class="g4">
-        <div class="fld"><label class="lbl">Period</label><select class="select"><option>Today</option><option selected>This month</option><option>Quarter</option><option>Custom…</option></select></div>
-        <div class="fld"><label class="lbl">Compare vs</label><select class="select"><option selected>Previous period</option><option>Average (6 mo)</option><option>Target</option></select></div>
-        <div class="fld"><label class="lbl">Branch</label><select class="select"><option selected>Chennai</option><option>All</option></select></div>
-        <div class="fld"><label class="lbl">User</label><select class="select"><option selected>All</option><option>Priya K.</option><option>Dr. Suresh</option></select></div>
-        <div class="fld"><label class="lbl">Source</label><select class="select"><option selected>All</option><option>Meta</option><option>Website</option></select></div>
-        <div class="fld"><label class="lbl">Language</label><select class="select"><option selected>All</option><option>Tamil</option><option>Telugu</option></select></div>
-        <div class="fld"><label class="lbl">Service</label><select class="select"><option selected>Diabetes</option><option>Blood test</option></select></div>
-        <div class="fld"><label class="lbl">Campaign</label><select class="select"><option selected>All</option><option>DR_Jun_Lookalike</option></select></div>
+        <div class="fld"><label class="lbl">Period</label><select class="select" id="repPeriod" onchange="window._repLoad()"><option value="today">Today</option><option value="month" selected>This month</option><option value="quarter">Quarter</option><option value="all">All time</option></select></div>
+        <div class="fld"><label class="lbl">Source</label><select class="select" id="repSource" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
+        <div class="fld"><label class="lbl">Language</label><select class="select" id="repLang" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
+        <div class="fld"><label class="lbl">Service</label><select class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All</option><option value="Diabetes">Diabetes</option><option value="Blood test">Blood test</option><option value="Physio">Physio</option></select></div>
       </div></div></div>
     <div class="rep-pick">
-      <button class="rep on"><svg class="icon"><use href="#i-inbox"/></svg> Lead report</button>
-      <button class="rep" onclick="toast('Conversion funnel loaded')"><svg class="icon"><use href="#i-split"/></svg> Conversion</button>
-      <button class="rep" onclick="toast('Revenue loaded')"><svg class="icon"><use href="#i-coin"/></svg> Revenue</button>
-      <button class="rep" onclick="toast('Appointments loaded')"><svg class="icon"><use href="#i-cal"/></svg> Appointments</button>
-      <button class="rep" onclick="toast('Follow-ups loaded')"><svg class="icon"><use href="#i-bell"/></svg> Follow-up</button>
-      <button class="rep" onclick="toast('Performance loaded')"><svg class="icon"><use href="#i-user"/></svg> Employee performance</button>
-      <button class="rep" onclick="toast('Retention loaded')"><svg class="icon"><use href="#i-stetho"/></svg> Client retention</button>
-      <button class="rep" onclick="toast('Outcomes cohort loaded')"><svg class="icon"><use href="#i-drop"/></svg> Outcomes cohort (M0→M6)</button>
+      <button class="rep on" onclick="window._repTab('lead')"><svg class="icon"><use href="#i-inbox"/></svg> Lead report</button>
+      <button class="rep" onclick="window._repTab('funnel')"><svg class="icon"><use href="#i-split"/></svg> Conversion</button>
+      <button class="rep" onclick="window._repTab('revenue')"><svg class="icon"><use href="#i-coin"/></svg> Revenue</button>
+      <button class="rep" onclick="window._repTab('appt')"><svg class="icon"><use href="#i-cal"/></svg> Appointments</button>
     </div>
-    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Lead report — June vs May</div>
+    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> <span id="repTitle">Lead report</span></div>
       <div class="sec-bd">
-        <div class="metrics" style="margin-top:6px">
-          <div class="metric g"><div class="ml">Leads</div><div class="mv">4,512</div><div class="mt ok">▲ 8%</div></div>
-          <div class="metric g"><div class="ml">Lead → appt</div><div class="mv">42%</div><div class="mt ok">▲ 3 pts</div></div>
-          <div class="metric a"><div class="ml">Lead → enrol</div><div class="mv">4.1%</div><div class="mt warn">target 6%</div></div>
-          <div class="metric g"><div class="ml">ROAS</div><div class="mv">3.8×</div><div class="mt ok">▲ 0.4</div></div>
-        </div>
-        <table class="tbl"><thead><tr><th>Source / campaign</th><th>Leads</th><th>≤4h %</th><th>Appt</th><th>Visited</th><th>Enrolled</th><th>L→E</th><th>Spend</th><th>ROAS</th></tr></thead><tbody>
-          <tr><td style="font-weight:600">Meta · DR_Jun_Lookalike</td><td class="mono">2,140</td><td class="mono">92%</td><td class="mono">934</td><td class="mono">572</td><td class="mono">96</td><td class="mono" style="font-weight:700;color:var(--ok-ink)">4.5%</td><td class="mono">₹6.1L</td><td class="mono">4.6×</td></tr>
-          <tr><td style="font-weight:600">Meta · DR_Reversal_Q2</td><td class="mono">1,905</td><td class="mono">89%</td><td class="mono">762</td><td class="mono">450</td><td class="mono">71</td><td class="mono" style="font-weight:700">3.7%</td><td class="mono">₹6.8L</td><td class="mono">3.0×</td></tr>
-          <tr><td style="font-weight:600">Website organic</td><td class="mono">262</td><td class="mono">95%</td><td class="mono">121</td><td class="mono">86</td><td class="mono">11</td><td class="mono" style="font-weight:700">4.2%</td><td class="mono">—</td><td class="mono">—</td></tr>
-        </tbody></table>
-        <table class="tbl" style="margin-top:14px"><thead><tr><th>Language</th><th>Leads</th><th>L→V</th><th>L→E</th></tr></thead><tbody>
-          <tr><td style="font-weight:600">Tamil (Chennai)</td><td class="mono">2,960</td><td class="mono">28%</td><td class="mono" style="font-weight:700;color:var(--ok-ink)">5.2%</td></tr>
-          <tr><td style="font-weight:600">Telugu</td><td class="mono">1,012</td><td class="mono">21%</td><td class="mono" style="font-weight:700">3.1%</td></tr>
-          <tr><td style="font-weight:600">Hindi</td><td class="mono">540</td><td class="mono">17%</td><td class="mono" style="font-weight:700">2.7%</td></tr>
-        </tbody></table>
+        <div class="metrics" style="margin-top:6px" id="repKpis"></div>
+        <div id="repTableWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading report data…</div></div>
       </div></div>
   </div></section>
 
@@ -2458,9 +2403,8 @@ export default function Home() {
       const l=_advFindLead(id); if(l) l.advisorProfile=obj;
       supabase.from("leads").update({advisor_profile:obj}).eq("meta_lead_id",id).then(()=>{},()=>{});
     }
-    w._advSaveRecord=()=>{
+    w._advSaveRecord=async()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
-      // Validate: statuses that need a follow-up must have a Next follow-up date.
       const _csSel=root.querySelector("#callStatus")as HTMLSelectElement|null;
       if(_csSel && FU_REQUIRED_CODES.indexOf(_csSel.value)>=0){
         const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
@@ -2471,7 +2415,6 @@ export default function Home() {
       const prev=lead?lead.advisorProfile:null;
       const obj=collectAdvisorProfile();
       if(!obj){ toast("Open a lead first (from Assigned leads)"); return; }
-      // ---- build the Activity Log diff (named, prev → new) ----
       const entries:any[]=[];
       if(!prev){ entries.push({action:"Created",field:"Lead record",new:"created"}); }
       else{
@@ -2483,16 +2426,19 @@ export default function Home() {
       saveProfileLocal(id,obj);
       const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
       const csLabel=cs?(HA_CODE2LABEL[cs.value]||""):"";
-      [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].forEach((x:any)=>{ if(x&&String(x.id)===id){ x.advisorProfile=obj; if(csLabel)x.callStatus=csLabel; } });
-      renderHealthDashboard();
-      toast("Lead record saved");
-      if(entries.length) logActivity(id,entries);
       const upd:any={advisor_profile:obj}; if(csLabel) upd.call_status=csLabel;
-      supabase.from("leads").update(upd).eq("meta_lead_id",id).then(({error}:any)=>{
-        if(error && /advisor_profile|column|schema|exist/i.test(error.message||"")){
-          toast("Saved on this device — run supabase-migration-advisor-profile.sql for cross-device sync");
+      try{
+        const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",id);
+        if(error){
+          if(/advisor_profile|column|schema|exist/i.test(error.message||"")) toast("Saved locally — run supabase-migration-advisor-profile.sql for DB sync");
+          else toastErr("Save failed: "+(error.message||"DB error"));
+          return;
         }
-      },()=>{/* network error — local copy already saved */});
+        [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].forEach((x:any)=>{ if(x&&String(x.id)===id){ x.advisorProfile=obj; if(csLabel)x.callStatus=csLabel; } });
+        renderHealthDashboard();
+        toast("Lead record saved");
+        if(entries.length) logActivity(id,entries);
+      }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
     };
     w._advAddBlood=()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
@@ -3697,7 +3643,7 @@ export default function Home() {
           payStatus:pay.status, payAmt:pay.amount||0, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:"" };
         });
-      }catch(_){ _recAll=[]; }
+      }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
       applyRecDate();
     }
     function _recDateRange():[Date|null,Date|null]{
@@ -3879,13 +3825,13 @@ export default function Home() {
       const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
       const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+      const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
+      const langSel=root.querySelector("#nwPanel .select") as HTMLSelectElement|null; let langParts:NodeListOf<HTMLSelectElement>|null=null; try{ langParts=root.querySelectorAll("#nwPanel select.select") as NodeListOf<HTMLSelectElement>; }catch(_){} const langVal=langParts&&langParts.length>=2?langParts[1].value:"Tamil";
       try{
-        // 1) create the lead so the walk-in shows everywhere (Lead Import, pool, etc.)
-        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,source:"Walk-in / Referral / Telecalling",language:"Tamil",service:"Diabetes",lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,created_at:nowIso});
+        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
       try{
-        // 2) create the appointment (checked in → screening)
-        await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:"Diabetes",hc_pt:prov,appt_date:today,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:"Tamil",notes:"Walk-in registered at reception"});
+        await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:today,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       nwToggle(); await loadReceptionData();
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
@@ -4102,6 +4048,69 @@ export default function Home() {
     }
     w.payBlk = payBlk;
 
+    function _payGetPrice():number{
+      const el=root.querySelector("#haL2Price")as HTMLInputElement;
+      return parseInt((el?.value||"0").replace(/[^\d]/g,""))||0;
+    }
+    function _paySetVal(id:string,v:number){
+      const el=root.querySelector("#"+id)as HTMLInputElement;
+      if(el) el.value=v?"₹"+v.toLocaleString("en-IN"):"";
+    }
+    function _payCalcAll(){
+      const price=_payGetPrice();
+      _paySetVal("payAmtDue",price);
+      _paySetVal("i2Total",price);
+      const i2r=parseInt((root.querySelector("#i2Inst1Rcvd")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
+      _paySetVal("i2BalDue",price?Math.max(0,price-i2r):0);
+      const advA=parseInt((root.querySelector("#advAmt")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
+      _paySetVal("advBalDue",price?Math.max(0,price-advA):0);
+      emiBase=price||32000;
+      emiCalc();
+    }
+    w._payCalcAll = _payCalcAll;
+    function _payCalcFull(){ _payCalcAll(); }
+    w._payCalcFull = _payCalcFull;
+    function _payCalcI2(){
+      const price=_payGetPrice();
+      const rcvd=parseInt((root.querySelector("#i2Inst1Rcvd")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
+      _paySetVal("i2BalDue",price?Math.max(0,price-rcvd):0);
+    }
+    w._payCalcI2 = _payCalcI2;
+    function _payCalcAdv(){
+      const price=_payGetPrice();
+      const adv=parseInt((root.querySelector("#advAmt")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
+      _paySetVal("advBalDue",price?Math.max(0,price-adv):0);
+    }
+    w._payCalcAdv = _payCalcAdv;
+
+    function _payVerify(status:string,btn:HTMLElement){
+      const pills=btn.parentElement;
+      if(!pills) return;
+      pills.querySelectorAll(".pill").forEach(p=>p.classList.remove("on"));
+      btn.classList.add("on");
+      if(status==="verified") toast("Payment verified by Accounts");
+      else toast("Verification status: Pending");
+    }
+    w._payVerify = _payVerify;
+
+    function _payAttach(containerId:string){
+      const fi=document.createElement("input");
+      fi.type="file";fi.accept="image/*,.pdf";
+      fi.onchange=async()=>{
+        const file=fi.files?.[0];
+        if(!file) return;
+        const container=root.querySelector("#"+containerId);
+        if(!container) return;
+        const tag=document.createElement("span");
+        tag.className="att";tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+file.name;
+        const addBtn=container.querySelector(".att.add");
+        if(addBtn) container.insertBefore(tag,addBtn);
+        toast("File attached: "+file.name);
+      };
+      fi.click();
+    }
+    w._payAttach = _payAttach;
+
     // Mic
     let rec=0;
     const mb=root.querySelector("#micBtn")as HTMLElement;
@@ -4186,14 +4195,42 @@ export default function Home() {
     function sendToReception(){const who=(root.querySelector("#collectedBy")as HTMLSelectElement)?.value;if(who!=="Reception desk"){toast(who||"");return;}toast("Sent → Reception");addLog("Payment → Reception");}
     w.sendToReception = sendToReception;
 
-    function screeningDone(){
+    function _bmiCalc(hEl:HTMLInputElement|null,wEl:HTMLInputElement|null,bEl:HTMLInputElement|null){
+      if(!hEl||!wEl||!bEl) return;
+      const h=parseFloat(hEl.value); const wt=parseFloat(wEl.value);
+      if(h>0&&wt>0){ const m=h/100; bEl.value=(wt/(m*m)).toFixed(1); } else { bEl.value=""; }
+    }
+    function _scBmiCalc(){ _bmiCalc(root.querySelector("#sc_h"),root.querySelector("#sc_w"),root.querySelector("#sc_bmi")); }
+    w._scBmiCalc = _scBmiCalc;
+    function _haBmiCalc(){ _bmiCalc(root.querySelector("#haHeight"),root.querySelector("#haWeight"),root.querySelector("#haBmi")); }
+    w._haBmiCalc = _haBmiCalc;
+
+    async function screeningDone(){
       const ids=["sc_h","sc_w","sc_bmi","sc_bp","sc_pu","sc_sp","sc_wa","sc_te","sc_gl"];
       const cids=["cs_h","cs_w","cs_bmi","cs_bp","cs_pu","cs_sp","cs_wa","cs_te","cs_gl"];
+      _scBmiCalc();
       ids.forEach((id,i)=>{const s=root.querySelector("#"+id)as HTMLInputElement;const d=root.querySelector("#"+cids[i])as HTMLInputElement;if(s&&d)d.value=s.value;});
+      const vitals:any={};
+      const vMap:Record<string,string>={sc_h:"height",sc_w:"weight",sc_bmi:"bmi",sc_bp:"bp",sc_pu:"pulse",sc_sp:"spo2",sc_wa:"waist",sc_te:"temp",sc_gl:"glucose"};
+      ids.forEach(id=>{const el=root.querySelector("#"+id)as HTMLInputElement; if(el&&el.value) vitals[vMap[id]]=el.value;});
+      vitals.screened_at=new Date().toISOString();
+      // Persist to DB — screening_vitals JSONB column on leads
+      const scrTitle=root.querySelector("#s-screening .sec-hd")?.textContent||"";
+      const scrName=(scrTitle.match(/Assessment\s*—\s*(.+?)(?:\s*Baseline|\s*$)/i)||[])[1]||"";
+      let leadId="";
+      if(scrName){ try{ const {data}=await supabase.from("leads").select("meta_lead_id").ilike("name","%"+scrName.trim()+"%").limit(1); leadId=(data&&data[0]&&data[0].meta_lead_id)||""; }catch(_){} }
+      if(leadId){
+        try{
+          const {error}=await supabase.from("leads").update({screening_vitals:vitals}).eq("meta_lead_id",leadId);
+          if(error && !/screening_vitals|column/i.test(error.message||"")){
+            toastErr("Screening save failed: "+(error.message||"DB error")); return;
+          }
+        }catch(e:any){ toastErr("Screening save failed: "+(e.message||"network error")); return; }
+      }
       const e=root.querySelector("#scrEmpty")as HTMLElement;if(e)e.style.display="none";
       const d=root.querySelector("#scrData")as HTMLElement;if(d)d.style.display="grid";
       const ch=root.querySelector("#scrChip")as HTMLElement;if(ch){ch.textContent="Completed · M0 locked";ch.className="chipb ok";}
-      toast("Baseline locked → coach screen");
+      toast("Baseline saved → coach screen");
     }
     w.screeningDone = screeningDone;
 
@@ -4212,7 +4249,8 @@ export default function Home() {
       const p=_coachPanelEl(); if(!p) return null;
       const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
-      return {v:1,f,pills,attachments:_coachAttachments.slice()};
+      const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
+      return {v:1,f,pills,chips,attachments:_coachAttachments.slice()};
     }
     function applyCoachProfile(obj:any){
       const p=_coachPanelEl(); if(!p||!obj) return;
@@ -4221,7 +4259,14 @@ export default function Home() {
         const els=Array.from(p.querySelectorAll("input,select,textarea"));
         (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
         const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
+        const chipEls=Array.from(p.querySelectorAll(".chip-o")); (obj.chips||[]).forEach((on:boolean,i:number)=>{ if(chipEls[i]) (chipEls[i]as HTMLElement).classList.toggle("on",!!on); });
         _coachAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderCoachAtts();
+        _haBmiCalc();
+        // Re-trigger panel visibility based on restored consultation status pills
+        const cs=root.querySelector("#consStatus"); if(cs){ const onPill=cs.querySelector(".pill.on")as HTMLElement; if(onPill){ const act=onPill.getAttribute("onclick")||""; const m=act.match(/consAct\('([^']+)'/); if(m) consAct(m[1],onPill); } }
+        // Re-trigger payment method panel visibility
+        const pm=root.querySelector("#payMethod")as HTMLSelectElement; if(pm&&pm.value) payBlk(pm.value);
+        _payCalcAll();
       } finally { _coachApplying=false; }
     }
     function renderCoachAtts(){
@@ -4236,18 +4281,34 @@ export default function Home() {
       if(!lead) return;
       if(lead.coachProfile===undefined){
         let prof:any=null;
-        try{ const {data}=await supabase.from("leads").select("coach_profile").eq("meta_lead_id",lead.id).limit(1); prof=(data&&data[0]&&data[0].coach_profile)||null; }catch(_){ prof=null; }
+        try{ const {data}=await supabase.from("leads").select("coach_profile").eq("meta_lead_id",lead.id).limit(1); prof=(data&&data[0]&&data[0].coach_profile)||null; }catch(e:any){ prof=null; if(/coach_profile|column/i.test(e.message||"")) toastErr("Run supabase-migration-coach-screening.sql to enable coach profiles"); }
         if(!prof) prof=readCoachLocal(lead.id);
         lead.coachProfile=prof;
       }
       if(lead.coachProfile && String(_coachLeadId)===String(lead.id)) applyCoachProfile(lead.coachProfile);
     }
-    // Pull blood-report attachments the advisor saved (advisor_profile.attachments).
+    // Pull blood-report attachments + recap fields the advisor saved (advisor_profile).
     async function _coachSyncAdvisorReports(lead:any){
-      let atts:any[]=[];
-      try{ const {data}=await supabase.from("leads").select("advisor_profile").eq("meta_lead_id",lead.id).limit(1); const ap=data&&data[0]&&data[0].advisor_profile; if(ap&&Array.isArray(ap.attachments)) atts=ap.attachments; }catch(_){}
-      if(!atts.length){ try{ const s=localStorage.getItem("wos_advp_"+lead.id); if(s){ const ap=JSON.parse(s); if(ap&&Array.isArray(ap.attachments)) atts=ap.attachments; } }catch(_){} }
-      if(atts.length && String(_coachLeadId)===String(lead.id)){ const have=new Set(_coachAttachments.map((a:any)=>a.url)); atts.forEach((a:any)=>{ if(!have.has(a.url)) _coachAttachments.push({name:a.name,url:a.url,src:"advisor"}); }); renderCoachAtts(); }
+      let ap:any=null;
+      try{ const {data}=await supabase.from("leads").select("advisor_profile").eq("meta_lead_id",lead.id).limit(1); ap=data&&data[0]&&data[0].advisor_profile; }catch(_){}
+      if(!ap){ try{ const s=localStorage.getItem("wos_advp_"+lead.id); if(s) ap=JSON.parse(s); }catch(_){} }
+      if(String(_coachLeadId)!==String(lead.id)) return;
+      // Populate recap fields from advisor profile using named labels
+      if(ap&&ap.f){
+        const named=_advNamed(ap.f);
+        const setV=(id:string,v:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement|null;if(el&&v)el.value=v;};
+        setV("crSugar",named["Sugar level"]||lead.sugar||"");
+        const fasting=named["Fasting (mg/dL)"]||""; const pp=named["Postprandial (mg/dL)"]||"";
+        setV("crFasting",(fasting||pp)?((fasting||"--")+" / "+(pp||"--")):"");
+        setV("crHba1c",named["HbA1c (%)"]||"");
+        const ws=named["Walk-in status"]||""; const sel=root.querySelector("#crWalkIn")as HTMLSelectElement|null;
+        if(sel&&ws){ for(let i=0;i<sel.options.length;i++){ if(sel.options[i].text===ws){sel.selectedIndex=i;break;} } }
+      } else if(lead.sugar){
+        const el=root.querySelector("#crSugar")as HTMLInputElement|null; if(el) el.value=lead.sugar;
+      }
+      // Sync attachments
+      let atts:any[]=[]; if(ap&&Array.isArray(ap.attachments)) atts=ap.attachments;
+      if(atts.length){ const have=new Set(_coachAttachments.map((a:any)=>a.url)); atts.forEach((a:any)=>{ if(!have.has(a.url)) _coachAttachments.push({name:a.name,url:a.url,src:"advisor"}); }); renderCoachAtts(); }
     }
     // Surface this client's Smartflo call recording into the recording-url field.
     async function _coachRenderRecordings(id:string){
@@ -4262,47 +4323,167 @@ export default function Home() {
       const initials=(name.match(/[A-Za-z0-9]/g)||["C","L"]).slice(0,2).join("").toUpperCase();
       const setT=(sel:string,t:string)=>{const el=root.querySelector(sel);if(el)el.textContent=t;};
       const setHt=(sel:string,h:string)=>{const el=root.querySelector(sel);if(el)el.innerHTML=h;};
+      const setV=(id:string,v:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement|null;if(el)el.value=v;};
       setT("#coachAv",initials||"CL"); setT("#coachName",name);
       setHt("#coachSub",'<span class="mono">'+e(lead.phone||"—")+'</span><span>·</span><span class="mono">Lead #'+e(String(lead.id))+'</span>');
       setHt("#coachBadges",'<span class="chipb '+(lead.isValid?'ok':'neu')+'">'+(lead.isValid?'Valid':'No phone')+'</span><span class="chipb neu">'+e((lead.source==="Manual"?"Manual":(lead.source||"Meta"))+" · "+(lead.lang||"Tamil"))+'</span><span class="chipb ok">Visited</span>');
       const cb=root.querySelector("#coachBadge"); if(cb) cb.textContent="Status: Open";
-      // Clear demo/sample data in the consultation panel.
       const p=_coachPanelEl();
       if(p){
         p.querySelectorAll("input").forEach((i:any)=>{ if(i.type==="checkbox"||i.type==="radio")i.checked=false; else i.value=""; });
         p.querySelectorAll("textarea").forEach((t:any)=>t.value="");
         p.querySelectorAll("select").forEach((s:any)=>s.selectedIndex=0);
         p.querySelectorAll(".pill.on").forEach((b:any)=>b.classList.remove("on"));
+        p.querySelectorAll(".chip-o.on").forEach((b:any)=>b.classList.remove("on"));
       }
       _coachAttachments=[]; renderCoachAtts();
+      const crS=root.querySelector("#crSugar")as HTMLInputElement|null; if(crS&&lead.sugar) crS.value=lead.sugar;
+      setV("haConsultDate",new Date().toISOString().slice(0,10));
+      const fuNotes=root.querySelector("#fuNotes"); if(fuNotes) fuNotes.innerHTML="";
       renderCoachOpenList();
       loadAndApplyCoach(lead);
       _coachSyncAdvisorReports(lead);
+      _coachSyncScreeningVitals(lead);
       _coachRenderRecordings(_coachLeadId);
+      _coachPopulateReadOnly(lead);
+    }
+    async function _coachSyncScreeningVitals(lead:any){
+      let sv:any=null;
+      try{ const {data}=await supabase.from("leads").select("screening_vitals,assigned_to").eq("meta_lead_id",lead.id).limit(1); sv=data&&data[0]; }catch(_){}
+      if(String(_coachLeadId)!==String(lead.id)) return;
+      const vitals=(sv&&sv.screening_vitals)||null;
+      if(vitals){
+        const setV=(id:string,v:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement|null;if(el&&v)el.value=v;};
+        setV("cs_h",vitals.height||""); setV("cs_w",vitals.weight||""); setV("cs_bp",vitals.bp||"");
+        setV("cs_pu",vitals.pulse||""); setV("cs_sp",vitals.spo2||""); setV("cs_wa",vitals.waist||"");
+        setV("cs_te",vitals.temp||""); setV("cs_gl",vitals.glucose||"");
+        if(vitals.height&&vitals.weight){ const m=parseFloat(vitals.height)/100; const bmi=parseFloat(vitals.weight)/(m*m); if(bmi>0){const el=root.querySelector("#cs_bmi")as HTMLInputElement;if(el)el.value=bmi.toFixed(1);} }
+        const se=root.querySelector("#scrEmpty")as HTMLElement;if(se)se.style.display="none";
+        const sd=root.querySelector("#scrData")as HTMLElement;if(sd)sd.style.display="grid";
+        const sc=root.querySelector("#scrChip")as HTMLElement;if(sc){sc.textContent="Completed";sc.className="chipb ok";}
+        const haH=root.querySelector("#haHeight")as HTMLInputElement; const haW=root.querySelector("#haWeight")as HTMLInputElement;
+        if(haH&&!haH.value&&vitals.height) haH.value=vitals.height;
+        if(haW&&!haW.value&&vitals.weight) haW.value=vitals.weight;
+        _haBmiCalc();
+        const haB=root.querySelector("#haBp")as HTMLInputElement; if(haB&&!haB.value&&vitals.bp) haB.value=vitals.bp;
+        const haP=root.querySelector("#haPulse")as HTMLInputElement; if(haP&&!haP.value&&vitals.pulse) haP.value=vitals.pulse;
+        const haT=root.querySelector("#haTemp")as HTMLInputElement; if(haT&&!haT.value&&vitals.temp) haT.value=vitals.temp;
+      }
+      const assignedTo=(sv&&sv.assigned_to)||"Health Coach";
+      const setAtt=(id:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement;if(el&&!el.value) el.value=assignedTo;};
+      setAtt("haAttendedBy"); setAtt("haAttendedBy2"); setAtt("haAttendedBy3");
+    }
+    async function _coachPopulateReadOnly(lead:any){
+      let adv:any=null;
+      try{ const {data}=await supabase.from("leads").select("advisor_profile,source,language,campaign,assigned_to").eq("meta_lead_id",lead.id).limit(1); adv=data&&data[0]; }catch(_){}
+      if(String(_coachLeadId)!==String(lead.id)) return;
+      const esc=(s:string)=>(s||"--").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const rb=root.querySelector("#roBasic"); if(rb&&adv){
+        const named=adv.advisor_profile?_advNamed(adv.advisor_profile.f):null;
+        const occ=(named&&named["Occupation"])||"--"; const loc=(named&&named["Location"])||"--"; const pr=(named&&named["Priority"])||"--";
+        rb.innerHTML='<tr><td style="color:var(--muted)">Occupation</td><td>'+esc(occ)+'</td><td style="color:var(--muted)">Language</td><td>'+esc(adv.language||lead.lang)+'</td><td style="color:var(--muted)">Source</td><td>'+esc((adv.source||lead.source||"Meta")+" · "+(adv.campaign||""))+'</td></tr>'
+          +'<tr><td style="color:var(--muted)">Location</td><td>'+esc(loc)+'</td><td style="color:var(--muted)">Salesperson</td><td style="font-weight:600">'+esc(adv.assigned_to||"--")+'</td><td style="color:var(--muted)">Priority</td><td>'+esc(pr)+'</td></tr>';
+      }
+      const rs=root.querySelector("#roSugar"); if(rs&&adv&&adv.advisor_profile){
+        const named=_advNamed(adv.advisor_profile.f);
+        const sl=named["Sugar level"]||lead.sugar||"--"; const fp=(named["Fasting (mg/dL)"]||"--")+" / "+(named["Postprandial (mg/dL)"]||"--");
+        const hb=named["HbA1c (%)"]||"--"; const trt=named["Treatment"]||"--"; const mg=named["Managing with"]||"--";
+        rs.innerHTML='<tr><td style="color:var(--muted)">Sugar level</td><td>'+esc(sl)+'</td><td style="color:var(--muted)">Fasting / PP</td><td class="mono">'+esc(fp)+'</td><td style="color:var(--muted)">HbA1c</td><td class="mono" style="font-weight:700">'+esc(hb)+'</td></tr>'
+          +'<tr><td style="color:var(--muted)">Treatment</td><td>'+esc(trt)+'</td><td style="color:var(--muted)">Managing now</td><td>'+esc(mg)+'</td><td style="color:var(--muted)">Eligibility</td><td>'+esc(named["Eligibility"]||"--")+'</td></tr>';
+      }
+      const rc=root.querySelector("#roCalls"); if(rc&&adv){
+        const named=adv.advisor_profile?_advNamed(adv.advisor_profile.f):null;
+        const cs=(named&&named["Call status"])||"--"; const hc=adv.assigned_to||"--";
+        rc.innerHTML='<tr><td style="color:var(--muted)">Call status</td><td>'+esc(cs)+'</td><td style="color:var(--muted)">Appointment</td><td class="mono">--</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">'+esc(hc)+'</td></tr>'
+          +'<tr><td style="color:var(--muted)">Last call note</td><td colspan="5">'+esc((named&&named["Last note"])||"--")+'</td></tr>';
+      }
     }
     async function loadCoachClients(){
       try{
-        const {data}=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,is_valid").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
-        _coachClients=(data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,isValid:r.is_valid}));
+        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,is_valid,sugar_poll,coach_profile,screening_vitals").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
+          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,is_valid,sugar_poll,coach_profile").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
+        }
+        if(res.error) throw res.error;
+        const data=res.data;
+        const apptStages:Record<string,string>={};
+        try{ const {data:appts}=await supabase.from("appointments").select("lead_id,stage,status").not("stage","is",null).limit(500); (appts||[]).forEach((a:any)=>{ if(a.lead_id) apptStages[a.lead_id]=a.stage; }); }catch(_){}
+        _coachClients=(data||[]).map((r:any)=>{
+          const cp=r.coach_profile; const sv=r.screening_vitals||null; const apptStage=apptStages[r.meta_lead_id]||"";
+          let stage="screening";
+          if(cp&&cp._stage) stage=cp._stage;
+          else if(apptStage==="enrolled") stage="enrolled";
+          else if(apptStage==="payment") stage="payment";
+          else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
+          else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
+          else if(sv&&sv.screened_at) stage="assessment";
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage};
+        });
       }catch(_){ _coachClients=[]; }
       renderCoachOpenList();
     }
+    let _coachView="list";
+    w._coachToggleView=(v:string)=>{ _coachView=v; renderCoachOpenList(); };
     function renderCoachOpenList(){
       const el=root.querySelector("#coachOpenList")as HTMLElement|null; if(!el) return;
+      const kb=root.querySelector("#coachKanban")as HTMLElement|null;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      if(!_coachClients.length){ el.innerHTML='<div style="font-size:12px;color:var(--faint);padding:6px 0">No visited clients yet — mark a lead “Visited” in the Health Advisor to see them here.</div>'; return; }
-      el.innerHTML='<div style="font-weight:700;font-size:11px;color:var(--faint);margin-bottom:8px;letter-spacing:.05em">VISITED CLIENTS ('+_coachClients.length+')</div><div style="display:flex;gap:8px;flex-wrap:wrap">'+_coachClients.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>';
+      const toggleHtml='<div class="pills" style="margin-left:auto;flex-shrink:0"><button class="pill'+(_coachView==="list"?" on":"")+'" onclick="window._coachToggleView(\'list\')">List View</button><button class="pill'+(_coachView==="kanban"?" on":"")+'" onclick="window._coachToggleView(\'kanban\')">Kanban View</button></div>';
+      if(!_coachClients.length){ el.innerHTML='<div style="font-size:12px;color:var(--faint);padding:6px 0">No visited clients yet — mark a lead "Visited" in the Health Advisor to see them here.</div>'; if(kb)kb.style.display="none"; return; }
+      if(_coachView==="list"){
+        el.style.display="";
+        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+_coachClients.length+')</div>'+toggleHtml+'</div>'
+          +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_coachClients.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>';
+        if(kb)kb.style.display="none";
+      } else {
+        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+_coachClients.length+')</div>'+toggleHtml+'</div>';
+        el.style.display="";
+        if(kb){ kb.style.display=""; _renderCoachKanban(kb); }
+      }
+    }
+    function _renderCoachKanban(kb:HTMLElement){
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const cols=[
+        {key:"screening",label:"Screening",color:"#E8A817",icon:"🔬",filter:(c:any)=>!c._stage||c._stage==="screening"},
+        {key:"assessment",label:"Assessment",color:"#378ADD",icon:"📋",filter:(c:any)=>c._stage==="assessment"},
+        {key:"consultation",label:"Consultation",color:"#7B6CD9",icon:"🩺",filter:(c:any)=>c._stage==="consultation"},
+        {key:"payment",label:"Payment",color:"#17A87B",icon:"💳",filter:(c:any)=>c._stage==="payment"},
+        {key:"enrolled",label:"Enrolled",color:"#0B6B4C",icon:"✅",filter:(c:any)=>c._stage==="enrolled"}
+      ];
+      const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
+      kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
+        const items=_coachClients.filter(col.filter);
+        return '<div style="min-width:220px;max-width:260px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
+          +'<div style="padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px"><span>'+col.icon+'</span><span style="font-weight:700;font-size:12px">'+col.label+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
+          +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
+          +(items.length?items.map((c:any,i:number)=>{
+            const active=String(c.id)===String(_coachLeadId);
+            const init=(c.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
+            return '<div onclick="window._coachOpen(\''+e(String(c.id))+'\')" style="cursor:pointer;padding:10px;border-radius:8px;border:1px solid '+(active?"var(--brand)":"var(--line)")+';background:'+(active?"var(--brand-tint)":"#fff")+';transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">'
+              +'<div style="display:flex;align-items:center;gap:8px"><span class="avs" style="background:'+colors[i%colors.length]+';width:28px;height:28px;font-size:10px;flex-shrink:0">'+init+'</span>'
+              +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+e(c.name||c.phone||"Client")+'</div>'
+              +'<div style="font-size:10.5px;color:var(--muted);margin-top:1px">'+e(c.source||"Meta")+(c.lang?" · "+e(c.lang):"")+'</div></div></div></div>';
+          }).join(""):'<div style="text-align:center;color:var(--faint);font-size:11px;padding:12px 0">No clients</div>')
+          +'</div></div>';
+      }).join("")+'</div>';
     }
     w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client")); };
-    w._coachSaveRecord=()=>{
+    w._coachSaveRecord=async()=>{
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);
       const obj=collectCoachProfile();
       saveCoachLocal(id,obj);
       const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
-      toast("Health record saved");
-      logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
-      supabase.from("leads").update({coach_profile:obj}).eq("meta_lead_id",id).then(({error}:any)=>{ if(error && /coach_profile|column|schema|exist/i.test(error.message||"")) toast("Saved on this device — run supabase-migration-coach-profile.sql for cross-device sync"); },()=>{});
+      try{
+        const {error}=await supabase.from("leads").update({coach_profile:obj}).eq("meta_lead_id",id);
+        if(error){
+          if(/coach_profile|column|schema|exist/i.test(error.message||"")) toast("Saved locally — run supabase-migration-coach-screening.sql for DB sync");
+          else toastErr("Save failed: "+(error.message||"DB error"));
+          return;
+        }
+        toast("Health record saved");
+        logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
+      }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
     };
     w._coachPrint=()=>{
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
@@ -4406,10 +4587,11 @@ export default function Home() {
         // Prefer assigned_at; fall back to created_at if the deviation migration isn't run yet.
         let res:any=await supabase.from("leads").select("meta_lead_id,name,source,language,assigned_to,assigned_at,call_status,created_at,is_assigned")
           .eq("is_assigned",true).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").limit(1000);
-        if(res.error){
+        if(res.error&&/assigned_at|column/i.test(res.error.message||"")){
           res=await supabase.from("leads").select("meta_lead_id,name,source,language,assigned_to,call_status,created_at,is_assigned")
             .eq("is_assigned",true).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").limit(1000);
         }
+        if(res.error) throw res.error;
         rows=(res.data||[]).filter((r:any)=>{ if(_recordedLeadIds.has(String(r.meta_lead_id))) return false; const t=new Date(r.assigned_at||r.created_at).getTime(); return t<cutoffMs; });
       }catch(_){ rows=[]; }
       _leadDevRows=rows; const now=Date.now(); _setDevBadges();
@@ -4433,6 +4615,463 @@ export default function Home() {
       }
     };
 
+    // ========== BLOOD TEST MODULE (live data) ==========
+    let _btAll:any[]=[], _btFiltered:any[]=[], _btDate="today", _btOpenAppt:any=null, _btReportAtt:any=null;
+    const _btE=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    function _btDateRange():[Date|null,Date|null]{
+      const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+      if(_btDate==="today") return [sod(now),eod(now)];
+      if(_btDate==="yest"){ const y=new Date(now);y.setDate(y.getDate()-1); return [sod(y),eod(y)]; }
+      if(_btDate==="wk"){ const s=new Date(now);s.setDate(s.getDate()-s.getDay()); return [sod(s),eod(now)]; }
+      if(_btDate==="cust"){ const f=(root.querySelector("#btFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#btTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
+      return [null,null];
+    }
+    async function loadBloodTestData(){
+      try{
+        const [ar,pr]=await Promise.all([
+          supabase.from("appointments").select("*").ilike("service","%blood%").order("appt_date",{ascending:false}).limit(500),
+          supabase.from("payments").select("*").order("created_at",{ascending:false})
+        ]);
+        const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(p.appointment_id&&!pays[p.appointment_id]) pays[p.appointment_id]=p; });
+        _btAll=(ar.data||[]).map((a:any)=>{
+          const pay=pays[a.id]; const bt=a.blood_test_data||{};
+          return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
+            status:a.status||"expected", stage:a.stage||"", session:a.session||"", panel:bt.panel||"HbA1c", checkpoint:bt.checkpoint||"M0",
+            sampleStatus:bt.sample_status||"pending", reportStatus:bt.report_status||"pending", reportUrl:bt.report_url||"",
+            shared:bt.shared||false, thyroCost:bt.thyrocare_cost||0, ourPrice:bt.our_price||0,
+            payStatus:pay?pay.status:"due", payAmt:pay?pay.amount:0, payMethod:pay?pay.method:"", payVerified:pay?pay.verified:false,
+            btData:bt, raw:a };
+        });
+      }catch(e:any){ _btAll=[]; if(/blood_test_data|column/i.test(e.message||"")) toast("Run supabase-migration-module-columns.sql to enable blood test data"); }
+      _btApplyDateFilter();
+    }
+    function _btApplyDateFilter(){
+      const [from,to]=_btDateRange();
+      _btFiltered=_btAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      _btRenderAll();
+    }
+    w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); _btApplyDateFilter(); };
+    w._btApplyDate=()=>{ if(_btDate==="cust") _btApplyDateFilter(); };
+    function _btRenderAll(){
+      const f=_btFiltered;
+      const totalBilled=f.reduce((s:number,r:any)=>s+Math.max(0,r.ourPrice),0);
+      const totalCost=f.reduce((s:number,r:any)=>s+Math.max(0,r.thyroCost),0);
+      const el=(id:string)=>root.querySelector("#"+id);
+      if(el("btTotalBilled")) (el("btTotalBilled") as HTMLElement).textContent="₹"+totalBilled.toLocaleString("en-IN");
+      if(el("btThyroCost")) (el("btThyroCost") as HTMLElement).textContent="₹"+totalCost.toLocaleString("en-IN");
+      if(el("btMargin")) (el("btMargin") as HTMLElement).textContent="₹"+(totalBilled-totalCost).toLocaleString("en-IN");
+      if(el("btPaidThyro")) (el("btPaidThyro") as HTMLElement).textContent="₹"+f.filter((r:any)=>r.sampleStatus==="done").reduce((s:number,r:any)=>s+r.thyroCost,0).toLocaleString("en-IN");
+      const cnt=(fn:(r:any)=>boolean)=>f.filter(fn).length;
+      const metrics=[{l:"Expected",v:f.length,c:""},{l:"Visited",v:cnt((r:any)=>r.status==="visited"),c:"g"},{l:"Sample collected",v:cnt((r:any)=>["collected","sent_to_lab","done"].includes(r.sampleStatus)),c:"g"},
+        {l:"Waiting",v:cnt((r:any)=>r.sampleStatus==="pending"&&r.status==="visited"),c:"a"},{l:"Payment collected",v:cnt((r:any)=>r.payStatus==="paid"),c:"g"},{l:"Not paid",v:cnt((r:any)=>r.payStatus!=="paid"&&r.payStatus!=="free"),c:"r"},
+        {l:"Report received",v:cnt((r:any)=>["ready","shared"].includes(r.reportStatus)),c:"g"},{l:"Shared",v:cnt((r:any)=>r.shared),c:"g"}];
+      const me=el("btMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+      const sMap:{[k:string]:{l:string;c:string}}={pending:{l:"Pending",c:"warn"},collected:{l:"Collected",c:"info"},sent_to_lab:{l:"Sent to lab",c:"info"},done:{l:"Done",c:"ok"}};
+      const rMap:{[k:string]:{l:string;c:string}}={pending:{l:"Pending",c:"warn"},ready:{l:"Ready",c:"ok"},shared:{l:"Shared",c:"ok"}};
+      let wl='<table class="tbl"><thead><tr><th>Client</th><th>Phone</th><th>Panel</th><th>Checkpoint</th><th>Sample</th><th>Payment</th><th>Report</th><th>Shared</th><th>Actions</th></tr></thead><tbody>';
+      if(!f.length) wl+='<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">No blood test appointments for this period.</td></tr>';
+      else f.forEach((r:any)=>{
+        const ss=sMap[r.sampleStatus]||{l:r.sampleStatus,c:"neu"}; const rs=rMap[r.reportStatus]||{l:r.reportStatus,c:"neu"};
+        wl+='<tr style="cursor:pointer" onclick="window._btOpenDetail('+r.id+')"><td style="font-weight:600">'+_btE(r.name)+'</td><td class="mono">'+_btE(r.ph)+'</td><td>'+_btE(r.panel)+'</td><td><span class="chipb info">'+_btE(r.checkpoint)+'</span></td>'
+          +'<td><span class="chipb '+ss.c+'">'+ss.l+'</span></td>'
+          +'<td>'+(r.payStatus==="paid"?'<span class="chipb ok">₹'+r.payAmt.toLocaleString("en-IN")+' ✓</span>':'<span class="chipb warn">'+(r.ourPrice?'₹'+r.ourPrice.toLocaleString("en-IN")+' due':'Due')+'</span>')+'</td>'
+          +'<td><span class="chipb '+rs.c+'">'+rs.l+'</span></td>'
+          +'<td>'+(r.shared?'<span class="chipb ok">WA ✓</span>':'—')+'</td>'
+          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="event.stopPropagation();window._btOpenDetail('+r.id+')">Open</button></div></td></tr>';
+      });
+      wl+='</tbody></table>';
+      const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
+      const rw=el("btRemindersWrap"); if(rw)(rw as HTMLElement).innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">Outcome reminders are auto-generated from appointment milestones.</div>';
+    }
+    w._btOpenDetail=(id:number)=>{
+      const r=_btAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;}
+      _btOpenAppt=r; _btReportAtt=r.btData.report_url?{name:"Report",url:r.btData.report_url}:null;
+      const el=(s:string)=>root.querySelector("#"+s) as HTMLInputElement|HTMLSelectElement|null;
+      if(el("btDetailName"))(el("btDetailName") as HTMLElement).textContent=r.name+" · "+r.date;
+      if(el("btdPanel")) (el("btdPanel") as HTMLInputElement).value=r.panel;
+      if(el("btdCheckpoint")) (el("btdCheckpoint") as HTMLSelectElement).value=r.checkpoint;
+      if(el("btdSample")) (el("btdSample") as HTMLSelectElement).value=r.sampleStatus;
+      if(el("btdReport")) (el("btdReport") as HTMLSelectElement).value=r.reportStatus;
+      if(el("btdThyroCost")) (el("btdThyroCost") as HTMLInputElement).value=String(r.thyroCost||"");
+      if(el("btdOurPrice")) (el("btdOurPrice") as HTMLInputElement).value=String(r.ourPrice||"");
+      _btRenderAtts();
+      const dp=root.querySelector("#btDetailPanel") as HTMLElement; if(dp) dp.style.display="block";
+      dp?.scrollIntoView({behavior:"smooth"});
+    };
+    function _btRenderAtts(){ const el=root.querySelector("#btdAtts"); if(!el)return; if(_btReportAtt&&_btReportAtt.url){ el.innerHTML='<a href="'+_btE(_btReportAtt.url)+'" target="_blank" class="att"><svg class="icon"><use href="#i-clip"/></svg> '+_btE(_btReportAtt.name||"Report")+'</a> <button class="btn bsm" onclick="window._btAddReport()">Replace</button>'; } else { el.innerHTML='<span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span>'; } }
+    w._btCloseDetail=()=>{ const dp=root.querySelector("#btDetailPanel") as HTMLElement; if(dp) dp.style.display="none"; _btOpenAppt=null; };
+    w._btAddReport=()=>{
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".pdf,.jpg,.jpeg,.png,.webp";
+      inp.onchange=async()=>{ const file=inp.files&&inp.files[0]; if(!file)return; if(file.size>15*1024*1024){toast("Max 15 MB");return;}
+        toast("Uploading…"); const id=_btOpenAppt?.lead_id||"bt"; const path="bloodtest/"+String(id).replace(/[^a-zA-Z0-9._-]/g,"_")+"/"+Date.now()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+        try{ const up=await supabase.storage.from("lead-files").upload(path,file,{upsert:false}); if(up.error)throw up.error;
+          const {data}=supabase.storage.from("lead-files").getPublicUrl(path); _btReportAtt={name:file.name,url:(data&&data.publicUrl)||""}; _btRenderAtts(); toast("Report uploaded");
+        }catch(e:any){ toast(/bucket|not found|policy/i.test(e.message||"")?"Run supabase-migration-storage-buckets.sql":"Upload failed"); }
+      }; inp.click();
+    };
+    w._btSaveDetail=async()=>{
+      if(!_btOpenAppt){toast("Open a record first");return;}
+      const v=(id:string)=>(root.querySelector("#"+id)as HTMLInputElement|HTMLSelectElement)?.value||"";
+      const btData={panel:v("btdPanel"),checkpoint:v("btdCheckpoint"),sample_status:v("btdSample"),report_status:v("btdReport"),
+        thyrocare_cost:Number(v("btdThyroCost"))||0,our_price:Number(v("btdOurPrice"))||0,
+        report_url:_btReportAtt?.url||"",shared:v("btdReport")==="shared",sample_at:v("btdSample")!=="pending"?new Date().toISOString():""};
+      try{ const {error}=await supabase.from("appointments").update({blood_test_data:btData}).eq("id",_btOpenAppt.id);
+        if(error&&/blood_test_data|column/i.test(error.message||"")){ toast("Run supabase-migration-module-columns.sql first"); return; }
+        if(error)throw error; toast("Blood test record saved"); await loadBloodTestData();
+      }catch(e:any){ toastErr("Save failed: "+(e.message||"error")); }
+    };
+    w._btShareWA=()=>{ if(!_btOpenAppt){toast("Open a record first");return;} toast("WhatsApp share — report link sent to "+(_btOpenAppt.name||"client")); };
+    w._btCollectPay=()=>{ if(!_btOpenAppt)return; const price=Number((root.querySelector("#btdOurPrice")as HTMLInputElement)?.value)||800; recOpen(_btOpenAppt.id,_btOpenAppt.name,price,_btOpenAppt.lead_id); };
+    w._btExport=()=>{ if(!_btFiltered.length){toast("Nothing to export");return;} const out:string[][]=[["Client","Phone","Panel","Checkpoint","Sample","Payment","Report","Our Price","Thyro Cost"]];
+      _btFiltered.forEach((r:any)=>out.push([r.name,r.ph,r.panel,r.checkpoint,r.sampleStatus,r.payStatus,r.reportStatus,String(r.ourPrice),String(r.thyroCost)]));
+      _downloadCsv("blood_test_export.csv",out); toast("Exported "+_btFiltered.length+" rows"); };
+
+    // ========== PHYSIOTHERAPY MODULE (live data) ==========
+    let _phAll:any[]=[], _phFiltered:any[]=[], _phDate="today", _phOpenAppt:any=null;
+    function _phDateRange():[Date|null,Date|null]{
+      const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
+      if(_phDate==="today") return [sod(now),eod(now)];
+      if(_phDate==="wk"){ const s=new Date(now);s.setDate(s.getDate()-s.getDay()); return [sod(s),eod(now)]; }
+      if(_phDate==="cust"){ const f=(root.querySelector("#phFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#phTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
+      return [null,null];
+    }
+    async function loadPhysioData(){
+      try{
+        const [ar,pr]=await Promise.all([
+          supabase.from("appointments").select("*").ilike("service","%physio%").order("appt_date",{ascending:false}).limit(500),
+          supabase.from("payments").select("*").order("created_at",{ascending:false})
+        ]);
+        const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(p.appointment_id&&!pays[p.appointment_id]) pays[p.appointment_id]=p; });
+        _phAll=(ar.data||[]).map((a:any)=>{
+          const pay=pays[a.id]; const pd=a.physio_data||{};
+          return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
+            status:a.status||"expected", stage:a.stage||"", session:a.session||"",
+            condition:pd.condition||"", sessionsPlanned:pd.sessions_planned||0, sessionsCompleted:pd.sessions_completed||0,
+            payModel:pd.payment_model||"per_visit", packPrice:pd.pack_price||800,
+            soap:pd.soap||{}, painLevel:pd.pain_level, visits:pd.visits||[],
+            payStatus:pay?pay.status:"due", payAmt:pay?pay.amount:0, phData:pd, raw:a };
+        });
+      }catch(e:any){ _phAll=[]; if(/physio_data|column/i.test(e.message||"")) toast("Run supabase-migration-module-columns.sql to enable physio data"); }
+      _phApplyDateFilter();
+    }
+    function _phApplyDateFilter(){
+      const [from,to]=_phDateRange();
+      _phFiltered=_phAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      _phRenderAll();
+    }
+    w._phDateF=(d:string)=>{ _phDate=d; const show=d==="cust"; ["phFrom","phTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#phDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,wk:1,cust:2}[d]??0; root.querySelectorAll("#phDateFilt .pill")[idx]?.classList.add("on"); _phApplyDateFilter(); };
+    w._phApplyDate=()=>{ if(_phDate==="cust") _phApplyDateFilter(); };
+    function _phRenderAll(){
+      const f=_phFiltered; const all=_phAll;
+      const rev=f.reduce((s:number,r:any)=>s+Math.max(0,r.payAmt),0);
+      const el=(id:string)=>root.querySelector("#"+id); if(el("phRevenue"))(el("phRevenue") as HTMLElement).textContent="₹"+rev.toLocaleString("en-IN");
+      const cnt=(fn:(r:any)=>boolean)=>f.filter(fn).length;
+      const activePlans=all.filter((r:any)=>r.sessionsPlanned>0&&r.sessionsCompleted<r.sessionsPlanned);
+      const metrics=[{l:"Patients today",v:f.length,c:""},{l:"Sessions done",v:cnt((r:any)=>r.stage==="done"||r.status==="visited"),c:"g"},
+        {l:"Pending",v:cnt((r:any)=>r.status==="expected"),c:""},{l:"Active plans",v:activePlans.length,c:"g"},
+        {l:"Paid upfront",v:all.filter((r:any)=>r.payModel==="pack"&&r.payStatus==="paid").length,c:"g"},
+        {l:"Per-session (need pay)",v:f.filter((r:any)=>r.payModel==="per_visit"&&r.payStatus!=="paid").length,c:"a"}];
+      const me=el("phMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+      const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      let tbl='<table class="tbl"><thead><tr><th>Time</th><th>Patient</th><th>Condition</th><th>Session</th><th>Payment</th><th>Status</th><th></th></tr></thead><tbody>';
+      if(!f.length) tbl+='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No physiotherapy sessions for this period.</td></tr>';
+      else f.forEach((r:any)=>{
+        const stMap:{[k:string]:{l:string;c:string}}={expected:{l:"Expected",c:"warn"},visited:{l:"In session",c:"info"},done:{l:"Done",c:"ok"},noshow:{l:"No show",c:"al"}};
+        const st=stMap[r.status]||{l:r.stage||r.status,c:"neu"};
+        const sessLabel=r.sessionsPlanned?(r.sessionsCompleted+' / '+r.sessionsPlanned):'—';
+        const payLabel=r.payModel==="pack"?(r.payStatus==="paid"?'Pack · ₹'+r.packPrice.toLocaleString("en-IN")+' ✓':'Pack · due'):(r.payStatus==="paid"?'₹'+r.payAmt.toLocaleString("en-IN")+' ✓':'₹'+r.packPrice.toLocaleString("en-IN")+' due');
+        const payC=r.payStatus==="paid"?"ok":"warn";
+        tbl+='<tr style="cursor:pointer" onclick="window._phOpenSession('+r.id+')"><td class="mono">'+e(r.time)+'</td><td style="font-weight:600">'+e(r.name)+'</td><td>'+e(r.condition||"—")+'</td>'
+          +'<td><span class="chipb info">'+sessLabel+'</span></td><td><span class="chipb '+payC+'">'+payLabel+'</span></td>'
+          +'<td><span class="chipb '+st.c+'">'+st.l+'</span></td>'
+          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="event.stopPropagation();window._phOpenSession('+r.id+')">Open</button>'
+          +(r.status==="expected"?'<button class="btn bsm" onclick="event.stopPropagation();window._phStartSession('+r.id+')">Start</button>':'')
+          +(r.status==="visited"?'<button class="btn bsm bp" onclick="event.stopPropagation();window._phCompleteSession('+r.id+')">Complete</button>':'')
+          +'</div></td></tr>';
+      });
+      tbl+='</tbody></table>';
+      const sw=el("phSessionsWrap"); if(sw)(sw as HTMLElement).innerHTML=tbl;
+      const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
+      const pl=el("phPatientList"); const pc=el("phPatientCount");
+      if(pc)(pc as HTMLElement).textContent="("+activePlans.length+")";
+      if(pl)(pl as HTMLElement).innerHTML=activePlans.length?activePlans.map((r:any,i:number)=>{
+        const init=(r.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
+        const active=_phOpenAppt&&_phOpenAppt.id===r.id;
+        return '<div class="li" style="cursor:pointer'+(active?";background:var(--brand-tint)":"")+'" onclick="window._phOpenSession('+r.id+')"><span class="avs" style="background:'+colors[i%colors.length]+'">'+init+'</span><div style="flex:1"><b>'+e(r.name)+'</b><div style="font-size:10.5px;color:var(--muted)">'+e(r.condition||"—")+' · '+r.sessionsCompleted+'/'+r.sessionsPlanned+(r.payModel==="pack"?" · Pack":"")+'</div></div>'
+          +(r.payStatus!=="paid"?'<span class="chipb warn">Due ₹'+r.packPrice.toLocaleString("en-IN")+'</span>':'')+'</div>';
+      }).join(""):'<div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No active patients.</div>';
+    }
+    w._phOpenSession=(id:number)=>{
+      const r=_phAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;} _phOpenAppt=r;
+      const el=(s:string)=>root.querySelector("#"+s) as any;
+      if(el("phSoapTitle")) el("phSoapTitle").textContent=r.name+" · Session "+(r.sessionsCompleted+1)+" / "+(r.sessionsPlanned||"?");
+      if(el("phPlanTitle")) el("phPlanTitle").textContent=r.name;
+      if(el("phSoapS")) el("phSoapS").value=r.soap.subjective||"";
+      if(el("phSoapO")) el("phSoapO").value=r.soap.objective||"";
+      if(el("phSoapA")) el("phSoapA").value=r.soap.assessment||"";
+      if(el("phSoapP")) el("phSoapP").value=r.soap.plan||"";
+      if(el("phPain")) el("phPain").value=r.painLevel!=null?String(r.painLevel):"";
+      if(el("phRom")) el("phRom").value=r.soap.rom||"";
+      if(el("phExercises")) el("phExercises").value=r.soap.exercises||"";
+      if(el("phCondition")) el("phCondition").value=r.condition;
+      if(el("phPlanned")) el("phPlanned").value=String(r.sessionsPlanned||"");
+      if(el("phCompleted")) el("phCompleted").value=String(r.sessionsCompleted);
+      if(el("phRemaining")) el("phRemaining").value=String(Math.max(0,(r.sessionsPlanned||0)-r.sessionsCompleted));
+      if(el("phPackPrice")) el("phPackPrice").value=String(r.packPrice||"");
+      root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.toggle("on",b.textContent.toLowerCase().includes(r.payModel==="pack"?"upfront":"per")));
+      const vh=el("phVisitHistory"); if(vh){ if(r.visits.length){ vh.innerHTML='<table class="tbl"><thead><tr><th>Session</th><th>Date</th><th>Pain</th><th>Notes</th></tr></thead><tbody>'
+        +r.visits.map((v:any)=>'<tr><td class="mono">'+v.session+'</td><td class="mono">'+v.date+'</td><td class="mono">'+(v.pain!=null?v.pain+'/10':'—')+'</td><td>'+(_btE(v.notes||"—"))+'</td></tr>').join("")+'</tbody></table>';
+      } else { vh.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px">No visits recorded yet.</div>'; } }
+      const sp=root.querySelector("#phSoapPanel") as HTMLElement; if(sp) sp.style.display="block";
+      sp?.scrollIntoView({behavior:"smooth"}); _phRenderAll();
+    };
+    w._phPayModel=(m:string)=>{ root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.remove("on")); root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>{if(b.textContent.toLowerCase().includes(m==="pack"?"upfront":"per"))b.classList.add("on");}); };
+    w._phStartSession=async(id:number)=>{ try{ await supabase.from("appointments").update({status:"visited",visited_at:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}).eq("id",id); toast("Session started"); await loadPhysioData(); }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
+    w._phCompleteSession=async(id:number)=>{ try{ const r=_phAll.find((x:any)=>x.id===id); if(!r)return; const pd=r.phData||{}; pd.sessions_completed=(pd.sessions_completed||0)+1;
+      const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:r.painLevel,notes:"Completed"};
+      if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
+      await supabase.from("appointments").update({status:"visited",stage:"done",physio_data:pd}).eq("id",id); toast("Session completed"); await loadPhysioData();
+    }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
+    w._phSaveSoap=async()=>{
+      if(!_phOpenAppt){toast("Open a session first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
+      const pd=_phOpenAppt.phData||{}; pd.soap={subjective:v("phSoapS"),objective:v("phSoapO"),assessment:v("phSoapA"),plan:v("phSoapP"),rom:v("phRom"),exercises:v("phExercises")};
+      pd.pain_level=Number(v("phPain"))||0; pd.sessions_completed=(pd.sessions_completed||0)+1;
+      const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level,notes:v("phSoapA").substring(0,80)};
+      if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
+      try{ await supabase.from("appointments").update({stage:"done",physio_data:pd}).eq("id",_phOpenAppt.id);
+        toast("Session saved & marked complete"); await loadPhysioData();
+      }catch(e:any){ toastErr(/physio_data|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Save failed"); }
+    };
+    w._phSavePlan=async()=>{
+      if(!_phOpenAppt){toast("Open a patient first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement)?.value||"";
+      const pd=_phOpenAppt.phData||{}; pd.condition=v("phCondition"); pd.sessions_planned=Number(v("phPlanned"))||0; pd.pack_price=Number(v("phPackPrice"))||0;
+      const isP=root.querySelector("#phPayModel .pill.on")?.textContent?.toLowerCase().includes("upfront"); pd.payment_model=isP?"pack":"per_visit";
+      try{ await supabase.from("appointments").update({physio_data:pd}).eq("id",_phOpenAppt.id); toast("Treatment plan saved"); await loadPhysioData(); }catch(e:any){ toastErr("Save failed"); }
+    };
+    w._phCollectPay=()=>{ if(!_phOpenAppt)return; recOpen(_phOpenAppt.id,_phOpenAppt.name,_phOpenAppt.packPrice,_phOpenAppt.lead_id); };
+    w._phPrintNotes=()=>{ if(!_phOpenAppt){toast("Open a session first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
+      const win=window.open("","_blank","width=700,height=900"); if(!win){toast("Allow pop-ups");return;}
+      win.document.write('<html><head><title>Physio Notes — '+(_phOpenAppt.name||"")+'</title></head><body style="font-family:system-ui;padding:28px"><h2>Physiotherapy Session Notes</h2><p>'+_phOpenAppt.name+' · '+new Date().toLocaleDateString("en-IN")+'</p><table style="border-collapse:collapse;width:100%;font-size:13px"><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600;width:120px">Subjective</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapS")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Objective</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapO")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Assessment</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapA")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Plan</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapP")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Pain</td><td style="padding:6px;border:1px solid #ddd">'+v("phPain")+'/10</td></tr></table></body></html>');
+      win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
+    };
+    w._phExport=()=>{ if(!_phFiltered.length){toast("Nothing to export");return;} const out:string[][]=[["Patient","Phone","Condition","Session","Status","Payment","Amount"]];
+      _phFiltered.forEach((r:any)=>out.push([r.name,r.ph,r.condition,r.sessionsCompleted+"/"+r.sessionsPlanned,r.status,r.payStatus,String(r.payAmt)]));
+      _downloadCsv("physio_export.csv",out); toast("Exported"); };
+
+    // ========== ACCOUNTS & FINANCE MODULE (live data) ==========
+    let _accPays:any[]=[], _accAppts:Record<string,any>={};
+    async function loadAccountsData(){
+      try{
+        const [pr,ar]=await Promise.all([
+          supabase.from("payments").select("*").order("created_at",{ascending:false}).limit(1000),
+          supabase.from("appointments").select("id,client_name,phone,service").limit(2000)
+        ]);
+        _accAppts={}; (ar.data||[]).forEach((a:any)=>{ _accAppts[a.id]=a; });
+        _accPays=(pr.data||[]).map((p:any)=>{
+          const appt=_accAppts[p.appointment_id]||{};
+          return { ...p, clientName:appt.client_name||"Client", clientPhone:appt.phone||"", service:p.service||appt.service||"", dateFmt:_recFmtDate(p.paid_at?p.paid_at.substring(0,10):p.created_at?.substring(0,10)||"") };
+        });
+      }catch(_){ _accPays=[]; }
+      _accRenderAll();
+    }
+    function _accRenderAll(){
+      const pays=_accPays; const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const todayStr=new Date().toISOString().substring(0,10);
+      const todayPaid=pays.filter((p:any)=>p.status==="paid"&&(p.paid_at||p.created_at||"").startsWith(todayStr));
+      const collectedToday=todayPaid.reduce((s:number,p:any)=>s+(p.amount||0),0);
+      const unverified=pays.filter((p:any)=>p.status==="paid"&&!p.verified);
+      const outstanding=pays.filter((p:any)=>p.status==="due");
+      const outstandingAmt=outstanding.reduce((s:number,p:any)=>s+(p.amount||0),0);
+      const refunds=pays.filter((p:any)=>p.refund_status&&p.refund_status!=="processed");
+      const emiSub=pays.reduce((s:number,p:any)=>s+(p.emi_subvention||0),0);
+      const fmtL=(n:number)=>n>=100000?"₹"+(n/100000).toFixed(1)+"L":n>=1000?"₹"+(n/1000).toFixed(1)+"K":"₹"+n.toLocaleString("en-IN");
+      const metrics=[{l:"Collected today",v:fmtL(collectedToday),c:"g"},{l:"Pending verification",v:String(unverified.length),c:unverified.length?"a":"",t:unverified.length?"proofs to verify":""},
+        {l:"Outstanding",v:fmtL(outstandingAmt),c:outstandingAmt?"a":""},{l:"Refunds pending",v:String(refunds.length),c:refunds.length?"r":""},
+        {l:"EMI subvention",v:fmtL(emiSub),c:""}];
+      const mel=root.querySelector("#accMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div>'+(m.t?'<div class="mt warn">'+m.t+'</div>':'')+'</div>').join("");
+      const vc=root.querySelector("#accVerCount"); if(vc) vc.textContent=unverified.length?" · "+unverified.length:"";
+      const oc=root.querySelector("#accOutCount"); if(oc) oc.textContent=outstanding.length?" · "+outstanding.length:"";
+      const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
+      // Transactions tab
+      const allPaid=pays.filter((p:any)=>p.status==="paid"||p.amount>0);
+      let txH='<table class="tbl"><thead><tr><th>Date</th><th>Client</th><th>Service</th><th>Method</th><th>Gross</th><th>Subv.</th><th>Net</th><th>Status</th></tr></thead><tbody>';
+      if(!allPaid.length) txH+='<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No transactions yet.</td></tr>';
+      else allPaid.slice(0,100).forEach((p:any)=>{
+        const sub=p.emi_subvention||0; const net=(p.amount||0)-sub;
+        const verChip=p.verified?'<span class="chipb ok">Verified</span>':'<span class="chipb warn">Unverified</span>';
+        txH+='<tr><td class="mono">'+e(p.dateFmt)+'</td><td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td>'+e((p.payment_type||"full")+" · "+(p.method||""))+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td>'
+          +'<td class="mono"'+(sub?'style="color:var(--alert-ink)"':'')+'>'+( sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td><td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td><td>'+verChip+'</td></tr>';
+      });
+      txH+='</tbody></table>';
+      const txEl=root.querySelector("#accTxBody"); if(txEl) txEl.innerHTML=txH;
+      // Verify proofs tab
+      let vH='<table class="tbl"><thead><tr><th>Client</th><th>Claimed</th><th>Mode</th><th>Ref</th><th>Proof</th><th></th></tr></thead><tbody>';
+      if(!unverified.length) vH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">All payments verified ✓</td></tr>';
+      else unverified.forEach((p:any)=>{
+        vH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td>'+e(p.method||"—")+'</td><td class="mono">'+e(p.txn_ref||"—")+'</td>'
+          +'<td>'+(p.proof_url?'<a href="'+e(p.proof_url)+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
+          +'<td><button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button></td></tr>';
+      });
+      vH+='</tbody></table>';
+      const vEl=root.querySelector("#accVerBody"); if(vEl) vEl.innerHTML=vH;
+      // Outstanding tab
+      let oH='<table class="tbl"><thead><tr><th>Client</th><th>Service</th><th>Due</th><th>Date</th><th></th></tr></thead><tbody>';
+      if(!outstanding.length) oH+='<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:20px">No outstanding balances ✓</td></tr>';
+      else outstanding.forEach((p:any)=>{
+        oH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">'+e(p.dateFmt)+'</td>'
+          +'<td><button class="btn bsm bp" onclick="window._accCollect('+p.id+',\''+e(p.clientName).replace(/'/g,"")+'\','+(p.amount||0)+',\''+e(p.lead_id||"")+'\')">Collect</button></td></tr>';
+      });
+      oH+='</tbody></table>';
+      const oEl=root.querySelector("#accOutBody"); if(oEl) oEl.innerHTML=oH;
+      // Refunds tab
+      let rH='<table class="tbl"><thead><tr><th>Client</th><th>Paid</th><th>Refund</th><th>Reason</th><th>Status</th><th></th></tr></thead><tbody>';
+      if(!refunds.length) rH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No pending refunds.</td></tr>';
+      else refunds.forEach((p:any)=>{
+        const sMap:{[k:string]:{l:string;c:string}}={requested:{l:"Requested",c:"warn"},abm_approved:{l:"ABM ✓",c:"info"},bm_approved:{l:"BM ✓",c:"info"}};
+        const st=sMap[p.refund_status]||{l:p.refund_status,c:"neu"};
+        rH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">₹'+(p.refund_amount||0).toLocaleString("en-IN")+'</td>'
+          +'<td>'+e(p.refund_reason||"—")+'</td><td><span class="chipb '+st.c+'">'+st.l+'</span></td>'
+          +'<td><button class="btn bsm bp" onclick="window._accProcessRefund('+p.id+')">Process</button></td></tr>';
+      });
+      rH+='</tbody></table>';
+      const rEl=root.querySelector("#accRefBody"); if(rEl) rEl.innerHTML=rH;
+    }
+    w._accVerify=async(id:number)=>{
+      try{ await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString()}).eq("id",id);
+        toast("Payment verified ✓"); await loadAccountsData();
+      }catch(e:any){ toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
+    };
+    w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen(id,name,amt,leadId); };
+    w._accProcessRefund=async(id:number)=>{
+      try{ await supabase.from("payments").update({refund_status:"processed",refund_processed_at:new Date().toISOString()}).eq("id",id);
+        toast("Refund processed"); await loadAccountsData();
+      }catch(e:any){ toastErr("Refund failed: "+(e.message||"")); }
+    };
+    w._accExport=()=>{ if(!_accPays.length){toast("Nothing to export");return;}
+      const out:string[][]=[["Date","Client","Service","Method","Amount","Status","Verified","Txn Ref"]];
+      _accPays.forEach((p:any)=>out.push([p.dateFmt,p.clientName,p.service,p.method||"",String(p.amount||0),p.status,p.verified?"Yes":"No",p.txn_ref||""]));
+      _downloadCsv("accounts_export.csv",out); toast("Exported"); };
+
+    // ========== REPORTS CENTRE MODULE (live data) ==========
+    let _repTab="lead", _repLeads:any[]=[], _repAppts:any[]=[], _repPays:any[]=[];
+    async function loadReportsData(){
+      try{
+        const [lr,ar,pr]=await Promise.all([
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at").order("created_at",{ascending:false}).limit(5000),
+          supabase.from("appointments").select("id,lead_id,client_name,service,status,stage,appt_date,visited_at,created_at").order("created_at",{ascending:false}).limit(2000),
+          supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,service,created_at").order("created_at",{ascending:false}).limit(2000)
+        ]);
+        _repLeads=lr.data||[]; _repAppts=ar.data||[]; _repPays=pr.data||[];
+      }catch(_){ _repLeads=[]; _repAppts=[]; _repPays=[]; }
+      _repRender();
+    }
+    function _repPeriodFilter(items:any[],dateField:string){
+      const period=(root.querySelector("#repPeriod") as HTMLSelectElement)?.value||"month";
+      if(period==="all") return items;
+      const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;};
+      let from:Date;
+      if(period==="today") from=sod(now);
+      else if(period==="quarter"){ from=new Date(now.getFullYear(),Math.floor(now.getMonth()/3)*3,1); }
+      else { from=new Date(now.getFullYear(),now.getMonth(),1); }
+      return items.filter((r:any)=>{ const d=r[dateField]; if(!d)return false; return new Date(d)>=from; });
+    }
+    function _repApplyFilters(items:any[]){
+      const src=(root.querySelector("#repSource") as HTMLSelectElement)?.value||"all";
+      const lang=(root.querySelector("#repLang") as HTMLSelectElement)?.value||"all";
+      const svc=(root.querySelector("#repService") as HTMLSelectElement)?.value||"all";
+      return items.filter((r:any)=>{
+        if(src!=="all"&&(r.source||"").indexOf(src)<0) return false;
+        if(lang!=="all"&&(r.language||"")!==lang) return false;
+        if(svc!=="all"&&(r.service||"").indexOf(svc)<0) return false;
+        return true;
+      });
+    }
+    function _repRender(){
+      const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const titleEl=root.querySelector("#repTitle"); const kpiEl=root.querySelector("#repKpis"); const tblEl=root.querySelector("#repTableWrap");
+      // Populate source/language filter options from data
+      const srcSel=root.querySelector("#repSource") as HTMLSelectElement;
+      if(srcSel&&srcSel.options.length<=1){ const srcs=[...new Set(_repLeads.map((l:any)=>l.source).filter(Boolean))]; srcs.forEach(s=>{ const o=document.createElement("option"); o.value=s; o.textContent=s; srcSel.appendChild(o); }); }
+      const langSel=root.querySelector("#repLang") as HTMLSelectElement;
+      if(langSel&&langSel.options.length<=1){ const langs=[...new Set(_repLeads.map((l:any)=>l.language).filter(Boolean))]; langs.forEach(s=>{ const o=document.createElement("option"); o.value=s; o.textContent=s; langSel.appendChild(o); }); }
+      const leads=_repApplyFilters(_repPeriodFilter(_repLeads,"created_at"));
+      const appts=_repPeriodFilter(_repAppts,"created_at");
+      const pays=_repPeriodFilter(_repPays,"created_at").filter((p:any)=>p.status==="paid");
+      const totalRev=pays.reduce((s:number,p:any)=>s+(p.amount||0),0);
+      const visited=appts.filter((a:any)=>a.status==="visited"||a.visited_at);
+      const enrolled=appts.filter((a:any)=>a.stage==="enrolled");
+      const pct=(n:number,d:number)=>d?((n/d)*100).toFixed(1)+"%":"0%";
+      const fmtL=(n:number)=>n>=100000?"₹"+(n/100000).toFixed(1)+"L":n>=1000?"₹"+(n/1000).toFixed(0)+"K":"₹"+n.toLocaleString("en-IN");
+      if(_repTab==="lead"){
+        if(titleEl) titleEl.textContent="Lead report";
+        if(kpiEl) kpiEl.innerHTML=[{l:"Leads",v:leads.length.toLocaleString(),c:"g"},{l:"Lead → Appt",v:pct(appts.length,leads.length),c:"g"},{l:"Lead → Enrol",v:pct(enrolled.length,leads.length),c:enrolled.length/Math.max(leads.length,1)<0.06?"a":"g"},{l:"Revenue",v:fmtL(totalRev),c:"g"}]
+          .map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+        // By source
+        const bySrc:Record<string,{leads:number;appts:number;visited:number;enrolled:number}>={};
+        leads.forEach((l:any)=>{ const s=l.source||"Other"; if(!bySrc[s]) bySrc[s]={leads:0,appts:0,visited:0,enrolled:0}; bySrc[s].leads++; });
+        appts.forEach((a:any)=>{ const lid=a.lead_id; const l=_repLeads.find((x:any)=>x.meta_lead_id===lid); const s=l?.source||"Other"; if(bySrc[s]){ bySrc[s].appts++; if(a.status==="visited"||a.visited_at)bySrc[s].visited++; if(a.stage==="enrolled")bySrc[s].enrolled++; } });
+        let h='<table class="tbl"><thead><tr><th>Source</th><th>Leads</th><th>Appt</th><th>Visited</th><th>Enrolled</th><th>L→E</th></tr></thead><tbody>';
+        Object.entries(bySrc).sort((a,b)=>b[1].leads-a[1].leads).forEach(([s,d])=>{
+          h+='<tr><td style="font-weight:600">'+e(s)+'</td><td class="mono">'+d.leads+'</td><td class="mono">'+d.appts+'</td><td class="mono">'+d.visited+'</td><td class="mono">'+d.enrolled+'</td><td class="mono" style="font-weight:700">'+pct(d.enrolled,d.leads)+'</td></tr>';
+        });
+        if(!Object.keys(bySrc).length) h+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No lead data yet.</td></tr>';
+        h+='</tbody></table>';
+        // By language
+        const byLang:Record<string,{leads:number;visited:number;enrolled:number}>={};
+        leads.forEach((l:any)=>{ const la=l.language||"Other"; if(!byLang[la]) byLang[la]={leads:0,visited:0,enrolled:0}; byLang[la].leads++; });
+        appts.forEach((a:any)=>{ const lid=a.lead_id; const l=_repLeads.find((x:any)=>x.meta_lead_id===lid); const la=l?.language||"Other"; if(byLang[la]){ if(a.status==="visited"||a.visited_at)byLang[la].visited++; if(a.stage==="enrolled")byLang[la].enrolled++; } });
+        h+='<table class="tbl" style="margin-top:14px"><thead><tr><th>Language</th><th>Leads</th><th>L→V</th><th>L→E</th></tr></thead><tbody>';
+        Object.entries(byLang).sort((a,b)=>b[1].leads-a[1].leads).forEach(([la,d])=>{
+          h+='<tr><td style="font-weight:600">'+e(la)+'</td><td class="mono">'+d.leads+'</td><td class="mono">'+pct(d.visited,d.leads)+'</td><td class="mono" style="font-weight:700">'+pct(d.enrolled,d.leads)+'</td></tr>';
+        });
+        h+='</tbody></table>';
+        if(tblEl) tblEl.innerHTML=h;
+      } else if(_repTab==="funnel"){
+        if(titleEl) titleEl.textContent="Conversion funnel";
+        const stages=[{l:"Leads",v:leads.length},{l:"Appointments",v:appts.length},{l:"Visited",v:visited.length},{l:"Enrolled",v:enrolled.length},{l:"Paid",v:pays.length}];
+        if(kpiEl) kpiEl.innerHTML=stages.map(s=>'<div class="metric g"><div class="ml">'+s.l+'</div><div class="mv">'+s.v+'</div></div>').join("");
+        let h='<div style="display:flex;gap:4px;align-items:flex-end;height:200px;margin:20px 0">';
+        const max=Math.max(...stages.map(s=>s.v),1);
+        h+=stages.map(s=>'<div style="flex:1;text-align:center"><div style="background:var(--brand-tint);border:1px solid var(--brand-line);border-radius:6px 6px 0 0;height:'+Math.max(10,s.v/max*180)+'px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px"><span class="mono" style="font-weight:700;font-size:13px">'+s.v+'</span></div><div style="font-size:11px;margin-top:4px;color:var(--muted)">'+s.l+'</div></div>').join("");
+        h+='</div>';
+        if(tblEl) tblEl.innerHTML=h;
+      } else if(_repTab==="revenue"){
+        if(titleEl) titleEl.textContent="Revenue report";
+        const bySvc:Record<string,number>={};
+        pays.forEach((p:any)=>{ const s=p.service||"Other"; bySvc[s]=(bySvc[s]||0)+(p.amount||0); });
+        if(kpiEl) kpiEl.innerHTML=[{l:"Total revenue",v:fmtL(totalRev),c:"g"},{l:"Transactions",v:String(pays.length),c:""},{l:"Avg ticket",v:pays.length?fmtL(Math.round(totalRev/pays.length)):"—",c:""}]
+          .map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+        let h='<table class="tbl"><thead><tr><th>Service</th><th>Revenue</th><th>Transactions</th><th>Avg</th></tr></thead><tbody>';
+        Object.entries(bySvc).sort((a,b)=>b[1]-a[1]).forEach(([s,v])=>{
+          const cnt=pays.filter((p:any)=>(p.service||"Other")===s).length;
+          h+='<tr><td style="font-weight:600">'+e(s)+'</td><td class="mono" style="font-weight:700">'+fmtL(v)+'</td><td class="mono">'+cnt+'</td><td class="mono">'+fmtL(Math.round(v/Math.max(cnt,1)))+'</td></tr>';
+        });
+        if(!Object.keys(bySvc).length) h+='<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:20px">No revenue data yet.</td></tr>';
+        h+='</tbody></table>';
+        if(tblEl) tblEl.innerHTML=h;
+      } else if(_repTab==="appt"){
+        if(titleEl) titleEl.textContent="Appointments report";
+        if(kpiEl) kpiEl.innerHTML=[{l:"Total",v:String(appts.length),c:""},{l:"Visited",v:String(visited.length),c:"g"},{l:"No show",v:String(appts.filter((a:any)=>a.status==="noshow").length),c:"r"},{l:"Visit rate",v:pct(visited.length,appts.length),c:"g"}]
+          .map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+        const byDate:Record<string,{total:number;visited:number}>={};
+        appts.forEach((a:any)=>{ const d=a.appt_date||a.created_at?.substring(0,10)||""; if(!byDate[d]) byDate[d]={total:0,visited:0}; byDate[d].total++; if(a.status==="visited"||a.visited_at)byDate[d].visited++; });
+        let h='<table class="tbl"><thead><tr><th>Date</th><th>Total</th><th>Visited</th><th>Visit %</th></tr></thead><tbody>';
+        Object.entries(byDate).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,30).forEach(([d,v])=>{
+          h+='<tr><td class="mono">'+e(_recFmtDate(d))+'</td><td class="mono">'+v.total+'</td><td class="mono">'+v.visited+'</td><td class="mono" style="font-weight:700">'+pct(v.visited,v.total)+'</td></tr>';
+        });
+        if(!Object.keys(byDate).length) h+='<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:20px">No appointment data yet.</td></tr>';
+        h+='</tbody></table>';
+        if(tblEl) tblEl.innerHTML=h;
+      }
+    }
+    w._repTab=(tab:string)=>{ _repTab=tab; root.querySelectorAll(".rep-pick .rep").forEach((b:any)=>b.classList.remove("on")); root.querySelectorAll(".rep-pick .rep").forEach((b:any)=>{ if(b.textContent.toLowerCase().includes(tab==="lead"?"lead":tab==="funnel"?"conversion":tab==="revenue"?"revenue":"appointment")) b.classList.add("on"); }); _repRender(); };
+    w._repLoad=()=>_repRender();
+    w._repExport=(fmt:string)=>{ if(fmt==="csv"){ const items=_repApplyFilters(_repPeriodFilter(_repLeads,"created_at")); if(!items.length){toast("No data");return;}
+      const out:string[][]=[["Name","Phone","Source","Language","Service","Campaign","Status","Created"]];
+      items.forEach((l:any)=>out.push([l.name||"",l.phone||"",l.source||"",l.language||"",l.service||"",l.campaign||"",l.call_status||"",l.created_at||""]));
+      _downloadCsv("report_export.csv",out); toast("Exported "+items.length+" rows");
+    } else { toast("PDF export — use browser Print (Ctrl+P) on this page"); } };
+
     // INIT
     renderFilters();
     renderAll();
@@ -4441,6 +5080,14 @@ export default function Home() {
     {
       const recNav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null;
       if(recNav) recNav.addEventListener("click",()=>{ loadReceptionData(); });
+      const btNav=root.querySelector('#nav button[data-s="bloodtest"]')as HTMLButtonElement|null;
+      if(btNav) btNav.addEventListener("click",()=>{ loadBloodTestData(); });
+      const phNav=root.querySelector('#nav button[data-s="physio"]')as HTMLButtonElement|null;
+      if(phNav) phNav.addEventListener("click",()=>{ loadPhysioData(); });
+      const accNav=root.querySelector('#nav button[data-s="accounts"]')as HTMLButtonElement|null;
+      if(accNav) accNav.addEventListener("click",()=>{ loadAccountsData(); });
+      const repNav=root.querySelector('#nav button[data-s="reports"]')as HTMLButtonElement|null;
+      if(repNav) repNav.addEventListener("click",()=>{ loadReportsData(); });
       // Load both deviation tables when the Assign & approve → Deviation tab is opened.
       const devTabBtn=root.querySelector('#abmTabs button[data-t="dev"]')as HTMLButtonElement|null;
       if(devTabBtn) devTabBtn.addEventListener("click",()=>{ w._renderCallDeviation(); w._renderLeadsDeviation(); });
