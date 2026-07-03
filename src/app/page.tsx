@@ -1067,7 +1067,7 @@ function getMainContent(): string {
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
             <div class="fld" style="margin:0"><label class="lbl">Email</label><input class="input" id="usrEmail" placeholder="user@clinic.com" style="height:34px;width:220px"></div>
             <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="usrName" placeholder="Display name" style="height:34px;width:160px"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Branch Manager</option><option>Super Admin</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Manager</option><option>Branch Manager</option><option>Super Admin</option></select></div>
             <button class="btn bp" id="usrAddBtn" onclick="window._usrCreate()" style="height:34px">+ Add user</button>
           </div>
           <div style="overflow-x:auto"><table class="tbl" style="min-width:700px"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
@@ -1145,14 +1145,16 @@ export default function Home() {
       {key:"accounts",label:"Accounts"},{key:"reports",label:"Reports"},
       {key:"admin",label:"Settings"}
     ];
-    const RBAC_ROLES=["Advisor","Senior Advisor","Health Coach","Screening","Receptionist","Diagnostics","Physiotherapist","Accounts","ABM","Branch Manager"];
+    const FULL_ACCESS=["advisor","coach","import","abm","reception","screening","bloodtest","physio","accounts","reports","admin"];
+    const RBAC_ROLES=["Advisor","Senior Advisor","Health Coach","Screening","Receptionist","Diagnostics","Physiotherapist","Accounts","ABM","Manager","Branch Manager"];
     const DEFAULT_RBAC:Record<string,string[]>={
       "Advisor":["advisor"],"Senior Advisor":["advisor","import"],
       "Health Coach":["coach"],"Screening":["screening"],
       "Receptionist":["reception"],"Diagnostics":["bloodtest"],
       "Physiotherapist":["physio"],"Accounts":["accounts"],
       "ABM":["abm","advisor","import","reports"],
-      "Branch Manager":["advisor","coach","import","abm","reception","screening","bloodtest","physio","accounts","reports","admin"]
+      "Manager":FULL_ACCESS.slice(),
+      "Branch Manager":FULL_ACCESS.slice()
     };
 
     function showLogin(errMsg?:string){
@@ -1308,7 +1310,9 @@ export default function Home() {
     function applyNavGating(){
       if(!_currentUser) return;
       const role=_currentUser.role;
-      if(role==="Super Admin"){
+      // Super Admin, or any role not present in the RBAC matrix (misconfigured/legacy
+      // role), gets full access — never lock a valid user out of the entire app.
+      if(role==="Super Admin"||!RBAC_ROLES.includes(role)){
         root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>btn.style.display="");
         return;
       }
