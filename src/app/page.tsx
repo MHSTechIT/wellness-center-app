@@ -986,7 +986,7 @@ function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-asg">Assignees</button><button data-t="st-fld">Screen fields</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-asg">Assignees</button><button data-t="st-usr">Users</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
     <div class="st-p" data-p="st-asg" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assignees — single source of truth for everyone who can receive leads</div>
@@ -1061,14 +1061,23 @@ function getMainContent(): string {
           </div></div></div>
     </div>
 
+    <div class="st-p" data-p="st-usr" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> User management — who can log in and what role they have</div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <div class="fld" style="margin:0"><label class="lbl">Email</label><input class="input" id="usrEmail" placeholder="user@clinic.com" style="height:34px;width:220px"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="usrName" placeholder="Display name" style="height:34px;width:160px"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Branch Manager</option><option>Super Admin</option></select></div>
+            <button class="btn bp" id="usrAddBtn" onclick="window._usrCreate()" style="height:34px">+ Add user</button>
+          </div>
+          <div style="overflow-x:auto"><table class="tbl" style="min-width:700px"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Users added here can log in with their email. First-time users set their password on the login screen.</p>
+        </div></div>
+    </div>
+
     <div class="st-p" data-p="st-rbac" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Roles &amp; permissions</div>
-        <div class="sec-bd"><table class="tbl matrix"><thead><tr><th>Capability</th><th>Advisor</th><th>Coach</th><th>Screen</th><th>Recep</th><th>Diag</th><th>Physio</th><th>Accts</th><th>ABM</th></tr></thead><tbody>
-          <tr><td>Full clinical record</td><td><span class="dn"></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dn"></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td></tr>
-          <tr><td>Collect payment</td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dn"></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dn"></span></td></tr>
-          <tr><td>Verify proof</td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td><td><span class="dn"></span></td></tr>
-          <tr><td>Approve discount/freeze</td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dn"></span></td><td><span class="dy"><svg><use href="#i-check"/></svg></span></td></tr>
-        </tbody></table></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Roles &amp; permissions — editable module access matrix</div>
+        <div class="sec-bd" id="rbacMatrixBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading RBAC matrix…</div></div></div>
     </div>
 
     <div class="st-p" data-p="st-drop" style="display:none">
@@ -1123,6 +1132,257 @@ export default function Home() {
     if (!appRef.current) return;
     const root = appRef.current;
     const w = window as any;
+
+    // ========== AUTH, RBAC & USER MANAGEMENT ==========
+    let _currentUser:any = null;
+    let _rbacMatrix:any = null;
+
+    const MODULES_LIST=[
+      {key:"advisor",label:"Health advisor"},{key:"coach",label:"Health coach"},
+      {key:"import",label:"Lead import"},{key:"abm",label:"Assign & approve"},
+      {key:"reception",label:"Reception"},{key:"screening",label:"Screening"},
+      {key:"bloodtest",label:"Blood test"},{key:"physio",label:"Physiotherapy"},
+      {key:"accounts",label:"Accounts"},{key:"reports",label:"Reports"},
+      {key:"admin",label:"Settings"}
+    ];
+    const RBAC_ROLES=["Advisor","Senior Advisor","Health Coach","Screening","Receptionist","Diagnostics","Physiotherapist","Accounts","ABM","Branch Manager"];
+    const DEFAULT_RBAC:Record<string,string[]>={
+      "Advisor":["advisor"],"Senior Advisor":["advisor","import"],
+      "Health Coach":["coach"],"Screening":["screening"],
+      "Receptionist":["reception"],"Diagnostics":["bloodtest"],
+      "Physiotherapist":["physio"],"Accounts":["accounts"],
+      "ABM":["abm","advisor","import","reports"],
+      "Branch Manager":["advisor","coach","import","abm","reception","screening","bloodtest","physio","accounts","reports","admin"]
+    };
+
+    function showLogin(errMsg?:string){
+      const overlay=root.querySelector("#loginOverlay") as HTMLElement;
+      const appShell=root.querySelector("#appShell") as HTMLElement;
+      if(overlay) overlay.style.display="";
+      if(appShell) appShell.style.display="none";
+      const errEl=root.querySelector("#loginErr") as HTMLElement;
+      if(errMsg&&errEl){ errEl.textContent=errMsg; errEl.style.display=""; }
+      else if(errEl) errEl.style.display="none";
+      // reset form
+      const cw=root.querySelector("#loginConfirmWrap") as HTMLElement;
+      if(cw) cw.style.display="none";
+      const btn=root.querySelector("#loginBtn") as HTMLElement;
+      if(btn) btn.textContent="Sign in";
+      const tog=root.querySelector("#loginToggle") as HTMLElement;
+      if(tog) tog.textContent="First time? Set your password";
+      (root.querySelector("#loginPass") as HTMLInputElement|null)&&((root.querySelector("#loginPass") as HTMLInputElement).value="");
+    }
+
+    function showApp(){
+      const overlay=root.querySelector("#loginOverlay") as HTMLElement;
+      const appShell=root.querySelector("#appShell") as HTMLElement;
+      if(overlay) overlay.style.display="none";
+      if(appShell) appShell.style.display="";
+      const sfUser=root.querySelector("#sfootUser") as HTMLElement;
+      if(sfUser&&_currentUser) sfUser.textContent=(_currentUser.name||_currentUser.email.split("@")[0])+" · "+_currentUser.role;
+      applyNavGating();
+      renderFilters();
+      renderAll();
+      seed();
+      loadReceptionData();
+      setTimeout(()=>{ try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){} },4000);
+    }
+
+    async function checkAuth(){
+      try{
+        const {data:{session}}=await supabase.auth.getSession();
+        if(!session){ showLogin(); return; }
+        const email=session.user.email||"";
+        const {data:appUser}=await supabase.from("app_users").select("*").eq("email",email).single();
+        if(!appUser||!appUser.active){
+          await supabase.auth.signOut();
+          showLogin("Account not found or deactivated. Contact your admin.");
+          return;
+        }
+        _currentUser=appUser;
+        await loadRbacMatrix();
+        showApp();
+      }catch(e:any){
+        showLogin();
+      }
+    }
+
+    let _loginIsSignUp=false;
+    function loginToggleMode(){
+      _loginIsSignUp=!_loginIsSignUp;
+      const cw=root.querySelector("#loginConfirmWrap") as HTMLElement;
+      const btn=root.querySelector("#loginBtn") as HTMLElement;
+      const tog=root.querySelector("#loginToggle") as HTMLElement;
+      const errEl=root.querySelector("#loginErr") as HTMLElement;
+      if(errEl) errEl.style.display="none";
+      if(cw) cw.style.display=_loginIsSignUp?"":"none";
+      if(btn) btn.textContent=_loginIsSignUp?"Set password & sign in":"Sign in";
+      if(tog) tog.textContent=_loginIsSignUp?"Already have a password? Sign in":"First time? Set your password";
+    }
+
+    async function doSignIn(){
+      const emailEl=root.querySelector("#loginEmail") as HTMLInputElement;
+      const passEl=root.querySelector("#loginPass") as HTMLInputElement;
+      const email=emailEl?.value?.trim()?.toLowerCase()||"";
+      const pass=passEl?.value||"";
+      if(!email||!pass){ showLoginErr("Enter email and password"); return; }
+
+      if(_loginIsSignUp){
+        const confirmEl=root.querySelector("#loginConfirm") as HTMLInputElement;
+        const confirm=confirmEl?.value||"";
+        if(pass!==confirm){ showLoginErr("Passwords don't match"); return; }
+        if(pass.length<6){ showLoginErr("Password must be at least 6 characters"); return; }
+        const {data:appUser}=await supabase.from("app_users").select("email").eq("email",email).single();
+        if(!appUser){ showLoginErr("This email is not authorized. Ask your admin to add you first."); return; }
+        const {error}=await supabase.auth.signUp({email,password:pass});
+        if(error){ showLoginErr(error.message); return; }
+      } else {
+        const {error}=await supabase.auth.signInWithPassword({email,password:pass});
+        if(error){ showLoginErr(error.message==="Invalid login credentials"?"Wrong email or password. If first time, click 'Set your password' below.":error.message); return; }
+      }
+      await checkAuth();
+    }
+
+    function showLoginErr(msg:string){
+      const el=root.querySelector("#loginErr") as HTMLElement;
+      if(el){ el.textContent=msg; el.style.display=""; }
+    }
+
+    async function doSignOut(){
+      await supabase.auth.signOut();
+      _currentUser=null;
+      showLogin();
+    }
+    w._doSignOut=doSignOut;
+
+    // Login form handlers
+    setTimeout(()=>{
+      const loginBtn=root.querySelector("#loginBtn");
+      if(loginBtn) loginBtn.addEventListener("click",()=>doSignIn());
+      const loginTog=root.querySelector("#loginToggle");
+      if(loginTog) loginTog.addEventListener("click",()=>loginToggleMode());
+      const passEl=root.querySelector("#loginPass");
+      if(passEl) passEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter"&&!_loginIsSignUp) doSignIn(); });
+      const confirmEl=root.querySelector("#loginConfirm");
+      if(confirmEl) confirmEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter") doSignIn(); });
+    },0);
+
+    // RBAC matrix
+    async function loadRbacMatrix(){
+      const {data}=await supabase.from("app_settings").select("value").eq("key","rbac").single();
+      _rbacMatrix=data?.value||{...DEFAULT_RBAC};
+    }
+
+    function renderRbacMatrix(){
+      const body=root.querySelector("#rbacMatrixBody") as HTMLElement;
+      if(!body) return;
+      const m=_rbacMatrix||DEFAULT_RBAC;
+      const thCells=RBAC_ROLES.map(r=>'<th style="font-size:9px;padding:8px 5px;max-width:65px;word-wrap:break-word;text-align:center">'+r+'</th>').join("");
+      const rows=MODULES_LIST.map(mod=>{
+        const cells=RBAC_ROLES.map(r=>{
+          const on=(m[r]||[]).includes(mod.key);
+          return '<td style="text-align:center"><input type="checkbox" '+(on?'checked ':'')+' data-mod="'+mod.key+'" data-role="'+r+'" onchange="window._rbacToggle(this)" style="accent-color:var(--brand);width:16px;height:16px;cursor:pointer"></td>';
+        }).join("");
+        return '<tr><td style="font-weight:600;font-size:12px">'+mod.label+'</td>'+cells+'</tr>';
+      }).join("");
+      body.innerHTML='<table class="tbl matrix"><thead><tr><th>Module</th>'+thCells+'</tr></thead><tbody>'+rows+'</tbody></table>'
+        +'<p style="font-size:11px;color:var(--faint);margin-top:8px">Super Admin always has full access (not shown). Changes auto-save.</p>';
+    }
+
+    w._rbacToggle=function(el:HTMLInputElement){
+      const mod=el.dataset.mod||"";
+      const role=el.dataset.role||"";
+      if(!_rbacMatrix) _rbacMatrix={...DEFAULT_RBAC};
+      if(!_rbacMatrix[role]) _rbacMatrix[role]=[];
+      if(el.checked){ if(!_rbacMatrix[role].includes(mod)) _rbacMatrix[role].push(mod); }
+      else { _rbacMatrix[role]=_rbacMatrix[role].filter((x:string)=>x!==mod); }
+      saveRbac();
+    };
+
+    async function saveRbac(){
+      await supabase.from("app_settings").upsert({key:"rbac",value:_rbacMatrix,updated_at:new Date().toISOString()});
+      if(_currentUser&&_currentUser.role!=="Super Admin") applyNavGating();
+    }
+
+    // Nav gating
+    function applyNavGating(){
+      if(!_currentUser) return;
+      const role=_currentUser.role;
+      if(role==="Super Admin"){
+        root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>btn.style.display="");
+        return;
+      }
+      const allowed=(_rbacMatrix||DEFAULT_RBAC)[role]||[];
+      root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>{
+        (btn as HTMLElement).style.display=allowed.includes(btn.dataset.s)?"":"none";
+      });
+      const activeBtn=root.querySelector("#nav button.active") as HTMLElement|null;
+      if(activeBtn&&activeBtn.style.display==="none"){
+        const first=root.querySelector('#nav button[data-s]:not([style*="display: none"])') as HTMLElement|null;
+        if(first) first.click();
+      }
+    }
+
+    // User management
+    let _usrList:any[]=[];
+
+    async function loadUsers(){
+      const {data}=await supabase.from("app_users").select("*").order("created_at",{ascending:false});
+      _usrList=data||[];
+      renderUsers();
+    }
+
+    function renderUsers(){
+      const body=root.querySelector("#usrBody") as HTMLElement;
+      if(!body) return;
+      if(!_usrList.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:22px">No users yet. Add the first user above.</td></tr>'; return; }
+      body.innerHTML=_usrList.map((u:any)=>{
+        const isSelf=_currentUser&&_currentUser.email===u.email;
+        return '<tr><td class="mono" style="font-size:12px">'+u.email+'</td><td>'+(u.name||"—")+'</td>'
+          +'<td><span class="chipb '+(u.role==="Super Admin"?"vio":u.role==="Branch Manager"?"info":"neu")+'">'+u.role+'</span></td>'
+          +'<td><span class="chipb '+(u.active?"ok":"al")+'">'+(u.active?"Active":"Inactive")+'</span></td>'
+          +'<td class="mono" style="font-size:11px">'+(u.created_at?new Date(u.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—")+'</td>'
+          +'<td>'+(isSelf?'<span style="font-size:11px;color:var(--faint)">You</span>'
+            :'<button class="btn bsm" onclick="window._usrToggle('+u.id+')">'+(u.active?"Deactivate":"Activate")+'</button>'
+            +(u.role!=="Super Admin"?' <button class="btn bsm" onclick="window._usrDel('+u.id+')" style="color:var(--alert-ink)">Remove</button>':""))
+          +'</td></tr>';
+      }).join("");
+    }
+
+    w._usrCreate=async function(){
+      const emailEl=root.querySelector("#usrEmail") as HTMLInputElement;
+      const nameEl=root.querySelector("#usrName") as HTMLInputElement;
+      const roleEl=root.querySelector("#usrRole") as HTMLSelectElement;
+      const email=(emailEl?.value||"").trim().toLowerCase();
+      const name=(nameEl?.value||"").trim();
+      const role=roleEl?.value||"Advisor";
+      if(!email){ toastErr("Enter an email address"); return; }
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Invalid email format"); return; }
+      try{
+        const {error}=await supabase.from("app_users").insert({email,name:name||null,role});
+        if(error){ toastErr(error.message.includes("duplicate")?"This email already exists":error.message); return; }
+        toast("User added — they can set their password on the login screen");
+        if(emailEl) emailEl.value="";
+        if(nameEl) nameEl.value="";
+        await loadUsers();
+      }catch(e:any){ toastErr("Failed: "+(e.message||"db error")); }
+    };
+
+    w._usrToggle=async function(id:number){
+      const u=_usrList.find((x:any)=>x.id===id);
+      if(!u) return;
+      await supabase.from("app_users").update({active:!u.active}).eq("id",id);
+      toast(u.active?"User deactivated":"User activated");
+      await loadUsers();
+    };
+
+    w._usrDel=async function(id:number){
+      const u=_usrList.find((x:any)=>x.id===id);
+      if(u&&u.role==="Super Admin"){ toastErr("Cannot remove Super Admin"); return; }
+      await supabase.from("app_users").delete().eq("id",id);
+      toast("User removed");
+      await loadUsers();
+    };
 
     // ========== NAV ==========
     const navEl = root.querySelector("#nav");
@@ -5184,11 +5444,7 @@ export default function Home() {
       _downloadCsv("report_export.csv",out); toast("Exported "+items.length+" rows");
     } else { toast("PDF export — use browser Print (Ctrl+P) on this page"); } };
 
-    // INIT
-    renderFilters();
-    renderAll();
-    seed();
-    loadReceptionData();   // live appointments + payments
+    // INIT — nav click handlers (data loading gated behind auth in showApp)
     {
       const recNav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null;
       if(recNav) recNav.addEventListener("click",()=>{ loadReceptionData(); });
@@ -5202,12 +5458,15 @@ export default function Home() {
       if(accNav) accNav.addEventListener("click",()=>{ loadAccountsData(); });
       const repNav=root.querySelector('#nav button[data-s="reports"]')as HTMLButtonElement|null;
       if(repNav) repNav.addEventListener("click",()=>{ loadReportsData(); });
-      // Load both deviation tables when the Assign & approve → Deviation tab is opened.
       const devTabBtn=root.querySelector('#abmTabs button[data-t="dev"]')as HTMLButtonElement|null;
       if(devTabBtn) devTabBtn.addEventListener("click",()=>{ w._renderCallDeviation(); w._renderLeadsDeviation(); });
+      const usrTabBtn=root.querySelector('#settTabs button[data-t="st-usr"]')as HTMLButtonElement|null;
+      if(usrTabBtn) usrTabBtn.addEventListener("click",()=>{ loadUsers(); });
+      const rbacTabBtn=root.querySelector('#settTabs button[data-t="st-rbac"]')as HTMLButtonElement|null;
+      if(rbacTabBtn) rbacTabBtn.addEventListener("click",()=>{ renderRbacMatrix(); });
     }
-    // Populate the Deviation tab badges + cards once on load.
-    setTimeout(()=>{ try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){} }, 4000);
+    // Auth gate — all data loading happens inside showApp() after successful auth
+    checkAuth();
 
     return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
   }, []);
@@ -5248,7 +5507,25 @@ export default function Home() {
         </defs>
       </svg>
 
-      <div className="app">
+      <div className="login-overlay" id="loginOverlay">
+        <div className="login-card">
+          <div style={{textAlign:"center",marginBottom:"22px"}}>
+            <span className="bm" style={{display:"inline-grid",width:"48px",height:"48px",borderRadius:"14px",margin:"0 auto"}}><svg style={{width:"24px",height:"24px",stroke:"#06281F",strokeWidth:2,fill:"none"}}><use href="#i-leaf"/></svg></span>
+            <h1 style={{fontFamily:"var(--disp)",fontSize:"22px",fontWeight:700,marginTop:"12px",letterSpacing:"-.3px"}}>WellnessOS</h1>
+            <p style={{color:"var(--muted)",fontSize:"13px",margin:"4px 0 0"}}>Sign in to continue</p>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
+            <div><label className="lbl">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com"/></div>
+            <div><label className="lbl">Password</label><input className="input" id="loginPass" type="password" placeholder="••••••••"/></div>
+            <div id="loginConfirmWrap" style={{display:"none"}}><label className="lbl">Confirm password</label><input className="input" id="loginConfirm" type="password" placeholder="••••••••"/></div>
+            <button className="btn bp" id="loginBtn" style={{width:"100%",height:"42px",marginTop:"4px"}}>Sign in</button>
+            <div style={{textAlign:"center"}}><button id="loginToggle" style={{background:"none",border:"none",color:"var(--brand)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",padding:"4px"}}>First time? Set your password</button></div>
+            <div className="login-err" id="loginErr" style={{display:"none"}}></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="app" id="appShell" style={{display:"none"}}>
         <aside className="side">
           <div className="sb">
             <span className="bm"><svg><use href="#i-leaf"/></svg></span>
@@ -5272,7 +5549,7 @@ export default function Home() {
             <div className="ng">Admin</div>
             <button data-s="admin"><svg className="icon"><use href="#i-cog"/></svg> Settings &amp; masters</button>
           </nav>
-          <div className="sfoot"><span className="ldot"></span> Merged build · v3</div>
+          <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
         </aside>
         <main className="main" id="main" dangerouslySetInnerHTML={{__html: getMainContent()}}/>
       </div>

@@ -242,3 +242,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
 .mcard .mem{font-size:52px}
 .mcard h2{font-family:var(--disp);font-size:22px;margin:10px 0 4px}
 .mcard p{color:var(--muted);margin:0}
+.login-overlay{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:linear-gradient(135deg,var(--pine),var(--pine-2));min-height:100vh}
+.login-card{background:var(--surface);border-radius:var(--r-lg);box-shadow:0 24px 60px rgba(11,46,37,.35);padding:36px 34px 30px;width:380px;max-width:90vw}
+.login-card h1{font-family:var(--disp)}
+.login-card .lbl{margin-top:0}
+.login-card .btn{transition:all .15s}
+.login-err{text-align:center;color:var(--alert-ink);font-size:12.5px;font-weight:600;background:var(--alert-bg);padding:8px 12px;border-radius:10px;margin-top:8px}
