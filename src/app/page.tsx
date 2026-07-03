@@ -19,7 +19,7 @@ function getMainContent(): string {
       </div></div>
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span>
       <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px;margin-left:auto"><option value="all">All advisors</option></select></div>
-      <div class="sec-bd"><div id="assignedTableWrap" style="overflow-x:auto"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
+      <div class="sec-bd"><div id="assignedTableWrap" style="overflow:auto;max-height:560px"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
       <div id="assignedKanban" style="display:none;overflow-x:auto"></div>
       <div id="asnPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
         <button class="btn bsm" id="asnFirstBtn" onclick="window._asnPage('first')">« First</button>
@@ -2419,7 +2419,7 @@ export default function Home() {
     };
 
     // ===== Assigned leads view (live, from leads where is_assigned) =====
-    let _asnPage=1; const ASN_PER=10;
+    let _asnPage=1; const ASN_PER=15;
     let _asnView="list"; // "list" | "kanban"
     w._asnToggleView=(v:string)=>{
       _asnView=(v==="kanban")?"kanban":"list";
@@ -2485,18 +2485,19 @@ export default function Home() {
     // returning to pool use the exact same handlers as the list rows.
     function _renderAssignedKanban(kb:HTMLElement,list:any[]){
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      // Columns are the call/lead statuses from the All Call/Lead Statuses dropdown,
+      // matched exactly against each lead's effective status (kept in sync with the filter).
       const cols=[
-        {key:"open",label:"Open",color:"#17A87B",icon:"📂"},
-        {key:"sales",label:"Walk-in Sales",color:"#378ADD",icon:"🗣️"},
-        {key:"health",label:"Walk-in Health",color:"#7B6CD9",icon:"🩺"},
-        {key:"payment",label:"Payment",color:"#C07F0E",icon:"💳"},
-        {key:"enrolled",label:"Enrolled",color:"#0B6B4C",icon:"✅"},
-        {key:"followup",label:"Follow-up",color:"#5B9BD5",icon:"🔁"},
-        {key:"closed",label:"Closed / Converted",color:"#D8442B",icon:"🏁"}
+        {status:"New",label:"New",color:"#5B9BD5",icon:"🆕"},
+        {status:"Open",label:"Open",color:"#17A87B",icon:"📂"},
+        {status:"DND",label:"DND",color:"#D8442B",icon:"🚫"},
+        {status:"RNR",label:"RNR",color:"#C07F0E",icon:"📵"},
+        {status:"Line Busy",label:"Line Busy",color:"#7B6CD9",icon:"📞"},
+        {status:"Call Back",label:"Callback",color:"#378ADD",icon:"🔁"}
       ];
       const avc=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
-        const items=list.filter((l:any)=>haBucketOf(haEffStatus(l))===col.key);
+        const items=list.filter((l:any)=>haEffStatus(l)===col.status);
         return '<div style="min-width:230px;max-width:270px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
           +'<div style="padding:10px 12px;border-bottom:2px solid '+col.color+';display:flex;align-items:center;gap:6px"><span>'+col.icon+'</span><span style="font-weight:700;font-size:12px">'+col.label+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
           +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
