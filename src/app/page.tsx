@@ -678,7 +678,7 @@ function getMainContent(): string {
               <button class="btn bsm" style="margin-left:auto" onclick="window._renderCallDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('call')">⬇ Download</button>
             </div>
-            <div style="overflow-x:auto"><table class="tbl" style="min-width:1040px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th>Received Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="callDevBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
+            <div style="overflow-x:auto"><table class="tbl" style="min-width:1160px"><thead><tr><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th>Received Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="callDevBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
           </div></div>
       </div>
       <div class="dev-sub" data-dtp="lead" style="display:none">
@@ -689,7 +689,7 @@ function getMainContent(): string {
               <button class="btn bsm" style="margin-left:auto" onclick="window._renderLeadsDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('lead')">⬇ Download</button>
             </div>
-            <div style="overflow-x:auto"><table class="tbl" style="min-width:1160px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Assigned To</th><th>Stage</th><th>Status</th><th>Assigned Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="leadDevBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
+            <div style="overflow-x:auto"><table class="tbl" style="min-width:1280px"><thead><tr><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned To</th><th>Stage</th><th>Status</th><th>Assigned Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="leadDevBody"><tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
           </div></div>
       </div></div>
     <div class="abm-p" data-p="appr" style="display:none">
@@ -5015,18 +5015,20 @@ export default function Home() {
       const body=root.querySelector("#callDevBody"); const now0=Date.now();
       let rows:any[]=[];
       try{
-        const {data}=await supabase.from("leads").select("meta_lead_id,name,source,language,call_status,created_at,is_assigned")
+        const {data}=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,call_status,created_at,is_assigned")
           .lt("created_at",cutoff).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").order("created_at",{ascending:true}).limit(1000);
         rows=(data||[]).filter((r:any)=>!_recordedLeadIds.has(String(r.meta_lead_id)));
       }catch(_){ rows=[]; }
       _callDevRows=rows; const now=now0; _setDevBadges();
       if(body) body.innerHTML=rows.length?rows.map((r:any)=>'<tr>'
-        +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td><td><span class="tag">'+_devEsc(_devSrcLang(r))+'</span></td>'
+        +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td>'
+        +'<td class="mono" style="font-weight:600">'+_devEsc(r.phone||"—")+'</td>'
+        +'<td><span class="tag">'+_devEsc(_devSrcLang(r))+'</span></td>'
         +'<td>'+(r.is_assigned?"Assigned":"Unassigned")+'</td>'
         +'<td><span class="chipb al">No call activity</span></td>'
         +'<td class="mono" style="font-size:11.5px">'+_devEsc(fmtIST(r.created_at))+'</td>'
         +'<td class="mono" style="font-weight:700;color:var(--alert-ink)">'+_devDur(now-new Date(r.created_at).getTime())+'</td></tr>').join("")
-        :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No call deviations — every lead has activity within 4h 🎉</td></tr>';
+        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No call deviations — every lead has activity within 4h 🎉</td></tr>';
     };
     w._renderLeadsDeviation=async()=>{
       await loadRecordedLeadIds();
@@ -5035,10 +5037,10 @@ export default function Home() {
       let rows:any[]=[];
       try{
         // Prefer assigned_at; fall back to created_at if the deviation migration isn't run yet.
-        let res:any=await supabase.from("leads").select("meta_lead_id,name,source,language,assigned_to,assigned_at,call_status,created_at,is_assigned")
+        let res:any=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,assigned_to,assigned_at,call_status,created_at,is_assigned")
           .eq("is_assigned",true).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").limit(1000);
         if(res.error&&/assigned_at|column/i.test(res.error.message||"")){
-          res=await supabase.from("leads").select("meta_lead_id,name,source,language,assigned_to,call_status,created_at,is_assigned")
+          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,assigned_to,call_status,created_at,is_assigned")
             .eq("is_assigned",true).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").limit(1000);
         }
         if(res.error) throw res.error;
@@ -5046,21 +5048,23 @@ export default function Home() {
       }catch(_){ rows=[]; }
       _leadDevRows=rows; const now=Date.now(); _setDevBadges();
       if(body) body.innerHTML=rows.length?rows.map((r:any)=>{ const at=r.assigned_at||r.created_at; return '<tr>'
-        +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td><td><span class="tag">'+_devEsc(_devSrcLang(r))+'</span></td>'
+        +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td>'
+        +'<td class="mono" style="font-weight:600">'+_devEsc(r.phone||"—")+'</td>'
+        +'<td><span class="tag">'+_devEsc(_devSrcLang(r))+'</span></td>'
         +'<td style="font-weight:600">'+_devEsc(r.assigned_to||"—")+'</td><td>Assigned</td>'
         +'<td><span class="chipb al">Not called</span></td>'
         +'<td class="mono" style="font-size:11.5px">'+_devEsc(fmtIST(at))+'</td>'
         +'<td class="mono" style="font-weight:700;color:var(--alert-ink)">'+_devDur(now-new Date(at).getTime())+'</td></tr>';
-      }).join(""):'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No lead deviations — all assigned leads called within 4h 🎉</td></tr>';
+      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No lead deviations — all assigned leads called within 4h 🎉</td></tr>';
     };
     w._downloadDeviation=(which:string)=>{
       if(which==="call"){ const rows=_callDevRows; if(!rows.length){toast("Nothing to download");return;}
-        const out:string[][]=[["Lead","Source","Language","Stage","Status","Received","Deviation"]];
-        rows.forEach((r:any)=>out.push([r.name||"",r.source||"",r.language||"",r.is_assigned?"Assigned":"Unassigned","No call activity",fmtIST(r.created_at),_devDur(Date.now()-new Date(r.created_at).getTime())]));
+        const out:string[][]=[["Lead","Lead Number","Source","Language","Stage","Status","Received","Deviation"]];
+        rows.forEach((r:any)=>out.push([r.name||"",r.phone||"",r.source||"",r.language||"",r.is_assigned?"Assigned":"Unassigned","No call activity",fmtIST(r.created_at),_devDur(Date.now()-new Date(r.created_at).getTime())]));
         _downloadCsv("call_deviation_"+rows.length+".csv",out); toast(rows.length+" rows downloaded");
       } else { const rows=_leadDevRows; if(!rows.length){toast("Nothing to download");return;}
-        const out:string[][]=[["Lead","Source","Language","Assigned To","Stage","Status","Assigned","Deviation"]];
-        rows.forEach((r:any)=>{const at=r.assigned_at||r.created_at; out.push([r.name||"",r.source||"",r.language||"",r.assigned_to||"","Assigned","Not called",fmtIST(at),_devDur(Date.now()-new Date(at).getTime())]);});
+        const out:string[][]=[["Lead","Lead Number","Source","Language","Assigned To","Stage","Status","Assigned","Deviation"]];
+        rows.forEach((r:any)=>{const at=r.assigned_at||r.created_at; out.push([r.name||"",r.phone||"",r.source||"",r.language||"",r.assigned_to||"","Assigned","Not called",fmtIST(at),_devDur(Date.now()-new Date(at).getTime())]);});
         _downloadCsv("leads_deviation_"+rows.length+".csv",out); toast(rows.length+" rows downloaded");
       }
     };
