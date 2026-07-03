@@ -4051,17 +4051,54 @@ export default function Home() {
         return '<div class="aud" style="margin:0;padding:9px 11px;background:#fff;cursor:pointer" onclick="window._svcF2(\''+s.k+'\')"><div class="ahd" style="font-size:10px">'+s.icon+' '+s.name+'</div><div style="font-size:11px;line-height:1.9">'+s.fields.map((f,i)=>f.charAt(0).toUpperCase()+f.slice(1)+' <b class="mono">'+vals[i]+'</b>').join('<br>')+'</div></div>';
       }).join("");
     }
+    // Per-column filters for the Appointments table (client/phone/HC/stage text;
+    // service/status/pay dropdowns). AND-combined with the existing service/date filters.
+    const _apptColF:Record<string,string>={client:"",phone:"",svc:"",hc:"",status:"",pay:"",stage:""};
+    function _apptColMatch(r:any){
+      const F=_apptColF;
+      if(F.client && !((r.name||"").toLowerCase().includes(F.client.toLowerCase()))) return false;
+      if(F.phone && !((r.ph||"").includes(F.phone))) return false;
+      if(F.svc && r.svc!==F.svc) return false;
+      if(F.hc && !((r.hc||"").toLowerCase().includes(F.hc.toLowerCase()))) return false;
+      if(F.status && r.status!==F.status) return false;
+      if(F.pay && r.payStatus!==F.pay) return false;
+      if(F.stage && !(String(r.stage||"").toLowerCase().includes(F.stage.toLowerCase()))) return false;
+      return true;
+    }
+    w._apptFilt=(field:string,val:string)=>{ _apptColF[field]=val; renderAppt(); };
     function renderAppt() {
-      const f = filtered();
+      const f = filtered().filter(_apptColMatch);
       const el = root.querySelector("#apptCount"); if (el) el.textContent = f.length+" total";
-      let html = '<table class="tbl" style="min-width:1200px"><thead><tr><th style="min-width:68px">Date · time</th><th style="min-width:110px">Client</th><th style="min-width:95px">Phone</th><th style="min-width:100px">Service</th><th style="min-width:70px">HC / PT</th><th style="min-width:80px">Status</th><th style="min-width:65px">Visited at</th><th style="min-width:70px">Pay</th><th style="min-width:70px">Amount</th><th style="min-width:50px">Inv</th><th style="min-width:70px">Stage</th><th style="min-width:40px">📞</th><th style="min-width:40px">🎤</th></tr></thead><tbody>';
+      const aw = root.querySelector("#apptWrap") as HTMLElement|null; if(!aw) return;
+      // Build the header (with filter controls) once so typing keeps input focus; only the body re-renders.
+      if(!root.querySelector("#apptBody")){
+        const fi='margin-top:3px;display:block;width:100%;height:26px;font-size:10.5px;padding:0 6px;border-radius:6px;border:1px solid var(--line);background:#fff';
+        const svcOpts='<option value="">All</option>'+["dia","bt","physio"].map(k=>'<option value="'+k+'">'+SVC_LABELS[k]+'</option>').join("");
+        const statusOpts='<option value="">All</option>'+Object.keys(STATUS_MAP).map(k=>'<option value="'+k+'">'+STATUS_MAP[k].l+'</option>').join("");
+        const payOpts='<option value="">All</option>'+Object.keys(PAY_MAP).map(k=>'<option value="'+k+'">'+PAY_MAP[k].l+'</option>').join("");
+        aw.innerHTML='<table class="tbl" style="min-width:1200px"><thead><tr>'
+          +'<th style="min-width:68px">Date · time</th>'
+          +'<th style="min-width:120px">Client<input id="apf_client" placeholder="Filter…" oninput="window._apptFilt(\'client\',this.value)" style="'+fi+'"></th>'
+          +'<th style="min-width:110px">Phone<input id="apf_phone" placeholder="Filter…" oninput="window._apptFilt(\'phone\',this.value)" style="'+fi+'"></th>'
+          +'<th style="min-width:110px">Service<select id="apf_svc" onchange="window._apptFilt(\'svc\',this.value)">'+svcOpts+'</select></th>'
+          +'<th style="min-width:90px">HC / PT<input id="apf_hc" placeholder="Filter…" oninput="window._apptFilt(\'hc\',this.value)" style="'+fi+'"></th>'
+          +'<th style="min-width:100px">Status<select id="apf_status" onchange="window._apptFilt(\'status\',this.value)">'+statusOpts+'</select></th>'
+          +'<th style="min-width:65px">Visited at</th>'
+          +'<th style="min-width:90px">Pay<select id="apf_pay" onchange="window._apptFilt(\'pay\',this.value)">'+payOpts+'</select></th>'
+          +'<th style="min-width:70px">Amount</th>'
+          +'<th style="min-width:50px">Inv</th>'
+          +'<th style="min-width:90px">Stage<input id="apf_stage" placeholder="Filter…" oninput="window._apptFilt(\'stage\',this.value)" style="'+fi+'"></th>'
+          +'<th style="min-width:40px">📞</th><th style="min-width:40px">🎤</th>'
+          +'</tr></thead><tbody id="apptBody"></tbody></table>';
+      }
+      const body=root.querySelector("#apptBody"); if(!body) return;
+      let rows='';
       f.forEach((r:any) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        html += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+' '+r.time+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt||"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+' '+r.time+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt||"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
-      html += '</tbody></table>';
-      const aw = root.querySelector("#apptWrap"); if (aw) aw.innerHTML = html;
+      body.innerHTML = rows || '<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
     function renderPay() {
       const el = root.querySelector("#recPayList");
