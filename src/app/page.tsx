@@ -116,7 +116,7 @@ function getMainContent(): string {
           <div class="g2">
             <div class="fld"><label class="lbl">Call status — drives the flow</label>
               <select class="select" id="callStatus" onchange="callStatusChange(this.value)">
-                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="ni">Not Interested</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option>
+                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="ni">Not Interested</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="payp">Payment Pending</option><option value="payc">Payment Completed</option><option value="int">Interested</option><option value="nr">Not Reachable</option><option value="cbr">Callback Requested</option>
               </select></div>
             <div class="fld"><label class="lbl">Next follow-up date &amp; time</label><input class="input" id="nextFollowUp" type="datetime-local"></div>
           </div>
@@ -2590,7 +2590,7 @@ export default function Home() {
     let _advProfileColMissing=false;// once we learn advisor_profile column isn't there, skip the DB read
     const ADV_ACTOR="ABM / Admin";  // no auth yet → record the active role
     // Call-status codes that REQUIRE a "Next follow-up date & time".
-    const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so"];
+    const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so","nr","cbr"];
     const _OPEN_KEY="wos_open_leads";
     // Persist the open-leads workspace so it survives page refreshes / new sessions.
     function saveOpenLeads(){
@@ -2952,8 +2952,8 @@ export default function Home() {
     // ===== Health Advisor KPI dashboard (call-status driven) =====
     let _haActiveBucket="";
     const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Not Interested","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Payment Pending","Payment Completed","Interested","Not Reachable","Callback Requested"];
-    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz",Open:"new"};
-    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom"};
+    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Open:"new"};
+    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested"};
     function haBucketOf(cs:string){
       const s=(cs||"").toLowerCase();
       if(/enrol/.test(s)) return "enrolled";
