@@ -1459,11 +1459,27 @@ export default function Home() {
     w.othRev = othRev;
 
     function eligCheck() {
-      const any = [...root.querySelectorAll("#eligChips .chip-o")].some((c) => c.classList.contains("on"));
+      const onChips = [...root.querySelectorAll("#eligChips .chip-o")].filter((c) => c.classList.contains("on"));
+      const any = onChips.length > 0;
+      const e = (s:string) => (s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const reasons = onChips.map((c) => (c.textContent||"").trim()).filter(Boolean).join(", ");
       const b = root.querySelector("#eligBanner") as HTMLElement;
-      if (!b) return;
-      if (any) { b.className = "banner bad"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-x"></use></svg><span><b>NOT eligible</b> — exclusion tag present.</span>'; }
-      else { b.className = "banner good"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg><span>Eligible — can book appointment.</span>'; }
+      if (b) {
+        if (any) { b.className = "banner bad"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-x"></use></svg><span><b>NOT eligible</b> — exclusion tag present'+(reasons?" ("+e(reasons)+")":"")+'.</span>'; }
+        else { b.className = "banner good"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg><span>Eligible — can book appointment.</span>'; }
+      }
+      // Surface the lead's Name + eligibility status + reason at the top of the profile.
+      const top = root.querySelector("#advCtxBanner") as HTMLElement|null;
+      const topTxt = root.querySelector("#advCtxText") as HTMLElement|null;
+      if (top && topTxt) {
+        if (any) {
+          const nm = (root.querySelector("#advName")?.textContent || "This lead").trim();
+          top.className = "banner bad"; top.style.display = "";
+          topTxt.innerHTML = '<b>'+e(nm)+'</b> &nbsp;·&nbsp; Status: <b>Not Eligible</b> &nbsp;·&nbsp; Reason: Exclusion tag present'+(reasons?' ('+e(reasons)+')':'');
+        } else {
+          top.style.display = "none"; top.className = "banner plan";
+        }
+      }
     }
 
     root.querySelectorAll("#stars .star").forEach((s, i, a) => { (s as HTMLElement).onclick = () => a.forEach((x, j) => x.classList.toggle("on", j <= i)); });
@@ -2683,6 +2699,7 @@ export default function Home() {
         _advFuNotes=Array.isArray(obj.fuNotes)?obj.fuNotes.slice():[]; renderAdvFuNotes();
         const range=p.querySelector("input[type=range]")as HTMLInputElement|null; const pv=p.querySelector("#pv"); if(range&&pv) pv.textContent=range.value+"%";
         const cs=p.querySelector("#callStatus")as HTMLSelectElement|null; if(cs&&(w as any).callStatusChange){ try{ (w as any).callStatusChange(cs.value); }catch(_){} }
+        try{ eligCheck(); }catch(_){}
       } finally { _advApplying=false; }
     }
     // ---- Blood-report attachments + follow-up notes renderers ----
