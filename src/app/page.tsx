@@ -2429,8 +2429,11 @@ export default function Home() {
     };
     function assignedLeads(){
       const f=(root.querySelector("#assignedFilter")as HTMLSelectElement)?.value||"all";
+      // Honor the dashboard call/lead-status dropdown too, so List + Kanban stay in
+      // sync with it (and with each other). haEffStatus is hoisted, defined below.
+      const sf=(root.querySelector("#haStatusFilter")as HTMLSelectElement)?.value||"all";
       const all=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
-      return all.filter((l:any)=>f==="all"||l.assignedTo===f);
+      return all.filter((l:any)=>(f==="all"||l.assignedTo===f)&&(sf==="all"||haEffStatus(l)===sf));
     }
     function renderAssignedLeads(){
       // populate advisor filter from active assignees (preserve selection)
@@ -2974,7 +2977,7 @@ export default function Home() {
     }
     w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
     w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";};
-    {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>renderHealthDashboard();}
+    {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};}
     // Persist a call-status change for the currently-open lead (drives KPIs).
     w._haSetCallStatus=(label:string)=>{
       if(!_advLeadId){return;}
