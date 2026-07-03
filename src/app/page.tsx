@@ -331,9 +331,9 @@ function getMainContent(): string {
           </div>
           <div class="fld"><label class="lbl">Client expectations &amp; commitments</label><textarea class="area" placeholder="e.g. HbA1c 9.2 → below 7 in 3 months; morning walks; diet…"></textarea></div>
           <div class="g4" style="margin-top:3px">
-            <div class="fld"><label class="lbl">Program suggested</label><select class="select"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
-            <div class="fld"><label class="lbl">L1 price · full only</label><select class="select"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
-            <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono"></div>
+            <div class="fld"><label class="lbl">Program suggested</label><select class="select" id="haProgram" onchange="window._payCalcAll()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
+            <div class="fld"><label class="lbl">L1 price · full only</label><select class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
+            <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono" id="haSpecialAmt" oninput="window._payCalcAll()"></div>
             <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" oninput="window._payCalcAll()"></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code — special discount <span class="nb">NEW</span></label>
               <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
@@ -4408,6 +4408,8 @@ export default function Home() {
       if(a==="paidb"||a==="paida"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Paid";cBadge.className="chipb info";}}
       if(a==="ni"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Not Interested";cBadge.className="chipb al";}}
       if(a==="open"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Open";cBadge.className="chipb vio";}}
+      // Whenever the payment section is revealed, refresh the auto quote/balances.
+      if(pay&&pay.style.display==="block"){ try{ _payCalcAll(); }catch(_){} }
     }
     w.consAct = consAct;
 
@@ -4418,9 +4420,20 @@ export default function Home() {
     }
     w.payBlk = payBlk;
 
+    function _payNum(sel:string):number{
+      const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
+      return parseInt(((el&&(el as any).value)||"").replace(/[^\d]/g,""))||0;
+    }
+    // Quote (auto from price master): a Special-offer amount overrides everything;
+    // otherwise the price follows the suggested program (L1, L2, or L1+L2).
     function _payGetPrice():number{
-      const el=root.querySelector("#haL2Price")as HTMLInputElement;
-      return parseInt((el?.value||"0").replace(/[^\d]/g,""))||0;
+      const special=_payNum("#haSpecialAmt");
+      if(special>0) return special;
+      const prog=(root.querySelector("#haProgram")as HTMLSelectElement)?.value||"L2";
+      const l1=_payNum("#haL1Price"), l2=_payNum("#haL2Price");
+      if(prog==="L1") return l1;
+      if(prog==="L1 + L2") return l1+l2;
+      return l2;
     }
     function _paySetVal(id:string,v:number){
       const el=root.querySelector("#"+id)as HTMLInputElement;
