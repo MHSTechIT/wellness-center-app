@@ -2234,10 +2234,11 @@ export default function Home() {
       try{
         const [pr,ar]=await Promise.all([
           supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,pool_added_at,created_at").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,call_status,pool_added_at,created_at").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
         _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
+        // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
       }catch(_){ /* columns/table may be absent — ignore */ }
     }
 
