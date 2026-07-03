@@ -8,7 +8,8 @@ function getMainContent(): string {
   <!-- ADVISOR -->
   <section class="screen active" id="s-advisor"><div class="wrap">
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Advisor dashboard
-      <select class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px;margin-left:auto"><option value="all">All call/lead statuses</option></select></div>
+      <div class="pills" id="asnViewToggle" style="margin-left:auto"><button class="pill on" onclick="window._asnToggleView('list')">List View</button><button class="pill" onclick="window._asnToggleView('kanban')">Kanban View</button></div>
+      <select class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px"><option value="all">All call/lead statuses</option></select></div>
       <div class="sec-bd">
         <div class="metrics" id="haKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div>
         <div id="haResultsWrap" style="display:none;margin-top:14px">
@@ -18,8 +19,9 @@ function getMainContent(): string {
       </div></div>
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span>
       <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px;margin-left:auto"><option value="all">All advisors</option></select></div>
-      <div class="sec-bd"><div style="overflow-x:auto"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
-      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+      <div class="sec-bd"><div id="assignedTableWrap" style="overflow-x:auto"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
+      <div id="assignedKanban" style="display:none;overflow-x:auto"></div>
+      <div id="asnPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
         <button class="btn bsm" id="asnPrevBtn" onclick="window._asnPage(-1)">← Previous</button>
         <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="asnPageInfo">Page 1 of 1</span>
         <button class="btn bsm" id="asnNextBtn" onclick="window._asnPage(1)">Next →</button>
@@ -2398,6 +2400,13 @@ export default function Home() {
 
     // ===== Assigned leads view (live, from leads where is_assigned) =====
     let _asnPage=1; const ASN_PER=10;
+    let _asnView="list"; // "list" | "kanban"
+    w._asnToggleView=(v:string)=>{
+      _asnView=(v==="kanban")?"kanban":"list";
+      const tog=root.querySelector("#asnViewToggle");
+      if(tog) tog.querySelectorAll(".pill").forEach((b:any)=>b.classList.toggle("on",(b.textContent||"").toLowerCase().indexOf(_asnView)>=0));
+      renderAssignedLeads();
+    };
     function assignedLeads(){
       const f=(root.querySelector("#assignedFilter")as HTMLSelectElement)?.value||"all";
       const all=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
@@ -2418,6 +2427,19 @@ export default function Home() {
       const info=root.querySelector("#asnPageInfo");
       const prev=root.querySelector("#asnPrevBtn")as HTMLButtonElement, next=root.querySelector("#asnNextBtn")as HTMLButtonElement;
       if(cnt) cnt.textContent=String(list.length);
+      // View switch: Kanban shows the same (filtered) leads grouped by call-status bucket.
+      const tableWrap=root.querySelector("#assignedTableWrap")as HTMLElement|null;
+      const kanban=root.querySelector("#assignedKanban")as HTMLElement|null;
+      const pager=root.querySelector("#asnPager")as HTMLElement|null;
+      if(_asnView==="kanban"){
+        if(tableWrap)tableWrap.style.display="none";
+        if(pager)pager.style.display="none";
+        if(kanban){kanban.style.display="";_renderAssignedKanban(kanban,list);}
+        return;
+      }
+      if(tableWrap)tableWrap.style.display="";
+      if(pager)pager.style.display="flex";
+      if(kanban)kanban.style.display="none";
       if(!body) return;
       const total=list.length;const pages=Math.max(1,Math.ceil(total/ASN_PER));
       if(_asnPage>pages)_asnPage=pages;if(_asnPage<1)_asnPage=1;
@@ -2434,6 +2456,38 @@ export default function Home() {
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
       if(prev){prev.disabled=_asnPage<=1;prev.style.opacity=_asnPage<=1?"0.45":"1";}
       if(next){next.disabled=_asnPage>=pages;next.style.opacity=_asnPage>=pages?"0.45":"1";}
+    }
+    // Kanban board for the Assigned-leads section — same leads, grouped by call-status
+    // bucket (matches the dashboard KPI buckets). Layout only; opening a card and
+    // returning to pool use the exact same handlers as the list rows.
+    function _renderAssignedKanban(kb:HTMLElement,list:any[]){
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const cols=[
+        {key:"open",label:"Open",color:"#17A87B",icon:"📂"},
+        {key:"sales",label:"Walk-in Sales",color:"#378ADD",icon:"🗣️"},
+        {key:"health",label:"Walk-in Health",color:"#7B6CD9",icon:"🩺"},
+        {key:"payment",label:"Payment",color:"#C07F0E",icon:"💳"},
+        {key:"enrolled",label:"Enrolled",color:"#0B6B4C",icon:"✅"},
+        {key:"followup",label:"Follow-up",color:"#5B9BD5",icon:"🔁"},
+        {key:"closed",label:"Closed / Converted",color:"#D8442B",icon:"🏁"}
+      ];
+      const avc=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
+      kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
+        const items=list.filter((l:any)=>haBucketOf(haEffStatus(l))===col.key);
+        return '<div style="min-width:230px;max-width:270px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
+          +'<div style="padding:10px 12px;border-bottom:2px solid '+col.color+';display:flex;align-items:center;gap:6px"><span>'+col.icon+'</span><span style="font-weight:700;font-size:12px">'+col.label+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
+          +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
+          +(items.length?items.map((l:any,i:number)=>{
+            const init=(l.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
+            return '<div style="padding:10px;border-radius:8px;border:1px solid var(--line);background:#fff;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">'
+              +'<div style="display:flex;align-items:center;gap:8px"><span class="avs" style="background:'+avc[i%avc.length]+';width:28px;height:28px;font-size:10px;flex-shrink:0">'+init+'</span>'
+              +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px;cursor:pointer;color:var(--brand);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="Open lead profile →" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name||l.phone||"Lead")+' ↗</div>'
+              +'<div style="font-size:10.5px;color:var(--muted);margin-top:1px">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+(l.lang?" · "+l.lang:"")))+'</div>'
+              +'<div style="font-size:10.5px;color:var(--faint);margin-top:1px">→ '+e(l.assignedTo||"—")+'</div></div></div>'
+              +'<div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" style="flex:1" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Pool</button></div></div>';
+          }).join(""):'<div style="text-align:center;color:var(--faint);font-size:11px;padding:12px 0">No leads</div>')
+          +'</div></div>';
+      }).join("")+'</div>';
     }
     w._asnPage=(dir:number)=>{_asnPage+=dir;renderAssignedLeads();renderHealthDashboard();};
     const _assignedFilterEl=root.querySelector("#assignedFilter")as HTMLSelectElement;
