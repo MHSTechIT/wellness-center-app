@@ -4233,7 +4233,7 @@ export default function Home() {
       const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
       const langSel=root.querySelector("#nwPanel .select") as HTMLSelectElement|null; let langParts:NodeListOf<HTMLSelectElement>|null=null; try{ langParts=root.querySelectorAll("#nwPanel select.select") as NodeListOf<HTMLSelectElement>; }catch(_){} const langVal=langParts&&langParts.length>=2?langParts[1].value:"Tamil";
       try{
-        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,created_at:nowIso});
+        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
       try{
         await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:today,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
@@ -4303,7 +4303,9 @@ export default function Home() {
       try{
         const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",_ciMatch.id);
         if(error) throw error;
-        if(_ciMatch.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited"}).eq("meta_lead_id",_ciMatch.lead_id); }catch(_){} }
+        // Set leads.visited_at too — that's the field the Health Coach queue reads,
+        // so the checked-in client flows through to the coach after screening.
+        if(_ciMatch.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",_ciMatch.lead_id); }catch(_){} }
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
