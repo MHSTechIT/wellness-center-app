@@ -1648,16 +1648,33 @@ export default function Home() {
         {l:"Unassigned Leads",v:unassignedN,c:"a",k:"unassigned"}
       ];
       const KPI_IC:Record<string,string>={total:"i-inbox",today:"i-cal",valid:"i-check",unique:"i-target",duplicate:"i-repeat",assigned:"i-split",unassigned:"i-clock"};
-      const el=root.querySelector("#impMetrics");
-      if(el) el.innerHTML=cards.map(x=>{
-        const cc=x.c==="g"?"g":x.c==="a"?"a":x.c==="r"?"r":"n";
-        const ic=KPI_IC[x.k]||"i-chart";
-        return '<button class="kpi '+cc+'" onclick="window._impDrill(\''+x.k+'\')" title="View '+x.l+'">'
-          +'<span class="kpi-arrow">&rsaquo;</span>'
-          +'<div class="kpi-top"><span class="kpi-ic"><svg class="icon"><use href="#'+ic+'"/></svg></span><span class="kpi-l">'+x.l+'</span></div>'
-          +'<div class="kpi-v">'+x.v+'</div>'
-          +'</button>';
-      }).join("");
+      const cc=(c:string)=>c==="g"?"g":c==="a"?"a":c==="r"?"r":"n";
+      const el=root.querySelector("#impMetrics")as HTMLElement|null;
+      if(!el) return;
+      const existing=el.querySelectorAll(".kpi");
+      if(existing.length!==cards.length){
+        // First paint (or layout changed): build the cards once — the entrance animation plays here only.
+        el.innerHTML=cards.map(x=>{
+          const ic=KPI_IC[x.k]||"i-chart";
+          return '<button class="kpi '+cc(x.c)+'" onclick="window._impDrill(\''+x.k+'\')" title="View '+x.l+'">'
+            +'<span class="kpi-arrow">&rsaquo;</span>'
+            +'<div class="kpi-top"><span class="kpi-ic"><svg class="icon"><use href="#'+ic+'"/></svg></span><span class="kpi-l">'+x.l+'</span></div>'
+            +'<div class="kpi-v">'+x.v+'</div>'
+            +'</button>';
+        }).join("");
+      } else {
+        // Subsequent syncs/refreshes: update values in place — no re-render, no flicker.
+        cards.forEach((x,i)=>{
+          const card=existing[i]as HTMLElement;
+          card.className="kpi "+cc(x.c);
+          card.setAttribute("onclick","window._impDrill('"+x.k+"')");
+          const v=card.querySelector(".kpi-v")as HTMLElement|null;
+          if(v && v.textContent!==String(x.v)){
+            v.textContent=String(x.v);
+            v.classList.remove("bump"); void v.offsetWidth; v.classList.add("bump"); // retrigger gentle pulse
+          }
+        });
+      }
     }
 
     function renderSrcTable(){
