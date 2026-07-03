@@ -767,7 +767,7 @@ function getMainContent(): string {
         <div class="sec" style="margin-top:0" id="checkinSec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Check-in <span id="ciName">—</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="g2" style="gap:8px">
-              <div class="fld"><label class="lbl">Search</label><input class="input" style="height:34px" id="ciSearch" placeholder="Phone or name"></div>
+              <div class="fld"><label class="lbl">Search</label><input class="input" style="height:34px" id="ciSearch" placeholder="Phone or name" oninput="window._ciLookup()"></div>
               <div class="fld"><label class="lbl">Dedup</label><input class="input" style="height:34px" id="ciDedup" readonly></div>
               <div class="fld"><label class="lbl">Visited <span class="ab">AUTO</span></label><input class="input mono" style="height:34px" id="rcVis" readonly></div>
               <div class="fld"><label class="lbl">Registered <span class="ab">AUTO</span></label><input class="input mono" style="height:34px" id="rcReg" readonly></div>
@@ -4277,7 +4277,39 @@ export default function Home() {
     w.recConfirm = recConfirm;
     function recBack() { const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none"; toast("↩ Moved back"); }
     w.recBack = recBack;
-    function recRegDone() { const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}); const el=root.querySelector("#rcReg")as HTMLInputElement; if(el)el.value=now; toast("Registration completed "+now+" · → screening"); }
+    // Check-in: match the typed phone/name to a loaded appointment; fill Dedup + name.
+    let _ciMatch:any=null;
+    function _ciLookup(){
+      const q=((root.querySelector("#ciSearch")as HTMLInputElement)?.value||"").trim();
+      const nameEl=root.querySelector("#ciName"); const dd=root.querySelector("#ciDedup")as HTMLInputElement|null;
+      if(!q){ _ciMatch=null; if(nameEl)nameEl.textContent="—"; if(dd)dd.value=""; return; }
+      const ql=q.toLowerCase(); const digits=q.replace(/\D/g,"");
+      const matches=_recAll.filter((r:any)=>{ const ph=(r.ph||"").replace(/\D/g,""); return (digits.length>=4 && ph.indexOf(digits)>=0) || (r.name||"").toLowerCase().indexOf(ql)>=0; });
+      const pick=matches.find((r:any)=>r.status!=="visited")||matches[0]||null;
+      _ciMatch=pick;
+      if(nameEl) nameEl.textContent=pick?pick.name:"No match";
+      if(dd){
+        if(!pick){ dd.value="No match found"; }
+        else{ const ph=(pick.ph||"").replace(/\D/g,""); const same=ph?_recAll.filter((r:any)=>(r.ph||"").replace(/\D/g,"")===ph):[pick]; dd.value=same.length>1?("Repeat · "+same.length+" appts"):"Unique · new client"; }
+      }
+    }
+    w._ciLookup=_ciLookup;
+    // Confirm → screening: mark the appointment visited, advance to screening stage, persist.
+    async function recRegDone(){
+      _ciLookup();
+      if(!_ciMatch){ toastErr("Search a client by phone or name first"); return; }
+      const nowIso=new Date().toISOString();
+      const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+      try{
+        const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",_ciMatch.id);
+        if(error) throw error;
+        if(_ciMatch.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited"}).eq("meta_lead_id",_ciMatch.lead_id); }catch(_){} }
+      }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
+      const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
+      const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
+      toast("✓ "+_ciMatch.name+" checked in → screening ("+now+")");
+      await loadReceptionData();   // refresh: appointment now Visited, in screening queue + payment queue
+    }
     w.recRegDone = recRegDone;
     function showInbound() { root.querySelector("#inboundBar")?.classList.add("show"); }
     w.showInbound = showInbound;
