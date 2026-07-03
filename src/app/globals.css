@@ -103,8 +103,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
 .tbl th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:10px 11px;border-bottom:1px solid var(--line)}
 .tbl td{padding:11px;border-bottom:1px solid var(--line-soft)}
 .tbl tr:last-child td{border-bottom:0}
-/* Assigned-leads table: fixed height with internal scroll + sticky header. */
-#assignedTableWrap thead th{position:sticky;top:0;z-index:2;background:var(--surface)}
+/* Enterprise data-grid: fixed-height tables that scroll internally (both axes)
+   with a sticky header row, so the page stays put and only the table content moves. */
+.tscroll{max-height:560px;overflow:auto}
+.tscroll thead th{position:sticky;top:0;z-index:2;background:var(--surface)}
+/* Freeze the first column (Lead / Lead Number) during horizontal scroll where applicable. */
+.tscroll.stick1 th:first-child,.tscroll.stick1 td:first-child{position:sticky;left:0;background:var(--surface);z-index:1}
+.tscroll.stick1 thead th:first-child{z-index:3}
 .tbl tbody tr:hover{background:var(--surface-2)}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:13px;margin:16px 0 2px}
 .metric{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;position:relative;overflow:hidden;box-shadow:var(--sh)}
