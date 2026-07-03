@@ -2494,9 +2494,9 @@ export default function Home() {
       const avc=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
         const items=list.filter((l:any)=>haEffStatus(l)===col.status);
-        return '<div style="min-width:230px;max-width:270px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
-          +'<div style="padding:10px 12px;border-bottom:2px solid '+col.color+';display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+col.color+';flex-shrink:0;display:inline-block"></span><span style="font-weight:700;font-size:12px;white-space:nowrap">'+e(col.label)+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
-          +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
+        return '<div style="min-width:230px;max-width:270px;flex:1;display:flex;flex-direction:column;max-height:600px;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
+          +'<div style="flex-shrink:0;padding:10px 12px;border-bottom:2px solid '+col.color+';display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+col.color+';flex-shrink:0;display:inline-block"></span><span style="font-weight:700;font-size:12px;white-space:nowrap">'+e(col.label)+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
+          +'<div style="flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
           +(items.length?items.map((l:any,i:number)=>{
             const init=(l.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
             return '<div style="padding:10px;border-radius:8px;border:1px solid var(--line);background:#fff;transition:box-shadow .15s" onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,.08)\'" onmouseout="this.style.boxShadow=\'none\'">'
