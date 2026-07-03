@@ -22,9 +22,11 @@ function getMainContent(): string {
       <div class="sec-bd"><div id="assignedTableWrap" style="overflow-x:auto"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
       <div id="assignedKanban" style="display:none;overflow-x:auto"></div>
       <div id="asnPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+        <button class="btn bsm" id="asnFirstBtn" onclick="window._asnPage('first')">« First</button>
         <button class="btn bsm" id="asnPrevBtn" onclick="window._asnPage(-1)">← Previous</button>
         <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="asnPageInfo">Page 1 of 1</span>
         <button class="btn bsm" id="asnNextBtn" onclick="window._asnPage(1)">Next →</button>
+        <button class="btn bsm" id="asnLastBtn" onclick="window._asnPage('last')">Last »</button>
         <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
       </div></div></div>
     <div style="display:flex;gap:14px;align-items:flex-start;margin-top:4px">
@@ -520,9 +522,11 @@ function getMainContent(): string {
         <tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">Loading live leads from Meta ad accounts…</td></tr>
       </tbody></table></div>
       <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+        <button class="btn bsm" id="metaFirstBtn" onclick="window._metaPage('first')">« First</button>
         <button class="btn bsm" id="metaPrevBtn" onclick="window._metaPage(-1)">← Previous</button>
         <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="metaPageInfo">Page 1 of 1</span>
         <button class="btn bsm" id="metaNextBtn" onclick="window._metaPage(1)">Next →</button>
+        <button class="btn bsm" id="metaLastBtn" onclick="window._metaPage('last')">Last »</button>
       </div>
       <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="window._sendToAssignment()">Send to assignment →</button><span style="font-size:12px;font-weight:700;color:var(--brand-600)" id="feedSelCount"></span><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clip"/></svg> Bulk CSV import — wizard <span class="arr">▾</span></div>
@@ -573,9 +577,11 @@ function getMainContent(): string {
             </div>
             <div style="overflow-x:auto"><table class="tbl" style="min-width:1180px"><thead><tr><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="btn bsm" id="csvFirstBtn" onclick="window._csvPage('first')">« First</button>
               <button class="btn bsm" id="csvPrevBtn" onclick="window._csvPage(-1)">← Previous</button>
               <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="csvPageInfo">Page 1 of 1</span>
               <button class="btn bsm" id="csvNextBtn" onclick="window._csvPage(1)">Next →</button>
+              <button class="btn bsm" id="csvLastBtn" onclick="window._csvPage('last')">Last »</button>
             </div>
           </div>
 
@@ -590,9 +596,11 @@ function getMainContent(): string {
             </div>
             <div style="overflow-x:auto"><table class="tbl" style="min-width:1180px"><thead><tr><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Source</th><th>Service</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvDupBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="btn bsm" id="csvDupFirstBtn" onclick="window._csvDupPage('first')">« First</button>
               <button class="btn bsm" id="csvDupPrevBtn" onclick="window._csvDupPage(-1)">← Previous</button>
               <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="csvDupPageInfo">Page 1 of 1</span>
               <button class="btn bsm" id="csvDupNextBtn" onclick="window._csvDupPage(1)">Next →</button>
+              <button class="btn bsm" id="csvDupLastBtn" onclick="window._csvDupPage('last')">Last »</button>
             </div>
           </div>
 
@@ -615,9 +623,11 @@ function getMainContent(): string {
             <div class="metrics" id="rvKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px"></div>
             <div style="overflow-x:auto"><table class="tbl" style="min-width:920px"><thead><tr><th>Lead Number</th><th>Lead Name</th><th>Total Visits</th><th>First Visit Date</th><th>Last Visit Date</th><th>Repeat Visitor</th></tr></thead><tbody id="rvBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="btn bsm" id="rvFirstBtn" onclick="window._rvPage('first')">« First</button>
               <button class="btn bsm" id="rvPrevBtn" onclick="window._rvPage(-1)">← Previous</button>
               <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="rvPageInfo">Page 1 of 1</span>
               <button class="btn bsm" id="rvNextBtn" onclick="window._rvPage(1)">Next →</button>
+              <button class="btn bsm" id="rvLastBtn" onclick="window._rvPage('last')">Last »</button>
             </div>
           </div>
         </div></div></div>
@@ -2059,6 +2069,16 @@ export default function Home() {
 
     const _FEED_STD_HEAD='<th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all leads matching the current filter (all pages)"></th><th>Date &amp; Time (IST)</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Language</th><th>Received</th><th>Dedup</th>';
     const _FEED_DUP_HEAD='<th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all duplicate leads (all pages)"></th><th>Date &amp; Time (IST)</th><th>Repeat Leads Count</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Language</th><th>Dedup</th>';
+    // Shared pager-button state for all tables: First/Prev disabled on page 1,
+    // Next/Last disabled on the last page. Button ids follow <prefix>{First,Prev,Next,Last}Btn.
+    function _pgBtns(prefix:string,page:number,pages:number){
+      const set=(id:string,dis:boolean)=>{const b=root.querySelector("#"+id)as HTMLButtonElement|null; if(!b)return; b.disabled=dis; b.style.opacity=dis?"0.45":"1"; b.style.cursor=dis?"not-allowed":"pointer";};
+      const atFirst=page<=1, atLast=page>=pages;
+      set(prefix+"FirstBtn",atFirst); set(prefix+"PrevBtn",atFirst);
+      set(prefix+"NextBtn",atLast);  set(prefix+"LastBtn",atLast);
+    }
+    // Normalize a pager click: 'first' → 1, 'last' → clamp-to-end sentinel, number → delta.
+    function _pgApply(cur:number,dir:any){ return dir==="first"?1:dir==="last"?1e9:cur+dir; }
     function renderMetaPage(){
       const tbody=root.querySelector("#liveFeedBody");
       const pageInfo=root.querySelector("#metaPageInfo");
@@ -2137,8 +2157,8 @@ export default function Home() {
         const _vw=_feedView==="valid"?"valid ":_feedView==="invalid"?"invalid ":"";
         if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" "+_vw+"leads";
       }
-      if(prevBtn){prevBtn.disabled=_metaPageNum<=1;prevBtn.style.opacity=_metaPageNum<=1?"0.45":"1";prevBtn.style.cursor=_metaPageNum<=1?"not-allowed":"pointer";}
-      if(nextBtn){nextBtn.disabled=_metaPageNum>=totalPages;nextBtn.style.opacity=_metaPageNum>=totalPages?"0.45":"1";nextBtn.style.cursor=_metaPageNum>=totalPages?"not-allowed":"pointer";}
+      void prevBtn; void nextBtn;
+      _pgBtns("meta",_metaPageNum,totalPages);
       // Tab counts. Valid/Invalid exclude duplicates (those live only in the Duplicates tab).
       const _active=feedActive();
       const _uniqueActive=_active.filter((l:any)=>!l.isDuplicate);
@@ -2148,8 +2168,8 @@ export default function Home() {
       syncFeedSelUI();   // header select-all + "N selected" counter
     }
 
-    w._metaPage=(dir:number)=>{
-      _metaPageNum+=dir;
+    w._metaPage=(dir:any)=>{
+      _metaPageNum=_pgApply(_metaPageNum,dir);
       renderMetaPage();
     };
 
@@ -2454,8 +2474,8 @@ export default function Home() {
         +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>').join("")
         :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
-      if(prev){prev.disabled=_asnPage<=1;prev.style.opacity=_asnPage<=1?"0.45":"1";}
-      if(next){next.disabled=_asnPage>=pages;next.style.opacity=_asnPage>=pages?"0.45":"1";}
+      void prev; void next;
+      _pgBtns("asn",_asnPage,pages);
     }
     // Kanban board for the Assigned-leads section — same leads, grouped by call-status
     // bucket (matches the dashboard KPI buckets). Layout only; opening a card and
@@ -2489,7 +2509,7 @@ export default function Home() {
           +'</div></div>';
       }).join("")+'</div>';
     }
-    w._asnPage=(dir:number)=>{_asnPage+=dir;renderAssignedLeads();renderHealthDashboard();};
+    w._asnPage=(dir:any)=>{_asnPage=_pgApply(_asnPage,dir);renderAssignedLeads();renderHealthDashboard();};
     const _assignedFilterEl=root.querySelector("#assignedFilter")as HTMLSelectElement;
     if(_assignedFilterEl) _assignedFilterEl.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};
     // Return an assigned lead to the unassigned pool.
@@ -3650,8 +3670,8 @@ export default function Home() {
         :'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:18px">No imported leads yet</td></tr>';
       if(cnt)cnt.textContent=total+" record"+(total===1?"":"s");
       if(info)info.textContent="Page "+_csvPage+" of "+pages;
-      if(prev){prev.disabled=_csvPage<=1;prev.style.opacity=_csvPage<=1?"0.45":"1";}
-      if(next){next.disabled=_csvPage>=pages;next.style.opacity=_csvPage>=pages?"0.45":"1";}
+      void prev; void next;
+      _pgBtns("csv",_csvPage,pages);
       const sa=root.querySelector("#csvValidSelAll")as HTMLInputElement;if(sa)sa.checked=false;
     }
 
@@ -3685,8 +3705,8 @@ export default function Home() {
       }).join("")
         :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">No duplicate leads (shown for 10 minutes after import)</td></tr>';
       if(info)info.textContent="Page "+_csvDupPage+" of "+pages;
-      if(prev){prev.disabled=_csvDupPage<=1;prev.style.opacity=_csvDupPage<=1?"0.45":"1";}
-      if(next){next.disabled=_csvDupPage>=pages;next.style.opacity=_csvDupPage>=pages?"0.45":"1";}
+      void prev; void next;
+      _pgBtns("csvDup",_csvDupPage,pages);
       const sa=root.querySelector("#csvDupSelAll")as HTMLInputElement;if(sa)sa.checked=false;
     }
 
@@ -3786,10 +3806,10 @@ export default function Home() {
         +'<td>'+(g.visits>1?'<span class="chipb warn">Repeat · '+g.visits+'×</span>':'<span class="chipb neu">First-time</span>')+'</td></tr>').join("")
         :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No visitor data for this filter</td></tr>';
       if(info)info.textContent="Page "+_rvPage+" of "+pages+" · "+total+" visitor"+(total===1?"":"s");
-      if(prev){prev.disabled=_rvPage<=1;prev.style.opacity=_rvPage<=1?"0.45":"1";}
-      if(next){next.disabled=_rvPage>=pages;next.style.opacity=_rvPage>=pages?"0.45":"1";}
+      void prev; void next;
+      _pgBtns("rv",_rvPage,pages);
     }
-    w._rvPage=(dir:number)=>{_rvPage+=dir;renderCsvRepeat();};
+    w._rvPage=(dir:any)=>{_rvPage=_pgApply(_rvPage,dir);renderCsvRepeat();};
     w._rvHistory=(phone:string)=>{
       const g=_rvData.find((x:any)=>x.phone===phone);
       if(!g){toast("No history");return;}
@@ -3825,8 +3845,8 @@ export default function Home() {
       if(el) el.onchange=()=>{_rvPage=1;renderCsvRepeat();};
     });
 
-    w._csvPage=(dir:number)=>{_csvPage+=dir;renderCsvValid();};
-    w._csvDupPage=(dir:number)=>{_csvDupPage+=dir;renderCsvDup();};
+    w._csvPage=(dir:any)=>{_csvPage=_pgApply(_csvPage,dir);renderCsvValid();};
+    w._csvDupPage=(dir:any)=>{_csvDupPage=_pgApply(_csvDupPage,dir);renderCsvDup();};
 
     // ---- Select-all ----
     const _vSelAll=root.querySelector("#csvValidSelAll")as HTMLInputElement;
