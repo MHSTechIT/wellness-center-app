@@ -494,7 +494,7 @@ function getMainContent(): string {
         <button class="btn bsm" onclick="window._impClearFilters()">Clear</button>
       </div>
     </div>
-    <div class="metrics" id="impMetrics" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"></div>
+    <div class="metrics kpigrid" id="impMetrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))"></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bolt"/></svg> Source connections <span class="arr">▾</span></div>
       <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:1100px" id="srcConnTable"><thead><tr><th style="width:36px"><input type="checkbox" id="srcSelAll" style="accent-color:var(--brand)"></th><th>Total leads</th><th>Lead source</th><th>Status</th><th>Today</th><th>Last lead</th><th>Mode</th><th>Valid</th><th>Unique</th><th>Duplicate</th><th>Assigned</th><th>Unassigned</th></tr></thead><tbody id="srcTableBody"></tbody></table></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
@@ -1647,8 +1647,17 @@ export default function Home() {
         {l:"Assigned Leads",v:assignedN,c:"g",k:"assigned"},
         {l:"Unassigned Leads",v:unassignedN,c:"a",k:"unassigned"}
       ];
+      const KPI_IC:Record<string,string>={total:"i-inbox",today:"i-cal",valid:"i-check",unique:"i-target",duplicate:"i-repeat",assigned:"i-split",unassigned:"i-clock"};
       const el=root.querySelector("#impMetrics");
-      if(el) el.innerHTML=cards.map(x=>'<div class="metric '+x.c+'" style="cursor:pointer" onclick="window._impDrill(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
+      if(el) el.innerHTML=cards.map(x=>{
+        const cc=x.c==="g"?"g":x.c==="a"?"a":x.c==="r"?"r":"n";
+        const ic=KPI_IC[x.k]||"i-chart";
+        return '<button class="kpi '+cc+'" onclick="window._impDrill(\''+x.k+'\')" title="View '+x.l+'">'
+          +'<span class="kpi-arrow">&rsaquo;</span>'
+          +'<div class="kpi-top"><span class="kpi-ic"><svg class="icon"><use href="#'+ic+'"/></svg></span><span class="kpi-l">'+x.l+'</span></div>'
+          +'<div class="kpi-v">'+x.v+'</div>'
+          +'</button>';
+      }).join("");
     }
 
     function renderSrcTable(){
