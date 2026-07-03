@@ -2485,21 +2485,16 @@ export default function Home() {
     // returning to pool use the exact same handlers as the list rows.
     function _renderAssignedKanban(kb:HTMLElement,list:any[]){
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      // Columns are the call/lead statuses from the All Call/Lead Statuses dropdown,
-      // matched exactly against each lead's effective status (kept in sync with the filter).
-      const cols=[
-        {status:"New",label:"New",color:"#5B9BD5",icon:"🆕"},
-        {status:"Open",label:"Open",color:"#17A87B",icon:"📂"},
-        {status:"DND",label:"DND",color:"#D8442B",icon:"🚫"},
-        {status:"RNR",label:"RNR",color:"#C07F0E",icon:"📵"},
-        {status:"Line Busy",label:"Line Busy",color:"#7B6CD9",icon:"📞"},
-        {status:"Call Back",label:"Callback",color:"#378ADD",icon:"🔁"}
-      ];
+      // Columns are the call/lead statuses straight from HA_STATUSES (the same list
+      // that fills the All Call/Lead Statuses dropdown), matched exactly against each
+      // lead's effective status — so the board and the dropdown are always in sync.
+      const _palette=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444","#0B6B4C","#E8A817"];
+      const cols=HA_STATUSES.map((s:string,i:number)=>({status:s,label:s,color:_palette[i%_palette.length]}));
       const avc=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
         const items=list.filter((l:any)=>haEffStatus(l)===col.status);
         return '<div style="min-width:230px;max-width:270px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
-          +'<div style="padding:10px 12px;border-bottom:2px solid '+col.color+';display:flex;align-items:center;gap:6px"><span>'+col.icon+'</span><span style="font-weight:700;font-size:12px">'+col.label+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
+          +'<div style="padding:10px 12px;border-bottom:2px solid '+col.color+';display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+col.color+';flex-shrink:0;display:inline-block"></span><span style="font-weight:700;font-size:12px;white-space:nowrap">'+e(col.label)+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
           +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
           +(items.length?items.map((l:any,i:number)=>{
             const init=(l.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
