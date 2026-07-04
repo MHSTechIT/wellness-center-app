@@ -3725,6 +3725,17 @@ export default function Home() {
       const el=root.querySelector("#csvSearch")as HTMLInputElement|null;
       _csvQuery=((el?el.value:"")||"").trim().toLowerCase(); _csvPage=1; renderCsvValid();
     };
+    // Selection for the Imported-leads table, tracked by id so it survives re-renders
+    // (the table repaints on the sweep timer, search, and data reloads).
+    const _csvSelIds=new Set<number>();
+    function _csvUpdateSelAll(){
+      const sa=root.querySelector("#csvValidSelAll")as HTMLInputElement|null; if(!sa) return;
+      const boxes=Array.from(root.querySelectorAll("#csvImportedBody .csvChk"))as HTMLInputElement[];
+      const checked=boxes.filter((c)=>c.checked).length;
+      sa.checked=boxes.length>0&&checked===boxes.length;
+      sa.indeterminate=checked>0&&checked<boxes.length;
+    }
+    w._csvRowSel=(el:any)=>{ const id=Number(el.getAttribute("data-id")); if(el.checked)_csvSelIds.add(id); else _csvSelIds.delete(id); _csvUpdateSelAll(); };
     function renderCsvValid(){
       const wrap=root.querySelector("#csvImportedWrap")as HTMLElement;
       const body=root.querySelector("#csvImportedBody");
@@ -3745,7 +3756,7 @@ export default function Home() {
       if(_csvPage>pages)_csvPage=pages;if(_csvPage<1)_csvPage=1;
       const pageRows=valid.slice((_csvPage-1)*CSV_PER,(_csvPage-1)*CSV_PER+CSV_PER);
       body.innerHTML=pageRows.length?pageRows.map((r:any)=>'<tr>'
-        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'" style="accent-color:var(--brand)"></td>'
+        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'"'+(_csvSelIds.has(r.id)?" checked":"")+' style="accent-color:var(--brand)" onchange="window._csvRowSel(this)"></td>'
         +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
         +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
         +'<td>'+e(r.ad||"—")+'</td>'
@@ -3764,7 +3775,7 @@ export default function Home() {
       if(info)info.textContent="Page "+_csvPage+" of "+pages;
       void prev; void next;
       _pgBtns("csv",_csvPage,pages);
-      const sa=root.querySelector("#csvValidSelAll")as HTMLInputElement;if(sa)sa.checked=false;
+      _csvUpdateSelAll();   // reflect the preserved selection instead of wiping it
     }
 
     // ---- Render: duplicates ----
@@ -3942,7 +3953,12 @@ export default function Home() {
 
     // ---- Select-all ----
     const _vSelAll=root.querySelector("#csvValidSelAll")as HTMLInputElement;
-    if(_vSelAll)_vSelAll.onchange=()=>root.querySelectorAll(".csvChk").forEach((c:any)=>{c.checked=_vSelAll.checked;});
+    if(_vSelAll)_vSelAll.onchange=()=>{
+      const valid=_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r));
+      if(_vSelAll.checked) valid.forEach((r:any)=>_csvSelIds.add(r.id)); else valid.forEach((r:any)=>_csvSelIds.delete(r.id));
+      root.querySelectorAll("#csvImportedBody .csvChk").forEach((c:any)=>{c.checked=_vSelAll.checked;});
+      _vSelAll.indeterminate=false;
+    };
     const _dSelAll=root.querySelector("#csvDupSelAll")as HTMLInputElement;
     if(_dSelAll)_dSelAll.onchange=()=>root.querySelectorAll(".csvDupChk").forEach((c:any)=>{c.checked=_dSelAll.checked;});
 
@@ -3953,10 +3969,12 @@ export default function Home() {
     }
     w._csvDeleteOne=(id:number)=>csvConfirm("Delete this lead permanently?",async()=>{await csvDeleteIds([id]);toast("Lead deleted");});
     w._csvDeleteSelected=(which:string)=>{
-      const sel=which==="dup"?".csvDupChk:checked":".csvChk:checked";
-      const ids=Array.from(root.querySelectorAll(sel)).map((c:any)=>Number(c.getAttribute("data-id")));
+      // Imported-leads selection is tracked across pages in _csvSelIds; dup table reads its checkboxes.
+      const ids=which==="dup"
+        ? Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>Number(c.getAttribute("data-id")))
+        : Array.from(_csvSelIds);
       if(!ids.length){toast("Select one or more rows first");return;}
-      csvConfirm("Delete "+ids.length+" selected lead(s) permanently?",async()=>{await csvDeleteIds(ids);toast(ids.length+" deleted");});
+      csvConfirm("Delete "+ids.length+" selected lead(s) permanently?",async()=>{await csvDeleteIds(ids);_csvSelIds.clear();toast(ids.length+" deleted");});
     };
     async function csvKeepIds(ids:number[]){
       for(let i=0;i<ids.length;i+=200){await supabase.from("csv_leads").update({status:"valid"}).in("id",ids.slice(i,i+200));}
