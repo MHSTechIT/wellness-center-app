@@ -2283,6 +2283,7 @@ export default function Home() {
         else{const f=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(d):"…";lab.textContent="Showing: "+f(_abmRange.from)+" → "+f(_abmRange.to);}
       }
       _abmRenderAll();
+      try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){}
       toast("Time-range filter applied");
     };
     w._abmClearRange=()=>{
@@ -2292,6 +2293,7 @@ export default function Home() {
       const ps=root.querySelector("#abmRangePreset")as HTMLSelectElement;if(ps)ps.value="all";
       const lab=root.querySelector("#abmRangeLabel");if(lab)lab.textContent="Showing: all time";
       _abmRenderAll();
+      try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){}
     };
     const _abmPresetEl=root.querySelector("#abmRangePreset")as HTMLSelectElement;
     if(_abmPresetEl) _abmPresetEl.onchange=()=>{ _abmApplyPreset(_abmPresetEl.value); if(_abmPresetEl.value!=="custom") w._abmApplyRange(); };
@@ -5161,7 +5163,7 @@ export default function Home() {
       try{
         const {data}=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,call_status,created_at,is_assigned")
           .lt("created_at",cutoff).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").order("created_at",{ascending:true}).limit(1000);
-        rows=(data||[]).filter((r:any)=>!_recordedLeadIds.has(String(r.meta_lead_id)));
+        rows=(data||[]).filter((r:any)=>!_recordedLeadIds.has(String(r.meta_lead_id))&&inAbmRange(r.created_at));
       }catch(_){ rows=[]; }
       _callDevRows=rows; const now=now0; _setDevBadges();
       if(body) body.innerHTML=rows.length?rows.map((r:any)=>'<tr>'
@@ -5190,7 +5192,7 @@ export default function Home() {
             .eq("is_assigned",true).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").limit(1000);
         }
         if(res.error) throw res.error;
-        rows=(res.data||[]).filter((r:any)=>{ if(_recordedLeadIds.has(String(r.meta_lead_id))) return false; const t=new Date(r.assigned_at||r.created_at).getTime(); return t<cutoffMs; });
+        rows=(res.data||[]).filter((r:any)=>{ if(_recordedLeadIds.has(String(r.meta_lead_id))) return false; const at=r.assigned_at||r.created_at; const t=new Date(at).getTime(); return t<cutoffMs && inAbmRange(at); });
       }catch(_){ rows=[]; }
       _leadDevRows=rows; const now=Date.now(); _setDevBadges();
       if(body) body.innerHTML=rows.length?rows.map((r:any)=>{ const at=r.assigned_at||r.created_at; return '<tr>'
