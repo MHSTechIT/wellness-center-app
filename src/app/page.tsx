@@ -4751,7 +4751,7 @@ export default function Home() {
       if(el("sc_wa")) el("sc_wa").value=v.waist||"";
       if(el("sc_te")) el("sc_te").value=v.temp||"";
       if(el("sc_gl")) el("sc_gl").value=v.glucose||"";
-      if(el("sc_by")) el("sc_by").value=v.screened_by||("");
+      if(el("sc_by")) el("sc_by").value=v.screened_by||_scCurrentUser();
       if(el("sc_dt")) el("sc_dt").value=v.screened_at?new Date(v.screened_at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"";
       if(el("sc_notes")) el("sc_notes").value=v.notes||"";
       _scEligVal=v.eligible||"";
@@ -4778,6 +4778,8 @@ export default function Home() {
           +'</tbody></table><p style="font-size:11px;color:var(--faint);margin:6px 0 0">Screening records from leads.screening_vitals.</p>';
       }catch(_){ wrap.innerHTML='<div style="color:var(--faint);padding:8px;font-size:12px">Could not load history.</div>'; }
     }
+    // The logged-in screener's name for the "Screened by (AUTO)" field.
+    function _scCurrentUser(){ return _currentUser?(((_currentUser.name||"").trim())||((_currentUser.email||"").split("@")[0])||"Screening desk"):"Screening desk"; }
     async function screeningDone(){
       if(!_scOpenAppt){ toast("Open a client first"); return; }
       const ids=["sc_h","sc_w","sc_bmi","sc_bp","sc_pu","sc_sp","sc_wa","sc_te","sc_gl"];
@@ -4788,8 +4790,11 @@ export default function Home() {
       const vMap:Record<string,string>={sc_h:"height",sc_w:"weight",sc_bmi:"bmi",sc_bp:"bp",sc_pu:"pulse",sc_sp:"spo2",sc_wa:"waist",sc_te:"temp",sc_gl:"glucose"};
       ids.forEach(id=>{const el=root.querySelector("#"+id)as HTMLInputElement; if(el&&el.value) vitals[vMap[id]]=el.value;});
       vitals.screened_at=new Date().toISOString();
-      vitals.screened_by=(root.querySelector("#sc_by")as HTMLInputElement)?.value||("");
+      vitals.screened_by=((root.querySelector("#sc_by")as HTMLInputElement)?.value||"").trim()||_scCurrentUser();
       vitals.notes=(root.querySelector("#sc_notes")as HTMLTextAreaElement)?.value||"";
+      // Stamp the AUTO fields in the form so the screener sees them immediately on save.
+      const byEl=root.querySelector("#sc_by")as HTMLInputElement|null; if(byEl) byEl.value=vitals.screened_by;
+      const dtEl=root.querySelector("#sc_dt")as HTMLInputElement|null; if(dtEl) dtEl.value=new Date(vitals.screened_at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
       vitals.eligible=_scEligVal;
       const leadId=_scOpenAppt.lead_id||"";
       if(leadId){
