@@ -675,10 +675,11 @@ function getMainContent(): string {
           <div class="sec-bd">
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Clears once a call status is set (beyond New/Open) or a call recording is logged.</span>
-              <button class="btn bsm" style="margin-left:auto" onclick="window._renderCallDeviation()">↻ Refresh</button>
+              <span id="callDevSelCount" style="margin-left:auto;font-size:11.5px;font-weight:700;color:var(--brand-600);align-self:center"></span>
+              <button class="btn bsm" onclick="window._renderCallDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('call')">⬇ Download</button>
             </div>
-            <div class="tscroll stick1"><table class="tbl" style="min-width:1160px"><thead><tr><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th>Received Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="callDevBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
+            <div class="tscroll stick1"><table class="tbl" style="min-width:1200px"><thead><tr><th style="width:34px"><input type="checkbox" id="callDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll('call',this.checked)"></th><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th>Received Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="callDevBody"><tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
           </div></div>
       </div>
       <div class="dev-sub" data-dtp="lead" style="display:none">
@@ -686,10 +687,11 @@ function getMainContent(): string {
           <div class="sec-bd">
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Cleared once the assigned advisor logs a call (status beyond New/Open or a recording).</span>
-              <button class="btn bsm" style="margin-left:auto" onclick="window._renderLeadsDeviation()">↻ Refresh</button>
+              <span id="leadDevSelCount" style="margin-left:auto;font-size:11.5px;font-weight:700;color:var(--brand-600);align-self:center"></span>
+              <button class="btn bsm" onclick="window._renderLeadsDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('lead')">⬇ Download</button>
             </div>
-            <div class="tscroll stick1"><table class="tbl" style="min-width:1280px"><thead><tr><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned To</th><th>Stage</th><th>Status</th><th>Assigned Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="leadDevBody"><tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
+            <div class="tscroll stick1"><table class="tbl" style="min-width:1320px"><thead><tr><th style="width:34px"><input type="checkbox" id="leadDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll('lead',this.checked)"></th><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned To</th><th>Stage</th><th>Status</th><th>Assigned Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="leadDevBody"><tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
           </div></div>
       </div></div>
     <div class="abm-p" data-p="appr" style="display:none">
@@ -5122,6 +5124,20 @@ export default function Home() {
     function _devDur(ms:number){ if(ms<0)ms=0; const h=Math.floor(ms/3600000); const m=Math.floor((ms%3600000)/60000); return h>=24?(Math.floor(h/24)+"d "+(h%24)+"h"):(h+"h "+m+"m"); }
     const DEV_MS=4*3600000;
     let _callDevRows:any[]=[], _leadDevRows:any[]=[];
+    // Multi-select state for the deviation tables (by lead id, per table).
+    const _devSel:{call:Set<string>,lead:Set<string>}={call:new Set(),lead:new Set()};
+    function _devSyncSel(){
+      (["call","lead"] as const).forEach(wk=>{
+        const set=_devSel[wk]; set.clear();
+        root.querySelectorAll('.devChk[data-w="'+wk+'"]:checked').forEach((c:any)=>set.add(c.getAttribute("data-id")));
+        const all=root.querySelectorAll('.devChk[data-w="'+wk+'"]');
+        const sa=root.querySelector("#"+wk+"DevSelAll")as HTMLInputElement|null;
+        if(sa){ sa.checked=all.length>0&&set.size===all.length; sa.indeterminate=set.size>0&&set.size<all.length; }
+        const cnt=root.querySelector("#"+wk+"DevSelCount"); if(cnt) cnt.textContent=set.size?(set.size+" selected"):"";
+      });
+    }
+    w._devChkToggle=()=>_devSyncSel();
+    w._devSelAll=(wk:string,on:boolean)=>{ root.querySelectorAll('.devChk[data-w="'+wk+'"]').forEach((c:any)=>{c.checked=on;}); _devSyncSel(); };
     const _devEsc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const _devSrcLang=(r:any)=>(r.source==="Meta Ads"?"Meta":(r.source||"Meta"))+" · "+(r.language||"Tamil");
     function _setDevBadges(){
@@ -5149,6 +5165,7 @@ export default function Home() {
       }catch(_){ rows=[]; }
       _callDevRows=rows; const now=now0; _setDevBadges();
       if(body) body.innerHTML=rows.length?rows.map((r:any)=>'<tr>'
+        +'<td><input type="checkbox" class="devChk" data-w="call" data-id="'+_devEsc(String(r.meta_lead_id))+'" style="accent-color:var(--brand)" onchange="window._devChkToggle()"></td>'
         +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td>'
         +'<td class="mono" style="font-weight:600">'+_devEsc(r.phone||"—")+'</td>'
         +'<td><span class="tag">'+_devEsc(_devSrcLang(r))+'</span></td>'
@@ -5156,7 +5173,8 @@ export default function Home() {
         +'<td><span class="chipb al">No call activity</span></td>'
         +'<td class="mono" style="font-size:11.5px">'+_devEsc(fmtIST(r.created_at))+'</td>'
         +'<td class="mono" style="font-weight:700;color:var(--alert-ink)">'+_devDur(now-new Date(r.created_at).getTime())+'</td></tr>').join("")
-        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No call deviations — every lead has activity within 4h 🎉</td></tr>';
+        :'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No call deviations — every lead has activity within 4h 🎉</td></tr>';
+      _devSyncSel();
     };
     w._renderLeadsDeviation=async()=>{
       await loadRecordedLeadIds();
@@ -5176,6 +5194,7 @@ export default function Home() {
       }catch(_){ rows=[]; }
       _leadDevRows=rows; const now=Date.now(); _setDevBadges();
       if(body) body.innerHTML=rows.length?rows.map((r:any)=>{ const at=r.assigned_at||r.created_at; return '<tr>'
+        +'<td><input type="checkbox" class="devChk" data-w="lead" data-id="'+_devEsc(String(r.meta_lead_id))+'" style="accent-color:var(--brand)" onchange="window._devChkToggle()"></td>'
         +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td>'
         +'<td class="mono" style="font-weight:600">'+_devEsc(r.phone||"—")+'</td>'
         +'<td><span class="tag">'+_devEsc(_devSrcLang(r))+'</span></td>'
@@ -5183,17 +5202,18 @@ export default function Home() {
         +'<td><span class="chipb al">Not called</span></td>'
         +'<td class="mono" style="font-size:11.5px">'+_devEsc(fmtIST(at))+'</td>'
         +'<td class="mono" style="font-weight:700;color:var(--alert-ink)">'+_devDur(now-new Date(at).getTime())+'</td></tr>';
-      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No lead deviations — all assigned leads called within 4h 🎉</td></tr>';
+      }).join(""):'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">No lead deviations — all assigned leads called within 4h 🎉</td></tr>';
+      _devSyncSel();
     };
     w._downloadDeviation=(which:string)=>{
-      if(which==="call"){ const rows=_callDevRows; if(!rows.length){toast("Nothing to download");return;}
+      if(which==="call"){ const sel=_devSel.call; let rows=_callDevRows; if(sel.size) rows=rows.filter((r:any)=>sel.has(String(r.meta_lead_id))); if(!rows.length){toast("Nothing to download");return;}
         const out:string[][]=[["Lead","Lead Number","Source","Language","Stage","Status","Received","Deviation"]];
         rows.forEach((r:any)=>out.push([r.name||"",r.phone||"",r.source||"",r.language||"",r.is_assigned?"Assigned":"Unassigned","No call activity",fmtIST(r.created_at),_devDur(Date.now()-new Date(r.created_at).getTime())]));
-        _downloadCsv("call_deviation_"+rows.length+".csv",out); toast(rows.length+" rows downloaded");
-      } else { const rows=_leadDevRows; if(!rows.length){toast("Nothing to download");return;}
+        _downloadCsv("call_deviation_"+rows.length+".csv",out); toast(rows.length+(sel.size?" selected":"")+" rows downloaded");
+      } else { const sel=_devSel.lead; let rows=_leadDevRows; if(sel.size) rows=rows.filter((r:any)=>sel.has(String(r.meta_lead_id))); if(!rows.length){toast("Nothing to download");return;}
         const out:string[][]=[["Lead","Lead Number","Source","Language","Assigned To","Stage","Status","Assigned","Deviation"]];
         rows.forEach((r:any)=>{const at=r.assigned_at||r.created_at; out.push([r.name||"",r.phone||"",r.source||"",r.language||"",r.assigned_to||"","Assigned","Not called",fmtIST(at),_devDur(Date.now()-new Date(at).getTime())]);});
-        _downloadCsv("leads_deviation_"+rows.length+".csv",out); toast(rows.length+" rows downloaded");
+        _downloadCsv("leads_deviation_"+rows.length+".csv",out); toast(rows.length+(sel.size?" selected":"")+" rows downloaded");
       }
     };
 
