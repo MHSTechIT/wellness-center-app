@@ -4751,8 +4751,11 @@ export default function Home() {
       if(el("sc_wa")) el("sc_wa").value=v.waist||"";
       if(el("sc_te")) el("sc_te").value=v.temp||"";
       if(el("sc_gl")) el("sc_gl").value=v.glucose||"";
+      // Both AUTO fields fill immediately on open: screener = logged-in user,
+      // date/time = the saved stamp if screened, otherwise the current time (live).
       if(el("sc_by")) el("sc_by").value=v.screened_by||_scCurrentUser();
-      if(el("sc_dt")) el("sc_dt").value=v.screened_at?new Date(v.screened_at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"";
+      const _scDtFmt=(t:any)=>new Date(t).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+      if(el("sc_dt")) el("sc_dt").value=v.screened_at?_scDtFmt(v.screened_at):_scDtFmt(Date.now());
       if(el("sc_notes")) el("sc_notes").value=v.notes||"";
       _scEligVal=v.eligible||"";
       root.querySelectorAll("#scEligPills .pill").forEach((b:any)=>b.classList.remove("on"));
