@@ -1465,6 +1465,8 @@ export default function Home() {
     function othRev(sel: HTMLSelectElement, id: string) { const el = root.querySelector("#" + id) as HTMLElement; if (el) el.style.display = sel.value === "Others" ? "block" : "none"; }
     w.othRev = othRev;
 
+    // Per-lead "Not Eligible" reason, surfaced in the Assigned-leads table (no separate banner).
+    const _eligMap:Record<string,string>={};
     function eligCheck() {
       const onChips = [...root.querySelectorAll("#eligChips .chip-o")].filter((c) => c.classList.contains("on"));
       const any = onChips.length > 0;
@@ -1475,17 +1477,11 @@ export default function Home() {
         if (any) { b.className = "banner bad"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-x"></use></svg><span><b>NOT eligible</b> — exclusion tag present'+(reasons?" ("+e(reasons)+")":"")+'.</span>'; }
         else { b.className = "banner good"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg><span>Eligible — can book appointment.</span>'; }
       }
-      // Surface the lead's Name + eligibility status + reason at the top of the profile.
-      const top = root.querySelector("#advCtxBanner") as HTMLElement|null;
-      const topTxt = root.querySelector("#advCtxText") as HTMLElement|null;
-      if (top && topTxt) {
-        if (any) {
-          const nm = (root.querySelector("#advName")?.textContent || "This lead").trim();
-          top.className = "banner bad"; top.style.display = "";
-          topTxt.innerHTML = '<b>'+e(nm)+'</b> &nbsp;·&nbsp; Status: <b>Not Eligible</b> &nbsp;·&nbsp; Reason: Exclusion tag present'+(reasons?' ('+e(reasons)+')':'');
-        } else {
-          top.style.display = "none"; top.className = "banner plan";
-        }
+      // Record eligibility for the open lead → the Assigned-leads table flags the row red.
+      if (_advLeadId) {
+        if (any) _eligMap[String(_advLeadId)] = reasons || "Exclusion tag present";
+        else delete _eligMap[String(_advLeadId)];
+        try{ renderAssignedLeads(); }catch(_){}
       }
     }
 
@@ -2525,17 +2521,38 @@ export default function Home() {
       if(_asnPage>pages)_asnPage=pages;if(_asnPage<1)_asnPage=1;
       const rows=list.slice((_asnPage-1)*ASN_PER,(_asnPage-1)*ASN_PER+ASN_PER);
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      body.innerHTML=rows.length?rows.map((l:any)=>'<tr>'
+      body.innerHTML=rows.length?rows.map((l:any)=>{
+        const elig=_eligMap[String(l.id)];   // exclusion reason → Not Eligible
+        const tr=elig?'<tr style="background:var(--alert-bg);box-shadow:inset 3px 0 0 var(--alert)">':'<tr>';
+        const status=elig
+          ? '<td><span class="chipb al" title="Exclusion tag present — '+e(elig)+'">Not Eligible</span></td>'
+          : '<td><span class="chipb ok">Assigned</span></td>';
+        return tr
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" title="Open lead profile →" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
         +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
         +'<td class="mono" style="font-size:11.5px">'+e(l.campaign||"—")+'</td>'
         +'<td style="font-weight:600">'+e(l.assignedTo)+'</td>'
-        +'<td><span class="chipb ok">Assigned</span></td>'
-        +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>').join("")
+        +status
+        +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>';
+      }).join("")
         :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
       void prev; void next;
       _pgBtns("asn",_asnPage,pages);
+      if(!_eligLoadedOnce){ _eligLoadedOnce=true; _loadEligibilities(); }
+    }
+    // Load persisted Not-Eligible reasons for assigned leads once, then repaint the table.
+    let _eligLoadedOnce=false;
+    async function _loadEligibilities(){
+      if(_advProfileColMissing) return;
+      const ids=assignedLeads().map((l:any)=>String(l.id)).filter(Boolean).slice(0,500);
+      if(!ids.length) return;
+      try{
+        const {data,error}=await supabase.from("leads").select("meta_lead_id,advisor_profile").in("meta_lead_id",ids);
+        if(error){ if(/advisor_profile|column|exist|schema/i.test(error.message||"")) _advProfileColMissing=true; return; }
+        (data||[]).forEach((r:any)=>{ const ne=r.advisor_profile&&r.advisor_profile._notElig; if(ne) _eligMap[String(r.meta_lead_id)]=ne; else delete _eligMap[String(r.meta_lead_id)]; });
+        renderAssignedLeads();
+      }catch(_){}
     }
     // Kanban board for the Assigned-leads section — same leads, grouped by call-status
     // bucket (matches the dashboard KPI buckets). Layout only; opening a card and
@@ -2730,7 +2747,9 @@ export default function Home() {
       const p=_advPanelEl(); if(!p) return null;
       const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const states=(sel:string)=>Array.from(p.querySelectorAll(sel)).map((b:any)=>b.classList.contains("on"));
-      return {v:2,f,chips:states(".chip-o"),stars:states("#stars .star"),pills:states(".pill"),score:states("#bdm button"),attachments:_advAttachments.slice(),fuNotes:_advFuNotes.slice()};
+      // Persist the Not-Eligible reason so the Assigned-leads table can flag it after refresh.
+      const _notElig=[...root.querySelectorAll("#eligChips .chip-o")].filter((c:any)=>c.classList.contains("on")).map((c:any)=>(c.textContent||"").trim()).filter(Boolean).join(", ");
+      return {v:2,f,chips:states(".chip-o"),stars:states("#stars .star"),pills:states(".pill"),score:states("#bdm button"),attachments:_advAttachments.slice(),fuNotes:_advFuNotes.slice(),_notElig};
     }
     function applyAdvisorProfile(obj:any){
       const p=_advPanelEl(); if(!p||!obj) return;
