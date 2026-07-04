@@ -5479,7 +5479,7 @@ export default function Home() {
         thyrocare_cost:Number(v("btdThyroCost"))||0,our_price:Number(v("btdOurPrice"))||0,
         report_url:_btReportAtt?.url||"",shared:v("btdReport")==="shared",sample_at:v("btdSample")!=="pending"?new Date().toISOString():""};
       try{ const {error}=await supabase.from("appointments").update({blood_test_data:btData}).eq("id",_btOpenAppt.id);
-        if(error&&/blood_test_data|column/i.test(error.message||"")){ toast("Run supabase-migration-module-columns.sql first"); return; }
+        if(error&&/blood_test_data|column|schema|exist/i.test(error.message||"")){ toastErr("Can't save yet — the blood-test column is missing. Run supabase-migration-module-columns.sql in Supabase, then Save again."); return; }
         if(error)throw error; toast("Blood test record saved"); await loadBloodTestData();
       }catch(e:any){ toastErr("Save failed: "+(e.message||"error")); }
     };
@@ -5603,13 +5603,13 @@ export default function Home() {
       if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
       try{ await supabase.from("appointments").update({stage:"done",physio_data:pd}).eq("id",_phOpenAppt.id);
         toast("Session saved & marked complete"); await loadPhysioData();
-      }catch(e:any){ toastErr(/physio_data|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Save failed"); }
+      }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
     };
     w._phSavePlan=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement)?.value||"";
       const pd=_phOpenAppt.phData||{}; pd.condition=v("phCondition"); pd.sessions_planned=Number(v("phPlanned"))||0; pd.pack_price=Number(v("phPackPrice"))||0;
       const isP=root.querySelector("#phPayModel .pill.on")?.textContent?.toLowerCase().includes("upfront"); pd.payment_model=isP?"pack":"per_visit";
-      try{ await supabase.from("appointments").update({physio_data:pd}).eq("id",_phOpenAppt.id); toast("Treatment plan saved"); await loadPhysioData(); }catch(e:any){ toastErr("Save failed"); }
+      try{ await supabase.from("appointments").update({physio_data:pd}).eq("id",_phOpenAppt.id); toast("Treatment plan saved"); await loadPhysioData(); }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
     };
     w._phCollectPay=()=>{ if(!_phOpenAppt)return; recOpen(_phOpenAppt.id,_phOpenAppt.name,_phOpenAppt.packPrice,_phOpenAppt.lead_id); };
     w._phPrintNotes=()=>{ if(!_phOpenAppt){toast("Open a session first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
