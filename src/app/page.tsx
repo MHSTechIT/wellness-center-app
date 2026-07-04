@@ -648,7 +648,7 @@ function getMainContent(): string {
     </div>
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
+      <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
         <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table></div>
         <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
@@ -3075,8 +3075,9 @@ export default function Home() {
     function _poolSelectedAdvisors():string[]{
       return Array.from(root.querySelectorAll("#poolAssignMenu .poolAdvChk:checked")).map((c:any)=>String(c.getAttribute("data-adv"))).filter(Boolean);
     }
-    // Open/close the advisor dropdown menu.
-    w._poolAdvToggleMenu=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation(); const m=root.querySelector("#poolAssignMenu")as HTMLElement|null; if(m) m.style.display=(m.style.display==="none"||!m.style.display)?"block":"none"; };
+    // Open/close the advisor dropdown menu (absolute; the pool card is set to
+    // overflow:visible so the menu isn't clipped).
+    w._poolAdvToggleMenu=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation(); const m=root.querySelector("#poolAssignMenu")as HTMLElement|null; if(m) m.style.display=(m.style.display==="block")?"none":"block"; };
     // Refresh the button label + gate the round-robin button (enabled only at 2+ advisors).
     w._poolAdvSelChange=()=>{
       const advs=_poolSelectedAdvisors();
