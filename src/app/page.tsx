@@ -651,12 +651,14 @@ function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
         <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table></div>
-        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:center">
-          <span style="font-size:12px;font-weight:600;color:var(--ink)">Assign to:</span>
-          <select class="select" id="poolAssignSel" style="height:32px;font-size:12px;width:190px"><option value="">— Select advisor —</option></select>
-          <button class="btn bsm bp" onclick="window._assignSelected()">Assign selected</button>
-          <button class="btn bsm" onclick="window._assignSelectedRR()">Assign selected (round-robin)</button>
-          <button class="btn bsm" onclick="window._roundRobinAll()">Round-robin all →</button>
+        <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
+          <span style="font-size:12px;font-weight:600;color:var(--ink);padding-top:8px">Assign to:</span>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <select class="select" id="poolAssignSel" multiple size="4" style="height:auto;min-height:34px;font-size:12px;width:220px;padding:4px 6px" onchange="window._poolAdvSelChange()"></select>
+            <span style="font-size:10.5px;color:var(--faint)">Pick 1 advisor, or Ctrl/⌘-click 2+ for round-robin</span>
+          </div>
+          <button class="btn bsm bp" style="margin-top:0" onclick="window._assignSelected()">Assign selected</button>
+          <button class="btn bsm" id="poolRRBtn" style="margin-top:0" onclick="window._assignSelectedRR()" disabled title="Select 2 or more advisors to round-robin">Assign selected (round-robin)</button>
         </div></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load</div>
         <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th>Advisor</th><th>Role</th><th>Branch</th><th>Active leads</th><th>Status</th></tr></thead><tbody id="advisorLoadBody"></tbody></table></div></div></div>
@@ -2327,9 +2329,9 @@ export default function Home() {
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
           +'<td class="mono">'+esc(p.waiting)+'</td></tr>';
       }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
-      // Populate the single "Assign to" dropdown from active assignees.
+      // Populate the multi-select "Assign to" from active assignees (preserve selection).
       const asgSel=root.querySelector("#poolAssignSel")as HTMLSelectElement|null;
-      if(asgSel){ const cur=asgSel.value; asgSel.innerHTML='<option value="">— Select advisor —</option>'+activeNames.map((n:string)=>'<option>'+esc(n)+'</option>').join(""); if(cur)asgSel.value=cur; }
+      if(asgSel){ const cur=Array.from(asgSel.selectedOptions).map((o:any)=>o.value); asgSel.innerHTML=activeNames.map((n:string)=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join(""); Array.from(asgSel.options).forEach((o:any)=>{o.selected=cur.indexOf(o.value)>=0;}); try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){} }
       const psa=root.querySelector("#poolSelAll")as HTMLInputElement|null;
       if(psa) psa.onchange=()=>{ root.querySelectorAll(".poolChk").forEach((c:any)=>{c.checked=psa.checked;}); };
       renderDeviation();
@@ -3062,42 +3064,46 @@ export default function Home() {
       await _afterAssign();
       toast(ids.length+" lead"+(ids.length===1?"":"s")+" assigned to "+advisor);
     }
-    // Assign selected → the advisor chosen in the "Assign to" dropdown.
+    // Advisors currently ticked in the multi-select "Assign to".
+    function _poolSelectedAdvisors():string[]{
+      const sel=root.querySelector("#poolAssignSel")as HTMLSelectElement|null;
+      if(!sel) return [];
+      return Array.from(sel.selectedOptions).map((o:any)=>String(o.value)).filter(Boolean);
+    }
+    // Round-robin button is enabled only when 2+ advisors are selected.
+    w._poolAdvSelChange=()=>{
+      const n=_poolSelectedAdvisors().length;
+      const rr=root.querySelector("#poolRRBtn")as HTMLButtonElement|null;
+      if(rr){ rr.disabled=n<2; rr.style.opacity=n<2?"0.5":"1"; rr.style.cursor=n<2?"not-allowed":"pointer"; rr.title=n<2?"Select 2 or more advisors to round-robin":"Distribute the ticked leads across the selected advisors"; }
+    };
+    // Assign selected → all ticked leads to the (single) selected advisor.
     w._assignSelected=async()=>{
-      const advisor=((root.querySelector("#poolAssignSel")as HTMLSelectElement|null)?.value||"").trim();
-      if(!advisor){ toast("Choose an advisor in 'Assign to' first"); return; }
+      const advs=_poolSelectedAdvisors();
+      if(!advs.length){ toast("Select an advisor in 'Assign to' first"); return; }
       const ids=_poolCheckedIds();
       if(!ids.length){ toast("Tick one or more pooled leads first"); return; }
-      await _assignManyTo(ids,advisor);
+      await _assignManyTo(ids,advs[0]);
     };
-    w._assignSelectedRR=()=>w._roundRobin(true);
-    w._roundRobinAll=()=>w._roundRobin(false);
-
-    // Round-robin distribute pooled leads across active advisors (persisted).
-    w._roundRobin=async(selectedOnly:boolean)=>{
-      const active=_assignees.filter((a:any)=>a.is_active);
-      if(active.length===0){toast("Add active assignees first (Settings → Assignees)");return;}
-      let targetIds:string[];
-      if(selectedOnly){
-        targetIds=_poolCheckedIds();
-      }else{
-        targetIds=_unassignedPool.filter((p:any)=>inAbmRange(p.ts)).map((p:any)=>String(p.id)).filter((id:string)=>id.indexOf("seed-")!==0);
-      }
-      if(targetIds.length===0){toast(selectedOnly?"Tick one or more pooled leads first":"No pooled leads to assign");return;}
+    // Round-robin the ticked leads across ONLY the selected advisors (2+ required).
+    w._assignSelectedRR=async()=>{
+      const advs=_poolSelectedAdvisors();
+      if(advs.length<2){ toast("Select 2 or more advisors for round-robin"); return; }
+      const ids=_poolCheckedIds();
+      if(!ids.length){ toast("Tick one or more pooled leads first"); return; }
       const nowIso=new Date().toISOString();
       try{
-        for(let i=0;i<targetIds.length;i++){
-          const name=active[i%active.length].name;
-          const {error}=await supabase.from("leads").update({assigned_to:name,is_assigned:true,in_pool:false}).eq("meta_lead_id",targetIds[i]);
+        for(let i=0;i<ids.length;i++){
+          const name=advs[i%advs.length];
+          const {error}=await supabase.from("leads").update({assigned_to:name,is_assigned:true,in_pool:false}).eq("meta_lead_id",ids[i]);
           if(error) throw error;
-          try{ await supabase.from("leads").update({assigned_at:nowIso}).eq("meta_lead_id",targetIds[i]); }catch(_){}
-          const ld=_metaLeads.find((x:any)=>String(x.id)===targetIds[i]);
+          try{ await supabase.from("leads").update({assigned_at:nowIso}).eq("meta_lead_id",ids[i]); }catch(_){}
+          const ld=_metaLeads.find((x:any)=>String(x.id)===ids[i]);
           if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
-          logActivity(targetIds[i],[{action:"Assigned",field:"Assigned to",new:name+" (round-robin)"}]);
+          logActivity(ids[i],[{action:"Assigned",field:"Assigned to",new:name+" (round-robin)"}]);
         }
-      }catch(e:any){ toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Distribute failed: "+(e.message||"db error")); }
+      }catch(e:any){ toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Distribute failed: "+(e.message||"db error")); return; }
       await _afterAssign();
-      toast(targetIds.length+" lead"+(targetIds.length===1?"":"s")+" distributed across "+active.length+" advisor"+(active.length===1?"":"s"));
+      toast(ids.length+" lead"+(ids.length===1?"":"s")+" distributed across "+advs.length+" selected advisors");
     };
 
     w._sendToAssignment=async()=>{
