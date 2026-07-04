@@ -1435,6 +1435,8 @@ export default function Home() {
           );
           const mainEl = root.querySelector("#main");
           if (mainEl) mainEl.scrollTop = 0;
+          // Flush any render deferred while this screen was off-screen during a sync.
+          const _scr=(b as HTMLElement).dataset.s; if(_scr&&(w as any)._flushDirtyScreen) (w as any)._flushDirtyScreen(_scr);
         };
       });
     }
@@ -3255,7 +3257,7 @@ export default function Home() {
       if(_autoSyncInFlight||_syncing) return;
       _autoSyncInFlight=true;
       const statusEl=root.querySelector("#metaFeedStatus");
-      if(statusEl) statusEl.textContent="Syncing from Meta…";
+      if(statusEl){ statusEl.textContent="Syncing from Meta…"; statusEl.classList.add("syncing"); }
       try{
         const res=await fetch("/api/meta/sync",{method:"POST"});
         const data=await res.json().catch(()=>({}));
@@ -3272,8 +3274,27 @@ export default function Home() {
       }catch(_){
         _autoSyncFails++;
         if(statusEl) statusEl.textContent=_autoSyncFails>=2?"⚠ Unable to sync data. Please check the Meta connection.":"⚠ Last sync failed. Retrying…";
-      }finally{ _autoSyncInFlight=false; }
+      }finally{ _autoSyncInFlight=false; const s2=root.querySelector("#metaFeedStatus"); if(s2) s2.classList.remove("syncing"); }
     }
+    // Perf: during a (background) sync we only rebuild the screen the user is looking
+    // at; the other screens are marked dirty and rebuilt when navigated to. This keeps
+    // in-memory data fresh everywhere while avoiding the whole-app DOM thrash that made
+    // the UI freeze during sync. (Filters/actions still render their screen immediately.)
+    const _screenRender:Record<string,()=>void>={
+      import:()=>{ renderImport(); renderMetaPage(); },
+      advisor:()=>{ renderAssignedLeads(); renderHealthDashboard(); },
+      abm:()=>{ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); }
+    };
+    const _dirtyScreens=new Set<string>();
+    function _activeScreenId(){ const s=root.querySelector(".screen.active"); return s?s.id.replace(/^s-/,""):""; }
+    function _renderVisibleOrDefer(){
+      const active=_activeScreenId();
+      Object.keys(_screenRender).forEach(scr=>{
+        if(scr===active){ _dirtyScreens.delete(scr); try{ _screenRender[scr](); }catch(_){} }
+        else _dirtyScreens.add(scr);
+      });
+    }
+    w._flushDirtyScreen=(scr:string)=>{ if(_dirtyScreens.has(scr)){ _dirtyScreens.delete(scr); try{ _screenRender[scr]&&_screenRender[scr](); }catch(_){} } };
     async function fetchMetaLiveFeed(){
       if(_metaFetchInFlight) return; // prevent overlapping requests piling up
       _metaFetchInFlight=true;
@@ -3311,17 +3332,14 @@ export default function Home() {
         // the feed, so already-pooled leads (incl. CSV extras) show after a refresh.
         await loadAssignmentExtras();
         rebuildPoolFromDB();
-        renderMetaPage();
-        renderUnassignedPool();
-        renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();  // refresh live counts
         // Upgrade the restored open-leads placeholders to live lead objects (once).
         relinkOpenLeads();
         // Build the shared IMP dataset (Meta + all other sources) so the KPI cards
         // and Source Connections table reflect EVERY source, incl. manual leads.
         await loadOtherSourceLeads();
         rebuildIMP();
-        renderImport();
-        renderMetaPage();   // re-render the feed now that manual/other-source leads are loaded
+        // Only rebuild the screen in view; the rest render when navigated to (no freeze).
+        _renderVisibleOrDefer();
         // Show the latest successful sync time from the database (auto-refreshes
         // on every 5-min poll, so the label always reflects the newest sync).
         let syncMsg="";
@@ -3424,7 +3442,7 @@ export default function Home() {
       _metaLeads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
       rebuildIMP();   // Meta + other-source leads (don't drop manual/walk-in from the dashboard)
       rebuildPoolFromDB();
-      renderMetaPage();renderImport();renderUnassignedPool();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      _renderVisibleOrDefer();   // only rebuild the visible screen; others render on navigation
       const countEl=root.querySelector("#metaFeedCount");if(countEl)countEl.textContent=feedAll().length+" leads in database";
       updateMetaAlert();   // a live change refreshes the 30-min no-lead alert
     }
