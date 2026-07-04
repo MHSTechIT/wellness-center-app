@@ -676,11 +676,19 @@ function getMainContent(): string {
         <button data-dt="lead" onclick="window._devSubTab('lead')">Leads Deviation <span class="mini" id="leadDevCount">0</span></button>
       </div>
       <div class="dev-sub" data-dtp="call">
-        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Call Deviation — in the system 4h+ with no call activity</div>
+        <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Call Deviation — in the system 4h+ with no call activity</div>
           <div class="sec-bd">
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Clears once a call status is set (beyond New/Open) or a call recording is logged.</span>
-              <span id="callDevSelCount" style="margin-left:auto;font-size:11.5px;font-weight:700;color:var(--brand-600);align-self:center"></span>
+              <div style="margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <div id="callDevAssignWrap" style="position:relative">
+                  <button type="button" id="callDevAssignBtn" class="btn bsm" style="min-width:150px;justify-content:space-between;font-weight:500" onclick="window._devAssignToggle('call',event)"><span id="callDevAssignLabel" style="color:var(--muted)">Assign to…</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+                  <div id="callDevAssignMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:200px;max-height:210px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(17,34,27,.14);z-index:30;padding:4px"></div>
+                </div>
+                <button class="btn bsm bp" onclick="window._devAssignSelected('call')">Assign selected</button>
+                <button class="btn bsm" id="callDevRRBtn" onclick="window._devAssignRR('call')" disabled title="Select 2 or more advisors to round-robin">Round-robin</button>
+                <span id="callDevSelCount" style="font-size:11.5px;font-weight:700;color:var(--brand-600);align-self:center"></span>
+              </div>
               <button class="btn bsm" onclick="window._renderCallDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('call')">⬇ Download</button>
             </div>
@@ -688,11 +696,19 @@ function getMainContent(): string {
           </div></div>
       </div>
       <div class="dev-sub" data-dtp="lead" style="display:none">
-        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Leads Deviation — assigned but not called within 4h</div>
+        <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Leads Deviation — assigned but not called within 4h</div>
           <div class="sec-bd">
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Cleared once the assigned advisor logs a call (status beyond New/Open or a recording).</span>
-              <span id="leadDevSelCount" style="margin-left:auto;font-size:11.5px;font-weight:700;color:var(--brand-600);align-self:center"></span>
+              <div style="margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <div id="leadDevAssignWrap" style="position:relative">
+                  <button type="button" id="leadDevAssignBtn" class="btn bsm" style="min-width:150px;justify-content:space-between;font-weight:500" onclick="window._devAssignToggle('lead',event)"><span id="leadDevAssignLabel" style="color:var(--muted)">Assign to…</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+                  <div id="leadDevAssignMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:200px;max-height:210px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(17,34,27,.14);z-index:30;padding:4px"></div>
+                </div>
+                <button class="btn bsm bp" onclick="window._devAssignSelected('lead')">Assign selected</button>
+                <button class="btn bsm" id="leadDevRRBtn" onclick="window._devAssignRR('lead')" disabled title="Select 2 or more advisors to round-robin">Round-robin</button>
+                <span id="leadDevSelCount" style="font-size:11.5px;font-weight:700;color:var(--brand-600);align-self:center"></span>
+              </div>
               <button class="btn bsm" onclick="window._renderLeadsDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('lead')">⬇ Download</button>
             </div>
@@ -5210,6 +5226,59 @@ export default function Home() {
     }
     w._devChkToggle=()=>_devSyncSel();
     w._devSelAll=(wk:string,on:boolean)=>{ root.querySelectorAll('.devChk[data-w="'+wk+'"]').forEach((c:any)=>{c.checked=on;}); _devSyncSel(); };
+
+    // ---- Deviation "Assign to" controls (same behavior as the Unassigned Pool) ----
+    function _populateDevAssignMenus(){
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const names=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
+      (["call","lead"] as const).forEach(wk=>{
+        const menu=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(!menu) return;
+        const prev=new Set(Array.from(menu.querySelectorAll(".devAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
+        menu.innerHTML=names.length?names.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="devAdvChk" data-w="'+wk+'" data-adv="'+esc(n)+'" style="accent-color:var(--brand)" onchange="window._devAssignSelChange(\''+wk+'\')"'+(prev.has(n)?" checked":"")+'>'+esc(n)+'</label>').join(""):'<div style="font-size:11.5px;color:var(--faint);padding:8px">No active advisors</div>';
+        try{ w._devAssignSelChange(wk); }catch(_){}
+      });
+    }
+    function _devSelectedAdvisors(wk:string):string[]{
+      return Array.from(root.querySelectorAll("#"+wk+"DevAssignMenu .devAdvChk:checked")).map((c:any)=>String(c.getAttribute("data-adv"))).filter(Boolean);
+    }
+    w._devAssignToggle=(wk:string,e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation(); const m=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(m) m.style.display=(m.style.display==="block")?"none":"block"; };
+    w._devAssignSelChange=(wk:string)=>{
+      const advs=_devSelectedAdvisors(wk);
+      const lab=root.querySelector("#"+wk+"DevAssignLabel")as HTMLElement|null;
+      if(lab){ if(!advs.length){ lab.textContent="Assign to…"; lab.style.color="var(--muted)"; } else if(advs.length<=2){ lab.textContent=advs.join(", "); lab.style.color="var(--ink)"; } else { lab.textContent=advs.length+" advisors"; lab.style.color="var(--ink)"; } }
+      const rr=root.querySelector("#"+wk+"DevRRBtn")as HTMLButtonElement|null;
+      if(rr){ rr.disabled=advs.length<2; rr.style.opacity=advs.length<2?"0.5":"1"; rr.style.cursor=advs.length<2?"not-allowed":"pointer"; }
+    };
+    w._devAssignSelected=async(wk:string)=>{
+      const advs=_devSelectedAdvisors(wk);
+      if(!advs.length){ toast("Select an advisor in 'Assign to' first"); return; }
+      _devSyncSel(); const ids=Array.from(_devSel[wk as "call"|"lead"]);
+      if(!ids.length){ toast("Tick one or more leads first"); return; }
+      await _assignManyTo(ids,advs[0]);
+      try{ wk==="call"?w._renderCallDeviation():w._renderLeadsDeviation(); }catch(_){}
+    };
+    w._devAssignRR=async(wk:string)=>{
+      const advs=_devSelectedAdvisors(wk);
+      if(advs.length<2){ toast("Select 2 or more advisors for round-robin"); return; }
+      _devSyncSel(); const ids=Array.from(_devSel[wk as "call"|"lead"]);
+      if(!ids.length){ toast("Tick one or more leads first"); return; }
+      const nowIso=new Date().toISOString();
+      try{
+        for(let i=0;i<ids.length;i++){
+          const name=advs[i%advs.length];
+          const {error}=await supabase.from("leads").update({assigned_to:name,is_assigned:true,in_pool:false}).eq("meta_lead_id",ids[i]);
+          if(error) throw error;
+          try{ await supabase.from("leads").update({assigned_at:nowIso}).eq("meta_lead_id",ids[i]); }catch(_){}
+          const ld=_metaLeads.find((x:any)=>String(x.id)===ids[i]); if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
+          logActivity(ids[i],[{action:"Assigned",field:"Assigned to",new:name+" (round-robin)"}]);
+        }
+      }catch(e:any){ toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Distribute failed: "+(e.message||"db error")); return; }
+      await _afterAssign();
+      try{ wk==="call"?w._renderCallDeviation():w._renderLeadsDeviation(); }catch(_){}
+      toast(ids.length+" lead"+(ids.length===1?"":"s")+" distributed across "+advs.length+" selected advisors");
+    };
+    // Close a deviation assign-menu on outside click.
+    document.addEventListener("click",(e:any)=>{ (["call","lead"] as const).forEach(wk=>{ const wrap=root.querySelector("#"+wk+"DevAssignWrap"); const m=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; }); });
     const _devEsc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const _devSrcLang=(r:any)=>(r.source==="Meta Ads"?"Meta":(r.source||"Meta"))+" · "+(r.language||"Tamil");
     function _setDevBadges(){
@@ -5247,6 +5316,7 @@ export default function Home() {
         +'<td class="mono" style="font-weight:700;color:var(--alert-ink)">'+_devDur(now-new Date(r.created_at).getTime())+'</td></tr>').join("")
         :'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No call deviations — every lead has activity within 4h 🎉</td></tr>';
       _devSyncSel();
+      try{ _populateDevAssignMenus(); }catch(_){}
     };
     w._renderLeadsDeviation=async()=>{
       await loadRecordedLeadIds();
@@ -5276,6 +5346,7 @@ export default function Home() {
         +'<td class="mono" style="font-weight:700;color:var(--alert-ink)">'+_devDur(now-new Date(at).getTime())+'</td></tr>';
       }).join(""):'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">No lead deviations — all assigned leads called within 4h 🎉</td></tr>';
       _devSyncSel();
+      try{ _populateDevAssignMenus(); }catch(_){}
     };
     w._downloadDeviation=(which:string)=>{
       if(which==="call"){ const sel=_devSel.call; let rows=_callDevRows; if(sel.size) rows=rows.filter((r:any)=>sel.has(String(r.meta_lead_id))); if(!rows.length){toast("Nothing to download");return;}
