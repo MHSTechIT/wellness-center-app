@@ -70,7 +70,7 @@ function getMainContent(): string {
           <div class="fld"><label class="lbl">Occupation <span class="nb">NEW</span></label><select class="select" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
           <div class="fld"><label class="lbl">Language</label><select class="select"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
           <div class="fld"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
-          <div class="fld"><label class="lbl">Lead generated <span class="ab">AUTO</span></label><input class="input mono" value="12-Jun-2026 08:14" readonly></div>
+          <div class="fld"><label class="lbl">Lead generated <span class="ab">AUTO</span></label><input class="input mono" id="haLeadGen" readonly></div>
           <div class="fld"><label class="lbl">Batch code</label><input class="input mono" value="WK-JUN-04"></div>
           <div class="fld"><label class="lbl">Location</label><select class="select"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
           <div class="fld" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
@@ -2591,6 +2591,7 @@ export default function Home() {
     let _advAttachments:any[]=[];   // blood-report files for the active lead [{name,url,at}]
     let _advFuNotes:any[]=[];       // follow-up notes for the active lead [{text,at}]
     let _advApplying=false;         // true while restoring a saved profile (suppress activity logging)
+    let _advLeadGenStr="";          // formatted "Lead generated" date for the open lead (AUTO, survives restore)
     let _advProfileColMissing=false;// once we learn advisor_profile column isn't there, skip the DB read
     const ADV_ACTOR="ABM / Admin";  // no auth yet → record the active role
     // Call-status codes that REQUIRE a "Next follow-up date & time".
@@ -2671,6 +2672,10 @@ export default function Home() {
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
       setV("#advfName",l.name||"");setV("#advfPhone",l.phone||"");setV("#advfWhats",l.phone||"");setV("#advfEmail",l.email||"");
+      // Lead generated (AUTO): the lead's real creation timestamp. Stored so it survives a profile restore.
+      const _fmtGen=(v:any)=>{ if(!v)return""; const d=new Date(v); if(isNaN(d.getTime()))return""; const mon=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]; const p=(n:number)=>String(n).padStart(2,"0"); return p(d.getDate())+"-"+mon+"-"+d.getFullYear()+" "+p(d.getHours())+":"+p(d.getMinutes()); };
+      _advLeadGenStr=_fmtGen(l.createdAt||l.date||l.leadDate||l.created_at);
+      setV("#haLeadGen",_advLeadGenStr);
       // Mark "Open" on real leads only (never from a restore placeholder, which
       // doesn't know the lead's real call status — that would overwrite it).
       if(!l._placeholder&&(!l.callStatus||l.callStatus==="New")){
@@ -2731,6 +2736,8 @@ export default function Home() {
         const range=p.querySelector("input[type=range]")as HTMLInputElement|null; const pv=p.querySelector("#pv"); if(range&&pv) pv.textContent=range.value+"%";
         const cs=p.querySelector("#callStatus")as HTMLSelectElement|null; if(cs&&(w as any).callStatusChange){ try{ (w as any).callStatusChange(cs.value); }catch(_){} }
         try{ eligCheck(); }catch(_){}
+        // AUTO field — keep the real lead-generated date even if a stale saved value exists.
+        const lg=p.querySelector("#haLeadGen")as HTMLInputElement|null; if(lg&&_advLeadGenStr) lg.value=_advLeadGenStr;
       } finally { _advApplying=false; }
     }
     // ---- Blood-report attachments + follow-up notes renderers ----
