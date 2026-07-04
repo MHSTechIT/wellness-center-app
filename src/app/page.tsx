@@ -654,8 +654,11 @@ function getMainContent(): string {
         <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
           <span style="font-size:12px;font-weight:600;color:var(--ink);padding-top:8px">Assign to:</span>
           <div style="display:flex;flex-direction:column;gap:3px">
-            <select class="select" id="poolAssignSel" multiple size="4" style="height:auto;min-height:34px;font-size:12px;width:220px;padding:4px 6px" onchange="window._poolAdvSelChange()"></select>
-            <span style="font-size:10.5px;color:var(--faint)">Pick 1 advisor, or Ctrl/⌘-click 2+ for round-robin</span>
+            <div id="poolAssignWrap" style="position:relative;width:230px">
+              <button type="button" id="poolAssignBtn" class="btn bsm" style="width:100%;justify-content:space-between;font-weight:500;height:34px" onclick="window._poolAdvToggleMenu(event)"><span id="poolAssignLabel" style="color:var(--muted)">— Select advisor(s) —</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+              <div id="poolAssignMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;width:100%;max-height:210px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(17,34,27,.14);z-index:30;padding:4px"></div>
+            </div>
+            <span style="font-size:10.5px;color:var(--faint)">Tick 1 advisor, or 2+ for round-robin</span>
           </div>
           <button class="btn bsm bp" style="margin-top:0" onclick="window._assignSelected()">Assign selected</button>
           <button class="btn bsm" id="poolRRBtn" style="margin-top:0" onclick="window._assignSelectedRR()" disabled title="Select 2 or more advisors to round-robin">Assign selected (round-robin)</button>
@@ -2329,9 +2332,13 @@ export default function Home() {
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
           +'<td class="mono">'+esc(p.waiting)+'</td></tr>';
       }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
-      // Populate the multi-select "Assign to" from active assignees (preserve selection).
-      const asgSel=root.querySelector("#poolAssignSel")as HTMLSelectElement|null;
-      if(asgSel){ const cur=Array.from(asgSel.selectedOptions).map((o:any)=>o.value); asgSel.innerHTML=activeNames.map((n:string)=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join(""); Array.from(asgSel.options).forEach((o:any)=>{o.selected=cur.indexOf(o.value)>=0;}); try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){} }
+      // Populate the "Assign to" checkbox multi-select from active assignees (preserve ticks).
+      const asgMenu=root.querySelector("#poolAssignMenu")as HTMLElement|null;
+      if(asgMenu){
+        const prev=new Set(Array.from(asgMenu.querySelectorAll(".poolAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
+        asgMenu.innerHTML=activeNames.length?activeNames.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="poolAdvChk" data-adv="'+esc(n)+'" style="accent-color:var(--brand)" onchange="window._poolAdvSelChange()"'+(prev.has(n)?" checked":"")+'>'+esc(n)+'</label>').join(""):'<div style="font-size:11.5px;color:var(--faint);padding:8px">No active advisors</div>';
+        try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){}
+      }
       const psa=root.querySelector("#poolSelAll")as HTMLInputElement|null;
       if(psa) psa.onchange=()=>{ root.querySelectorAll(".poolChk").forEach((c:any)=>{c.checked=psa.checked;}); };
       renderDeviation();
@@ -3064,18 +3071,22 @@ export default function Home() {
       await _afterAssign();
       toast(ids.length+" lead"+(ids.length===1?"":"s")+" assigned to "+advisor);
     }
-    // Advisors currently ticked in the multi-select "Assign to".
+    // Advisors currently ticked in the "Assign to" checkbox dropdown.
     function _poolSelectedAdvisors():string[]{
-      const sel=root.querySelector("#poolAssignSel")as HTMLSelectElement|null;
-      if(!sel) return [];
-      return Array.from(sel.selectedOptions).map((o:any)=>String(o.value)).filter(Boolean);
+      return Array.from(root.querySelectorAll("#poolAssignMenu .poolAdvChk:checked")).map((c:any)=>String(c.getAttribute("data-adv"))).filter(Boolean);
     }
-    // Round-robin button is enabled only when 2+ advisors are selected.
+    // Open/close the advisor dropdown menu.
+    w._poolAdvToggleMenu=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation(); const m=root.querySelector("#poolAssignMenu")as HTMLElement|null; if(m) m.style.display=(m.style.display==="none"||!m.style.display)?"block":"none"; };
+    // Refresh the button label + gate the round-robin button (enabled only at 2+ advisors).
     w._poolAdvSelChange=()=>{
-      const n=_poolSelectedAdvisors().length;
+      const advs=_poolSelectedAdvisors();
+      const lab=root.querySelector("#poolAssignLabel")as HTMLElement|null;
+      if(lab){ if(!advs.length){ lab.textContent="— Select advisor(s) —"; lab.style.color="var(--muted)"; } else if(advs.length<=2){ lab.textContent=advs.join(", "); lab.style.color="var(--ink)"; } else { lab.textContent=advs.length+" advisors selected"; lab.style.color="var(--ink)"; } }
       const rr=root.querySelector("#poolRRBtn")as HTMLButtonElement|null;
-      if(rr){ rr.disabled=n<2; rr.style.opacity=n<2?"0.5":"1"; rr.style.cursor=n<2?"not-allowed":"pointer"; rr.title=n<2?"Select 2 or more advisors to round-robin":"Distribute the ticked leads across the selected advisors"; }
+      if(rr){ rr.disabled=advs.length<2; rr.style.opacity=advs.length<2?"0.5":"1"; rr.style.cursor=advs.length<2?"not-allowed":"pointer"; rr.title=advs.length<2?"Select 2 or more advisors to round-robin":"Distribute the ticked leads across the selected advisors"; }
     };
+    // Close the advisor menu when clicking outside it.
+    document.addEventListener("click",(e:any)=>{ const wrap=root.querySelector("#poolAssignWrap"); const m=root.querySelector("#poolAssignMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; });
     // Assign selected → all ticked leads to the (single) selected advisor.
     w._assignSelected=async()=>{
       const advs=_poolSelectedAdvisors();
