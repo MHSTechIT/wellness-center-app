@@ -649,7 +649,7 @@ function getMainContent(): string {
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
       <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
-        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th></tr></thead><tbody id="unassignedPoolBody">
+        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table></div>
         <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
           <span style="font-size:12px;font-weight:600;color:var(--ink);padding-top:8px">Assign to:</span>
@@ -2347,8 +2347,9 @@ export default function Home() {
           +'<td style="font-weight:600">'+esc(p.name)+(isNew?' <span class="chipb ok" style="margin-left:4px">Transferred</span>':'')+'</td>'
           +'<td><span class="tag">'+esc(p.src)+'</span></td>'
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
-          +'<td class="mono">'+esc(p.waiting)+'</td></tr>';
-      }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
+          +'<td class="mono">'+esc(p.waiting)+'</td>'
+          +'<td><button class="btn bsm" title="Return this lead to its original source table (Live Incoming Feed or Bulk CSV Import Wizard) and remove it from the pool" onclick="window._poolReturnToSource(\''+esc(String(p.id))+'\')">↩ Return to Pool</button></td></tr>';
+      }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
       // Populate the "Assign to" checkbox multi-select from active assignees (preserve ticks).
       const asgMenu=root.querySelector("#poolAssignMenu")as HTMLElement|null;
       if(asgMenu){
@@ -2618,6 +2619,59 @@ export default function Home() {
       rebuildPoolFromDB();
       renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
       toast("Lead returned to pool");
+    };
+    // ===== Return to Pool: send a pooled lead BACK to its ORIGINAL source table =====
+    // The lead's origin is read from its id prefix (the "lead origin" signal), because
+    // the stored `source` is unreliable (CSV rows are forced to source="Manual" on move):
+    //   "csv-…"        → Bulk CSV Import Wizard (the row was MOVED out of csv_leads into
+    //                     `leads`; we reverse that: re-stage into csv_leads, drop the leads row)
+    //   anything else  → Live Incoming Feed (Meta / manual / walk-in / website: the row
+    //                     lives in `leads`, pooling only flipped in_pool=true — we flip it back)
+    // Persisted to the DB so it survives refresh; touches only this one lead.
+    w._poolReturnToSource=async(id:string)=>{
+      const sid=String(id);
+      if(sid.indexOf("seed-")===0){ toast("Demo lead — nothing to return"); return; }
+      const p=_unassignedPool.find((x:any)=>String(x.id)===sid);
+      const nm=p?p.name:"Lead";
+      const isCsv=sid.indexOf("csv-")===0;
+      try{
+        if(isCsv){
+          // Reverse the CSV → pool move: re-create the import-wizard row, then delete
+          // the pooled leads row so it can't live in both places.
+          const {data:ld}=await supabase.from("leads").select("*").eq("meta_lead_id",id).limit(1);
+          const L:any=ld&&ld[0]; if(!L){ toastErr("Lead not found in the database"); return; }
+          const {error:insErr}=await supabase.from("csv_leads").insert({
+            batch_id:null, date_time:L.lead_date||String(L.created_at||"").substring(0,10)||"",
+            campaign:L.campaign||"", ad_name:L.ad_name||"", lead_name:L.name||"Lead", phone:L.phone||"",
+            sugar_poll:L.sugar_poll||"", city:L.city||"", street:L.street||"",
+            source:L.source||"CSV", service:L.service||"Diabetes", name:L.name||"Lead", status:"valid"
+          });
+          if(insErr) throw insErr;
+          const {error:delErr}=await supabase.from("leads").delete().eq("meta_lead_id",id);
+          if(delErr) throw delErr;
+        }else{
+          // Live-feed origin: clear the pool + assignment flags; the row stays in `leads`
+          // and re-appears in the Live Incoming Feed. NOTE: pool_added_at is intentionally
+          // KEPT (not nulled) — it is the durable "was pooled" marker that protects a
+          // Meta lead from the sync prune (which would otherwise delete an out-of-crawl
+          // lead the moment it has no workflow state). See syncMetaLeadsToSupabase().
+          const {error}=await supabase.from("leads").update({in_pool:false,is_assigned:false,assigned_to:null}).eq("meta_lead_id",id);
+          if(error) throw error;
+          const ld=_metaLeads.find((x:any)=>String(x.id)===sid);
+          if(ld){ ld.inPool=false; ld.isAssigned=false; ld.assignedTo=""; }
+        }
+      }catch(e:any){
+        toastErr(/in_pool|column|schema|exist|relation/i.test(e.message||"")?"Run the assignment / CSV migrations first":"Return failed: "+(e.message||"db error"));
+        return;
+      }
+      // Refresh every dataset the lead could belong to, then re-render.
+      await loadOtherSourceLeads();
+      await loadCsvData();
+      await loadAssignmentExtras();
+      rebuildPoolFromDB();
+      rebuildIMP();
+      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      toast(nm+(isCsv?" returned to the Bulk CSV Import Wizard":" returned to the Live Incoming Feed"));
     };
     w._assignedDownload=()=>{
       const list=assignedLeads();

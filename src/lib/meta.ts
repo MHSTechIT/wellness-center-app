@@ -385,6 +385,10 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     // crawl it would come back as a fresh, unassigned row — the cause of
     // "assignments disappear after refresh". So a lead is only stale if it is
     // absent from this crawl AND carries no workflow state.
+    // pool_added_at counts as workflow state too: a lead that was ever sent to the
+    // assignment pool is "worked", even after it is returned to the Live Incoming
+    // Feed (in_pool=false) via the "Return to Pool" action — otherwise an out-of-crawl
+    // returned lead would be deleted on the very next sync.
     const keepIds = new Set(rows.map((r) => r.meta_lead_id));
     let existingFrom = 0;
     const staleIds: string[] = [];
@@ -392,14 +396,14 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     while (true) {
       const { data, error } = await supabase
         .from('leads')
-        .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status')
+        .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at')
         .eq('source', 'Meta Ads')
         .range(existingFrom, existingFrom + 999);
       if (error) break;
       if (!data || data.length === 0) break;
       data.forEach((r: any) => {
         if (!r.meta_lead_id || keepIds.has(r.meta_lead_id)) return;
-        const worked = r.is_assigned || (r.assigned_to && r.assigned_to !== '') || r.in_pool || (r.call_status && r.call_status !== '');
+        const worked = r.is_assigned || (r.assigned_to && r.assigned_to !== '') || r.in_pool || (r.call_status && r.call_status !== '') || r.pool_added_at;
         if (!worked) staleIds.push(r.meta_lead_id);
       });
       if (data.length < 1000) break;
