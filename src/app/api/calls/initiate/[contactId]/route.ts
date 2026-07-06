@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
-import { clickToCall, clickToCallSupport, normalizePhone } from '@/lib/tata';
+import { supabase } from '@/shared/supabase';
+import { clickToCall, clickToCallSupport, normalizePhone } from '@/server/tata';
 
 export const dynamic = 'force-dynamic';
 

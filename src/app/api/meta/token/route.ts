@@ -1,5 +1,5 @@
-import { supabase } from '@/lib/supabase';
-import { checkTokenValidity, exchangeForLongLivedToken } from '@/lib/meta';
+import { supabase } from '@/shared/supabase';
+import { checkTokenValidity, exchangeForLongLivedToken } from '@/server/meta';
 
 export const dynamic = 'force-dynamic';
 

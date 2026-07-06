@@ -1,4 +1,4 @@
-import { syncMetaLeadsToSupabase, getMetaToken } from '@/lib/meta';
+import { syncMetaLeadsToSupabase, getMetaToken } from '@/server/meta';
 
 export const dynamic = 'force-dynamic';
 // Hobby plan caps function duration at 60s. (On Pro+ this can be raised, but

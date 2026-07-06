@@ -1,6 +1,6 @@
 import { after } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import { pickAlias, digits10, downloadRecordingToStorage, normalizeCallStatus, isTerminalStatus, callStatusLabel, formatDuration } from '@/lib/tata';
+import { supabase } from '@/shared/supabase';
+import { pickAlias, digits10, downloadRecordingToStorage, normalizeCallStatus, isTerminalStatus, callStatusLabel, formatDuration } from '@/server/tata';
 
 export const dynamic = 'force-dynamic';
 

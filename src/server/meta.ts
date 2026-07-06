@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/shared/supabase';
 
 const GRAPH_API = 'https://graph.facebook.com/v21.0';
 const FETCH_TIMEOUT = 8000;
