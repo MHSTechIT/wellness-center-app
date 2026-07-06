@@ -856,8 +856,8 @@ function getMainContent(): string {
         <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Breakdown</div>
           <div class="sec-bd" id="scBreakdown"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">—</div></div></div>
         <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Quick test order</div>
-          <div class="sec-bd"><div class="pills"><button class="pill p-ok on">HbA1c</button><button class="pill p-ok on">FBS</button><button class="pill">Lipid</button><button class="pill">Thyroid</button></div>
-            <button class="btn bp bsm" style="margin-top:10px" onclick="toast('Ordered · slip printed')">Order &amp; print</button></div></div>
+          <div class="sec-bd"><div class="pills" id="scTestPills"><button type="button" class="pill p-ok on" onclick="window._scTogTest(this)">HbA1c</button><button type="button" class="pill p-ok on" onclick="window._scTogTest(this)">FBS</button><button type="button" class="pill" onclick="window._scTogTest(this)">Lipid</button><button type="button" class="pill" onclick="window._scTogTest(this)">Thyroid</button></div>
+            <button class="btn bp bsm" style="margin-top:10px" onclick="window._scOrderTests()">Order &amp; print</button></div></div>
       </div>
     </div>
   </div></section>
@@ -4767,7 +4767,7 @@ export default function Home() {
     w._haBmiCalc = _haBmiCalc;
 
     // ========== SCREENING MODULE (live data) ==========
-    let _scAll:any[]=[], _scFiltered:any[]=[], _scDate="today", _scOpenAppt:any=null, _scEligVal="";
+    let _scAll:any[]=[], _scFiltered:any[]=[], _scDate="today", _scOpenAppt:any=null, _scEligVal="", _scSvcFilter="";
     function _scDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_scDate==="today") return [sod(now),eod(now)];
@@ -4807,7 +4807,8 @@ export default function Home() {
       const mel=root.querySelector("#scMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
       // Queue
       const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5"];
-      const queue=f.filter((r:any)=>r.stage==="screening");
+      let queue=f.filter((r:any)=>r.stage==="screening");
+      if(_scSvcFilter) queue=queue.filter((r:any)=>(r.service||"Other")===_scSvcFilter);
       const ql=root.querySelector("#scQueueList"); const qc=root.querySelector("#scQueueCount");
       if(qc) qc.textContent=String(queue.length);
       if(ql) ql.innerHTML=queue.length?queue.map((r:any,i:number)=>{
@@ -4821,10 +4822,29 @@ export default function Home() {
       const bySvc:Record<string,{screened:number;waiting:number}>={};
       f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(r.screenedAt) bySvc[s].screened++; else bySvc[s].waiting++; });
       const svcIcon=(s:string)=>s.toLowerCase().includes("blood")?"🩸":s.toLowerCase().includes("physio")?"💪":"🩺";
-      const bd=root.querySelector("#scBreakdown"); if(bd) bd.innerHTML=Object.keys(bySvc).length?'<table class="tbl"><tbody>'+Object.entries(bySvc).map(([s,d])=>
-        '<tr><td style="font-weight:600">'+svcIcon(s)+' '+e(s)+'</td><td class="mono" style="text-align:right">'+d.screened+' screened · '+d.waiting+' waiting</td></tr>').join("")+'</tbody></table>'
+      const bd=root.querySelector("#scBreakdown"); if(bd) bd.innerHTML=Object.keys(bySvc).length?'<table class="tbl"><tbody>'+Object.entries(bySvc).map(([s,d])=>{
+        const on=_scSvcFilter===s;
+        return '<tr style="cursor:pointer'+(on?";background:var(--brand-tint)":"")+'" title="'+(on?"Showing only "+e(s)+" — click to clear":"Click to filter the queue to "+e(s))+'" onclick="window._scFilterSvc(\''+s.replace(/'/g,"\\'")+'\')"><td style="font-weight:600">'+(on?"● ":"")+svcIcon(s)+' '+e(s)+'</td><td class="mono" style="text-align:right">'+d.screened+' screened · '+d.waiting+' waiting</td></tr>';
+      }).join("")+'</tbody></table>'+(_scSvcFilter?'<div style="text-align:center;padding:6px 0 2px"><button type="button" class="pill" style="font-size:11px" onclick="window._scFilterSvc(\'\')">✕ Clear filter · show all</button></div>':'')
         :'<div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">—</div>';
     }
+    w._scFilterSvc=(s:string)=>{ _scSvcFilter=(s&&_scSvcFilter===s)?"":s; _scRenderAll();
+      const qh=root.querySelector("#scQueueList"); if(qh)(qh as HTMLElement).scrollIntoView?.({block:"nearest"}); };
+    w._scTogTest=(btn:HTMLElement)=>{ btn.classList.toggle("on"); };
+    w._scOrderTests=()=>{
+      const on=Array.from(root.querySelectorAll("#scTestPills .pill.on")).map((b:any)=>b.textContent.trim());
+      if(!on.length){ toastErr("Select at least one test to order"); return; }
+      const cur=_scOpenAppt;
+      const win=window.open("","_blank","width=640,height=720"); if(!win){ toastErr("Allow pop-ups to print the order slip"); return; }
+      const who=cur?(cur.name||"Client"):"—"; const ph=cur?(cur.ph||"—"):"—";
+      win.document.write('<html><head><title>Test order — '+who+'</title></head><body style="font-family:system-ui;padding:28px;color:#111">'
+        +'<h2 style="margin:0 0 4px">Lab Test Order</h2><p style="margin:0 0 14px;color:#555">'+who+' · '+ph+' · '+new Date().toLocaleString("en-IN")+'</p>'
+        +'<table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px;border:1px solid #ddd;background:#f6f6f6">#</th><th style="text-align:left;padding:6px;border:1px solid #ddd;background:#f6f6f6">Test</th></tr></thead><tbody>'
+        +on.map((t:string,i:number)=>'<tr><td style="padding:6px;border:1px solid #ddd;width:36px">'+(i+1)+'</td><td style="padding:6px;border:1px solid #ddd">'+t.replace(/</g,"&lt;")+'</td></tr>').join("")
+        +'</tbody></table><p style="margin-top:18px;color:#555;font-size:12px">Ordered by '+_scCurrentUser()+'</p></body></html>');
+      win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
+      toast("Ordered "+on.length+" test"+(on.length>1?"s":"")+" · slip printed");
+    };
     w._scOpenAssess=(id:number)=>{
       const r=_scAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;} _scOpenAppt=r;
       const el=(s:string)=>root.querySelector("#"+s)as any;
