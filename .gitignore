@@ -43,3 +43,8 @@ next-env.d.ts
 
 # old subdirectory artifacts
 wellness-app/
+
+# monorepo subprojects (client/ + server/) — ignore build output at any depth
+node_modules/
+.next/
+dist/

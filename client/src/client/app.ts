@@ -8,6 +8,12 @@ import { supabase } from "@/shared/supabase";
 export function initApp(root: HTMLElement) {
   const w = window as any;
 
+    // Backend API base URL. Empty = same-origin (dev / reverse-proxy). Set
+    // NEXT_PUBLIC_API_BASE_URL to the deployed server origin (e.g.
+    // https://api.example.com) when the client and server run separately.
+    const API_BASE=(process.env.NEXT_PUBLIC_API_BASE_URL||"").replace(/\/+$/,"");
+    const _api=(p:string)=>API_BASE+p;
+
     // ========== AUTH, RBAC & USER MANAGEMENT ==========
     let _currentUser:any = null;
     let _rbacMatrix:any = null;
@@ -2156,7 +2162,7 @@ export function initApp(root: HTMLElement) {
       const statusEl=root.querySelector("#metaFeedStatus");
       if(statusEl){ statusEl.textContent="Syncing from Meta…"; statusEl.classList.add("syncing"); }
       try{
-        const res=await fetch("/api/meta/sync",{method:"POST"});
+        const res=await fetch(_api("/api/meta/sync"),{method:"POST"});
         const data=await res.json().catch(()=>({}));
         if(data&&data.ok){
           _autoSyncFails=0;
@@ -2200,7 +2206,7 @@ export function initApp(root: HTMLElement) {
       const countEl=root.querySelector("#metaFeedCount");
       const haveData=_metaLeads&&_metaLeads.length>0;
       try{
-        const res=await fetch("/api/meta/leads");
+        const res=await fetch(_api("/api/meta/leads"));
         const data=await res.json();
         if(data.error){
           // Only a real schema problem is permanent; everything else (e.g. a
@@ -2288,7 +2294,7 @@ export function initApp(root: HTMLElement) {
       if(statusEl) statusEl.textContent="Syncing from Meta — crawling forms & filtering to your ad accounts…";
       toast("Meta sync started — this can take ~2 minutes");
       try{
-        const res=await fetch("/api/meta/sync",{method:"POST"});
+        const res=await fetch(_api("/api/meta/sync"),{method:"POST"});
         const data=await res.json();
         if(data.error){
           toast("Sync failed: "+data.error);
@@ -3428,9 +3434,9 @@ export function initApp(root: HTMLElement) {
     };
 
     // ===== Click-to-call (Tata Tele / Smartflo) — server keeps the API key =====
-    async function _callInitiate(id:string){ try{ const r=await fetch("/api/calls/initiate/"+encodeURIComponent(id),{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
-    async function _callRecordings(id:string){ try{ const r=await fetch("/api/calls/"+encodeURIComponent(id)+"/recordings"); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
-    async function _callTagLatest(id:string,t:string){ try{ const r=await fetch("/api/calls/"+encodeURIComponent(id)+"/latest-type",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({callType:t})}); return await r.json(); }catch(_){ return {ok:false}; } }
+    async function _callInitiate(id:string){ try{ const r=await fetch(_api("/api/calls/initiate/"+encodeURIComponent(id)),{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
+    async function _callRecordings(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/recordings")); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
+    async function _callTagLatest(id:string,t:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/latest-type"),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({callType:t})}); return await r.json(); }catch(_){ return {ok:false}; } }
     // After a call, poll for the recording the webhook delivers, then auto-tag it.
     function _pollRecordings(id:string,callType:string){
       const delays=[3000,15000,45000,120000,300000]; let surfaced=false;

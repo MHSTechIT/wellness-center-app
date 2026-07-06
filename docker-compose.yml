@@ -1,0 +1,28 @@
+# Local / single-host run of the full stack. On AWS these become two ECS/Fargate
+# services (or App Runner services) behind an ALB.
+services:
+  server:
+    build:
+      context: ./server
+    env_file:
+      - ./server/.env
+    environment:
+      PORT: "4000"
+      CORS_ORIGIN: "http://localhost:3000"
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      # NEXT_PUBLIC_* are baked into the browser bundle at build time.
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL}"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+        NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:4000}"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+    restart: unless-stopped

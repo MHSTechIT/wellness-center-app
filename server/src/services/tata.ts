@@ -5,7 +5,7 @@
 //    custom_identifier echoed back in the webhook, body-level error detection.
 //  - recordings re-hosted to Supabase Storage (Vercel has no persistent disk).
 // ============================================================
-import { supabase } from '@/shared/supabase';
+import { supabase } from '../shared/supabase';
 
 const SMARTFLO_URL = 'https://api-smartflo.tatateleservices.com/v1/click_to_call';
 const SMARTFLO_SUPPORT_URL = 'https://api-smartflo.tatateleservices.com/v1/click_to_call_support';
