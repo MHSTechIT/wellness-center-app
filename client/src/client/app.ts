@@ -14,6 +14,12 @@ export function initApp(root: HTMLElement) {
     const API_BASE=(process.env.NEXT_PUBLIC_API_BASE_URL||"").replace(/\/+$/,"");
     const _api=(p:string)=>API_BASE+p;
 
+    // Live numeric-only input guard (digits + one optional decimal). Wire via
+    // oninput="window._numOnly(this)" on money/number fields so letters and
+    // symbols can never be typed. _digitsOnly keeps digits only (phones, refs).
+    w._numOnly=(el:HTMLInputElement)=>{ if(!el)return; let v=(el.value||"").replace(/[^0-9.]/g,""); const i=v.indexOf("."); if(i>=0){ v=v.slice(0,i+1)+v.slice(i+1).replace(/\./g,""); } el.value=v; };
+    w._digitsOnly=(el:HTMLInputElement)=>{ if(!el)return; el.value=(el.value||"").replace(/[^0-9]/g,""); };
+
     // ========== AUTH, RBAC & USER MANAGEMENT ==========
     let _currentUser:any = null;
     let _rbacMatrix:any = null;
@@ -1281,6 +1287,7 @@ export function initApp(root: HTMLElement) {
       const role=(root.querySelector("#asgRole")as HTMLSelectElement)?.value||"Advisor";
       const branch=(root.querySelector("#asgBranch")as HTMLSelectElement)?.value||"Chennai";
       const phone=((root.querySelector("#asgPhone")as HTMLInputElement)?.value||"").trim();
+      if(phone&&!/^\d{10}$/.test(phone)){toast("Phone must be a 10-digit number");return;}
       try{
         if(_asgEditId){
           const {error}=await supabase.from("assignees").update({name,role,branch,phone}).eq("id",_asgEditId);
@@ -3230,6 +3237,7 @@ export function initApp(root: HTMLElement) {
       const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value||"";
       const prov=(root.querySelector("#nwProv")as HTMLSelectElement)?.value||"";
       if(!name||!ph){ toastErr("Enter name and phone"); return; }
+      if(!/^\d{10}$/.test(ph)){ toastErr("Enter a valid 10-digit mobile number"); return; }
       const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
       const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
@@ -3258,14 +3266,19 @@ export function initApp(root: HTMLElement) {
     }
     w._recOpen = recOpen;
     async function recConfirm() {
-      const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none";
       if(!_recCollect){ toast("Nothing to collect"); return; }
-      const amt=Number(((root.querySelector("#recWbAmt")as HTMLInputElement)?.value||"").replace(/[^0-9.]/g,""))||_recCollect.amt||0;
+      // Validate BEFORE hiding the panel, so failures keep the form open.
+      const raw=((root.querySelector("#recWbAmt")as HTMLInputElement)?.value||"").trim();
+      const amt=Number(raw.replace(/[^0-9.]/g,""));
+      const due=Number(_recCollect.amt)||0;
+      if(!raw||isNaN(amt)||amt<=0){ toastErr("Enter a valid amount — numbers only"); return; }
+      if(due>0&&amt>due){ toastErr("Received (₹"+amt.toLocaleString("en-IN")+") cannot exceed the due (₹"+due.toLocaleString("en-IN")+")"); return; }
       const modeEl=root.querySelector("#recWbMode")as HTMLSelectElement|null;
       const method=(modeEl?.value||"UPI").toLowerCase();
       const txnEl=root.querySelector("#recWbTxn")as HTMLInputElement|null;
       const txnRef=(txnEl?.value||"").trim();
       if(method!=="cash"&&!txnRef){ toastErr("Enter the transaction reference for "+method.toUpperCase()+" payments"); return; }
+      const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none";
       try{
         await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString()});
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);

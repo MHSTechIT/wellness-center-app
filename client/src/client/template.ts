@@ -328,7 +328,7 @@ export function getMainContent(): string {
           <div class="g4" style="margin-top:3px">
             <div class="fld"><label class="lbl">Program suggested</label><select class="select" id="haProgram" onchange="window._payCalcAll()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
             <div class="fld"><label class="lbl">L1 price · full only</label><select class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
-            <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono" id="haSpecialAmt" oninput="window._payCalcAll()"></div>
+            <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono" id="haSpecialAmt" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this);window._payCalcAll()"></div>
             <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" oninput="window._payCalcAll()"></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code — special discount <span class="nb">NEW</span></label>
               <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
@@ -408,7 +408,7 @@ export function getMainContent(): string {
 
           <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Advance booking — locks the price, starts the clock</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Advance (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Advance (₹2K–5K)</label><input class="input mono" id="advAmt" placeholder="e.g. 2000" oninput="window._payCalcAdv()"></div>
+              <div class="fld"><label class="lbl">Advance (₹2K–5K)</label><input class="input mono" id="advAmt" placeholder="e.g. 2000" inputmode="numeric" maxlength="9" oninput="window._numOnly(this);window._payCalcAdv()"></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Advance date</label><input class="input" type="date" id="advDate"></div>
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advRef" placeholder="Mandatory"></div>
@@ -754,7 +754,7 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="g4" style="gap:8px">
               <div class="fld"><label class="lbl">Name *</label><input class="input" style="height:34px" id="nwName"></div>
-              <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:34px" id="nwPhone" placeholder="+91"></div>
+              <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:34px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
               <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:34px"></div>
               <div class="fld"><label class="lbl">Email</label><input class="input" style="height:34px"></div>
               <div class="fld"><label class="lbl">Gender</label><select class="select" style="height:34px"><option>Male</option><option>Female</option><option>Other</option></select></div>
@@ -797,7 +797,7 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
             <div id="recWb" class="hideblock" style="display:none;border:1.5px solid var(--brand-line);border-radius:11px;padding:11px 13px;margin-top:8px;background:linear-gradient(180deg,#F7FCFA,#fff)">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b id="recWbName" style="font-family:var(--disp);font-size:14px">—</b><span class="chipb info" id="recWbPlan">—</span></div>
-              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt"></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px" id="recWbTxn"></div></div>
+              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this)"></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
               <div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" onclick="recConfirm()">Confirm → Accounts</button><button class="btn bsm" onclick="recBack()">↩ Back</button></div>
             </div>
           </div></div>
@@ -1025,7 +1025,7 @@ export function getMainContent(): string {
             <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="asgName" placeholder="e.g. Priya K." style="height:34px;width:160px"></div>
             <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option><option>Health Coach</option></select></div>
             <div class="fld" style="margin:0"><label class="lbl">Branch</label><select class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
-            <div class="fld" style="margin:0"><label class="lbl">Phone</label><input class="input mono" id="asgPhone" placeholder="optional" style="height:34px;width:140px"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Phone</label><input class="input mono" id="asgPhone" placeholder="optional · 10 digits" style="height:34px;width:140px" type="tel" inputmode="numeric" maxlength="10" oninput="window._digitsOnly(this)"></div>
             <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
             <button class="btn bsm" id="asgCancelBtn" onclick="window._asgCancelEdit()" style="height:34px;display:none">Cancel</button>
           </div>
