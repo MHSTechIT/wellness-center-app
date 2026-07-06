@@ -4852,23 +4852,37 @@ export default function Home() {
       if(_scEligVal==="no") root.querySelector("#scEligPills .pill.p-al")?.classList.add("on");
       const ap=root.querySelector("#scAssessPanel")as HTMLElement; if(ap) ap.style.display="block";
       // Load history
-      _scLoadHistory(r.lead_id);
+      _scLoadHistory(r);
       _scRenderAll();
     };
     w._scCloseAssess=()=>{ _scOpenAppt=null; const ap=root.querySelector("#scAssessPanel")as HTMLElement; if(ap)ap.style.display="none"; _scRenderAll(); };
     w._scElig=(val:string,btn:HTMLElement)=>{ _scEligVal=val; root.querySelectorAll("#scEligPills .pill").forEach((b:any)=>b.classList.remove("on")); btn.classList.add("on"); };
-    async function _scLoadHistory(leadId:string){
+    // Previous screenings for the SAME client — every prior visit's saved vitals
+    // (appointments.screening_vitals_data), keyed by lead_id (phone as fallback),
+    // excluding the visit currently being screened.
+    async function _scLoadHistory(cur:any){
       const wrap=root.querySelector("#scHistoryWrap"); if(!wrap)return;
-      if(!leadId){ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No history.</div>'; return; }
+      const none=(msg:string)=>{ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">'+msg+'</div>'; };
+      if(!cur){ none("Open a client to see history."); return; }
       try{
-        const {data}=await supabase.from("leads").select("screening_vitals").eq("meta_lead_id",leadId).limit(1);
-        const sv=(data&&data[0]&&data[0].screening_vitals)||null;
-        if(!sv){ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No previous screening records.</div>'; return; }
-        const e=(s:any)=>String(s??"—");
-        wrap.innerHTML='<table class="tbl"><thead><tr><th>Date</th><th>BMI</th><th>BP</th><th>Glucose</th><th>By</th></tr></thead><tbody>'
-          +'<tr><td class="mono">'+(sv.screened_at?new Date(sv.screened_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—")+'</td><td class="mono">'+e(sv.bmi)+'</td><td class="mono">'+e(sv.bp)+'</td><td class="mono">'+e(sv.glucose)+'</td><td>'+e(sv.screened_by)+'</td></tr>'
-          +'</tbody></table><p style="font-size:11px;color:var(--faint);margin:6px 0 0">Screening records from leads.screening_vitals.</p>';
-      }catch(_){ wrap.innerHTML='<div style="color:var(--faint);padding:8px;font-size:12px">Could not load history.</div>'; }
+        let q=supabase.from("appointments").select("id,appt_date,screening_vitals_data").not("screening_vitals_data","is",null).order("appt_date",{ascending:false}).limit(30);
+        if(cur.lead_id) q=q.eq("lead_id",cur.lead_id);
+        else if(cur.ph) q=q.eq("phone",cur.ph);
+        else { none("No previous screening records."); return; }
+        const {data}=await q;
+        let rows=(data||[]).filter((a:any)=>String(a.id)!==String(cur.id)&&a.screening_vitals_data&&a.screening_vitals_data.screened_at);
+        // Fallback: the single leads.screening_vitals record, if no per-visit history exists.
+        if(!rows.length&&cur.lead_id){
+          const {data:ld}=await supabase.from("leads").select("screening_vitals").eq("meta_lead_id",cur.lead_id).limit(1);
+          const sv=ld&&ld[0]&&ld[0].screening_vitals;
+          if(sv&&sv.screened_at) rows=[{id:"leads-sv",appt_date:(sv.screened_at||"").substring(0,10),screening_vitals_data:sv}];
+        }
+        if(!rows.length){ none("No previous screening records."); return; }
+        const e=(s:any)=>String(s??"—").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        wrap.innerHTML='<div class="tscroll" style="max-height:230px"><table class="tbl"><thead><tr><th>Date</th><th>Height</th><th>Weight</th><th>BMI</th><th>BP</th><th>Glucose</th><th>Eligible</th><th>Screened by</th></tr></thead><tbody>'
+          +rows.map((a:any)=>{const sv=a.screening_vitals_data||{}; const dt=sv.screened_at||a.appt_date; const el=sv.eligible==="no"?'<span class="chipb al">Not eligible</span>':sv.eligible==="yes"?'<span class="chipb ok">Eligible</span>':"—"; return '<tr><td class="mono">'+(dt?new Date(dt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—")+'</td><td class="mono">'+e(sv.height)+'</td><td class="mono">'+e(sv.weight)+'</td><td class="mono">'+e(sv.bmi)+'</td><td class="mono">'+e(sv.bp)+'</td><td class="mono">'+e(sv.glucose)+'</td><td>'+el+'</td><td>'+e(sv.screened_by)+'</td></tr>';}).join("")
+          +'</tbody></table></div><p style="font-size:11px;color:var(--faint);margin:6px 0 0">'+rows.length+' previous screening'+(rows.length===1?"":"s")+' for this client.</p>';
+      }catch(_){ none("Could not load history."); }
     }
     // The logged-in screener's name for the "Screened by (AUTO)" field.
     function _scCurrentUser(){ return _currentUser?(((_currentUser.name||"").trim())||((_currentUser.email||"").split("@")[0])||"Screening desk"):"Screening desk"; }
