@@ -489,7 +489,7 @@ function getMainContent(): string {
         <span style="color:var(--faint);font-size:12px">to</span>
         <input class="input mono" id="impDateTo" type="datetime-local" title="To date &amp; time" style="height:33px;font-size:11.5px;width:182px">
         <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option></select>
-        <select class="select" id="impService" style="height:33px;font-size:12px;width:150px"><option value="all">All Services</option><option>Diabetes</option><option>Physiotherapy</option><option>Blood Test</option><option>Sona Booth</option></select>
+        <select class="select" id="impService" style="height:33px;font-size:12px;width:150px"><option value="all">All Services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select>
         <button class="btn bsm bp" onclick="window._impApplyFilters()">Apply</button>
         <button class="btn bsm" onclick="window._impClearFilters()">Clear</button>
       </div>
@@ -542,7 +542,7 @@ function getMainContent(): string {
               <p style="margin:4px 0 3px;font-weight:600;color:var(--ink)" id="csvFileName">Click to choose a CSV file</p>
               <p style="font-size:12px;margin:0" id="csvFileInfo">Use the template above for the correct columns</p>
             </label></div>
-          <div><div class="g2" style="gap:9px;margin-top:0"><select class="select" id="csvSource"><option>Meta</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select" id="csvBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select><select class="select" id="csvBatch"><option>WK-JUN-04</option><option>WK-JUN-03</option><option>WK-JUL-01</option></select><select class="select" id="csvService"><option>Diabetes</option><option>Physio</option><option>Blood test</option></select></div>
+          <div><div class="g2" style="gap:9px;margin-top:0"><select class="select" id="csvSource"><option>Meta</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select" id="csvBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select><select class="select" id="csvBatch"><option>WK-JUN-04</option><option>WK-JUN-03</option><option>WK-JUL-01</option></select><select class="select" id="csvService"><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
             <div id="csvSummary" style="background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:13px;font-size:12.5px;color:var(--faint);font-weight:600">Upload a CSV to see the de-dupe summary</div>
             <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
         </div>
@@ -1003,7 +1003,7 @@ function getMainContent(): string {
         <div class="fld"><label class="lbl">Period</label><select class="select" id="repPeriod" onchange="window._repLoad()"><option value="today">Today</option><option value="month" selected>This month</option><option value="quarter">Quarter</option><option value="all">All time</option></select></div>
         <div class="fld"><label class="lbl">Source</label><select class="select" id="repSource" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
         <div class="fld"><label class="lbl">Language</label><select class="select" id="repLang" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
-        <div class="fld"><label class="lbl">Service</label><select class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All</option><option value="Diabetes">Diabetes</option><option value="Blood test">Blood test</option><option value="Physio">Physio</option></select></div>
+        <div class="fld"><label class="lbl">Service</label><select class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All</option><option value="Diabetes">Diabetes Counselling</option><option value="Weight Loss">Weight Loss Counselling</option><option value="Sauna">Sauna Bath</option><option value="Physio">Physiotherapy</option><option value="Cold">Cold Plunge</option><option value="Blood">Blood Test</option><option value="HBOT">HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
       </div></div></div>
     <div class="rep-pick">
       <button class="rep on" onclick="window._repTab('lead')"><svg class="icon"><use href="#i-inbox"/></svg> Lead report</button>
@@ -1623,10 +1623,13 @@ export default function Home() {
     // Map a stored service value to a canonical filter option.
     function normService(s:string){
       const x=(s||"").toLowerCase();
-      if(x.indexOf("diab")>=0)return "Diabetes";
+      if(x.indexOf("weight")>=0||x.indexOf("wt loss")>=0)return "Weight Loss Counselling";
+      if(x.indexOf("diab")>=0||x.indexOf("sugar")>=0)return "Diabetes Counselling";
+      if(x.indexOf("sauna")>=0||x.indexOf("sona")>=0)return "Sauna Bath";
+      if(x.indexOf("cold")>=0||x.indexOf("plunge")>=0)return "Cold Plunge";
       if(x.indexOf("phys")>=0)return "Physiotherapy";
       if(x.indexOf("blood")>=0)return "Blood Test";
-      if(x.indexOf("sona")>=0)return "Sona Booth";
+      if(x.indexOf("hbot")>=0||x.indexOf("hyperbaric")>=0||x.indexOf("oxygen")>=0)return "HBOT (Hyperbaric Oxygen Therapy)";
       return s||"";
     }
     function leadPasses(dateObj:Date,source:string,service?:string){
@@ -1907,7 +1910,7 @@ export default function Home() {
         +'<div class="fld"><label class="lbl">Phone *</label><input class="input mono" id="slPhone" placeholder="+91…"></div>'
         +'<div class="fld"><label class="lbl">Email</label><input class="input" id="slEmail" placeholder="email@example.com"></div>'
         +'<div class="fld"><label class="lbl">Source</label><select class="select" id="slSource"><option>Walk-in / Referral / Telecalling</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Manual</option></select></div>'
-        +'<div class="fld"><label class="lbl">Service</label><select class="select" id="slService"><option>Diabetes</option><option>Physio</option><option>Blood test</option></select></div>'
+        +'<div class="fld"><label class="lbl">Service</label><select class="select" id="slService"><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>'
         +'<div class="fld"><label class="lbl">Language</label><select class="select" id="slLang"><option>Tamil</option><option>Telugu</option><option>English</option><option>Hindi</option></select></div>'
         +'<div class="fld"><label class="lbl">City</label><input class="input" id="slCity" placeholder="City"></div>'
         +'<div class="fld"><label class="lbl">Sugar level</label><select class="select" id="slSugar"><option value="">—</option><option>No Sugar</option><option>150-250</option><option>Above 250</option></select></div>'
