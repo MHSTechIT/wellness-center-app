@@ -29,15 +29,15 @@ export function getMainContent(): string {
     <div id="advDetailPane" style="flex:1;min-width:0">
     <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"/></svg> <span id="advCtxText"></span></div>
     <div class="chead">
-      <span class="cav" id="advAv">AK</span>
+      <span class="cav" id="advAv"></span>
       <div class="cmeta">
-        <h1 id="advName">Ajith Kumar</h1>
-        <div class="sub" id="advSub"><span class="mono">+91 98●●● ●●●21</span><span>·</span><span class="mono">Lead #10318</span><span>·</span>Batch <span class="mono">WK-JUN-04</span></div>
-        <div class="cbadges" id="advBadges"><span class="chipb ok">First visit</span><span class="chipb neu">Meta · Tamil</span><span class="chipb warn">Sugar 150–250</span></div>
+        <h1 id="advName">No lead selected</h1>
+        <div class="sub" id="advSub"><span style="color:var(--faint)">Open a lead from Assigned leads to begin</span></div>
+        <div class="cbadges" id="advBadges"></div>
       </div>
       <div class="cacts">
         <div style="text-align:center"><div class="ring"><svg width="62" height="62" viewBox="0 0 62 62"><circle class="bgc" cx="31" cy="31" r="26"/><circle class="fgc" id="aRing" cx="31" cy="31" r="26" stroke="#C07F0E" stroke-dasharray="163.4" stroke-dashoffset="42"/></svg><span class="rc" id="aClock" style="color:var(--warn-ink)">3:09</span></div><div class="rl">SLA · 4h</div></div>
-        <span class="chipb vio" id="consBadge" style="height:30px">Status: New</span>
+        <span class="chipb vio" id="consBadge" style="height:30px">Status: —</span>
         <button class="btn bp" id="callBtn"><svg class="icon"><use href="#i-phone"/></svg> <span>Call</span></button>
         <button class="btn bwa"><svg class="icon"><use href="#i-msg"/></svg> WA</button>
       </div>
@@ -61,12 +61,12 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" id="advfWhats" value=""></div>
           <div class="fld"><label class="lbl">Email</label><input class="input" id="advfEmail" placeholder="email@example.com"></div>
           <div class="fld"><label class="lbl">Gender</label><select class="select"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
-          <div class="fld"><label class="lbl">Age</label><input class="input mono" type="number" min="1" max="120" value="42" placeholder="e.g. 42"></div>
+          <div class="fld"><label class="lbl">Age</label><input class="input mono" type="number" min="1" max="120" placeholder="e.g. 42"></div>
           <div class="fld"><label class="lbl">Occupation <span class="nb">NEW</span></label><select class="select" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
           <div class="fld"><label class="lbl">Language</label><select class="select"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
           <div class="fld"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
           <div class="fld"><label class="lbl">Lead generated <span class="ab">AUTO</span></label><input class="input mono" id="haLeadGen" readonly></div>
-          <div class="fld"><label class="lbl">Batch code</label><input class="input mono" value="WK-JUN-04"></div>
+          <div class="fld"><label class="lbl">Batch code</label><input class="input mono" id="haBatch" placeholder="—"></div>
           <div class="fld"><label class="lbl">Location</label><select class="select"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
           <div class="fld" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
         </div></div></div>
@@ -74,10 +74,10 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl">Sugar level</label><select class="select"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
-          <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date" value="2026-05-28"></div>
-          <div class="fld"><label class="lbl">Fasting (mg/dL)</label><input class="input mono" value="162"></div>
-          <div class="fld"><label class="lbl">Postprandial (mg/dL)</label><input class="input mono" value="231"></div>
-          <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" value="8.4"></div>
+          <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date"></div>
+          <div class="fld"><label class="lbl">Fasting (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
+          <div class="fld"><label class="lbl">Postprandial (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
+          <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" type="number" placeholder="—"></div>
           <div class="fld"><label class="lbl">Treatment <span class="nb">NEW</span></label><select class="select"><option selected>Allopathy</option><option>Siddha</option><option>Ayurveda</option><option>Homeopathy</option><option>No Treatment</option><option>Skipped</option></select></div>
           <div class="fld"><label class="lbl">Years of treatment <span class="nb">NEW</span></label><select class="select"><option>Less than 1 yr</option><option>1–2 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
           <div class="fld fw"><label class="lbl">Blood report — attachment <span class="nb">NEW</span></label>
@@ -101,9 +101,9 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Salesperson</label><select class="select" id="salesSel"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Sales team</label><select class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
           <div class="fld"><label class="lbl">HC assigned <span class="nb">NEW</span></label><select class="select" id="hcSel"><option value="">— Select —</option></select></div>
-          <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star on">★</span><span class="star on">★</span><span class="star">★</span></div></div>
-          <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="62" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">62%</span></div></div>
-          <div class="fld"><label class="lbl">Tags</label><input class="input" value="hot-lead, walk-in-jun"></div>
+          <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
+          <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
+          <div class="fld"><label class="lbl">Tags</label><input class="input" placeholder="e.g. hot-lead, follow-up"></div>
         </div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-phone"/></svg> Call status <span class="nb">NEW</span> <span class="arr">▾</span></div>
@@ -122,14 +122,11 @@ export function getMainContent(): string {
               <div><label class="lbl" style="color:var(--vio-ink)">Reason / intent</label><select class="select" style="height:36px"><option>Will decide this week</option><option>Family discussion needed</option><option>Budget / salary date</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Planned date &amp; time *</label><input class="input" style="height:36px" type="datetime-local"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Reminder before</label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Attempt # <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" value="3 of 5" readonly></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Attempt # <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" readonly placeholder="—"></div>
             </div>
             <div><label class="lbl" style="color:var(--vio-ink)">Follow-up notes</label>
               <div style="display:flex;gap:8px"><input class="input" id="fuNoteA" style="height:36px;background:#fff" placeholder="e.g. Wants to check with brother…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNoteA()">Add note</button></div>
-              <div id="fuNotesA" style="margin-top:9px;display:flex;flex-direction:column;gap:6px">
-                <div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt 2 · 12-Jun 08:58</b> — RNR; sent WA.</div>
-                <div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt 1 · 11-Jun 18:40</b> — Interested but busy.</div>
-              </div></div>
+              <div id="fuNotesA" style="margin-top:9px;display:flex;flex-direction:column;gap:6px"></div></div>
           </div>
         </div></div>
 
@@ -148,11 +145,11 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">Date</label><input class="input" type="date" id="slotDate" onchange="renderSlots()"></div>
             <div class="fld"><label class="lbl">HC</label><select class="select" id="apptHc"><option value="">— Select —</option></select></div>
             <div class="fld"><label class="lbl">Capacity rule</label><input class="input mono" value="Max 4 bookings / slot" readonly></div>
-            <div class="fld"><label class="lbl">Appt request <span class="ab">AUTO</span></label><input class="input mono" value="12-Jun 09:02" readonly></div>
+            <div class="fld"><label class="lbl">Appt request <span class="ab">AUTO</span></label><input class="input mono" id="apptReq" readonly placeholder="—"></div>
           </div>
           <div class="fld"><label class="lbl">Day view — slot occupancy</label><div class="slotgrid" id="slotGrid"></div></div>
           <div class="banner plan hideblock" id="reschBanner" style="display:none"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg> <span>Reschedule mode — pick new slot.</span></div>
-          <div style="display:flex;gap:9px;margin-top:13px"><button class="btn bp" id="bookBtn" onclick="bookSlot()"><svg class="icon"><use href="#i-check"/></svg> Book Ajith into selected slot</button><button class="btn hideblock" id="reschBtn" style="display:none" onclick="startResch()"><svg class="icon"><use href="#i-repeat"/></svg> Reschedule</button></div>
+          <div style="display:flex;gap:9px;margin-top:13px"><button class="btn bp" id="bookBtn" onclick="bookSlot()"><svg class="icon"><use href="#i-check"/></svg> <span id="bookBtnLabel">Book into selected slot</span></button><button class="btn hideblock" id="reschBtn" style="display:none" onclick="startResch()"><svg class="icon"><use href="#i-repeat"/></svg> Reschedule</button></div>
         </div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
