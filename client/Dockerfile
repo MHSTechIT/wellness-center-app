@@ -4,10 +4,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-# NEXT_PUBLIC_API_BASE_URL is inlined into the browser bundle at build time
-# (the backend origin), so it must be present during `next build`.
-ARG NEXT_PUBLIC_API_BASE_URL
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+# API_PROXY_TARGET is the backend URL the Next server proxies /db,/auth,/storage,
+# /api to. Next bakes the rewrite target at BUILD time, so it MUST be set here.
+# In docker-compose this is the "server" service; on ECS use the backend's URL.
+ARG API_PROXY_TARGET=http://server:4000
+ENV API_PROXY_TARGET=$API_PROXY_TARGET
 RUN npm run build
 
 # ---- Runtime stage ----

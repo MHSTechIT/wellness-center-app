@@ -16,9 +16,11 @@ services:
   client:
     build:
       context: ./client
-      # The backend origin is baked into the browser bundle at build time.
+      # The Next server proxies /db,/auth,/storage,/api to the backend. Next bakes
+      # this target at build time, so it's a build arg. "server" is the backend
+      # service name on this compose network (reachable at runtime).
       args:
-        NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:4000}"
+        API_PROXY_TARGET: "${API_PROXY_TARGET:-http://server:4000}"
     ports:
       - "3000:3000"
     depends_on:

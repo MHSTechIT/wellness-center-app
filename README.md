@@ -53,28 +53,40 @@ docker compose up --build
 # client → http://localhost:3000 , server → http://localhost:4000
 ```
 
-## Deploy on AWS (ECS/Fargate)
-Two independent images — build, push to ECR, run as two services behind one ALB.
+## Deploy on AWS
+Two services must BOTH run: the **client** (Next.js) and the **server** (Express).
+The client's Next server proxies `/db`, `/auth`, `/storage`, `/api` to the backend.
 
+> ⚠️ **The #1 production gotcha:** Next bakes the proxy target at **BUILD time**.
+> You MUST build the client with `API_PROXY_TARGET` = the backend's reachable URL.
+> If you don't, it defaults to `http://server:4000` (docker) / `localhost:4200`
+> and the client's `/db` & `/auth` calls **404 in production**.
+
+Easiest — single EC2 box with Docker:
 ```bash
-# Backend
-docker build -t <acct>.dkr.ecr.<region>.amazonaws.com/wellness-server ./server
-# Frontend (bake the public envs in)
-docker build ./client \
-  --build-arg NEXT_PUBLIC_SUPABASE_URL=... \
-  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=... \
-  --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.<your-domain> \
-  -t <acct>.dkr.ecr.<region>.amazonaws.com/wellness-client
-# docker push both …
+docker compose up --build -d       # client :3000  +  server :4000, wired automatically
+# server/.env must have PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE + META_*/TATA_*
 ```
 
-Suggested topology:
-- **ALB** → `/api/*` to the **server** target group (port 4000, health `/health`);
-  everything else to the **client** target group (port 3000).
-- Or host client + server on separate subdomains and set `NEXT_PUBLIC_API_BASE_URL`
-  to the API subdomain (CORS already handles cross-origin).
-- Set each service's env vars from the corresponding `.env.example`. The server
-  needs the `PG*` PostgreSQL connection vars (only the server touches the DB).
+ECS/Fargate (two images):
+```bash
+# Backend
+docker build -t <ecr>/wellness-server ./server
+# Frontend — MUST bake the backend URL the Next server will proxy to:
+docker build ./client --build-arg API_PROXY_TARGET=https://api.<your-domain> \
+  -t <ecr>/wellness-client
+```
+- Server task env: `PG*` (PostgreSQL) + `META_*` + `TATA_*` (see `server/.env.example`).
+- Health check: `GET /health` on the server (port 4000).
+- Client → server must be reachable at whatever `API_PROXY_TARGET` you baked
+  (an internal ALB/service URL, or a public `https://api.<domain>`).
+
+Non-Docker (PM2 on EC2): run the backend (`npm --prefix server start`, with `PG*`
+env), then build the client with the backend URL and start it:
+```bash
+API_PROXY_TARGET=http://localhost:4200 npm --prefix client run build
+PORT=3000 npm --prefix client start
+```
 
 The server runs an in-process daily Meta-token refresh (replaces the old Vercel
 cron). For webhooks, point Smartflo at `https://api.<your-domain>/api/calls/webhook/recording`.
