@@ -1118,8 +1118,15 @@ export function initApp(root: HTMLElement) {
     w._feedFilterSelectAll=(checked:boolean)=>{ if(!_ffOpen)return; _ffOpen.shown.forEach((v:string)=>{ if(checked)_ffOpen!.sel.add(v); else _ffOpen!.sel.delete(v); }); renderFeedFilterList(); };
     w._feedFilterApply=()=>{ if(!_ffOpen)return; const {key,values,sel}=_ffOpen; if(sel.size>=values.length) delete _feedColF[key]; else _feedColF[key]=new Set(sel); _ffOpen=null; ensureFeedPopup().style.display="none"; _metaPageNum=1; renderMetaPage(); };
     w._feedFilterClear=()=>{ if(!_ffOpen)return; delete _feedColF[_ffOpen.key]; _ffOpen=null; ensureFeedPopup().style.display="none"; _metaPageNum=1; renderMetaPage(); };
-    // Close the popup on any outside click.
-    document.addEventListener("click",(e:any)=>{ if(!_ffOpen)return; const pop=root.querySelector("#feedFilterPopup"); if(pop&&pop.contains(e.target))return; _ffOpen=null; if(pop)(pop as HTMLElement).style.display="none"; });
+    // Auto-close the filter popup like a standard data grid: outside click, scroll
+    // (page or any table), Esc, or losing the window. Scrolling INSIDE the popup's
+    // own value list must NOT close it.
+    function closeFeedFilter(){ if(!_ffOpen)return; _ffOpen=null; const pop=root.querySelector("#feedFilterPopup"); if(pop)(pop as HTMLElement).style.display="none"; }
+    document.addEventListener("click",(e:any)=>{ if(!_ffOpen)return; const pop=root.querySelector("#feedFilterPopup"); if(pop&&pop.contains(e.target))return; closeFeedFilter(); });
+    window.addEventListener("scroll",(e:any)=>{ if(!_ffOpen)return; const pop=root.querySelector("#feedFilterPopup"); if(pop&&e.target&&pop.contains(e.target))return; closeFeedFilter(); },true);
+    document.addEventListener("keydown",(e:any)=>{ if(_ffOpen&&(e.key==="Escape"||e.key==="Esc")) closeFeedFilter(); });
+    window.addEventListener("resize",()=>closeFeedFilter());
+    window.addEventListener("blur",()=>closeFeedFilter());
     // Shared pager-button state for all tables: First/Prev disabled on page 1,
     // Next/Last disabled on the last page. Button ids follow <prefix>{First,Prev,Next,Last}Btn.
     function _pgBtns(prefix:string,page:number,pages:number){
