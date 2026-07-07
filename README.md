@@ -11,26 +11,28 @@ project/
 └── package.json    # root orchestration scripts
 ```
 
-- **client/** — the browser app. Talks to Supabase directly for most data, and
-  calls the backend for Meta sync/leads and click-to-call.
-- **server/** — a plain Node/Express service. Owns the secrets (Meta tokens,
-  Tata API key) and exposes `/api/*`. Reuses the framework-agnostic
-  `services/meta.ts` and `services/tata.ts` modules.
-- Data platform: **Supabase** (Postgres + Auth + Realtime + Storage).
+- **client/** — the browser app. Talks ONLY to the backend (no DB credentials in
+  the browser): `/db` for data, `/auth` for login, `/storage` for files, `/api/*`
+  for Meta sync/leads and click-to-call.
+- **server/** — a plain Node/Express service. Owns the secrets (PostgreSQL creds,
+  Meta tokens, Tata API key), connects to PostgreSQL via `pg`, and exposes the
+  data gateway + auth + storage + `/api/*`.
+- Data platform: **self-managed PostgreSQL** (no Supabase, no external DB service).
 
 ## Prerequisites
 - Node.js 20+
 - Docker (for the container workflow)
-- A Supabase project; Meta & Tata credentials (see the `.env.example` files)
+- A PostgreSQL database; Meta & Tata credentials (see the `.env.example` files).
+  Apply `db/schema.sql` to the database once to create the tables.
 
 ## Environment
 Copy the examples and fill them in:
 
 | File | Used by | Contains |
 |------|---------|----------|
-| `client/.env.local` | Next.js (client) | `NEXT_PUBLIC_SUPABASE_*`, `NEXT_PUBLIC_API_BASE_URL` |
-| `server/.env` | Express (server) | Supabase, all `META_*` and `TATA_*` secrets |
-| `.env` (root) | docker-compose | `NEXT_PUBLIC_*` build args for the client image |
+| `client/.env.local` | Next.js (client) | `NEXT_PUBLIC_API_BASE_URL` (the backend origin) |
+| `server/.env` | Express (server) | `PG*` (PostgreSQL), all `META_*` and `TATA_*` secrets |
+| `.env` (root) | docker-compose | `NEXT_PUBLIC_API_BASE_URL` build arg for the client image |
 
 > `NEXT_PUBLIC_*` values are inlined into the browser bundle **at build time**.
 > `NEXT_PUBLIC_API_BASE_URL` is the backend origin (empty = same-origin).
@@ -71,12 +73,13 @@ Suggested topology:
   everything else to the **client** target group (port 3000).
 - Or host client + server on separate subdomains and set `NEXT_PUBLIC_API_BASE_URL`
   to the API subdomain (CORS already handles cross-origin).
-- Set each service's env vars from the corresponding `.env.example`. Use a
-  Supabase **service-role** key for the server (`SUPABASE_SERVICE_ROLE_KEY`).
+- Set each service's env vars from the corresponding `.env.example`. The server
+  needs the `PG*` PostgreSQL connection vars (only the server touches the DB).
 
 The server runs an in-process daily Meta-token refresh (replaces the old Vercel
 cron). For webhooks, point Smartflo at `https://api.<your-domain>/api/calls/webhook/recording`.
 
 ## Database
-SQL migrations for Supabase live in `*.sql` at the repo root — run them in the
-Supabase SQL editor.
+The consolidated schema is `db/schema.sql` — apply it once to your PostgreSQL
+(`psql "<conn>" -f db/schema.sql`, or via pgAdmin). The older `supabase-*.sql`
+files are the historical per-feature migrations it was built from.

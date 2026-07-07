@@ -232,13 +232,15 @@ CREATE INDEX IF NOT EXISTS idx_lead_activity_lead ON lead_activity(lead_id, crea
 
 -- 11. RBAC: app_users + app_settings -------------------------
 CREATE TABLE IF NOT EXISTS app_users (
-  id         BIGSERIAL PRIMARY KEY,
-  email      TEXT UNIQUE NOT NULL,
-  name       TEXT,
-  role       TEXT NOT NULL DEFAULT 'Advisor',
-  active     BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now()
+  id            BIGSERIAL PRIMARY KEY,
+  email         TEXT UNIQUE NOT NULL,
+  name          TEXT,
+  role          TEXT NOT NULL DEFAULT 'Advisor',
+  active        BOOLEAN NOT NULL DEFAULT true,
+  password_hash TEXT,               -- scrypt$salt$hash (set via /auth/signup)
+  created_at    TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 CREATE INDEX IF NOT EXISTS idx_app_users_email ON app_users(lower(email));
 
 CREATE TABLE IF NOT EXISTS app_settings (

@@ -4,14 +4,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-# NEXT_PUBLIC_* are inlined into the browser bundle at build time, so they must
-# be present during `next build` — pass them as --build-arg.
-ARG NEXT_PUBLIC_SUPABASE_URL
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+# NEXT_PUBLIC_API_BASE_URL is inlined into the browser bundle at build time
+# (the backend origin), so it must be present during `next build`.
 ARG NEXT_PUBLIC_API_BASE_URL
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
-    NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
-    NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 RUN npm run build
 
 # ---- Runtime stage ----

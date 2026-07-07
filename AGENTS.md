@@ -18,18 +18,26 @@ client/                     FRONTEND — Next.js 16 + React 19
     template.ts     getMainContent() — the full UI markup (HTML string)
     app.ts          initApp(root) — all client logic, state and window.* handlers
   src/shared/
-    supabase.ts     Supabase browser client
+    supabase.ts     Postgres-backed data client (same API as supabase-js, but
+                    talks to the backend /db, /auth, /storage — NO supabase-js,
+                    NO websocket). Data never touches the DB directly from the browser.
   Dockerfile, next.config.ts (output: "standalone")
 
 server/                     BACKEND — Node + Express (owns all secrets)
   src/index.ts      Express app (CORS, JSON, routes, daily token refresh)
   src/routes/
+    data.ts         /db/query — generic PostgreSQL data gateway (browser client)
+    auth.ts         /auth/{login,signup} — email+password against app_users
+    storage.ts      /storage/{upload,files} — file uploads (replaces Supabase Storage)
     meta.ts         /api/meta/{leads,sync,token}
     calls.ts        /api/calls/{initiate,webhook,latest-type,recordings}
   src/services/
-    meta.ts         Meta Graph API crawl + Supabase sync (framework-agnostic)
+    meta.ts         Meta Graph API crawl + DB sync (framework-agnostic)
     tata.ts         Tata/Smartflo click-to-call
-  src/shared/supabase.ts    Supabase server client (service-role capable)
+  src/shared/
+    db.ts           node-postgres Pool (the PostgreSQL connection)
+    query.ts        one SQL engine shared by the gateway + server-side data client
+    supabase.ts     server-side data client (same API as supabase-js, backed by pg)
   Dockerfile, tsconfig.json (tsc → dist/)
 ```
 

@@ -81,15 +81,17 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
       if (d.limit != null) sql += ` LIMIT ${Number(d.limit)}`;
       if (d.offset != null) sql += ` OFFSET ${Number(d.offset)}`;
       const r = await pool.query(sql, params);
+      // Never leak the password hash to the client.
+      if (table === 'app_users') r.rows.forEach((row: any) => { if (row) delete row.password_hash; });
       return { data: d.single ? (r.rows[0] ?? null) : r.rows, error: null, count: r.rowCount };
     }
 
     if (action === 'insert' || action === 'upsert') {
       const rows = Array.isArray(d.values) ? d.values : [d.values];
       if (!rows.length) return { data: d.returning ? [] : null, error: null, count: 0 };
-      const cols = [...new Set(rows.flatMap((r: any) => Object.keys(r)))].filter((c) => IDENT.test(c));
+      const cols: string[] = Array.from(new Set<string>(rows.flatMap((r: any) => Object.keys(r) as string[]))).filter((c: string) => IDENT.test(c));
       const tuples = rows.map((row: any) =>
-        '(' + cols.map((c) => { params.push(coerce(row[c])); return '$' + params.length; }).join(',') + ')');
+        '(' + cols.map((c: string) => { params.push(coerce(row[c])); return '$' + params.length; }).join(',') + ')');
       let sql = `INSERT INTO ${q(table)} (${cols.map(q).join(',')}) VALUES ${tuples.join(',')}`;
       if (action === 'upsert') {
         const oc = String(d.onConflict || '').split(',').map((c) => c.trim()).filter(Boolean);
