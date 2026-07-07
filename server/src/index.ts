@@ -3,6 +3,9 @@ import express from 'express';
 import cors from 'cors';
 import { registerMetaRoutes, refreshExpiringTokens } from './routes/meta';
 import { registerCallRoutes } from './routes/calls';
+import { registerDataRoutes } from './routes/data';
+import { registerAuthRoutes } from './routes/auth';
+import { registerStorageRoutes } from './routes/storage';
 
 const app = express();
 
@@ -25,6 +28,9 @@ app.get('/health', (_req, res) => {
 
 registerMetaRoutes(app);
 registerCallRoutes(app);
+registerDataRoutes(app);   // Postgres data gateway (replaces Supabase PostgREST)
+registerAuthRoutes(app);   // login / set-password against app_users
+registerStorageRoutes(app); // file uploads (replaces Supabase Storage)
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {
