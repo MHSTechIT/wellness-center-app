@@ -871,8 +871,21 @@ export function initApp(root: HTMLElement) {
       return s;
     }
     // Group duplicate leads by phone → one entry each with repeat count + all sources.
+    // Also, across ALL feed leads for that phone (incl. assigned/pooled ones that have
+    // left the feed), track the latest received time and the last-assigned advisor.
     function feedDupGroups(){
       const ds=feedDupPhoneSet();
+      // Per-phone meta over the FULL feed (so "last received" / "last assigned" reflect
+      // every occurrence of the number, not just the ones still in the incoming feed).
+      const meta:Record<string,{lastReceived:string;lastReceivedAt:number;lastAssigned:string;lastAssignedAt:number}>={};
+      feedAll().forEach((l:any)=>{
+        const p=normPhone(l.phone); if(!p) return;
+        const t=new Date(l.createdAt).getTime()||0;
+        if(!meta[p]) meta[p]={lastReceived:l.createdAt,lastReceivedAt:0,lastAssigned:"",lastAssignedAt:-1};
+        const m=meta[p];
+        if(t>=m.lastReceivedAt){ m.lastReceivedAt=t; m.lastReceived=l.createdAt; }
+        if(l.assignedTo && t>=m.lastAssignedAt){ m.lastAssignedAt=t; m.lastAssigned=l.assignedTo; }
+      });
       const byPhone:Record<string,any>={};
       feedActive().forEach((l:any)=>{
         const p=normPhone(l.phone); if(!p||!ds.has(p)) return;
@@ -882,8 +895,12 @@ export function initApp(root: HTMLElement) {
         g.sources.add(src);
         if(new Date(l.createdAt).getTime()>new Date(g.rep.createdAt).getTime()) g.rep=l;   // newest as representative
       });
-      return Object.keys(byPhone).map(p=>({...byPhone[p],sources:Array.from(byPhone[p].sources)}))
-        .sort((a:any,b:any)=>new Date(b.rep.createdAt).getTime()-new Date(a.rep.createdAt).getTime());
+      return Object.keys(byPhone).map(p=>({
+        ...byPhone[p],
+        sources:Array.from(byPhone[p].sources),
+        lastReceived: meta[p]?meta[p].lastReceived:byPhone[p].rep.createdAt,
+        lastAssigned: meta[p]?meta[p].lastAssigned:"",
+      })).sort((a:any,b:any)=>new Date(b.rep.createdAt).getTime()-new Date(a.rep.createdAt).getTime());
     }
     // The selectable lead ids for the current view (Duplicates view selects each group's rep).
     function feedSelectableIds(){
@@ -986,8 +1003,61 @@ export function initApp(root: HTMLElement) {
       }catch(e){return "—";}
     }
 
-    const _FEED_STD_HEAD='<th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all leads matching the current filter (all pages)"></th><th>Date &amp; Time (IST)</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Language</th><th>Received</th><th>Dedup</th>';
-    const _FEED_DUP_HEAD='<th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all duplicate leads (all pages)"></th><th>Date &amp; Time (IST)</th><th>Repeat Leads Count</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Language</th><th>Dedup</th>';
+    // ===== Column specs (label + per-column filter text-extractor) for the feed =====
+    // Standard tabs (All / Valid / Invalid) operate on a lead; Duplicates on a group.
+    const _feedColsStd:any[]=[
+      {key:"_sel"},
+      {key:"date",label:"Date & Time (IST)",filter:true,text:(l:any)=>fmtIST(l.createdAt)},
+      {key:"campaign",label:"Campaign",filter:true,text:(l:any)=>l.campaign||""},
+      {key:"adName",label:"Ad Name",filter:true,text:(l:any)=>l.adName||""},
+      {key:"name",label:"Lead Name",filter:true,text:(l:any)=>l.name||""},
+      {key:"phone",label:"Phone Number",filter:true,text:(l:any)=>l.phone||""},
+      {key:"sugar",label:"Sugar Poll",filter:true,text:(l:any)=>l.sugar||""},
+      {key:"city",label:"City",filter:true,text:(l:any)=>l.city||""},
+      {key:"street",label:"Street",filter:true,text:(l:any)=>l.street||""},
+      {key:"source",label:"Source",filter:true,text:(l:any)=>l.source||""},
+      {key:"service",label:"Service",filter:true,text:(l:any)=>l.service||""},
+      {key:"lang",label:"Language",filter:true,text:(l:any)=>l.lang||""},
+      {key:"received",label:"Received",filter:true,text:(l:any)=>l.received||""},
+      {key:"dedup",label:"Dedup",filter:true,text:(l:any)=>feedIsValid(l)?"Valid":"Invalid"},
+    ];
+    const _feedColsDup:any[]=[
+      {key:"_sel"},
+      {key:"date",label:"Date & Time (IST)",filter:true,text:(g:any)=>fmtIST(g.rep.createdAt)},
+      {key:"lastRepeat",label:"Last Repeat Date & Time",filter:true,text:(g:any)=>fmtIST(g.lastReceived)},
+      {key:"count",label:"Repeat Leads Count",filter:true,text:(g:any)=>String(g.count)},
+      {key:"campaign",label:"Campaign",filter:true,text:(g:any)=>g.rep.campaign||""},
+      {key:"adName",label:"Ad Name",filter:true,text:(g:any)=>g.rep.adName||""},
+      {key:"name",label:"Lead Name",filter:true,text:(g:any)=>g.rep.name||""},
+      {key:"phone",label:"Phone Number",filter:true,text:(g:any)=>g.rep.phone||""},
+      {key:"sugar",label:"Sugar Poll",filter:true,text:(g:any)=>g.rep.sugar||""},
+      {key:"city",label:"City",filter:true,text:(g:any)=>g.rep.city||""},
+      {key:"street",label:"Street",filter:true,text:(g:any)=>g.rep.street||""},
+      {key:"source",label:"Source",filter:true,text:(g:any)=>(g.sources||[]).join(" ")},
+      {key:"service",label:"Service",filter:true,text:(g:any)=>g.rep.service||""},
+      {key:"lang",label:"Language",filter:true,text:(g:any)=>g.rep.lang||""},
+      {key:"lastAssigned",label:"Last Assigned Advisor",filter:true,text:(g:any)=>g.lastAssigned||"Not Assigned"},
+      {key:"dedup",label:"Dedup",filter:true,text:(_g:any)=>"Duplicate"},
+    ];
+    const _feedColF:Record<string,string>={};   // active per-column filter values (lowercased)
+    const _attr=(s:string)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    // Build the header row (labels + an inline filter input per column) from a spec.
+    function buildFeedHead(cols:any[]){
+      return cols.map((c:any)=>{
+        if(c.key==="_sel") return '<th style="width:36px;vertical-align:top"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all matching the current filter (all pages)"></th>';
+        const cur=_feedColF[c.key]?_attr(_feedColF[c.key]):"";
+        const inp=c.filter?'<div style="margin-top:5px"><input class="colf" data-col="'+c.key+'" value="'+cur+'" placeholder="Filter…" oninput="window._feedColFilter(\''+c.key+'\',this.value)" style="width:100%;box-sizing:border-box;font-size:10.5px;font-weight:400;padding:2px 6px;border:1px solid var(--line);border-radius:6px;background:#fff"></div>':'';
+        return '<th style="vertical-align:top">'+_attr(c.label)+inp+'</th>';
+      }).join("");
+    }
+    // Apply the active per-column filters (AND across columns, case-insensitive substring).
+    function applyFeedColFilters(rows:any[],cols:any[]){
+      const active=cols.filter((c:any)=>c.filter&&_feedColF[c.key]);
+      if(!active.length) return rows;
+      return rows.filter((row:any)=>active.every((c:any)=>String(c.text(row)||"").toLowerCase().includes(_feedColF[c.key])));
+    }
+    let _feedColFT:any=null;
+    w._feedColFilter=(key:string,val:string)=>{ const v=(val||"").trim().toLowerCase(); if(v)_feedColF[key]=v; else delete _feedColF[key]; if(_feedColFT)clearTimeout(_feedColFT); _feedColFT=setTimeout(()=>{ _metaPageNum=1; renderMetaPage(); },160); };
     // Shared pager-button state for all tables: First/Prev disabled on page 1,
     // Next/Last disabled on the last page. Button ids follow <prefix>{First,Prev,Next,Last}Btn.
     function _pgBtns(prefix:string,page:number,pages:number){
@@ -1009,8 +1079,8 @@ export function initApp(root: HTMLElement) {
       let totalPages=1;
       if(_feedView==="dup"){
         // Collapsed view: one row per duplicate phone, with Repeat Leads Count + all sources.
-        if(head&&head.innerHTML.indexOf("Repeat Leads Count")<0){ head.innerHTML=_FEED_DUP_HEAD; bindFeedSelAll(); }
-        const groups=feedDupGroups();
+        if(head&&head.innerHTML.indexOf("Repeat Leads Count")<0){ head.innerHTML=buildFeedHead(_feedColsDup); bindFeedSelAll(); }
+        const groups=applyFeedColFilters(feedDupGroups(),_feedColsDup);
         const total=groups.length;
         totalPages=Math.max(1,Math.ceil(total/META_PER_PAGE));
         if(_metaPageNum>totalPages)_metaPageNum=totalPages; if(_metaPageNum<1)_metaPageNum=1;
@@ -1025,6 +1095,7 @@ export function initApp(root: HTMLElement) {
             return '<tr'+(rowStyle?' style="'+rowStyle+'"':'')+'>'
               +'<td>'+chk+'</td>'
               +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(ld.createdAt))+'</td>'
+              +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(g.lastReceived))+'</td>'
               +'<td class="mono" style="text-align:center"><span class="chipb al" title="Received '+g.count+' time(s)">&times;'+g.count+'</span></td>'
               +'<td class="mono" style="font-size:11.5px">'+esc(ld.campaign||"—")+'</td>'
               +'<td>'+esc(ld.adName||"—")+'</td>'
@@ -1036,14 +1107,15 @@ export function initApp(root: HTMLElement) {
               +'<td>'+(g.sources.map((s:string)=>'<span class="tag" style="margin:0 3px 3px 0;display:inline-block">'+esc(s)+'</span>').join("")||"—")+'</td>'
               +'<td>'+esc(ld.service)+'</td>'
               +'<td>'+esc(ld.lang)+'</td>'
+              +'<td>'+(g.lastAssigned?'<span class="chipb vio">'+esc(g.lastAssigned)+'</span>':'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
               +'<td><span class="chipb al">Duplicate</span></td>'
               +'</tr>';
-          }).join(""):'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:22px">No duplicate leads in this range</td></tr>';
+          }).join(""):'<tr><td colspan="16" style="text-align:center;color:var(--faint);padding:22px">No duplicate leads in this range</td></tr>';
         }
         if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" duplicate lead"+(total===1?"":"s");
       } else {
-        if(head&&head.innerHTML.indexOf("Repeat Leads Count")>=0){ head.innerHTML=_FEED_STD_HEAD; bindFeedSelAll(); }
-        const filtered=feedFiltered();
+        if(head&&(head.innerHTML.indexOf("Repeat Leads Count")>=0||head.innerHTML.indexOf("colf")<0)){ head.innerHTML=buildFeedHead(_feedColsStd); bindFeedSelAll(); }
+        const filtered=applyFeedColFilters(feedFiltered(),_feedColsStd);
         const total=filtered.length;
         totalPages=Math.max(1,Math.ceil(total/META_PER_PAGE));
         if(_metaPageNum>totalPages)_metaPageNum=totalPages; if(_metaPageNum<1)_metaPageNum=1;
