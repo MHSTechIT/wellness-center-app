@@ -2,17 +2,14 @@
   "name": "wellness-center",
   "version": "1.0.0",
   "private": true,
-  "description": "WellnessOS — Client (Next.js) + Server (Express) monorepo",
+  "description": "WellnessOS — Client (Next.js) + Server (Express + PostgreSQL)",
   "scripts": {
     "dev": "npm --prefix client run dev",
     "dev:server": "npm --prefix server run dev",
     "build": "npm --prefix client run build && npm --prefix server run build",
     "build:client": "npm --prefix client run build",
     "build:server": "npm --prefix server run build",
-    "start:client": "npm --prefix client run start",
-    "start:server": "npm --prefix server run start",
-    "install:all": "npm --prefix client install && npm --prefix server install",
-    "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down"
+    "start": "npm --prefix server run start",
+    "install:all": "npm --prefix client install && npm --prefix server install"
   }
 }

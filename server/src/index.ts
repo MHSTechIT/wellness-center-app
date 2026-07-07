@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
 import { registerMetaRoutes, refreshExpiringTokens } from './routes/meta';
 import { registerCallRoutes } from './routes/calls';
 import { registerDataRoutes } from './routes/data';
@@ -31,6 +33,27 @@ registerCallRoutes(app);
 registerDataRoutes(app);   // Postgres data gateway (replaces Supabase PostgREST)
 registerAuthRoutes(app);   // login / set-password against app_users
 registerStorageRoutes(app); // file uploads (replaces Supabase Storage)
+
+// ---- Serve the built frontend (static export) on the SAME origin as the API ----
+// In production, `npm --prefix client run build` emits client/out; this server
+// serves it, so the browser's /db, /auth, /api calls are same-origin (no proxy).
+const CLIENT_DIST = [
+  process.env.CLIENT_DIST,
+  path.resolve(process.cwd(), '..', 'client', 'out'),   // started from server/
+  path.resolve(process.cwd(), 'client', 'out'),          // started from repo root
+  path.resolve(__dirname, '..', '..', 'client', 'out'),  // relative to dist/index.js
+].find((p) => p && fs.existsSync(path.join(p, 'index.html'))) || '';
+if (CLIENT_DIST) {
+  app.use(express.static(CLIENT_DIST));
+  // SPA fallback: any non-API route serves index.html.
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/db') || req.path.startsWith('/auth') || req.path.startsWith('/storage') || req.path.startsWith('/api') || req.path === '/health') return next();
+    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+  });
+  console.log(`[wellness-api] serving frontend from ${CLIENT_DIST}`);
+} else {
+  console.log(`[wellness-api] frontend build not found at ${CLIENT_DIST} (API-only mode). Run: npm --prefix client run build`);
+}
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {

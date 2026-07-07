@@ -48,3 +48,4 @@ wellness-app/
 node_modules/
 .next/
 dist/
+out/

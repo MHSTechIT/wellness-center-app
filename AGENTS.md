@@ -21,7 +21,7 @@ client/                     FRONTEND — Next.js 16 + React 19
     supabase.ts     Postgres-backed data client (same API as supabase-js, but
                     talks to the backend /db, /auth, /storage — NO supabase-js,
                     NO websocket). Data never touches the DB directly from the browser.
-  Dockerfile, next.config.ts (output: "standalone")
+  next.config.ts (output: "export" → static site in client/out)
 
 server/                     BACKEND — Node + Express (owns all secrets)
   src/index.ts      Express app (CORS, JSON, routes, daily token refresh)
@@ -38,7 +38,9 @@ server/                     BACKEND — Node + Express (owns all secrets)
     db.ts           node-postgres Pool (the PostgreSQL connection)
     query.ts        one SQL engine shared by the gateway + server-side data client
     supabase.ts     server-side data client (same API as supabase-js, backed by pg)
-  Dockerfile, tsconfig.json (tsc → dist/)
+  tsconfig.json (tsc → dist/). In production this server also serves the
+  frontend from client/out (express.static), so the whole app runs as ONE
+  process on ONE port — same origin, no proxy, no CORS. No Docker.
 ```
 
 Notes:
