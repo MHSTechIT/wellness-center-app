@@ -567,7 +567,7 @@ export function getMainContent(): string {
               <input class="input" id="csvSearch" placeholder="🔍 Search leads…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._csvSearch()">
               <span class="chipb ok" id="csvImportedCount">0 records</span>
             </div>
-            <div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
+            <div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr id="csvImportedHead"><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
               <button class="btn bsm" id="csvFirstBtn" onclick="window._csvPage('first')">« First</button>
               <button class="btn bsm" id="csvPrevBtn" onclick="window._csvPage(-1)">← Previous</button>
@@ -586,7 +586,7 @@ export function getMainContent(): string {
               <button class="btn bsm" style="color:var(--alert-ink);border-color:var(--alert)" onclick="window._csvDeleteSelected('dup')">🗑 Delete selected</button>
               <button class="btn bsm" onclick="window._csvDownload('dup')">⬇ Download</button>
             </div>
-            <div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Source</th><th>Service</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvDupBody"></tbody></table></div>
+            <div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr id="csvDupHead"><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Source</th><th>Service</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvDupBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
               <button class="btn bsm" id="csvDupFirstBtn" onclick="window._csvDupPage('first')">« First</button>
               <button class="btn bsm" id="csvDupPrevBtn" onclick="window._csvDupPage(-1)">← Previous</button>
@@ -641,7 +641,7 @@ export function getMainContent(): string {
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
       <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
-        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
+        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr id="poolHead"><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table></div>
         <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
           <span style="font-size:12px;font-weight:600;color:var(--ink);padding-top:8px">Assign to:</span>
@@ -656,7 +656,7 @@ export function getMainContent(): string {
           <button class="btn bsm" id="poolRRBtn" style="margin-top:0" onclick="window._assignSelectedRR()" disabled title="Select 2 or more advisors to round-robin">Assign selected (round-robin)</button>
         </div></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load</div>
-        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr><th>Advisor</th><th>Role</th><th>Branch</th><th>Active leads</th><th>Status</th></tr></thead><tbody id="advisorLoadBody"></tbody></table></div></div></div>
+        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr id="advLoadHead"><th>Advisor</th><th>Role</th><th>Branch</th><th>Active leads</th><th>Status</th></tr></thead><tbody id="advisorLoadBody"></tbody></table></div></div></div>
     </div>
     <div class="abm-p" data-p="dev" style="display:none">
       <div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px">
