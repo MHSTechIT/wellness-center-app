@@ -877,13 +877,14 @@ export function initApp(root: HTMLElement) {
       const ds=feedDupPhoneSet();
       // Per-phone meta over the FULL feed (so "last received" / "last assigned" reflect
       // every occurrence of the number, not just the ones still in the incoming feed).
-      const meta:Record<string,{lastReceived:string;lastReceivedAt:number;lastAssigned:string;lastAssignedAt:number}>={};
+      const meta:Record<string,{firstReceived:string;firstReceivedAt:number;lastReceived:string;lastReceivedAt:number;lastAssigned:string;lastAssignedAt:number}>={};
       feedAll().forEach((l:any)=>{
         const p=normPhone(l.phone); if(!p) return;
         const t=new Date(l.createdAt).getTime()||0;
-        if(!meta[p]) meta[p]={lastReceived:l.createdAt,lastReceivedAt:0,lastAssigned:"",lastAssignedAt:-1};
+        if(!meta[p]) meta[p]={firstReceived:l.createdAt,firstReceivedAt:Infinity,lastReceived:l.createdAt,lastReceivedAt:-Infinity,lastAssigned:"",lastAssignedAt:-1};
         const m=meta[p];
-        if(t>=m.lastReceivedAt){ m.lastReceivedAt=t; m.lastReceived=l.createdAt; }
+        if(t<=m.firstReceivedAt){ m.firstReceivedAt=t; m.firstReceived=l.createdAt; }   // earliest = original
+        if(t>=m.lastReceivedAt){ m.lastReceivedAt=t; m.lastReceived=l.createdAt; }        // latest = most recent repeat
         if(l.assignedTo && t>=m.lastAssignedAt){ m.lastAssignedAt=t; m.lastAssigned=l.assignedTo; }
       });
       const byPhone:Record<string,any>={};
@@ -898,9 +899,10 @@ export function initApp(root: HTMLElement) {
       return Object.keys(byPhone).map(p=>({
         ...byPhone[p],
         sources:Array.from(byPhone[p].sources),
+        firstReceived: meta[p]?meta[p].firstReceived:byPhone[p].rep.createdAt,
         lastReceived: meta[p]?meta[p].lastReceived:byPhone[p].rep.createdAt,
         lastAssigned: meta[p]?meta[p].lastAssigned:"",
-      })).sort((a:any,b:any)=>new Date(b.rep.createdAt).getTime()-new Date(a.rep.createdAt).getTime());
+      })).sort((a:any,b:any)=>new Date(b.lastReceived).getTime()-new Date(a.lastReceived).getTime());
     }
     // The selectable lead ids for the current view (Duplicates view selects each group's rep).
     function feedSelectableIds(){
@@ -1023,7 +1025,7 @@ export function initApp(root: HTMLElement) {
     ];
     const _feedColsDup:any[]=[
       {key:"_sel"},
-      {key:"date",label:"Date & Time (IST)",filter:true,text:(g:any)=>fmtIST(g.rep.createdAt)},
+      {key:"date",label:"Date & Time (IST)",filter:true,text:(g:any)=>fmtIST(g.firstReceived)},
       {key:"lastRepeat",label:"Last Repeat Date & Time",filter:true,text:(g:any)=>fmtIST(g.lastReceived)},
       {key:"count",label:"Repeat Leads Count",filter:true,text:(g:any)=>String(g.count)},
       {key:"campaign",label:"Campaign",filter:true,text:(g:any)=>g.rep.campaign||""},
@@ -1039,25 +1041,85 @@ export function initApp(root: HTMLElement) {
       {key:"lastAssigned",label:"Last Assigned Advisor",filter:true,text:(g:any)=>g.lastAssigned||"Not Assigned"},
       {key:"dedup",label:"Dedup",filter:true,text:(_g:any)=>"Duplicate"},
     ];
-    const _feedColF:Record<string,string>={};   // active per-column filter values (lowercased)
+    // Excel-style per-column filters: each key maps to the SET of allowed values.
+    // Absent key = column not filtered. Empty set = filter that matches nothing.
+    const _feedColF:Record<string,Set<string>>={};
     const _attr=(s:string)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-    // Build the header row (labels + an inline filter input per column) from a spec.
+    const _feedCols=()=>_feedView==="dup"?_feedColsDup:_feedColsStd;
+    // Header: label + a clickable filter caret that opens the value picker popup.
     function buildFeedHead(cols:any[]){
       return cols.map((c:any)=>{
         if(c.key==="_sel") return '<th style="width:36px;vertical-align:top"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all matching the current filter (all pages)"></th>';
-        const cur=_feedColF[c.key]?_attr(_feedColF[c.key]):"";
-        const inp=c.filter?'<div style="margin-top:5px"><input class="colf" data-col="'+c.key+'" value="'+cur+'" placeholder="Filter…" oninput="window._feedColFilter(\''+c.key+'\',this.value)" style="width:100%;box-sizing:border-box;font-size:10.5px;font-weight:400;padding:2px 6px;border:1px solid var(--line);border-radius:6px;background:#fff"></div>':'';
-        return '<th style="vertical-align:top">'+_attr(c.label)+inp+'</th>';
+        if(!c.filter) return '<th style="white-space:nowrap">'+_attr(c.label)+'</th>';
+        const active=!!_feedColF[c.key];
+        const caret='<span title="Filter" style="margin-left:6px;font-size:10px;padding:1px 5px;border-radius:5px;'+(active?'background:var(--brand);color:#fff':'background:var(--surface-2);color:var(--muted)')+'">▾</span>';
+        return '<th style="white-space:nowrap"><span style="display:inline-flex;align-items:center;cursor:pointer;user-select:none" onclick="window._feedOpenFilter(\''+c.key+'\',event)"><span>'+_attr(c.label)+'</span>'+caret+'</span></th>';
       }).join("");
     }
-    // Apply the active per-column filters (AND across columns, case-insensitive substring).
+    // Apply active filters (AND across columns): a row passes if its column value is
+    // in that column's allowed set.
     function applyFeedColFilters(rows:any[],cols:any[]){
       const active=cols.filter((c:any)=>c.filter&&_feedColF[c.key]);
       if(!active.length) return rows;
-      return rows.filter((row:any)=>active.every((c:any)=>String(c.text(row)||"").toLowerCase().includes(_feedColF[c.key])));
+      return rows.filter((row:any)=>active.every((c:any)=>_feedColF[c.key].has(String(c.text(row)??"").trim())));
     }
-    let _feedColFT:any=null;
-    w._feedColFilter=(key:string,val:string)=>{ const v=(val||"").trim().toLowerCase(); if(v)_feedColF[key]=v; else delete _feedColF[key]; if(_feedColFT)clearTimeout(_feedColFT); _feedColFT=setTimeout(()=>{ _metaPageNum=1; renderMetaPage(); },160); };
+    // Distinct values available for a column (respecting the OTHER columns' filters).
+    function feedColValues(key:string){
+      const cols=_feedCols(); const col=cols.find((c:any)=>c.key===key); if(!col) return [];
+      let base=_feedView==="dup"?feedDupGroups():feedFiltered();
+      base=applyFeedColFilters(base,cols.filter((c:any)=>c.key!==key));
+      const set=new Set<string>();
+      base.forEach((row:any)=>set.add(String(col.text(row)??"").trim()));
+      return Array.from(set).sort((a,b)=>a.localeCompare(b));
+    }
+    // ---- Column filter popup (search + checkboxes + select-all + Apply/Clear) ----
+    let _ffOpen:{key:string;values:string[];sel:Set<string>;search:string;shown:string[]}|null=null;
+    function ensureFeedPopup(){
+      let pop=root.querySelector("#feedFilterPopup")as HTMLElement|null;
+      if(!pop){ pop=document.createElement("div"); pop.id="feedFilterPopup"; pop.style.cssText="display:none;position:fixed;z-index:200;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(17,34,27,.18);width:236px;padding:10px;font-size:12px;font-weight:400"; root.appendChild(pop); }
+      return pop;
+    }
+    function renderFeedFilterList(){
+      if(!_ffOpen) return;
+      const q=_ffOpen.search.toLowerCase();
+      _ffOpen.shown=_ffOpen.values.filter((v:string)=>!q||v.toLowerCase().includes(q));
+      const list=root.querySelector("#ffList"); if(!list) return;
+      list.innerHTML=_ffOpen.shown.length?_ffOpen.shown.map((v:string,i:number)=>
+        '<label style="display:flex;align-items:center;gap:7px;padding:3px 5px;cursor:pointer;border-radius:5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" data-i="'+i+'" '+(_ffOpen!.sel.has(v)?"checked":"")+' onchange="window._feedFilterToggle('+i+',this.checked)" style="accent-color:var(--brand)"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_attr(v===""?"(blank)":v)+'</span></label>'
+      ).join(""):'<div style="color:var(--faint);padding:10px;text-align:center">No matching values</div>';
+      const all=root.querySelector("#ffAll")as HTMLInputElement|null;
+      if(all) all.checked=_ffOpen.shown.length>0&&_ffOpen.shown.every((v:string)=>_ffOpen!.sel.has(v));
+    }
+    function renderFeedFilterPopup(event:any){
+      const pop=ensureFeedPopup();
+      if(!_ffOpen){ pop.style.display="none"; return; }
+      pop.innerHTML=
+        '<input id="ffSearch" placeholder="Search…" value="'+_attr(_ffOpen.search)+'" oninput="window._feedFilterSearch(this.value)" style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px">'
+        +'<label style="display:flex;align-items:center;gap:7px;padding:3px 5px;font-weight:600;cursor:pointer"><input type="checkbox" id="ffAll" onchange="window._feedFilterSelectAll(this.checked)" style="accent-color:var(--brand)"> Select all</label>'
+        +'<div id="ffList" style="max-height:220px;overflow:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px 0;margin:5px 0"></div>'
+        +'<div style="display:flex;gap:7px;justify-content:flex-end"><button class="btn bsm" onclick="window._feedFilterClear()">Clear</button><button class="btn bsm bp" onclick="window._feedFilterApply()">Apply</button></div>';
+      const th=event&&event.target&&event.target.closest?event.target.closest("th"):null;
+      if(th){ const r=th.getBoundingClientRect(); let left=r.left; if(left+236>window.innerWidth) left=window.innerWidth-244; pop.style.left=Math.max(6,left)+"px"; pop.style.top=(r.bottom+3)+"px"; }
+      pop.style.display="block";
+      renderFeedFilterList();
+      const s=root.querySelector("#ffSearch")as HTMLInputElement|null; if(s) s.focus();
+    }
+    w._feedOpenFilter=(key:string,event:any)=>{
+      if(event&&event.stopPropagation) event.stopPropagation();
+      if(_ffOpen&&_ffOpen.key===key){ _ffOpen=null; ensureFeedPopup().style.display="none"; return; }   // toggle
+      const values=feedColValues(key);
+      const existing=_feedColF[key];
+      const sel=new Set<string>(existing?Array.from(existing):values);   // nothing filtered → all checked
+      _ffOpen={key,values,sel,search:"",shown:values.slice()};
+      renderFeedFilterPopup(event);
+    };
+    w._feedFilterSearch=(val:string)=>{ if(!_ffOpen)return; _ffOpen.search=val||""; renderFeedFilterList(); };
+    w._feedFilterToggle=(i:number,checked:boolean)=>{ if(!_ffOpen)return; const v=_ffOpen.shown[i]; if(v===undefined)return; if(checked)_ffOpen.sel.add(v); else _ffOpen.sel.delete(v); const all=root.querySelector("#ffAll")as HTMLInputElement|null; if(all) all.checked=_ffOpen.shown.every((x:string)=>_ffOpen!.sel.has(x)); };
+    w._feedFilterSelectAll=(checked:boolean)=>{ if(!_ffOpen)return; _ffOpen.shown.forEach((v:string)=>{ if(checked)_ffOpen!.sel.add(v); else _ffOpen!.sel.delete(v); }); renderFeedFilterList(); };
+    w._feedFilterApply=()=>{ if(!_ffOpen)return; const {key,values,sel}=_ffOpen; if(sel.size>=values.length) delete _feedColF[key]; else _feedColF[key]=new Set(sel); _ffOpen=null; ensureFeedPopup().style.display="none"; _metaPageNum=1; renderMetaPage(); };
+    w._feedFilterClear=()=>{ if(!_ffOpen)return; delete _feedColF[_ffOpen.key]; _ffOpen=null; ensureFeedPopup().style.display="none"; _metaPageNum=1; renderMetaPage(); };
+    // Close the popup on any outside click.
+    document.addEventListener("click",(e:any)=>{ if(!_ffOpen)return; const pop=root.querySelector("#feedFilterPopup"); if(pop&&pop.contains(e.target))return; _ffOpen=null; if(pop)(pop as HTMLElement).style.display="none"; });
     // Shared pager-button state for all tables: First/Prev disabled on page 1,
     // Next/Last disabled on the last page. Button ids follow <prefix>{First,Prev,Next,Last}Btn.
     function _pgBtns(prefix:string,page:number,pages:number){
@@ -1079,7 +1141,7 @@ export function initApp(root: HTMLElement) {
       let totalPages=1;
       if(_feedView==="dup"){
         // Collapsed view: one row per duplicate phone, with Repeat Leads Count + all sources.
-        if(head&&head.innerHTML.indexOf("Repeat Leads Count")<0){ head.innerHTML=buildFeedHead(_feedColsDup); bindFeedSelAll(); }
+        if(head){ head.innerHTML=buildFeedHead(_feedColsDup); bindFeedSelAll(); }
         const groups=applyFeedColFilters(feedDupGroups(),_feedColsDup);
         const total=groups.length;
         totalPages=Math.max(1,Math.ceil(total/META_PER_PAGE));
@@ -1094,7 +1156,7 @@ export function initApp(root: HTMLElement) {
             const chk='<input type="checkbox" class="feedChk" data-id="'+esc(String(ld.id))+'"'+(sel?" checked":"")+' onchange="window._feedToggleSel(this)" style="accent-color:var(--brand)">';
             return '<tr'+(rowStyle?' style="'+rowStyle+'"':'')+'>'
               +'<td>'+chk+'</td>'
-              +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(ld.createdAt))+'</td>'
+              +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(g.firstReceived))+'</td>'
               +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+esc(fmtIST(g.lastReceived))+'</td>'
               +'<td class="mono" style="text-align:center"><span class="chipb al" title="Received '+g.count+' time(s)">&times;'+g.count+'</span></td>'
               +'<td class="mono" style="font-size:11.5px">'+esc(ld.campaign||"—")+'</td>'
@@ -1114,7 +1176,7 @@ export function initApp(root: HTMLElement) {
         }
         if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" duplicate lead"+(total===1?"":"s");
       } else {
-        if(head&&(head.innerHTML.indexOf("Repeat Leads Count")>=0||head.innerHTML.indexOf("colf")<0)){ head.innerHTML=buildFeedHead(_feedColsStd); bindFeedSelAll(); }
+        if(head){ head.innerHTML=buildFeedHead(_feedColsStd); bindFeedSelAll(); }
         const filtered=applyFeedColFilters(feedFiltered(),_feedColsStd);
         const total=filtered.length;
         totalPages=Math.max(1,Math.ceil(total/META_PER_PAGE));
