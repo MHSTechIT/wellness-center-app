@@ -75,6 +75,7 @@ async function getLeads(_req: Request, res: Response) {
         inPool: !!r.in_pool,
         poolAddedAt: r.pool_added_at || null,
         assignedTo: r.assigned_to || '',
+        assignedAt: r.assigned_at || null,
         callStatus: r.call_status || '',
       };
     });

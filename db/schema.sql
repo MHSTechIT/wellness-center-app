@@ -253,3 +253,42 @@ CREATE TABLE IF NOT EXISTS app_settings (
 INSERT INTO app_users (email, name, role, active)
 VALUES ('info@myhealthschool.in', 'Owner', 'Super Admin', true)
 ON CONFLICT (email) DO UPDATE SET role = 'Super Admin', active = true;
+
+-- 12. LEAD ASSIGNMENTS (assignment history) -----------------
+-- One immutable row per assignment event. `leads` keeps only current state
+-- (assigned_to / is_assigned); this table is the audit trail behind the
+-- "Assigned Leads History" view. status: 'assigned' | 'unassigned'.
+CREATE TABLE IF NOT EXISTS lead_assignments (
+  id          BIGSERIAL PRIMARY KEY,
+  lead_id     TEXT,                 -- meta_lead_id of the lead
+  lead_name   TEXT,
+  lead_phone  TEXT,
+  source      TEXT,
+  service     TEXT,
+  advisor     TEXT,                 -- assigned health advisor (name)
+  assigned_by TEXT,                 -- actor (logged-in user)
+  status      TEXT NOT NULL DEFAULT 'assigned',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_lead_assignments_lead    ON lead_assignments(lead_id);
+CREATE INDEX IF NOT EXISTS idx_lead_assignments_created ON lead_assignments(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lead_assignments_advisor ON lead_assignments(advisor);
+
+-- 13. OFFICE-VISIT RECORDINGS (audio) -----------------------
+-- In-clinic audio recordings captured on the Health Coach screen (distinct
+-- from telephony call_recordings). The file itself lives under /storage.
+CREATE TABLE IF NOT EXISTS office_recordings (
+  id               BIGSERIAL PRIMARY KEY,
+  lead_id          TEXT NOT NULL,   -- meta_lead_id of the customer
+  file_url         TEXT,            -- public URL (/storage/files/...)
+  file_path        TEXT,            -- storage-relative path
+  file_name        TEXT,
+  duration_seconds INT,
+  recorded_by      TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_office_recordings_lead ON office_recordings(lead_id, created_at DESC);
+
+-- 14. Appointment meeting metadata (Zoom vs walk-in check-in) -
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS meeting_type TEXT;   -- 'zoom' | 'direct'
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS meeting_link TEXT;

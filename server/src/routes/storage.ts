@@ -1,3 +1,4 @@
+import express from 'express';
 import type { Express, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -27,7 +28,9 @@ async function upload(req: Request, res: Response) {
 }
 
 export function registerStorageRoutes(app: Express) {
-  app.post('/storage/upload', upload);
+  // Bigger JSON limit for uploads (base64 audio/office recordings) — the global
+  // parser in index.ts intentionally skips this path.
+  app.post('/storage/upload', express.json({ limit: '64mb' }), upload);
   app.get('/storage/files/*', (req: Request, res: Response) => {
     const rel = safeRel(req.params[0] || '');
     const full = path.join(UPLOAD_DIR, rel);

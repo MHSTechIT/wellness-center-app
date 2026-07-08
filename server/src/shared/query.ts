@@ -9,7 +9,7 @@ import { pool } from './db';
 const TABLES = new Set([
   'leads', 'appointments', 'payments', 'assignees', 'csv_leads', 'csv_import_batches',
   'call_recordings', 'lead_activity', 'app_users', 'app_settings', 'meta_tokens',
-  'meta_sync_state', 'source_connections',
+  'meta_sync_state', 'source_connections', 'lead_assignments', 'office_recordings',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 const OP_SQL: Record<string, string> = {

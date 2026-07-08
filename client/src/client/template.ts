@@ -2,6 +2,16 @@ export function getMainContent(): string {
   return `
   <!-- ADVISOR -->
   <section class="screen active" id="s-advisor"><div class="wrap">
+    <div class="sec" style="margin-bottom:14px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px">
+      <span style="font-size:12px;font-weight:600;color:var(--muted);margin-right:2px">Filters</span>
+      <input class="input" type="date" id="asnFrom" style="height:30px;font-size:12px;width:150px" title="From date">
+      <span style="color:var(--faint);font-size:12px">→</span>
+      <input class="input" type="date" id="asnTo" style="height:30px;font-size:12px;width:150px" title="To date">
+      <select class="select" id="asnSource" style="height:30px;font-size:12px;width:160px"><option value="all">All sources</option></select>
+      <select class="select" id="asnService" style="height:30px;font-size:12px;width:160px"><option value="all">All services</option></select>
+      <button class="btn bsm bp" onclick="window._topFilterApply()">Apply</button>
+      <button class="btn bsm" onclick="window._topFilterClear()">Clear</button>
+    </div></div>
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Advisor dashboard
       <div class="pills" id="asnViewToggle" style="margin-left:auto"><button class="pill on" onclick="window._asnToggleView('list')">List View</button><button class="pill" onclick="window._asnToggleView('kanban')">Kanban View</button></div>
       <select class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px"><option value="all">All call/lead statuses</option></select></div>
@@ -9,12 +19,16 @@ export function getMainContent(): string {
         <div class="metrics" id="haKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div>
         <div id="haResultsWrap" style="display:none;margin-top:14px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-weight:700;font-size:13px" id="haResultsTitle"></span><button class="btn bsm" style="margin-left:auto" onclick="window._haCloseResults()">Close</button></div>
-          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
+          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span>
       <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px;margin-left:auto"><option value="all">All advisors</option></select></div>
-      <div class="sec-bd"><div id="assignedTableWrap" class="tscroll stick1"><table class="tbl" style="min-width:760px"><thead><tr><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
+      <div class="sec-bd">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input class="input" id="assignedSearch" placeholder="Search lead / phone / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._assignedSearch()">
+      </div>
+      <div id="assignedTableWrap" class="tscroll stick1"><table class="tbl" style="min-width:880px"><thead><tr id="assignedLeadsHead"><th>Date &amp; Time</th><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
       <div id="assignedKanban" style="display:none;overflow-x:auto"></div>
       <div id="asnPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
         <button class="btn bsm" id="asnFirstBtn" onclick="window._asnPage('first')">« First</button>
@@ -24,6 +38,23 @@ export function getMainContent(): string {
         <button class="btn bsm" id="asnLastBtn" onclick="window._asnPage('last')">Last »</button>
         <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
       </div></div></div>
+    <div class="sec" style="margin-bottom:14px" id="asnHistSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"/></svg> Assigned leads history <span class="chipb neu" id="asnHistCount" style="margin-left:8px">0</span></div>
+      <div class="sec-bd">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input class="input" type="date" id="asnHistFrom" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned from">
+          <span style="color:var(--faint);font-size:12px">→</span>
+          <input class="input" type="date" id="asnHistTo" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned to">
+          <select class="select" id="asnHistAdvisor" style="height:30px;font-size:12px;width:160px" onchange="window._asnHistFilter()"><option value="all">All health advisors</option></select>
+          <select class="select" id="asnHistSource" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All sources</option></select>
+          <select class="select" id="asnHistService" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All services</option></select>
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap"><input type="checkbox" id="asnHistPool" onchange="window._asnHistFilter()"> Unassigned pool only</label>
+          <input class="input" id="asnHistSearch" placeholder="Search name / number / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._asnHistSearch()">
+          <button class="btn bsm" onclick="window._asnHistDownload()">⬇ Download</button>
+        </div>
+        <div class="tscroll stick1"><table class="tbl" style="min-width:940px"><thead><tr id="asnHistHead"></tr></thead><tbody id="asnHistBody"></tbody></table></div>
+      </div></div>
+    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
+      <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th>Client</th><th>Phone</th><th>When</th><th>Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div style="display:flex;gap:14px;align-items:flex-start;margin-top:4px">
     <div id="advOpenList" style="width:212px;flex-shrink:0;display:none"></div>
     <div id="advDetailPane" style="flex:1;min-width:0">
@@ -31,7 +62,7 @@ export function getMainContent(): string {
     <div class="chead">
       <span class="cav" id="advAv"></span>
       <div class="cmeta">
-        <h1 id="advName">No lead selected</h1>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 id="advName" style="margin:0">No lead selected</h1><span id="advNotElig" class="chipb al" style="display:none;font-weight:700">⛔ Not Eligible</span></div>
         <div class="sub" id="advSub"><span style="color:var(--faint)">Open a lead from Assigned leads to begin</span></div>
         <div class="cbadges" id="advBadges"></div>
       </div>
@@ -154,7 +185,7 @@ export function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Visited status</label><div class="pills"><button class="pill p-vio on" onclick="window._advSetOpen()">Open</button><button class="pill p-ok" onclick="visitedFx()">Visited</button></div></div>
+          <div class="fld"><label class="lbl">Visited status <span class="ab">AUTO</span></label><div class="pills" id="visStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Visited</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the receptionist confirms check-in.</div></div>
           <div class="fld"><label class="lbl">Visited date <span class="ab">AUTO</span></label><input class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
@@ -201,6 +232,17 @@ export function getMainContent(): string {
 
   <!-- COACH -->
   <section class="screen" id="s-coach"><div class="wrap">
+    <div id="coachFilters" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <input class="input" type="date" id="coFrom" style="height:30px;font-size:12px;width:145px" title="Visited from">
+      <span style="color:var(--faint);font-size:12px">→</span>
+      <input class="input" type="date" id="coTo" style="height:30px;font-size:12px;width:145px" title="Visited to">
+      <select class="select" id="coCoach" style="height:30px;font-size:12px;width:150px"><option value="all">All health coaches</option></select>
+      <select class="select" id="coStatus" style="height:30px;font-size:12px;width:150px"><option value="all">All statuses</option></select>
+      <select class="select" id="coService" style="height:30px;font-size:12px;width:140px"><option value="all">All services</option></select>
+      <button class="btn bsm bp" onclick="window._coachFilterApply()">Apply</button>
+      <button class="btn bsm" onclick="window._coachFilterClear()">Clear</button>
+      <input class="input" id="coSearch" placeholder="Search client / phone…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._coachSearch()">
+    </div>
     <div id="coachOpenList" style="margin-bottom:14px"></div>
     <div id="coachKanban" style="display:none;margin-bottom:14px;overflow-x:auto"></div>
     <div class="chead">
@@ -216,6 +258,17 @@ export function getMainContent(): string {
       <button data-t="extra2">Extra Info</button><button data-t="calls2">Call History <span class="mini" id="coachCallCount">0</span></button>
     </div>
     <div class="c-p" data-p="health2">
+
+      <div class="sec" id="scoreCardSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Score card <span class="chipb neu" style="margin-left:6px">Patient health scores</span></div>
+        <div class="sec-bd">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+            <div class="fld" style="margin:0"><label class="lbl">Patient Progress Score <span class="ab">0–100</span></label><input class="input mono" id="scProgress" type="text" inputmode="numeric" maxlength="3" placeholder="0" oninput="window._numOnly(this);window._scRecalcOverall()"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Consultation Score <span class="ab">0–100</span></label><input class="input mono" id="scConsult" type="text" inputmode="numeric" maxlength="3" placeholder="0" oninput="window._numOnly(this);window._scRecalcOverall()"></div>
+            <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)"><div style="font-size:11px;color:var(--muted);font-weight:600">Follow-up Score <span class="ab">AUTO</span></div><div style="font-size:24px;font-weight:800;font-family:var(--disp);margin-top:2px" id="scFollowupV">—</div></div>
+            <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)"><div style="font-size:11px;color:var(--muted);font-weight:600">Attendance Score <span class="ab">AUTO</span></div><div style="font-size:24px;font-weight:800;font-family:var(--disp);margin-top:2px" id="scAttendanceV">—</div></div>
+            <div id="scOverallTile" style="border:2px solid var(--brand);border-radius:10px;padding:10px 12px;background:var(--surface)"><div style="font-size:11px;color:var(--muted);font-weight:600">Overall Health Score</div><div style="font-size:26px;font-weight:800;font-family:var(--disp);margin-top:2px;color:var(--brand-600)" id="scOverallV">—</div></div>
+          </div>
+        </div></div>
 
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
@@ -275,12 +328,14 @@ export function getMainContent(): string {
           <div class="g4">
             <div class="fld"><label class="lbl">Attended by (HC)</label><input class="input" id="haAttendedBy" readonly></div>
             <div class="fld"><label class="lbl">Consultation date</label><input class="input" type="date" id="haConsultDate"></div>
-            <div class="fld"><label class="lbl">Next review date</label><input class="input" type="date"></div>
+            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl">Review date <span class="ab">for join / this-week / month plans</span></label><input class="input" type="date" id="haReviewDate"></div>
             <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
           </div>
-          <div class="mic"><button class="micb" id="micBtn"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
-            <div style="flex:1"><b style="font-size:13px" id="micTxt">Start recording</b><div style="font-size:11.5px;color:var(--muted)">Calls are recorded via Smartflo · Zoom link for online consults</div></div>
-            <input class="input" id="coachRecUrl" style="max-width:260px" placeholder="https://zoom.us/rec/… or call recording"></div>
+          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
+            <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)">In-clinic audio · auto-saved to this customer profile <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert)"></span></div></div>
+            <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop</button>
+            <input class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"></div>
+          <div id="ovrList" style="margin-top:8px"></div>
 
           <div class="fld"><label class="lbl">Consultation status — drives payment &amp; follow-up flow</label>
             <div class="pills" id="consStatus">
@@ -462,7 +517,7 @@ export function getMainContent(): string {
           <tr><td style="color:var(--muted)">Last call note</td><td colspan="5">—</td></tr>
         </tbody></table></div></div>
     </div>
-    <div class="c-p" data-p="pay2" style="display:none"><div class="stub">Payment history — full ledger.</div></div>
+    <div class="c-p" data-p="pay2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Payment history</div><div class="sec-bd"><div id="coachPayHist"><div class="stub">No payment records for this client yet.</div></div></div></div></div>
     <div class="c-p" data-p="notes2" style="display:none"><div class="stub">Internal notes.</div></div>
     <div class="c-p" data-p="extra2" style="display:none"><div class="stub">Extra info.</div></div>
     <div class="c-p" data-p="calls2" style="display:none"><div class="stub">Call history.</div></div>
@@ -598,7 +653,7 @@ export function getMainContent(): string {
 
           <!-- HISTORY -->
           <div class="csv-tab" data-ctp="hist" style="display:none">
-            <div class="tscroll"><table class="tbl" style="min-width:980px"><thead><tr><th>Imported at (IST)</th><th>File name</th><th>Batch</th><th>By</th><th>Total</th><th>Valid</th><th>Duplicate</th><th>Actions</th></tr></thead><tbody id="csvHistBody"></tbody></table></div>
+            <div class="tscroll"><table class="tbl" style="min-width:980px"><thead><tr id="csvHistHead"><th>Imported at (IST)</th><th>File name</th><th>Batch</th><th>By</th><th>Total</th><th>Valid</th><th>Duplicate</th><th>Actions</th></tr></thead><tbody id="csvHistBody"></tbody></table></div>
           </div>
 
           <!-- REPEAT VISITOR -->
@@ -613,7 +668,7 @@ export function getMainContent(): string {
               <button class="btn bsm" onclick="window._rvDownload()" style="margin-left:auto">⬇ Download</button>
             </div>
             <div class="metrics" id="rvKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px"></div>
-            <div class="tscroll stick1"><table class="tbl" style="min-width:920px"><thead><tr><th>Lead Number</th><th>Lead Name</th><th>Total Visits</th><th>First Visit Date</th><th>Last Visit Date</th><th>Repeat Visitor</th></tr></thead><tbody id="rvBody"></tbody></table></div>
+            <div class="tscroll stick1"><table class="tbl" style="min-width:920px"><thead><tr id="rvHead"><th>Lead Number</th><th>Lead Name</th><th>Total Visits</th><th>First Visit Date</th><th>Last Visit Date</th><th>Repeat Visitor</th></tr></thead><tbody id="rvBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
               <button class="btn bsm" id="rvFirstBtn" onclick="window._rvPage('first')">« First</button>
               <button class="btn bsm" id="rvPrevBtn" onclick="window._rvPage(-1)">← Previous</button>
@@ -641,7 +696,9 @@ export function getMainContent(): string {
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
       <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
-        <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr id="poolHead"><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
+        <div class="sec-bd">
+          <div style="margin-bottom:10px"><input class="input" id="poolSearch" placeholder="Search lead / number…" style="height:30px;font-size:12px;width:250px" oninput="window._poolSearch()"></div>
+          <div class="tscroll"><table class="tbl"><thead><tr id="poolHead"><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Leads Number</th><th>Date &amp; Time</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table></div>
         <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
           <span style="font-size:12px;font-weight:600;color:var(--ink);padding-top:8px">Assign to:</span>
@@ -655,8 +712,33 @@ export function getMainContent(): string {
           <button class="btn bsm bp" style="margin-top:0" onclick="window._assignSelected()">Assign selected</button>
           <button class="btn bsm" id="poolRRBtn" style="margin-top:0" onclick="window._assignSelectedRR()" disabled title="Select 2 or more advisors to round-robin">Assign selected (round-robin)</button>
         </div></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load <span style="font-size:11px;color:var(--faint);font-weight:500;margin-left:6px">— click an advisor to see their leads below</span></div>
         <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr id="advLoadHead"><th>Advisor</th><th>Role</th><th>Branch</th><th>Active leads</th><th>Status</th></tr></thead><tbody id="advisorLoadBody"></tbody></table></div></div></div>
+      <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor Load Leads <span id="advLeadsWho" style="font-size:11.5px;font-weight:600;color:var(--faint);margin-left:6px">— all advisors</span> <span class="chipb neu" id="advLeadsCount" style="margin-left:auto">0</span></div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <span style="font-size:10.5px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">Advisor</span>
+              <div id="advLeadsAdvWrap" style="position:relative;width:220px">
+                <button type="button" id="advLeadsAdvBtn" class="btn bsm" style="width:100%;justify-content:space-between;font-weight:500;height:31px" onclick="window._advLeadsAdvToggleMenu(event)"><span id="advLeadsAdvLabel">All Advisors</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+                <div id="advLeadsAdvMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;width:100%;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(17,34,27,.14);z-index:40;padding:4px"></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <span style="font-size:10.5px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">Lead search</span>
+              <input class="input" id="advLeadsSearch" placeholder="Search leads…" oninput="window._advLeadsSearchFn(this.value)" style="height:31px;font-size:12px;width:230px">
+            </div>
+            <button class="btn bsm" onclick="window._advLeadsDownload()" style="margin-left:auto;align-self:flex-end">⬇ Download</button>
+          </div>
+          <div class="tscroll stick1"><table class="tbl" style="min-width:1360px"><thead><tr id="advLeadsHead"></tr></thead><tbody id="advLeadsBody"><tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">Select an advisor in Advisor load to see their leads.</td></tr></tbody></table></div>
+          <div id="advLeadsPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+            <button class="btn bsm" id="advLeadsFirstBtn" onclick="window._advLeadsPage('first')">« First</button>
+            <button class="btn bsm" id="advLeadsPrevBtn" onclick="window._advLeadsPage(-1)">← Previous</button>
+            <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="advLeadsPageInfo">Page 1 of 1</span>
+            <button class="btn bsm" id="advLeadsNextBtn" onclick="window._advLeadsPage(1)">Next →</button>
+            <button class="btn bsm" id="advLeadsLastBtn" onclick="window._advLeadsPage('last')">Last »</button>
+          </div>
+        </div></div>
     </div>
     <div class="abm-p" data-p="dev" style="display:none">
       <div class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px">
@@ -684,7 +766,7 @@ export function getMainContent(): string {
               <button class="btn bsm" onclick="window._renderCallDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('call')">⬇ Download</button>
             </div>
-            <div class="tscroll stick1"><table class="tbl" style="min-width:1200px"><thead><tr><th style="width:34px"><input type="checkbox" id="callDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll('call',this.checked)"></th><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th>Received Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="callDevBody"><tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
+            <div class="tscroll stick1"><table class="tbl" style="min-width:1200px"><thead><tr id="callDevHead"><th style="width:34px"><input type="checkbox" id="callDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll('call',this.checked)"></th><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Stage</th><th>Status</th><th>Received Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="callDevBody"><tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
           </div></div>
       </div>
       <div class="dev-sub" data-dtp="lead" style="display:none">
@@ -704,7 +786,7 @@ export function getMainContent(): string {
               <button class="btn bsm" onclick="window._renderLeadsDeviation()">↻ Refresh</button>
               <button class="btn bsm" onclick="window._downloadDeviation('lead')">⬇ Download</button>
             </div>
-            <div class="tscroll stick1"><table class="tbl" style="min-width:1320px"><thead><tr><th style="width:34px"><input type="checkbox" id="leadDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll('lead',this.checked)"></th><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned To</th><th>Stage</th><th>Status</th><th>Assigned Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="leadDevBody"><tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
+            <div class="tscroll stick1"><table class="tbl" style="min-width:1320px"><thead><tr id="leadDevHead"><th style="width:34px"><input type="checkbox" id="leadDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll('lead',this.checked)"></th><th>Lead</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned To</th><th>Stage</th><th>Status</th><th>Assigned Date &amp; Time</th><th>Deviation Time</th></tr></thead><tbody id="leadDevBody"><tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr></tbody></table></div>
           </div></div>
       </div></div>
     <div class="abm-p" data-p="appr" style="display:none">
@@ -789,6 +871,10 @@ export function getMainContent(): string {
             </div>
             <div class="consent" style="font-size:12px"><label><input type="checkbox" checked> DPDP data use</label><label><input type="checkbox" checked> Health data</label><label><input type="checkbox" checked> Recording</label><label><input type="checkbox"> WA follow-ups</label></div>
             <button class="btn bp bsm" style="margin-top:8px" onclick="recRegDone()">Confirm → screening</button>
+          </div></div>
+        <div class="sec" id="zoomCiSecRec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:6px">0</span> <span class="arr">▾</span></div>
+          <div class="sec-bd" style="padding:4px 14px 14px">
+            <div class="tscroll"><table class="tbl" style="min-width:440px"><thead><tr><th>Client</th><th>Phone</th><th>When</th><th>Status</th><th>Action</th></tr></thead><tbody id="zoomCiListRec"></tbody></table></div>
           </div></div>
         <div class="sec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-coin"/></svg> Collect payment <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
@@ -1026,7 +1112,7 @@ export function getMainContent(): string {
             <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
             <button class="btn bsm" id="asgCancelBtn" onclick="window._asgCancelEdit()" style="height:34px;display:none">Cancel</button>
           </div>
-          <div class="tscroll"><table class="tbl" style="min-width:820px"><thead><tr><th>Name</th><th>Role</th><th>Branch</th><th>Phone</th><th>Active leads</th><th>Status</th><th>Actions</th></tr></thead><tbody id="asgBody"></tbody></table></div>
+          <div class="tscroll"><table class="tbl" style="min-width:820px"><thead><tr id="asgHead"><th>Name</th><th>Role</th><th>Branch</th><th>Phone</th><th>Active leads</th><th>Status</th><th>Actions</th></tr></thead><tbody id="asgBody"></tbody></table></div>
           <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Active assignees appear in the “Assign to” dropdown on Assign &amp; approve and in Advisor load. Deactivated assignees keep their history but can’t receive new leads.</p>
         </div></div>
     </div>
@@ -1097,7 +1183,7 @@ export function getMainContent(): string {
             <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Manager</option><option>Branch Manager</option><option>Super Admin</option></select></div>
             <button class="btn bp" id="usrAddBtn" onclick="window._usrCreate()" style="height:34px">+ Add user</button>
           </div>
-          <div class="tscroll"><table class="tbl" style="min-width:700px"><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
+          <div class="tscroll"><table class="tbl" style="min-width:700px"><thead><tr id="usrHead"><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
           <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Users added here can log in with their email. First-time users set their password on the login screen.</p>
         </div></div>
     </div>

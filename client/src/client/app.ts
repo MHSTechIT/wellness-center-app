@@ -227,12 +227,12 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#usrBody") as HTMLElement;
       if(!body) return;
       if(!_usrList.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:22px">No users yet. Add the first user above.</td></tr>'; return; }
-      body.innerHTML=_usrList.map((u:any)=>{
+      const _uhd=root.querySelector("#usrHead"); if(_uhd)_uhd.innerHTML=gridHead("usr"); const _usrR=gridApply("usr",_usrList); body.innerHTML=_usrR.map((u:any)=>{
         const isSelf=_currentUser&&_currentUser.email===u.email;
         return '<tr><td class="mono" style="font-size:12px">'+u.email+'</td><td>'+(u.name||"—")+'</td>'
           +'<td><span class="chipb '+(u.role==="Super Admin"?"vio":u.role==="Branch Manager"?"info":"neu")+'">'+u.role+'</span></td>'
           +'<td><span class="chipb '+(u.active?"ok":"al")+'">'+(u.active?"Active":"Inactive")+'</span></td>'
-          +'<td class="mono" style="font-size:11px">'+(u.created_at?new Date(u.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—")+'</td>'
+          +'<td class="mono" style="font-size:11px">'+_dIST(u.created_at)+'</td>'
           +'<td>'+(isSelf?'<span style="font-size:11px;color:var(--faint)">You</span>'
             :'<button class="btn bsm" onclick="window._usrToggle('+u.id+')">'+(u.active?"Deactivate":"Activate")+'</button>'
             +(u.role!=="Super Admin"?' <button class="btn bsm" onclick="window._usrDel('+u.id+')" style="color:var(--alert-ink)">Remove</button>':""))
@@ -347,12 +347,26 @@ export function initApp(root: HTMLElement) {
         if (any) { b.className = "banner bad"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-x"></use></svg><span><b>NOT eligible</b> — exclusion tag present'+(reasons?" ("+e(reasons)+")":"")+'.</span>'; }
         else { b.className = "banner good"; b.innerHTML = '<svg class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg><span>Eligible — can book appointment.</span>'; }
       }
+      // Red "Not Eligible" badge next to the lead name (Open Profile header).
+      _advSetNotEligBadge(any, reasons);
       // Record eligibility for the open lead → the Assigned-leads table flags the row red.
       if (_advLeadId) {
         if (any) _eligMap[String(_advLeadId)] = reasons || "Exclusion tag present";
         else delete _eligMap[String(_advLeadId)];
         try{ renderAssignedLeads(); }catch(_){}
+        // Persist the eligibility immediately so it survives refresh / reopen / re-login —
+        // but NOT during a profile restore (that's not a user-initiated change).
+        if(!_advApplying){
+          try{ persistAdvProfileQuiet(String(_advLeadId)); }catch(_){}
+          try{ logActivity(_advLeadId,[{action:"Status Changed",field:"Eligibility",new:any?("Not Eligible"+(reasons?" ("+reasons+")":"")):"Eligible"}]); }catch(_){}
+        }
       }
+    }
+    // Show/hide the red "Not Eligible" badge in the Open Profile header.
+    function _advSetNotEligBadge(on:boolean,reasons:string){
+      const el=root.querySelector("#advNotElig")as HTMLElement|null; if(!el) return;
+      el.style.display=on?"":"none";
+      el.title=on&&reasons?("Exclusion tag present — "+reasons):"";
     }
 
     root.querySelectorAll("#stars .star").forEach((s, i, a) => { (s as HTMLElement).onclick = () => a.forEach((x, j) => x.classList.toggle("on", j <= i)); });
@@ -863,8 +877,11 @@ export function initApp(root: HTMLElement) {
     function dupGroupCount(){ return Object.keys(_dupColorMap).length; }
     // Set of phones that are duplicated across the ACTIVE feed (count>1) + manual collisions.
     function feedDupPhoneSet(){
+      // A phone is a duplicate if it was received 2+ times in TOTAL (historical) — count
+      // every occurrence, including ones already pooled/assigned, so an assigned lead
+      // never drops out of the Duplicates view.
       const counts:Record<string,number>={};
-      feedAll().filter((l:any)=>!feedIsProcessed(l)).forEach((l:any)=>{ const p=normPhone(l.phone); if(p) counts[p]=(counts[p]||0)+1; });
+      feedAll().forEach((l:any)=>{ const p=normPhone(l.phone); if(p) counts[p]=(counts[p]||0)+1; });
       const s=new Set<string>();
       Object.keys(counts).forEach(p=>{ if(counts[p]>1) s.add(p); });
       _manualDupPhones.forEach(p=>s.add(p));
@@ -875,32 +892,42 @@ export function initApp(root: HTMLElement) {
     // left the feed), track the latest received time and the last-assigned advisor.
     function feedDupGroups(){
       const ds=feedDupPhoneSet();
-      // Per-phone meta over the FULL feed (so "last received" / "last assigned" reflect
-      // every occurrence of the number, not just the ones still in the incoming feed).
-      const meta:Record<string,{firstReceived:string;firstReceivedAt:number;lastReceived:string;lastReceivedAt:number;lastAssigned:string;lastAssignedAt:number}>={};
+      // Per-phone history over EVERY occurrence of the number (including pooled/assigned
+      // ones that have left the active feed). The Duplicates table is a HISTORICAL view:
+      // assigning a lead updates only "Last Assigned Advisor" — it never removes the
+      // record, and never changes the repeat count or last-repeat time.
+      const meta:Record<string,any>={};
       feedAll().forEach((l:any)=>{
         const p=normPhone(l.phone); if(!p) return;
         const t=new Date(l.createdAt).getTime()||0;
-        if(!meta[p]) meta[p]={firstReceived:l.createdAt,firstReceivedAt:Infinity,lastReceived:l.createdAt,lastReceivedAt:-Infinity,lastAssigned:"",lastAssignedAt:-1};
+        if(!meta[p]) meta[p]={firstReceived:l.createdAt,firstReceivedAt:Infinity,lastReceived:l.createdAt,lastReceivedAt:-Infinity,lastAssigned:"",lastAssignedAt:-1,count:0,sources:new Set<string>()};
         const m=meta[p];
+        m.count++;   // total times received (unaffected by assignment)
+        m.sources.add((l.source==="Meta")?"Meta":(l.source==="Manual"?"Manual":(l.source||"Meta")));
         if(t<=m.firstReceivedAt){ m.firstReceivedAt=t; m.firstReceived=l.createdAt; }   // earliest = original
         if(t>=m.lastReceivedAt){ m.lastReceivedAt=t; m.lastReceived=l.createdAt; }        // latest = most recent repeat
-        if(l.assignedTo && t>=m.lastAssignedAt){ m.lastAssignedAt=t; m.lastAssigned=l.assignedTo; }
+        // Last assigned advisor = the assignment with the most recent assignment time
+        // (assigned_at; falls back to the lead's created time). Reflects reassignments.
+        if(l.assignedTo){ const at=l.assignedAt?(new Date(l.assignedAt).getTime()||t):t; if(at>=m.lastAssignedAt){ m.lastAssignedAt=at; m.lastAssigned=l.assignedTo; } }
       });
-      const byPhone:Record<string,any>={};
-      feedActive().forEach((l:any)=>{
+      // Representative lead per duplicate phone (honors search + dashboard filters). Prefer
+      // an active/unassigned occurrence (so "Send to assignment" targets an unpooled one);
+      // otherwise fall back to the newest occurrence.
+      const rep:Record<string,any>={};
+      feedAll().filter((l:any)=>feedMatchesQuery(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service)).forEach((l:any)=>{
         const p=normPhone(l.phone); if(!p||!ds.has(p)) return;
-        if(!byPhone[p]){ byPhone[p]={rep:l,count:0,sources:new Set<string>()}; }
-        const g=byPhone[p]; g.count++;
-        const src=(l.source==="Meta")?"Meta":(l.source==="Manual"?"Manual":(l.source||"Meta"));
-        g.sources.add(src);
-        if(new Date(l.createdAt).getTime()>new Date(g.rep.createdAt).getTime()) g.rep=l;   // newest as representative
+        const cur=rep[p];
+        if(!cur){ rep[p]=l; return; }
+        const lActive=!feedIsProcessed(l), cActive=!feedIsProcessed(cur);
+        if(lActive!==cActive){ if(lActive) rep[p]=l; return; }
+        if(new Date(l.createdAt).getTime()>new Date(cur.createdAt).getTime()) rep[p]=l;
       });
-      return Object.keys(byPhone).map(p=>({
-        ...byPhone[p],
-        sources:Array.from(byPhone[p].sources),
-        firstReceived: meta[p]?meta[p].firstReceived:byPhone[p].rep.createdAt,
-        lastReceived: meta[p]?meta[p].lastReceived:byPhone[p].rep.createdAt,
+      return Object.keys(rep).map(p=>({
+        rep: rep[p],
+        count: meta[p]?meta[p].count:1,
+        sources: meta[p]?Array.from(meta[p].sources):[],
+        firstReceived: meta[p]?meta[p].firstReceived:rep[p].createdAt,
+        lastReceived: meta[p]?meta[p].lastReceived:rep[p].createdAt,
         lastAssigned: meta[p]?meta[p].lastAssigned:"",
       })).sort((a:any,b:any)=>new Date(b.lastReceived).getTime()-new Date(a.lastReceived).getTime());
     }
@@ -957,7 +984,7 @@ export function initApp(root: HTMLElement) {
     async function loadOtherSourceLeads(){
       try{
         const {data}=await supabase.from("leads")
-          .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,call_status")
+          .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,assigned_at,call_status")
           .neq("source","Meta Ads");
         const rows=data||[];
         _otherLeads=rows.map((r:any)=>({id:r.meta_lead_id,name:r.name,
@@ -973,7 +1000,7 @@ export function initApp(root: HTMLElement) {
             sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
             service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
             isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned,
-            inPool:!!r.in_pool,assignedTo:r.assigned_to||"",callStatus:r.call_status||""};
+            inPool:!!r.in_pool,assignedTo:r.assigned_to||"",assignedAt:r.assigned_at||null,callStatus:r.call_status||""};
         });
       }catch(_){ _otherLeads=[]; _otherFeedLeads=[]; }
     }
@@ -994,6 +1021,16 @@ export function initApp(root: HTMLElement) {
       const el=root.querySelector("#metaFeedStatus"); if(el) el.textContent="Last Synced: "+fmtSyncTime(d);
     }
 
+    // Date-only IST formatter — robust to both 'YYYY-MM-DD' and full ISO strings
+    // (the /db gateway returns DATE columns as UTC ISO, which naive slicing gets wrong).
+    function fmtISTDate(iso:string){
+      if(!iso) return "";
+      try{
+        const parts=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).formatToParts(new Date(iso));
+        const g=(t:string)=>parts.find(p=>p.type===t)?.value||"";
+        return g("day")+" "+g("month")+" "+g("year");
+      }catch(e){ return String(iso).slice(0,10); }
+    }
     function fmtIST(iso:string){
       if(!iso) return "—";
       try{
@@ -1045,14 +1082,14 @@ export function initApp(root: HTMLElement) {
     // ===== Generic Excel-style column-filter engine (shared by EVERY table) =====
     // A table registers: cols() → spec [{key,label,filter,text(row),head?,thStyle?}],
     // rows() → base rows, rerender(). State per table: colKey → Set of allowed values.
-    const _grids:Record<string,{cols:()=>any[];rows:()=>any[];rerender:()=>void;F:Record<string,Set<string>>}>={};
-    function regGrid(id:string,cols:()=>any[],rows:()=>any[],rerender:()=>void){ const ex=_grids[id]; _grids[id]={cols,rows,rerender,F:ex?ex.F:{}}; }
+    const _grids:Record<string,{cols:()=>any[];rerender:()=>void;F:Record<string,Set<string>>;base:any[]}>={};
+    function regGrid(id:string,cols:()=>any[],rerender:()=>void){ const ex=_grids[id]; _grids[id]={cols,rerender,F:ex?ex.F:{},base:ex?ex.base:[]}; }
     // Filter rows for a table (AND across columns; a row passes if its value is allowed).
-    function gridApply(id:string,rows:any[]){ const g=_grids[id]; if(!g)return rows; const cols=g.cols(); const active=cols.filter((c:any)=>c.filter&&g.F[c.key]); if(!active.length)return rows; return rows.filter((row:any)=>active.every((c:any)=>g.F[c.key].has(String(c.text(row)??"").trim()))); }
+    function gridApply(id:string,rows:any[]){ const g=_grids[id]; if(!g)return rows; g.base=rows; const cols=g.cols(); const active=cols.filter((c:any)=>c.filter&&g.F[c.key]); if(!active.length)return rows; return rows.filter((row:any)=>active.every((c:any)=>g.F[c.key].has(String(c.text(row)??"").trim()))); }
     // Build a header row's <th> cells (with filter carets) for a table.
     function gridHead(id:string){ const g=_grids[id]; const cols=g?g.cols():[]; return cols.map((c:any)=>{ const st=c.thStyle?' style="'+c.thStyle+'"':''; if(c.head!==undefined) return '<th'+st+'>'+c.head+'</th>'; if(!c.filter) return '<th'+st+'>'+_attr(c.label||"")+'</th>'; const active=!!(g&&g.F[c.key]); const caret='<span title="Filter" style="margin-left:6px;font-size:10px;padding:1px 5px;border-radius:5px;'+(active?'background:var(--brand);color:#fff':'background:var(--surface-2);color:var(--muted)')+'">▾</span>'; return '<th style="white-space:nowrap'+(c.thStyle?';'+c.thStyle:'')+'"><span style="display:inline-flex;align-items:center;cursor:pointer;user-select:none" onclick="window._gridFilter(\''+id+'\',\''+c.key+'\',event)"><span>'+_attr(c.label)+'</span>'+caret+'</span></th>'; }).join(""); }
     // Distinct values for a column, respecting the OTHER active column filters.
-    function gridValues(id:string,key:string){ const g=_grids[id]; if(!g)return []; const cols=g.cols(); const col=cols.find((c:any)=>c.key===key); if(!col)return []; let base=g.rows(); const active=cols.filter((c:any)=>c.filter&&c.key!==key&&g.F[c.key]); if(active.length) base=base.filter((row:any)=>active.every((c:any)=>g.F[c.key].has(String(c.text(row)??"").trim()))); const set=new Set<string>(); base.forEach((row:any)=>set.add(String(col.text(row)??"").trim())); return Array.from(set).sort((a,b)=>a.localeCompare(b)); }
+    function gridValues(id:string,key:string){ const g=_grids[id]; if(!g)return []; const cols=g.cols(); const col=cols.find((c:any)=>c.key===key); if(!col)return []; let base=g.base||[]; const active=cols.filter((c:any)=>c.filter&&c.key!==key&&g.F[c.key]); if(active.length) base=base.filter((row:any)=>active.every((c:any)=>g.F[c.key].has(String(c.text(row)??"").trim()))); const set=new Set<string>(); base.forEach((row:any)=>set.add(String(col.text(row)??"").trim())); return Array.from(set).sort((a,b)=>a.localeCompare(b)); }
     // ---- Shared filter popup (search + checkbox list + select-all + Apply/Clear) ----
     let _gfOpen:{id:string;key:string;values:string[];sel:Set<string>;search:string;shown:string[]}|null=null;
     function gfPopupEl(){ let p=root.querySelector("#gridFilterPopup")as HTMLElement|null; if(!p){ p=document.createElement("div"); p.id="gridFilterPopup"; p.style.cssText="display:none;position:fixed;z-index:400;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(17,34,27,.18);width:238px;padding:10px;font-size:12px;font-weight:400"; root.appendChild(p); } return p; }
@@ -1073,7 +1110,7 @@ export function initApp(root: HTMLElement) {
     window.addEventListener("resize",()=>gfClose());
     window.addEventListener("blur",()=>gfClose());
     // Register the Live Incoming Feed (columns depend on the All/Duplicates view).
-    regGrid("feed", ()=>_feedView==="dup"?_feedColsDup:_feedColsStd, ()=>_feedView==="dup"?feedDupGroups():feedFiltered(), ()=>{ _metaPageNum=1; renderMetaPage(); });
+    regGrid("feed", ()=>_feedView==="dup"?_feedColsDup:_feedColsStd, ()=>{ _metaPageNum=1; renderMetaPage(); });
     // ---- Column specs for the other application tables (same Excel-style filter) ----
     const _csvImpCols:any[]=[
       {key:"_sel",head:"",thStyle:"width:30px"},
@@ -1091,7 +1128,7 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Status",filter:false},
       {key:"_act",label:"Action",filter:false},
     ];
-    regGrid("csvImported", ()=>_csvImpCols, ()=>_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r)), ()=>renderCsvValid());
+    regGrid("csvImported", ()=>_csvImpCols, ()=>renderCsvValid());
     const _csvDupCols:any[]=[
       {key:"_sel",head:"",thStyle:"width:30px"},
       {key:"dt",label:"Date & Time",filter:true,text:(r:any)=>r.dt||""},
@@ -1105,16 +1142,18 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Status",filter:false},
       {key:"_act",label:"Action",filter:false},
     ];
-    regGrid("csvDup", ()=>_csvDupCols, ()=>_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)), ()=>renderCsvDup());
+    regGrid("csvDup", ()=>_csvDupCols, ()=>renderCsvDup());
     const _poolCols:any[]=[
       {key:"_sel",head:'<input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)">',thStyle:"width:34px"},
       {key:"lead",label:"Lead",filter:true,text:(p:any)=>p.name||""},
+      {key:"phone",label:"Leads Number",filter:true,text:(p:any)=>p.phone||""},
+      {key:"dt",label:"Date & Time",filter:true,text:(p:any)=>fmtIST(p.createdAt||p.ts)},
       {key:"src",label:"Source · lang",filter:true,text:(p:any)=>p.src||""},
       {key:"sugar",label:"Sugar",filter:true,text:(p:any)=>String(p.sugar||"").replace(/<[^>]*>/g,"").trim()},
       {key:"waiting",label:"Waiting",filter:true,text:(p:any)=>p.waiting||""},
       {key:"_act",label:"Action",filter:false,thStyle:"width:150px"},
     ];
-    regGrid("pool", ()=>_poolCols, ()=>_unassignedPool.filter((p:any)=>inAbmRange(p.ts)), ()=>renderUnassignedPool());
+    regGrid("pool", ()=>_poolCols, ()=>renderUnassignedPool());
     const _advLoadCols:any[]=[
       {key:"advisor",label:"Advisor",filter:true,text:(a:any)=>a.name||""},
       {key:"role",label:"Role",filter:true,text:(a:any)=>a.role||""},
@@ -1122,7 +1161,54 @@ export function initApp(root: HTMLElement) {
       {key:"active",label:"Active leads",filter:true,text:(a:any)=>String(_asgActiveLeadCount(a.name))},
       {key:"status",label:"Status",filter:true,text:(a:any)=>_asgActiveLeadCount(a.name)>=40?"Near cap":"Available"},
     ];
-    regGrid("advLoad", ()=>_advLoadCols, ()=>_assignees.filter((a:any)=>a.is_active), ()=>renderAdvisorLoad());
+    regGrid("advLoad", ()=>_advLoadCols, ()=>renderAdvisorLoad());
+    const _dIST=(d:any)=>{ if(!d)return "—"; const x=d instanceof Date?d:new Date(d); return isNaN(x.getTime())?"—":new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).format(x); };
+    const _asgCols:any[]=[
+      {key:"name",label:"Name",filter:true,text:(a:any)=>a.name||""},
+      {key:"role",label:"Role",filter:true,text:(a:any)=>a.role||""},
+      {key:"branch",label:"Branch",filter:true,text:(a:any)=>a.branch||""},
+      {key:"phone",label:"Phone",filter:true,text:(a:any)=>a.phone||""},
+      {key:"active",label:"Active leads",filter:true,text:(a:any)=>String(_asgActiveLeadCount(a.name))},
+      {key:"status",label:"Status",filter:true,text:(a:any)=>a.is_active?"Active":"Inactive"},
+      {key:"_act",label:"Actions",filter:false},
+    ];
+    regGrid("asg", ()=>_asgCols, ()=>renderAssigneesTable());
+    const _csvHistCols:any[]=[
+      {key:"dt",label:"Imported at (IST)",filter:true,text:(b:any)=>fmtIST(b.created_at)},
+      {key:"file",label:"File name",filter:true,text:(b:any)=>b.file_name||""},
+      {key:"batch",label:"Batch",filter:true,text:(b:any)=>b.batch_name||""},
+      {key:"by",label:"By",filter:true,text:(b:any)=>b.imported_by||""},
+      {key:"total",label:"Total",filter:true,text:(b:any)=>String(b.total_records||0)},
+      {key:"valid",label:"Valid",filter:true,text:(b:any)=>String(b.valid_records||0)},
+      {key:"dup",label:"Duplicate",filter:true,text:(b:any)=>String(b.duplicate_records||0)},
+      {key:"_act",label:"Actions",filter:false},
+    ];
+    regGrid("csvHist", ()=>_csvHistCols, ()=>renderCsvHist());
+    const _rvCols:any[]=[
+      {key:"phone",label:"Lead Number",filter:true,text:(g:any)=>g.phone||""},
+      {key:"name",label:"Lead Name",filter:true,text:(g:any)=>g.name||""},
+      {key:"visits",label:"Total Visits",filter:true,text:(g:any)=>String(g.visits)},
+      {key:"first",label:"First Visit Date",filter:true,text:(g:any)=>_dIST(g.first)},
+      {key:"last",label:"Last Visit Date",filter:true,text:(g:any)=>_dIST(g.last)},
+      {key:"status",label:"Repeat Visitor",filter:true,text:(g:any)=>g.visits>1?"Repeat":"First-time"},
+    ];
+    regGrid("rv", ()=>_rvCols, ()=>renderCsvRepeat());
+    const _usrCols:any[]=[
+      {key:"email",label:"Email",filter:true,text:(u:any)=>u.email||""},
+      {key:"name",label:"Name",filter:true,text:(u:any)=>u.name||""},
+      {key:"role",label:"Role",filter:true,text:(u:any)=>u.role||""},
+      {key:"status",label:"Status",filter:true,text:(u:any)=>u.active?"Active":"Inactive"},
+      {key:"created",label:"Created",filter:true,text:(u:any)=>_dIST(u.created_at)},
+      {key:"_act",label:"Actions",filter:false},
+    ];
+    regGrid("usr", ()=>_usrCols, ()=>renderUsers());
+    const _haResCols:any[]=[
+      {key:"lead",label:"Lead",filter:true,text:(l:any)=>l.name||""},
+      {key:"src",label:"Source · Lang",filter:true,text:(l:any)=>l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"))},
+      {key:"assigned",label:"Assigned to",filter:true,text:(l:any)=>l.assignedTo||"—"},
+      {key:"status",label:"Call status",filter:true,text:(l:any)=>haEffStatus(l)},
+    ];
+    regGrid("haResults", ()=>_haResCols, ()=>renderHaResults());
     // Shared pager-button state for all tables: First/Prev disabled on page 1,
     // Next/Last disabled on the last page. Button ids follow <prefix>{First,Prev,Next,Last}Btn.
     function _pgBtns(prefix:string,page:number,pages:number){
@@ -1246,12 +1332,12 @@ export function initApp(root: HTMLElement) {
     async function loadAssignmentExtras(){
       try{
         const [pr,ar]=await Promise.all([
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,campaign,assigned_to,call_status,pool_added_at,created_at").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
-        _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
+        _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,service:r.service||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
         // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
       }catch(_){ /* columns/table may be absent — ignore */ }
     }
 
@@ -1315,19 +1401,26 @@ export function initApp(root: HTMLElement) {
       pooled.forEach((ld:any)=>_movedToPool.add(String(ld.id)));
       _unassignedPool=[
         ...pooled.map((ld:any)=>({
-          id:ld.id,name:ld.name,src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
+          id:ld.id,name:ld.name,phone:ld.phone||"",src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
           sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",assignedTo:"",
-          ts:ld.poolAddedAt||ld.createdAt
+          createdAt:ld.createdAt,ts:ld.poolAddedAt||ld.createdAt
         })),
         ..._poolExtras.map((p:any)=>({...p,ts:p.poolAddedAt||p.createdAt}))
       ];
     }
+    // Free-text search over the Unassigned pool (composes with the time-range + column filters).
+    let _poolQuery=""; let _poolSearchT:any=null;
+    function poolMatchesQuery(p:any){
+      const q=_poolQuery.trim().toLowerCase(); if(!q) return true;
+      return [p.name,p.phone,p.src].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
+    }
+    w._poolSearch=()=>{ if(_poolSearchT)clearTimeout(_poolSearchT); _poolSearchT=setTimeout(()=>{ _poolQuery=(root.querySelector("#poolSearch")as HTMLInputElement)?.value||""; renderUnassignedPool(); },180); };
     function renderUnassignedPool(){
       const body=root.querySelector("#unassignedPoolBody");
       const cnt=root.querySelector("#poolCount");
       const hd=root.querySelector("#poolHead"); if(hd)hd.innerHTML=gridHead("pool");
       const poolAll=_unassignedPool.filter((p:any)=>inAbmRange(p.ts));   // time-range filter
-      const pool=gridApply("pool",poolAll);                              // + column filters
+      const pool=gridApply("pool",poolAll.filter(poolMatchesQuery));     // + search + column filters
       if(cnt) cnt.textContent=String(poolAll.length);
       if(!body) return;
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -1336,11 +1429,13 @@ export function initApp(root: HTMLElement) {
         const isNew=String(p.id).indexOf("seed-")!==0;
         return '<tr><td><input type="checkbox" class="poolChk" data-id="'+esc(String(p.id))+'" checked style="accent-color:var(--brand)"></td>'
           +'<td style="font-weight:600">'+esc(p.name)+(isNew?' <span class="chipb ok" style="margin-left:4px">Transferred</span>':'')+'</td>'
+          +'<td class="mono">'+esc(p.phone||"—")+'</td>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+esc(fmtIST(p.createdAt||p.ts))+'</td>'
           +'<td><span class="tag">'+esc(p.src)+'</span></td>'
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
           +'<td class="mono">'+esc(p.waiting)+'</td>'
           +'<td><button class="btn bsm" title="Return this lead to its original source table (Live Incoming Feed or Bulk CSV Import Wizard) and remove it from the pool" onclick="window._poolReturnToSource(\''+esc(String(p.id))+'\')">↩ Return to Pool</button></td></tr>';
-      }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
+      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
       // Populate the "Assign to" checkbox multi-select from active assignees (preserve ticks).
       const asgMenu=root.querySelector("#poolAssignMenu")as HTMLElement|null;
       if(asgMenu){
@@ -1363,16 +1458,22 @@ export function initApp(root: HTMLElement) {
     w._gotoAssign=()=>{const b=root.querySelector('#abmTabs button[data-t="assign"]')as HTMLButtonElement;if(b)b.click();};
 
     // ===== Assignee master: load, render, CRUD =====
+    // The exact set of an advisor's active leads within the selected time range.
+    // Advisor Load's "Active leads" count and the Advisor Load Leads table both derive
+    // from THIS function, so the count always matches the rows shown.
+    function _asgActiveLeadsFor(name:string){
+      return _metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt))
+        .concat(_assignedExtras.filter((l:any)=>l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt)));
+    }
     function _asgActiveLeadCount(name:string){
       // Advisor workload within the selected time range (by pool/lead timestamp).
-      return _metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt)).length
-        + _assignedExtras.filter((l:any)=>l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt)).length;
+      return _asgActiveLeadsFor(name).length;
     }
     function renderAssigneesTable(){
       const body=root.querySelector("#asgBody");
       if(!body) return;
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      body.innerHTML=_assignees.length?_assignees.map((a:any)=>{
+      const _ahd=root.querySelector("#asgHead"); if(_ahd)_ahd.innerHTML=gridHead("asg"); const _asgR=gridApply("asg",_assignees); body.innerHTML=_asgR.length?_asgR.map((a:any)=>{
         const cnt=_asgActiveLeadCount(a.name);
         return '<tr style="'+(a.is_active?'':'opacity:0.55')+'">'
           +'<td style="font-weight:600">'+esc(a.name)+'</td><td>'+esc(a.role)+'</td><td>'+esc(a.branch)+'</td>'
@@ -1391,9 +1492,147 @@ export function initApp(root: HTMLElement) {
       body.innerHTML=active.length?active.map((a:any)=>{
         const cnt=_asgActiveLeadCount(a.name);
         const status=cnt>=40?'<span class="chipb warn">Near cap</span>':'<span class="chipb ok">Available</span>';
-        return '<tr><td style="font-weight:600">'+esc(a.name)+'</td><td>'+esc(a.role)+'</td><td>'+esc(a.branch)+'</td><td class="mono">'+cnt+'</td><td>'+status+'</td></tr>';
+        const on=_advLeadsAdv.has(a.name);
+        return '<tr data-adv="'+esc(a.name)+'" onclick="window._advLeadsSelect(this.getAttribute(\'data-adv\'))" style="cursor:pointer'+(on?';background:var(--surf2,#eef7f1);box-shadow:inset 3px 0 0 var(--brand)':'')+'" title="Show this advisor\'s leads below"><td style="font-weight:600">'+esc(a.name)+'</td><td>'+esc(a.role)+'</td><td>'+esc(a.branch)+'</td><td class="mono">'+cnt+'</td><td>'+status+'</td></tr>';
       }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:18px">No active assignees — add them in Settings → Assignees</td></tr>';
+      renderAdvLoadLeads();
     }
+    // ===== Advisor Load Leads: drill-down of the assigned book =====
+    // Advisor filter: empty Set = "All Advisors"; otherwise the chosen advisor names.
+    let _advLeadsAdv=new Set<string>();
+    let _advLeadsPageN=1; const ADVL_PER=25;
+    let _advLeadsQuery="";
+    let _advLeadsDetInit=false;                // one-shot: fetch details for the default (all) view
+    let _advLeadsDet:Record<string,any>={};   // meta_lead_id -> live DB details (assigned_at, next_followup, service, last_fu)
+    // The base row set for the current advisor selection (union across selected advisors,
+    // or every active advisor when "All"). Deduped by lead id. Each advisor's slice uses
+    // the SAME _asgActiveLeadsFor() as the Advisor-load count, so totals stay in lock-step.
+    function _advLeadsBaseRows(){
+      const active=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
+      const names=_advLeadsAdv.size?Array.from(_advLeadsAdv):active;
+      const seen=new Set<string>(); const out:any[]=[];
+      names.forEach((n:string)=>_asgActiveLeadsFor(n).forEach((l:any)=>{ const k=String(l.id); if(!seen.has(k)){ seen.add(k); out.push(l); } }));
+      return out;
+    }
+    const _advLeadsBtnLabel=()=>_advLeadsAdv.size===0?"All Advisors":(_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0]:_advLeadsAdv.size+" advisors selected");
+    const _advLeadsWhoLabel=()=>_advLeadsAdv.size===0?"all advisors":(_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0]:_advLeadsAdv.size+" advisors");
+    const _haBucketLabel=(cs:string)=>{ const k=haBucketOf(cs); const c=HA_CARDS.find((x:any)=>x.key===k); return c?c.label:"Open Leads"; };
+    const _advLeadSvc=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.service)||l.service||"Diabetes"; };
+    const _advLeadAsgd=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return fmtIST((d&&d.assigned_at)||l.poolAddedAt||l.createdAt); };
+    const _advLeadNextFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return d&&d.next_followup?_dIST(d.next_followup):"—"; };
+    const _advLeadLastFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.last_fu)||"—"; };
+    const _advLeadsCols=[
+      {key:"num",label:"Lead Number",filter:true,text:(l:any)=>String(l.id||"—")},
+      {key:"name",label:"Lead Name",filter:true,text:(l:any)=>l.name||"—"},
+      {key:"phone",label:"Phone Number",filter:true,text:(l:any)=>l.phone||"—"},
+      {key:"source",label:"Source",filter:true,text:(l:any)=>l.source||"—"},
+      {key:"service",label:"Service",filter:true,text:(l:any)=>_advLeadSvc(l)},
+      {key:"stage",label:"Stage",filter:true,text:(l:any)=>_haBucketLabel(haEffStatus(l))},
+      {key:"status",label:"Status",filter:true,text:(l:any)=>haEffStatus(l)},
+      {key:"asgd",label:"Assigned Date & Time",filter:true,text:(l:any)=>_advLeadAsgd(l)},
+      {key:"lastfu",label:"Last Follow-up Date & Time",filter:true,text:(l:any)=>_advLeadLastFu(l)},
+      {key:"nextfu",label:"Next Follow-up Date",filter:true,text:(l:any)=>_advLeadNextFu(l)},
+      {key:"adv",label:"Assigned Advisor",filter:true,text:(l:any)=>l.assignedTo||"—"},
+    ];
+    regGrid("advLeads",()=>_advLeadsCols,()=>renderAdvLoadLeads());
+    // Pull live per-lead details (assigned_at / next follow-up / service / last follow-up)
+    // for the selected advisor's leads, keyed by meta_lead_id. Degrades gracefully if the
+    // advisor_profile / assigned_at / next_followup columns aren't present.
+    async function loadAdvLeadsDetails(){
+      _advLeadsDet={};
+      const ids=_advLeadsBaseRows().map((l:any)=>String(l.id)).filter(Boolean);
+      if(!ids.length) return;
+      try{
+        for(let i=0;i<ids.length;i+=300){
+          const chunk=ids.slice(i,i+300);
+          let res:any=await supabase.from("leads").select("meta_lead_id,service,assigned_at,next_followup,advisor_profile").in("meta_lead_id",chunk);
+          if(res.error) res=await supabase.from("leads").select("meta_lead_id,service").in("meta_lead_id",chunk);
+          (res.data||[]).forEach((r:any)=>{
+            let lastFu="";
+            // Follow-up notes are stored newest-first (unshift) → the latest is index 0.
+            try{ const fn=r.advisor_profile&&r.advisor_profile.fuNotes; if(Array.isArray(fn)&&fn.length) lastFu=(fn[0]&&fn[0].at)||""; }catch(_){}
+            // Next follow-up: prefer the dedicated column; fall back to the value saved inside
+            // advisor_profile (older leads only stored it there, before it was persisted to the column).
+            // The value is the #nextFollowUp datetime-local string — locate it by VALUE SHAPE
+            // (YYYY-MM-DDTHH:MM), not by field position, since the saved index isn't reliable.
+            let nfu=r.next_followup;
+            if(!nfu){ try{ const f=r.advisor_profile&&r.advisor_profile.f; if(Array.isArray(f)){ const dt=f.find((rec:any)=>rec&&typeof rec.v==="string"&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(rec.v)); if(dt) nfu=dt.v; } }catch(_){} }
+            _advLeadsDet[String(r.meta_lead_id)]={service:r.service,assigned_at:r.assigned_at,next_followup:nfu,last_fu:lastFu};
+          });
+        }
+      }catch(_){/* keep in-memory fallbacks */}
+    }
+    // Apply search + Excel column filters to the advisor's base book (the count set).
+    function _advLeadsFiltered(){
+      const q=_advLeadsQuery.trim().toLowerCase();
+      let rows=_advLeadsBaseRows();
+      if(q) rows=rows.filter((l:any)=>_advLeadsCols.some((c:any)=>c.filter&&String(c.text(l)).toLowerCase().includes(q)));
+      return gridApply("advLeads",rows);
+    }
+    // Populate the Advisor multi-select dropdown (All Advisors + one row per active advisor).
+    function _renderAdvLeadsMenu(){
+      const lab=root.querySelector("#advLeadsAdvLabel"); if(lab)lab.textContent=_advLeadsBtnLabel();
+      const menu=root.querySelector("#advLeadsAdvMenu"); if(!menu) return;
+      const esc=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const active=_assignees.filter((a:any)=>a.is_active);
+      let html='<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;font-weight:700;cursor:pointer;border-bottom:1px solid var(--line)"><input type="checkbox" '+(_advLeadsAdv.size===0?"checked":"")+' onchange="window._advLeadsAdvAll()" style="accent-color:var(--brand)"> All Advisors</label>';
+      html+=active.map((a:any)=>'<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;cursor:pointer"><input type="checkbox" class="advLeadsChk" data-adv="'+esc(a.name)+'" '+(_advLeadsAdv.has(a.name)?"checked":"")+' onchange="window._advLeadsAdvToggle(this.getAttribute(\'data-adv\'),this.checked)" style="accent-color:var(--brand)"> '+esc(a.name)+'</label>').join("");
+      menu.innerHTML=html;
+    }
+    function _setAdvLeadsPager(page:number,pages:number){
+      const info=root.querySelector("#advLeadsPageInfo"); if(info)info.textContent="Page "+page+" of "+pages;
+      const dis=(id:string,d:boolean)=>{ const b=root.querySelector("#"+id)as HTMLButtonElement|null; if(b)b.disabled=d; };
+      dis("advLeadsFirstBtn",page<=1); dis("advLeadsPrevBtn",page<=1); dis("advLeadsNextBtn",page>=pages); dis("advLeadsLastBtn",page>=pages);
+    }
+    function renderAdvLoadLeads(){
+      const body=root.querySelector("#advLeadsBody"); if(!body) return;
+      const who=root.querySelector("#advLeadsWho"); const cnt=root.querySelector("#advLeadsCount");
+      const hd=root.querySelector("#advLeadsHead"); if(hd)hd.innerHTML=gridHead("advLeads");
+      const esc=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      _renderAdvLeadsMenu();
+      const base=_advLeadsBaseRows();
+      // One-shot: enrich the default (all-advisors) view with live DB details.
+      if(!_advLeadsDetInit && base.length){ _advLeadsDetInit=true; loadAdvLeadsDetails().then(()=>renderAdvLoadLeads()); }
+      // Count chip = the selected advisors' full active-lead set (matches Advisor load).
+      if(who)who.textContent="— "+_advLeadsWhoLabel();
+      if(cnt)cnt.textContent=String(base.length);
+      const rowsAll=_advLeadsFiltered();
+      const total=rowsAll.length; const pages=Math.max(1,Math.ceil(total/ADVL_PER));
+      if(_advLeadsPageN>pages)_advLeadsPageN=pages; if(_advLeadsPageN<1)_advLeadsPageN=1;
+      const rows=rowsAll.slice((_advLeadsPageN-1)*ADVL_PER,(_advLeadsPageN-1)*ADVL_PER+ADVL_PER);
+      body.innerHTML=rows.length?rows.map((l:any)=>'<tr>'
+        +'<td class="mono">'+esc(String(l.id||"—"))+'</td>'
+        +'<td style="font-weight:600">'+esc(l.name||"—")+'</td>'
+        +'<td class="mono">'+esc(l.phone||"—")+'</td>'
+        +'<td>'+esc(l.source||"—")+'</td>'
+        +'<td><span class="tag">'+esc(_advLeadSvc(l))+'</span></td>'
+        +'<td><span class="chipb info">'+esc(_haBucketLabel(haEffStatus(l)))+'</span></td>'
+        +'<td><span class="chipb ok">'+esc(haEffStatus(l))+'</span></td>'
+        +'<td class="mono" style="font-size:11.5px">'+esc(_advLeadAsgd(l))+'</td>'
+        +'<td class="mono" style="font-size:11.5px">'+esc(_advLeadLastFu(l))+'</td>'
+        +'<td class="mono" style="font-size:11.5px">'+esc(_advLeadNextFu(l))+'</td>'
+        +'<td style="font-weight:600">'+esc(l.assignedTo||"—")+'</td></tr>').join("")
+        :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">'+(base.length?"No leads match the current search / filters.":"No leads assigned for this selection.")+'</td></tr>';
+      _setAdvLeadsPager(_advLeadsPageN,pages);
+    }
+    // Refresh details for the current selection, then repaint. Shared by every selection change.
+    function _advLeadsReload(){ _advLeadsPageN=1; renderAdvisorLoad(); loadAdvLeadsDetails().then(()=>renderAdvLoadLeads()); }
+    w._advLeadsSelect=(name:string)=>{ if(!name)return; _advLeadsAdv=new Set<string>([name]); _advLeadsReload(); };
+    w._advLeadsAdvToggleMenu=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation(); const m=root.querySelector("#advLeadsAdvMenu")as HTMLElement|null; if(m)m.style.display=(m.style.display==="block")?"none":"block"; };
+    w._advLeadsAdvAll=()=>{ _advLeadsAdv=new Set<string>(); _advLeadsReload(); };
+    w._advLeadsAdvToggle=(name:string,checked:boolean)=>{ if(!name)return; if(checked)_advLeadsAdv.add(name); else _advLeadsAdv.delete(name); _advLeadsReload(); };
+    w._advLeadsSearchFn=(v:string)=>{ _advLeadsQuery=v||""; _advLeadsPageN=1; renderAdvLoadLeads(); };
+    w._advLeadsPage=(d:any)=>{ if(d==="first")_advLeadsPageN=1; else if(d==="last")_advLeadsPageN=1e9; else _advLeadsPageN+=(d===1?1:-1); renderAdvLoadLeads(); };
+    w._advLeadsDownload=()=>{
+      const rowsAll=_advLeadsFiltered();
+      if(!rowsAll.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Lead Number","Lead Name","Phone Number","Source","Service","Stage","Status","Assigned Date & Time","Last Follow-up Date & Time","Next Follow-up Date","Assigned Advisor"]];
+      rowsAll.forEach((l:any)=>out.push([String(l.id||""),l.name||"",l.phone||"",l.source||"",_advLeadSvc(l),_haBucketLabel(haEffStatus(l)),haEffStatus(l),_advLeadAsgd(l),_advLeadLastFu(l),_advLeadNextFu(l),l.assignedTo||""]));
+      const tag=_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0].replace(/[^a-z0-9]+/gi,"_").toLowerCase():(_advLeadsAdv.size===0?"all_advisors":_advLeadsAdv.size+"_advisors");
+      _downloadCsv("advisor_"+tag+"_leads.csv",out); toast("Exported "+rowsAll.length+" lead"+(rowsAll.length===1?"":"s"));
+    };
+    // Close the Advisor multi-select when clicking outside it (mirrors the pool-assign menu).
+    document.addEventListener("click",(e:any)=>{ const wrap=root.querySelector("#advLeadsAdvWrap"); const m=root.querySelector("#advLeadsAdvMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; });
     async function loadAssignees(){
       try{
         const {data,error}=await supabase.from("assignees").select("*").order("name");
@@ -1480,6 +1719,8 @@ export function initApp(root: HTMLElement) {
       }
       const ld=_metaLeads.find((x:any)=>String(x.id)===String(id));
       if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
+      logActivity(id,[{action:"Assigned",field:"Assigned to",new:name}]);
+      logAssignment(id,name,"assigned");
       await loadAssignmentExtras();   // refresh non-Meta (CSV) pooled/assigned leads
       rebuildPoolFromDB();
       renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
@@ -1495,14 +1736,38 @@ export function initApp(root: HTMLElement) {
       if(tog) tog.querySelectorAll(".pill").forEach((b:any)=>b.classList.toggle("on",(b.textContent||"").toLowerCase().indexOf(_asnView)>=0));
       renderAssignedLeads();
     };
+    // Date & Time shown for an assigned lead = its assignment time (assigned_at),
+    // falling back to pool-add / creation time when that column isn't populated.
+    let _asnQuery=""; let _asnSearchT:any=null;
+    function _asnDateVal(l:any){ const d=_advLeadsDet[String(l.id)]; return (d&&d.assigned_at)||l.assignedAt||l.poolAddedAt||l.createdAt||null; }
+    function _asnMatchesQuery(l:any){
+      const q=_asnQuery.trim().toLowerCase(); if(!q) return true;
+      return [l.name,l.phone,l.source,l.assignedTo,l.campaign].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
+    }
     function assignedLeads(){
       const f=(root.querySelector("#assignedFilter")as HTMLSelectElement)?.value||"all";
       // Honor the dashboard call/lead-status dropdown too, so List + Kanban stay in
       // sync with it (and with each other). haEffStatus is hoisted, defined below.
       const sf=(root.querySelector("#haStatusFilter")as HTMLSelectElement)?.value||"all";
-      const all=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
-      return all.filter((l:any)=>(f==="all"||l.assignedTo===f)&&(sf==="all"||haEffStatus(l)===sf));
+      // Date & Time / Source / Service are the shared TOP filters (haCommonFilter) —
+      // the same ones that drive the Advisor Dashboard, so both stay in sync.
+      const all=haCommonFilter([..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras]);
+      return all.filter((l:any)=>{
+        if(!(f==="all"||l.assignedTo===f)) return false;
+        if(!(sf==="all"||haEffStatus(l)===sf)) return false;
+        return _asnMatchesQuery(l);
+      });
     }
+    const _asgnLeadCols=[
+      {key:"dt",label:"Date & Time",filter:true,text:(l:any)=>fmtIST(_asnDateVal(l))},
+      {key:"lead",label:"Lead",filter:true,text:(l:any)=>l.name||""},
+      {key:"src",label:"Source · Lang",filter:true,text:(l:any)=>l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"))},
+      {key:"camp",label:"Campaign",filter:true,text:(l:any)=>l.campaign||"—"},
+      {key:"asg",label:"Assigned to",filter:true,text:(l:any)=>l.assignedTo||""},
+      {key:"status",label:"Status",filter:true,text:(l:any)=>_eligMap[String(l.id)]?"Not Eligible":"Assigned"},
+      {key:"act",label:"Action",filter:false,head:'Action'},
+    ];
+    regGrid("assignedLeads",()=>_asgnLeadCols,()=>renderAssignedLeads());
     function renderAssignedLeads(){
       // populate advisor filter from active assignees (preserve selection)
       const fsel=root.querySelector("#assignedFilter")as HTMLSelectElement;
@@ -1512,12 +1777,19 @@ export function initApp(root: HTMLElement) {
         fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
         if(Array.from(fsel.options).some(o=>o.value===cur)) fsel.value=cur;
       }
+      // populate service + source filters from the whole assigned set (preserve selection)
+      const _asnBaseAll=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
+      const _fillAsnSel=(sel:string,vals:string[],allLabel:string)=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
+      _fillAsnSel("#asnService",_asnBaseAll.map((l:any)=>l.service),"All services");
+      _fillAsnSel("#asnSource",_asnBaseAll.map((l:any)=>l.source),"All sources");
       const list=assignedLeads();
+      const _alF=gridApply("assignedLeads",list);
       const body=root.querySelector("#assignedLeadsBody");
+      const _alh=root.querySelector("#assignedLeadsHead"); if(_alh)_alh.innerHTML=gridHead("assignedLeads");
       const cnt=root.querySelector("#assignedCount");
       const info=root.querySelector("#asnPageInfo");
       const prev=root.querySelector("#asnPrevBtn")as HTMLButtonElement, next=root.querySelector("#asnNextBtn")as HTMLButtonElement;
-      if(cnt) cnt.textContent=String(list.length);
+      if(cnt) cnt.textContent=String(_alF.length);
       // View switch: Kanban shows the same (filtered) leads grouped by call-status bucket.
       const tableWrap=root.querySelector("#assignedTableWrap")as HTMLElement|null;
       const kanban=root.querySelector("#assignedKanban")as HTMLElement|null;
@@ -1525,16 +1797,16 @@ export function initApp(root: HTMLElement) {
       if(_asnView==="kanban"){
         if(tableWrap)tableWrap.style.display="none";
         if(pager)pager.style.display="none";
-        if(kanban){kanban.style.display="";_renderAssignedKanban(kanban,list);}
+        if(kanban){kanban.style.display="";_renderAssignedKanban(kanban,_alF);}
         return;
       }
       if(tableWrap)tableWrap.style.display="";
       if(pager)pager.style.display="flex";
       if(kanban)kanban.style.display="none";
       if(!body) return;
-      const total=list.length;const pages=Math.max(1,Math.ceil(total/ASN_PER));
+      const total=_alF.length;const pages=Math.max(1,Math.ceil(total/ASN_PER));
       if(_asnPage>pages)_asnPage=pages;if(_asnPage<1)_asnPage=1;
-      const rows=list.slice((_asnPage-1)*ASN_PER,(_asnPage-1)*ASN_PER+ASN_PER);
+      const rows=_alF.slice((_asnPage-1)*ASN_PER,(_asnPage-1)*ASN_PER+ASN_PER);
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       body.innerHTML=rows.length?rows.map((l:any)=>{
         const elig=_eligMap[String(l.id)];   // exclusion reason → Not Eligible
@@ -1543,6 +1815,7 @@ export function initApp(root: HTMLElement) {
           ? '<td><span class="chipb al" title="Exclusion tag present — '+e(elig)+'">Not Eligible</span></td>'
           : '<td><span class="chipb ok">Assigned</span></td>';
         return tr
+        +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(_asnDateVal(l)))+'</td>'
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" title="Open lead profile →" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
         +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
         +'<td class="mono" style="font-size:11.5px">'+e(l.campaign||"—")+'</td>'
@@ -1550,7 +1823,7 @@ export function initApp(root: HTMLElement) {
         +status
         +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>';
       }).join("")
-        :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
+        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
       void prev; void next;
       _pgBtns("asn",_asnPage,pages);
@@ -1591,13 +1864,19 @@ export function initApp(root: HTMLElement) {
               +'<div style="display:flex;align-items:center;gap:8px"><span class="avs" style="background:'+avc[i%avc.length]+';width:28px;height:28px;font-size:10px;flex-shrink:0">'+init+'</span>'
               +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px;cursor:pointer;color:var(--brand);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="Open lead profile →" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name||l.phone||"Lead")+' ↗</div>'
               +'<div style="font-size:10.5px;color:var(--muted);margin-top:1px">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+(l.lang?" · "+l.lang:"")))+'</div>'
-              +'<div style="font-size:10.5px;color:var(--faint);margin-top:1px">→ '+e(l.assignedTo||"—")+'</div></div></div>'
+              +'<div style="font-size:10.5px;color:var(--faint);margin-top:1px">→ '+e(l.assignedTo||"—")+'</div>'
+              +'<div style="font-size:9.5px;color:var(--faint);margin-top:1px">'+e(fmtIST(_asnDateVal(l)))+'</div></div></div>'
               +'<div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" style="flex:1" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Pool</button></div></div>';
           }).join(""):'<div style="text-align:center;color:var(--faint);font-size:11px;padding:12px 0">No leads</div>')
           +'</div></div>';
       }).join("")+'</div>';
     }
     w._asnPage=(dir:any)=>{_asnPage=_pgApply(_asnPage,dir);renderAssignedLeads();renderHealthDashboard();};
+    // Top filters (date / service / source) + lead search — both List and Kanban read
+    // assignedLeads(), so a filter change updates whichever view is showing and persists
+    // across the List⇄Kanban toggle.
+    w._asnFilterChange=()=>{ _asnPage=1; renderAssignedLeads(); };
+    w._assignedSearch=()=>{ if(_asnSearchT)clearTimeout(_asnSearchT); _asnSearchT=setTimeout(()=>{ _asnQuery=(root.querySelector("#assignedSearch")as HTMLInputElement)?.value||""; _asnPage=1; renderAssignedLeads(); },180); };
     const _assignedFilterEl=root.querySelector("#assignedFilter")as HTMLSelectElement;
     if(_assignedFilterEl) _assignedFilterEl.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};
     // Return an assigned lead to the unassigned pool.
@@ -1607,11 +1886,96 @@ export function initApp(root: HTMLElement) {
         if(error) throw error;
       }catch(e:any){ toast("Failed: "+(e.message||"db error")); return; }
       const ld=_metaLeads.find((x:any)=>String(x.id)===String(id));
+      const prevAdv=ld?ld.assignedTo:((_assignedExtras.find((x:any)=>String(x.id)===String(id))||{}).assignedTo||"");
       if(ld){ld.isAssigned=false;ld.assignedTo="";ld.inPool=true;}
+      logActivity(id,[{action:"Assigned",field:"Assigned to",old:prevAdv,new:"Unassigned (returned to pool)"}]);
+      logAssignment(id,prevAdv,"unassigned");
       await loadAssignmentExtras();
       rebuildPoolFromDB();
       renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
       toast("Lead returned to pool");
+    };
+    // ===== Assigned Leads History (immutable audit trail from lead_assignments) =====
+    let _asnHist:any[]=[]; let _asnHistQuery=""; let _asnHistT:any=null;
+    const _asnHistCols=[
+      {key:"dt",label:"Date & Time",filter:true,text:(r:any)=>fmtIST(r.created_at)},
+      {key:"name",label:"Lead Name",filter:true,text:(r:any)=>r.lead_name||"—"},
+      {key:"phone",label:"Lead Number",filter:true,text:(r:any)=>r.lead_phone||"—"},
+      {key:"source",label:"Source Name",filter:true,text:(r:any)=>r.source||"—"},
+      {key:"advisor",label:"Assigned Health Advisor",filter:true,text:(r:any)=>r.advisor||"—"},
+      {key:"by",label:"Assigned By",filter:true,text:(r:any)=>r.assigned_by||"—"},
+      {key:"status",label:"Assignment Status",filter:true,text:(r:any)=>r.status==="unassigned"?"Returned to pool":"Assigned"},
+    ];
+    regGrid("asnHist",()=>_asnHistCols,()=>renderAsnHist());
+    async function loadAssignmentHistory(){
+      try{ const {data}=await supabase.from("lead_assignments").select("*").order("created_at",{ascending:false}).limit(1000); _asnHist=data||[]; }
+      catch(_){ _asnHist=[]; }
+      populateAsnHistFilters(); renderAsnHist();
+    }
+    function populateAsnHistFilters(){
+      const fill=(sel:string,vals:string[],allLabel:string)=>{
+        const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return;
+        const cur=el.value;
+        const uniq=Array.from(new Set(vals.filter(Boolean))).sort();
+        el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join("");
+        if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur;
+      };
+      fill("#asnHistAdvisor",_asnHist.map((r:any)=>r.advisor),"All health advisors");
+      fill("#asnHistSource",_asnHist.map((r:any)=>r.source),"All sources");
+      fill("#asnHistService",_asnHist.map((r:any)=>r.service),"All services");
+    }
+    function _asnHistMatchesQuery(r:any){
+      const q=_asnHistQuery.trim().toLowerCase(); if(!q) return true;
+      return [r.lead_name,r.lead_phone,r.advisor,r.assigned_by,r.source].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
+    }
+    function asnHistBase(){
+      const from=(root.querySelector("#asnHistFrom")as HTMLInputElement)?.value||"";
+      const to=(root.querySelector("#asnHistTo")as HTMLInputElement)?.value||"";
+      const adv=(root.querySelector("#asnHistAdvisor")as HTMLSelectElement)?.value||"all";
+      const src=(root.querySelector("#asnHistSource")as HTMLSelectElement)?.value||"all";
+      const svc=(root.querySelector("#asnHistService")as HTMLSelectElement)?.value||"all";
+      const poolOnly=(root.querySelector("#asnHistPool")as HTMLInputElement)?.checked||false;
+      const fromT=from?new Date(from+"T00:00:00").getTime():0;
+      const toT=to?new Date(to+"T23:59:59").getTime():0;
+      return _asnHist.filter((r:any)=>{
+        const t=new Date(r.created_at).getTime();
+        if(fromT&&t<fromT) return false;
+        if(toT&&t>toT) return false;
+        if(adv!=="all"&&(r.advisor||"")!==adv) return false;
+        if(src!=="all"&&(r.source||"")!==src) return false;
+        if(svc!=="all"&&(r.service||"")!==svc) return false;
+        if(poolOnly&&r.status!=="unassigned") return false;
+        return _asnHistMatchesQuery(r);
+      });
+    }
+    function renderAsnHist(){
+      const head=root.querySelector("#asnHistHead"); if(head)head.innerHTML=gridHead("asnHist");
+      const rows=gridApply("asnHist",asnHistBase());
+      const body=root.querySelector("#asnHistBody"); const cnt=root.querySelector("#asnHistCount");
+      if(cnt)cnt.textContent=String(rows.length);
+      if(!body) return;
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=rows.length?rows.map((r:any)=>{
+        const st=r.status==="unassigned"
+          ?'<span class="chipb al">Returned to pool</span>'
+          :'<span class="chipb ok">Assigned</span>';
+        return '<tr>'
+          +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(fmtIST(r.created_at))+'</td>'
+          +'<td style="font-weight:600">'+e(r.lead_name||"—")+'</td>'
+          +'<td class="mono">'+e(r.lead_phone||"—")+'</td>'
+          +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
+          +'<td style="font-weight:600">'+e(r.advisor||"—")+'</td>'
+          +'<td>'+e(r.assigned_by||"—")+'</td>'
+          +'<td>'+st+'</td></tr>';
+      }).join(""):'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No assignment history yet</td></tr>';
+    }
+    w._asnHistFilter=()=>{ renderAsnHist(); };
+    w._asnHistSearch=()=>{ if(_asnHistT)clearTimeout(_asnHistT); _asnHistT=setTimeout(()=>{ _asnHistQuery=(root.querySelector("#asnHistSearch")as HTMLInputElement)?.value||""; renderAsnHist(); },180); };
+    w._asnHistDownload=()=>{
+      const rows=gridApply("asnHist",asnHistBase());
+      const out:string[][]=[["Date & Time","Lead Name","Lead Number","Source Name","Assigned Health Advisor","Assigned By","Assignment Status"]];
+      rows.forEach((r:any)=>out.push([fmtIST(r.created_at),r.lead_name||"",r.lead_phone||"",r.source||"",r.advisor||"",r.assigned_by||"",r.status==="unassigned"?"Returned to pool":"Assigned"]));
+      _downloadCsv("wellnessos_assigned_leads_history.csv",out);
     };
     // ===== Return to Pool: send a pooled lead BACK to its ORIGINAL source table =====
     // The lead's origin is read from its id prefix (the "lead origin" signal), because
@@ -1667,14 +2031,11 @@ export function initApp(root: HTMLElement) {
       toast(nm+(isCsv?" returned to the Bulk CSV Import Wizard":" returned to the Live Incoming Feed"));
     };
     w._assignedDownload=()=>{
-      const list=assignedLeads();
+      const list=gridApply("assignedLeads",assignedLeads());
       if(!list.length){toast("Nothing to download");return;}
-      const esc=(s:any)=>'"'+String(s==null?"":s).replace(/"/g,'""')+'"';
-      const header=["Lead","Phone","Source","Language","Campaign","Assigned to"];
-      const lines=[header.map(esc).join(",")];
-      list.forEach((l:any)=>lines.push([l.name,l.phone,l.source,l.lang,l.campaign,l.assignedTo].map(esc).join(",")));
-      const blob=new Blob([lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
-      const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="wellnessos_assigned_leads.csv";document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+      const out:string[][]=[["Date & Time","Lead","Phone","Source","Language","Campaign","Assigned to","Status"]];
+      list.forEach((l:any)=>out.push([fmtIST(_asnDateVal(l)),l.name||"",l.phone||"",l.source||"",l.lang||"",l.campaign||"",l.assignedTo||"",_eligMap[String(l.id)]?"Not Eligible":"Assigned"]));
+      _downloadCsv("wellnessos_assigned_leads.csv",out);
       toast("Downloaded "+list.length+" assigned leads");
     };
 
@@ -1762,6 +2123,7 @@ export function initApp(root: HTMLElement) {
         const pills=_sp.querySelectorAll(".pill"); pills.forEach((b:any,i:number)=>b.classList.toggle("on",i===0));   // default: Open
         const range=_sp.querySelector("input[type=range]")as HTMLInputElement|null; const pv=_sp.querySelector("#pv"); if(range){ range.value="50"; if(pv)pv.textContent="50%"; }
       }
+      _advSetNotEligBadge(false,"");   // reset; restored profile (eligCheck) re-shows it if excluded
       _advAttachments=[]; renderAdvAtts();
       _advFuNotes=[]; renderAdvFuNotes();
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
@@ -1854,6 +2216,16 @@ export function initApp(root: HTMLElement) {
     function saveProfileLocal(id:any,obj:any){ try{ localStorage.setItem(_advpKey(id),JSON.stringify(obj)); }catch(_){/* storage full/unavailable */} }
     // Fetch (once) + apply the saved profile for a lead, if it's still the active one.
     // Prefers the DB; falls back to device-local storage (e.g. before the migration is run).
+    // Visited status is READ-ONLY on the advisor page and driven ONLY by leads.visited_at,
+    // which the reception "Confirm check-in" sets. Never toggled by advisor clicks or any
+    // other action — this just mirrors the stored value (Visited if visited_at is set).
+    function _advApplyVisited(visitedAt:any){
+      const isV=!!visitedAt;
+      const cont=root.querySelector("#visStatusPills");
+      if(cont){ cont.querySelectorAll(".pill").forEach((b:any,i:number)=>b.classList.toggle("on", i===(isV?1:0))); }
+      const vd=root.querySelector("#visDt")as HTMLInputElement|null;
+      if(vd) vd.value=isV?fmtIST(visitedAt):"";
+    }
     async function loadAndApplyProfile(l:any){
       if(!l) return;
       // 1) INSTANT apply. The device-local copy is the authoritative latest (every
@@ -1865,10 +2237,13 @@ export function initApp(root: HTMLElement) {
       // 2) BACKGROUND reconcile with the DB (skip once we know the column is absent).
       if(_advProfileColMissing) return;
       try{
-        const {data,error}=await supabase.from("leads").select("advisor_profile").eq("meta_lead_id",l.id).limit(1);
+        const {data,error}=await supabase.from("leads").select("advisor_profile,visited_at").eq("meta_lead_id",l.id).limit(1);
         if(error){ if(/advisor_profile|column|exist|schema/i.test(error.message||"")) _advProfileColMissing=true; return; }
         const dbProf=data&&data[0]&&data[0].advisor_profile;
         if(dbProf){ l.advisorProfile=dbProf; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(dbProf); }
+        // Visited status reflects leads.visited_at (reception check-in) — applied AFTER the
+        // profile restore so it always wins over any stale saved pill state, and survives refresh.
+        if(String(_advLeadId)===String(l.id)) _advApplyVisited(data&&data[0]&&data[0].visited_at);
       }catch(_){/* network error — local copy already applied */}
     }
     function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
@@ -1903,6 +2278,12 @@ export function initApp(root: HTMLElement) {
       const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
       const csLabel=cs?(HA_CODE2LABEL[cs.value]||""):"";
       const upd:any={advisor_profile:obj}; if(csLabel) upd.call_status=csLabel;
+      // Persist the Next follow-up date to its dedicated column (the Advisor-load "Next
+      // Follow-up Date" column reads leads.next_followup — previously it only lived in JSONB).
+      const nfEl=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
+      let nfIso:string|null=null;
+      if(nfEl&&nfEl.value){ const d=new Date(nfEl.value); if(!isNaN(d.getTime())) nfIso=d.toISOString(); }
+      upd.next_followup=nfIso;
       try{
         const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",id);
         if(error){
@@ -1961,6 +2342,26 @@ export function initApp(root: HTMLElement) {
       const local=readActLocal(leadId); rows.slice().reverse().forEach((r:any)=>local.unshift(r)); writeActLocal(leadId,local);
       if(String(_advLeadId)===String(leadId)) renderActivityLog(leadId);
       try{ await supabase.from("lead_activity").insert(rows); }catch(_){/* table not migrated yet — local copy kept */}
+    }
+    // ---- Assignment history (immutable audit trail behind "Assigned Leads History") ----
+    // The `leads` row keeps only current state; every assign/unassign also writes one
+    // row here so the history view has Date&Time + Assigned By that `leads` can't express.
+    function _asnActor(){ return _currentUser?(((_currentUser.name||"").trim())||((_currentUser.email||"").split("@")[0])||"System"):"System"; }
+    function _findLeadForHist(id:string){
+      const s=String(id);
+      return _metaLeads.find((x:any)=>String(x.id)===s)
+          || _assignedExtras.find((x:any)=>String(x.id)===s)
+          || _poolExtras.find((x:any)=>String(x.id)===s)
+          || _otherFeedLeads.find((x:any)=>String(x.id)===s)
+          || null;
+    }
+    async function logAssignment(id:string,advisor:string,status:string){
+      if(!id) return;
+      const l:any=_findLeadForHist(id)||{};
+      const row={lead_id:String(id),lead_name:l.name||null,lead_phone:l.phone||null,
+        source:l.source||null,service:l.service||null,advisor:advisor||null,
+        assigned_by:_asnActor(),status:status||"assigned",created_at:new Date().toISOString()};
+      try{ await supabase.from("lead_assignments").insert(row); _asnHist.unshift(row); try{ populateAsnHistFilters(); renderAsnHist(); }catch(_){} }catch(_){/* table not migrated yet */}
     }
     async function renderActivityLog(leadId:any){
       const el=root.querySelector("#actLog"); if(!el) return;
@@ -2085,13 +2486,48 @@ export function initApp(root: HTMLElement) {
       return [..._metaLeads.filter((l:any)=>l.isAssigned), ..._assignedExtras];
     }
     function haEffStatus(l:any){ return l.callStatus || (l.isAssigned?"Open":"New"); }
+    // Shared TOP filters (Date & Time / Source / Service). Applied to BOTH the Advisor
+    // Dashboard (cards + drill-down) and the Assigned-leads table so they refresh together.
+    // Returns the list unchanged when nothing is selected (no behavior change by default).
+    // The filters are APPLIED on demand (Apply button), not on every keystroke/change.
+    // haCommonFilter reads this committed state, so staging a selection in the controls
+    // does NOT touch the data until _topFilterApply() copies the controls into it.
+    let _asnApplied:{src:string;svc:string;from:string;to:string}={src:"all",svc:"all",from:"",to:""};
+    function haCommonFilter(list:any[]){
+      const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to;
+      const fromT=from?new Date(from+"T00:00:00").getTime():0;
+      const toT=to?new Date(to+"T23:59:59").getTime():0;
+      if(src==="all"&&svc==="all"&&!fromT&&!toT) return list;
+      return list.filter((l:any)=>{
+        if(src!=="all"&&(l.source||"")!==src) return false;
+        if(svc!=="all"&&(l.service||"")!==svc) return false;
+        if(fromT||toT){ const dv=_asnDateVal(l); const t=dv?new Date(dv).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
+        return true;
+      });
+    }
+    // Apply the staged top-filter selections → refresh dashboard AND assigned leads together.
+    w._topFilterApply=()=>{
+      _asnApplied={
+        src:(root.querySelector("#asnSource")as HTMLSelectElement)?.value||"all",
+        svc:(root.querySelector("#asnService")as HTMLSelectElement)?.value||"all",
+        from:(root.querySelector("#asnFrom")as HTMLInputElement)?.value||"",
+        to:(root.querySelector("#asnTo")as HTMLInputElement)?.value||"",
+      };
+      _asnPage=1; renderAssignedLeads(); renderHealthDashboard();
+    };
+    w._topFilterClear=()=>{
+      const set=(id:string,v:string)=>{const el=root.querySelector("#"+id)as any; if(el)el.value=v;};
+      set("asnFrom",""); set("asnTo",""); set("asnSource","all"); set("asnService","all");
+      _asnApplied={src:"all",svc:"all",from:"",to:""};
+      _asnPage=1; renderAssignedLeads(); renderHealthDashboard();
+    };
     function renderHealthDashboard(){
       const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
       if(fsel && fsel.options.length<=1){
         fsel.innerHTML='<option value="all">All call/lead statuses</option>'+HA_STATUSES.map(s=>'<option>'+s+'</option>').join("");
       }
       const filter=fsel?.value||"all";
-      let book=haBook();
+      let book=haCommonFilter(haBook());
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
       const counts:any={open:0,sales:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
@@ -2110,14 +2546,14 @@ export function initApp(root: HTMLElement) {
       if(!wrap||!body) return;
       const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
       const filter=fsel?.value||"all";
-      let book=haBook();
+      let book=haCommonFilter(haBook());
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
       const list=_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket);
       const card=HA_CARDS.find(c=>c.key===_haActiveBucket);
       wrap.style.display="";
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      body.innerHTML=list.length?list.map((l:any)=>'<tr>'
+      const _hhd=root.querySelector("#haResultsHead"); if(_hhd)_hhd.innerHTML=gridHead("haResults"); const _haR=gridApply("haResults",list); body.innerHTML=_haR.length?_haR.map((l:any)=>'<tr>'
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
         +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
         +'<td>'+e(l.assignedTo||"—")+'</td>'
@@ -2155,7 +2591,7 @@ export function initApp(root: HTMLElement) {
           try{ await supabase.from("leads").update({assigned_at:nowIso}).in("meta_lead_id",chunk); }catch(_){}
         }
       }catch(e:any){ toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Assign failed: "+(e.message||"db error")); return; }
-      ids.forEach(id=>{const ld=_metaLeads.find((x:any)=>String(x.id)===id); if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=advisor;} logActivity(id,[{action:"Assigned",field:"Assigned to",new:advisor}]);});
+      ids.forEach(id=>{const ld=_metaLeads.find((x:any)=>String(x.id)===id); if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=advisor;} logActivity(id,[{action:"Assigned",field:"Assigned to",new:advisor}]); logAssignment(id,advisor,"assigned");});
       await _afterAssign();
       toast(ids.length+" lead"+(ids.length===1?"":"s")+" assigned to "+advisor);
     }
@@ -2200,6 +2636,7 @@ export function initApp(root: HTMLElement) {
           const ld=_metaLeads.find((x:any)=>String(x.id)===ids[i]);
           if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
           logActivity(ids[i],[{action:"Assigned",field:"Assigned to",new:name+" (round-robin)"}]);
+          logAssignment(ids[i],name,"assigned");
         }
       }catch(e:any){ toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Distribute failed: "+(e.message||"db error")); return; }
       await _afterAssign();
@@ -2333,7 +2770,7 @@ export function initApp(root: HTMLElement) {
     // the UI freeze during sync. (Filters/actions still render their screen immediately.)
     const _screenRender:Record<string,()=>void>={
       import:()=>{ renderImport(); renderMetaPage(); },
-      advisor:()=>{ renderAssignedLeads(); renderHealthDashboard(); },
+      advisor:()=>{ renderAssignedLeads(); renderHealthDashboard(); renderAsnHist(); loadZoomCheckins(); },
       abm:()=>{ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); }
     };
     const _dirtyScreens=new Set<string>();
@@ -2812,7 +3249,9 @@ export function initApp(root: HTMLElement) {
     };
     // Selection for the Imported-leads table, tracked by id so it survives re-renders
     // (the table repaints on the sweep timer, search, and data reloads).
-    const _csvSelIds=new Set<number>();
+    // csv_leads.id is a Postgres bigint → the gateway returns it as a STRING, so all
+    // selection/matching here keys on the string id (never Number()) to stay consistent.
+    const _csvSelIds=new Set<string>();
     function _csvUpdateSelAll(){
       const sa=root.querySelector("#csvValidSelAll")as HTMLInputElement|null; if(!sa) return;
       const boxes=Array.from(root.querySelectorAll("#csvImportedBody .csvChk"))as HTMLInputElement[];
@@ -2820,7 +3259,7 @@ export function initApp(root: HTMLElement) {
       sa.checked=boxes.length>0&&checked===boxes.length;
       sa.indeterminate=checked>0&&checked<boxes.length;
     }
-    w._csvRowSel=(el:any)=>{ const id=Number(el.getAttribute("data-id")); if(el.checked)_csvSelIds.add(id); else _csvSelIds.delete(id); _csvUpdateSelAll(); };
+    w._csvRowSel=(el:any)=>{ const id=String(el.getAttribute("data-id")); if(el.checked)_csvSelIds.add(id); else _csvSelIds.delete(id); _csvUpdateSelAll(); };
     function renderCsvValid(){
       const wrap=root.querySelector("#csvImportedWrap")as HTMLElement;
       const body=root.querySelector("#csvImportedBody");
@@ -2842,7 +3281,7 @@ export function initApp(root: HTMLElement) {
       if(_csvPage>pages)_csvPage=pages;if(_csvPage<1)_csvPage=1;
       const pageRows=valid.slice((_csvPage-1)*CSV_PER,(_csvPage-1)*CSV_PER+CSV_PER);
       body.innerHTML=pageRows.length?pageRows.map((r:any)=>'<tr>'
-        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'"'+(_csvSelIds.has(r.id)?" checked":"")+' style="accent-color:var(--brand)" onchange="window._csvRowSel(this)"></td>'
+        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'"'+(_csvSelIds.has(String(r.id))?" checked":"")+' style="accent-color:var(--brand)" onchange="window._csvRowSel(this)"></td>'
         +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
         +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
         +'<td>'+e(r.ad||"—")+'</td>'
@@ -2905,9 +3344,9 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#csvHistBody");
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       if(!body)return;
-      const batches=_csvBatches.filter((b:any)=>inCsvRange(b.created_at));   // import-time range
+      const _chd=root.querySelector("#csvHistHead"); if(_chd)_chd.innerHTML=gridHead("csvHist"); const batches=gridApply("csvHist",_csvBatches.filter((b:any)=>inCsvRange(b.created_at)));
       body.innerHTML=batches.length?batches.map((b:any)=>{
-        const dt=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(b.created_at));
+        const dt=fmtIST(b.created_at);
         return '<tr><td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(dt)+'</td>'
           +'<td>'+e(b.file_name||"—")+'</td><td>'+e(b.batch_name||"—")+'</td><td>'+e(b.imported_by||"—")+'</td>'
           +'<td class="mono">'+(b.total_records||0)+'</td>'
@@ -2982,9 +3421,9 @@ export function initApp(root: HTMLElement) {
       const info=root.querySelector("#rvPageInfo");
       const prev=root.querySelector("#rvPrevBtn")as HTMLButtonElement, next=root.querySelector("#rvNextBtn")as HTMLButtonElement;
       if(!body)return;
-      const total=_rvData.length;const pages=Math.max(1,Math.ceil(total/RV_PER));
+      const _rhd=root.querySelector("#rvHead"); if(_rhd)_rhd.innerHTML=gridHead("rv"); const _rvF=gridApply("rv",_rvData); const total=_rvF.length;const pages=Math.max(1,Math.ceil(total/RV_PER));
       if(_rvPage>pages)_rvPage=pages;if(_rvPage<1)_rvPage=1;
-      const pageRows=_rvData.slice((_rvPage-1)*RV_PER,(_rvPage-1)*RV_PER+RV_PER);
+      const pageRows=_rvF.slice((_rvPage-1)*RV_PER,(_rvPage-1)*RV_PER+RV_PER);
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const fmt=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).format(d):"—";
       body.innerHTML=pageRows.length?pageRows.map((g:any)=>'<tr>'
@@ -3042,7 +3481,7 @@ export function initApp(root: HTMLElement) {
     const _vSelAll=root.querySelector("#csvValidSelAll")as HTMLInputElement;
     if(_vSelAll)_vSelAll.onchange=()=>{
       const valid=_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r));
-      if(_vSelAll.checked) valid.forEach((r:any)=>_csvSelIds.add(r.id)); else valid.forEach((r:any)=>_csvSelIds.delete(r.id));
+      if(_vSelAll.checked) valid.forEach((r:any)=>_csvSelIds.add(String(r.id))); else valid.forEach((r:any)=>_csvSelIds.delete(String(r.id)));
       root.querySelectorAll("#csvImportedBody .csvChk").forEach((c:any)=>{c.checked=_vSelAll.checked;});
       _vSelAll.indeterminate=false;
     };
@@ -3050,7 +3489,7 @@ export function initApp(root: HTMLElement) {
     if(_dSelAll)_dSelAll.onchange=()=>root.querySelectorAll(".csvDupChk").forEach((c:any)=>{c.checked=_dSelAll.checked;});
 
     // ---- Delete / Keep / Download ----
-    async function csvDeleteIds(ids:number[]){
+    async function csvDeleteIds(ids:any[]){
       for(let i=0;i<ids.length;i+=200){await supabase.from("csv_leads").delete().in("id",ids.slice(i,i+200));}
       await loadCsvData();
     }
@@ -3058,18 +3497,18 @@ export function initApp(root: HTMLElement) {
     w._csvDeleteSelected=(which:string)=>{
       // Imported-leads selection is tracked across pages in _csvSelIds; dup table reads its checkboxes.
       const ids=which==="dup"
-        ? Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>Number(c.getAttribute("data-id")))
+        ? Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>String(c.getAttribute("data-id")))
         : Array.from(_csvSelIds);
       if(!ids.length){toast("Select one or more rows first");return;}
       csvConfirm("Delete "+ids.length+" selected lead(s) permanently?",async()=>{await csvDeleteIds(ids);_csvSelIds.clear();toast(ids.length+" deleted");});
     };
-    async function csvKeepIds(ids:number[]){
+    async function csvKeepIds(ids:any[]){
       for(let i=0;i<ids.length;i+=200){await supabase.from("csv_leads").update({status:"valid"}).in("id",ids.slice(i,i+200));}
       await loadCsvData();
     }
     w._csvKeepOne=async(id:number)=>{await csvKeepIds([id]);toast("Moved to imported leads");};
     w._csvKeepSelected=()=>{
-      const ids=Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>Number(c.getAttribute("data-id")));
+      const ids=Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>String(c.getAttribute("data-id")));
       if(!ids.length){toast("Select duplicates first");return;}
       csvKeepIds(ids).then(()=>toast(ids.length+" kept"));
     };
@@ -3102,9 +3541,9 @@ export function initApp(root: HTMLElement) {
     w._csvSendToAssignment=async()=>{
       const sel=_csvTabName==="dup"?".csvDupChk:checked":(_csvTabName==="valid"?".csvChk:checked":null);
       if(!sel){toast("Open the Imported leads or Duplicates tab and select rows");return;}
-      const ids=Array.from(root.querySelectorAll(sel)).map((c:any)=>Number(c.getAttribute("data-id")));
+      const ids=Array.from(root.querySelectorAll(sel)).map((c:any)=>String(c.getAttribute("data-id")));
       if(ids.length===0){toast("Select one or more leads first");return;}
-      const rows=ids.map(id=>_csvLeads.find((r:any)=>r.id===id)).filter(Boolean);
+      const rows=ids.map((id:string)=>_csvLeads.find((r:any)=>String(r.id)===id)).filter(Boolean);
       if(rows.length===0){toast("Select one or more leads first");return;}
       try{
         const nowIso=new Date().toISOString();
@@ -3144,6 +3583,8 @@ export function initApp(root: HTMLElement) {
     // Sweep expired CSV duplicates (>10 min) and keep the countdown chips fresh.
     _csvSweepTimer=setInterval(()=>{ sweepExpiredDups(); },30000);
     loadAssignmentExtras().then(()=>{rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
+    loadAssignmentHistory();   // Assigned Leads History audit table
+    loadZoomCheckins();        // Zoom appointments awaiting check-in
 
     // ========== RECEPTION DATA (live: appointments + payments) ==========
     let RX: any[] = [];        // current date-filtered appointments (shape used by renderers)
@@ -3166,6 +3607,7 @@ export function initApp(root: HTMLElement) {
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
       applyRecDate();
+      try{ loadZoomCheckins(); }catch(_){}
     }
     function _recDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
@@ -3190,12 +3632,14 @@ export function initApp(root: HTMLElement) {
       const sd=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
       const apptDate=sd||new Date().toISOString().substring(0,10);
       const apptTime=selSlot||"";
+      const mt=(mode.toLowerCase()==="zoom")?"zoom":"direct";
       try{
         const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).eq("appt_date",apptDate).neq("status","cancelled").limit(1);
-        if(data&&data[0]) await supabase.from("appointments").update({appt_time:apptTime,hc_pt:hc,source:"Advisor ("+mode+")"}).eq("id",data[0].id);
-        else await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone,service:"Diabetes",hc_pt:hc,appt_date:apptDate,appt_time:apptTime,status:"expected",source:"Advisor ("+mode+")",language:lang});
+        if(data&&data[0]) await supabase.from("appointments").update({appt_time:apptTime,hc_pt:hc,source:"Advisor ("+mode+")",meeting_type:mt}).eq("id",data[0].id);
+        else await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone,service:"Diabetes",hc_pt:hc,appt_date:apptDate,appt_time:apptTime,status:"expected",source:"Advisor ("+mode+")",meeting_type:mt,language:lang});
         toast("Appointment booked → Reception");
         loadReceptionData();
+        try{ loadZoomCheckins(); }catch(_){}
       }catch(e:any){ if(/appointment|relation|column|schema|exist/i.test(e.message||"")) toast("Run supabase-migration-reception.sql to enable appointments"); }
     }
 
@@ -3248,46 +3692,33 @@ export function initApp(root: HTMLElement) {
         return '<div class="aud" style="margin:0;padding:9px 11px;background:#fff;cursor:pointer" onclick="window._svcF2(\''+s.k+'\')"><div class="ahd" style="font-size:10px">'+s.icon+' '+s.name+'</div><div style="font-size:11px;line-height:1.9">'+s.fields.map((f,i)=>f.charAt(0).toUpperCase()+f.slice(1)+' <b class="mono">'+vals[i]+'</b>').join('<br>')+'</div></div>';
       }).join("");
     }
-    // Per-column filters for the Appointments table (client/phone/HC/stage text;
-    // service/status/pay dropdowns). AND-combined with the existing service/date filters.
-    const _apptColF:Record<string,string>={client:"",phone:"",svc:"",hc:"",status:"",pay:"",stage:""};
-    function _apptColMatch(r:any){
-      const F=_apptColF;
-      if(F.client && !((r.name||"").toLowerCase().includes(F.client.toLowerCase()))) return false;
-      if(F.phone && !((r.ph||"").includes(F.phone))) return false;
-      if(F.svc && r.svc!==F.svc) return false;
-      if(F.hc && !((r.hc||"").toLowerCase().includes(F.hc.toLowerCase()))) return false;
-      if(F.status && r.status!==F.status) return false;
-      if(F.pay && r.payStatus!==F.pay) return false;
-      if(F.stage && !(String(r.stage||"").toLowerCase().includes(F.stage.toLowerCase()))) return false;
-      return true;
-    }
-    w._apptFilt=(field:string,val:string)=>{ _apptColF[field]=val; renderAppt(); };
+    // Excel-style per-column filters for the Appointments table (shared grid engine).
+    // AND-combined with the existing service/date pill filters via filtered().
+    const _apptCols=[
+      {key:"dt",label:"Date · time",filter:true,text:(r:any)=>r.date+" "+r.time,thStyle:"min-width:68px"},
+      {key:"client",label:"Client",filter:true,text:(r:any)=>r.name||"",thStyle:"min-width:120px"},
+      {key:"phone",label:"Phone",filter:true,text:(r:any)=>r.ph||"",thStyle:"min-width:110px"},
+      {key:"svc",label:"Service",filter:true,text:(r:any)=>r.svcLabel||"",thStyle:"min-width:110px"},
+      {key:"hc",label:"HC / PT",filter:true,text:(r:any)=>r.hc||"",thStyle:"min-width:90px"},
+      {key:"status",label:"Status",filter:true,text:(r:any)=>(STATUS_MAP[r.status]||{l:r.status}).l,thStyle:"min-width:100px"},
+      {key:"visited",label:"Visited at",filter:true,text:(r:any)=>r.visitedAt||"—",thStyle:"min-width:65px"},
+      {key:"pay",label:"Pay",filter:true,text:(r:any)=>(PAY_MAP[r.payStatus]||{l:"—"}).l,thStyle:"min-width:90px"},
+      {key:"amount",label:"Amount",filter:true,text:(r:any)=>r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—",thStyle:"min-width:70px"},
+      {key:"inv",label:"Inv",filter:false,head:'<th style="min-width:50px">Inv</th>'},
+      {key:"stage",label:"Stage",filter:true,text:(r:any)=>r.stage||"—",thStyle:"min-width:90px"},
+      {key:"call",label:"call",filter:false,head:'<th style="min-width:40px">📞</th>'},
+      {key:"rec",label:"rec",filter:false,head:'<th style="min-width:40px">🎤</th>'},
+    ];
+    regGrid("appt",()=>_apptCols,()=>renderAppt());
     function renderAppt() {
-      const f = filtered().filter(_apptColMatch);
-      const el = root.querySelector("#apptCount"); if (el) el.textContent = f.length+" total";
       const aw = root.querySelector("#apptWrap") as HTMLElement|null; if(!aw) return;
-      // Build the header (with filter controls) once so typing keeps input focus; only the body re-renders.
+      // Build the table shell once; header + body re-render each pass.
       if(!root.querySelector("#apptBody")){
-        const fi='margin-top:3px;display:block;width:100%;height:26px;font-size:10.5px;padding:0 6px;border-radius:6px;border:1px solid var(--line);background:#fff';
-        const svcOpts='<option value="">All</option>'+["dia","bt","physio"].map(k=>'<option value="'+k+'">'+SVC_LABELS[k]+'</option>').join("");
-        const statusOpts='<option value="">All</option>'+Object.keys(STATUS_MAP).map(k=>'<option value="'+k+'">'+STATUS_MAP[k].l+'</option>').join("");
-        const payOpts='<option value="">All</option>'+Object.keys(PAY_MAP).map(k=>'<option value="'+k+'">'+PAY_MAP[k].l+'</option>').join("");
-        aw.innerHTML='<table class="tbl" style="min-width:1200px"><thead><tr>'
-          +'<th style="min-width:68px">Date · time</th>'
-          +'<th style="min-width:120px">Client<input id="apf_client" placeholder="Filter…" oninput="window._apptFilt(\'client\',this.value)" style="'+fi+'"></th>'
-          +'<th style="min-width:110px">Phone<input id="apf_phone" placeholder="Filter…" oninput="window._apptFilt(\'phone\',this.value)" style="'+fi+'"></th>'
-          +'<th style="min-width:110px">Service<select id="apf_svc" onchange="window._apptFilt(\'svc\',this.value)">'+svcOpts+'</select></th>'
-          +'<th style="min-width:90px">HC / PT<input id="apf_hc" placeholder="Filter…" oninput="window._apptFilt(\'hc\',this.value)" style="'+fi+'"></th>'
-          +'<th style="min-width:100px">Status<select id="apf_status" onchange="window._apptFilt(\'status\',this.value)">'+statusOpts+'</select></th>'
-          +'<th style="min-width:65px">Visited at</th>'
-          +'<th style="min-width:90px">Pay<select id="apf_pay" onchange="window._apptFilt(\'pay\',this.value)">'+payOpts+'</select></th>'
-          +'<th style="min-width:70px">Amount</th>'
-          +'<th style="min-width:50px">Inv</th>'
-          +'<th style="min-width:90px">Stage<input id="apf_stage" placeholder="Filter…" oninput="window._apptFilt(\'stage\',this.value)" style="'+fi+'"></th>'
-          +'<th style="min-width:40px">📞</th><th style="min-width:40px">🎤</th>'
-          +'</tr></thead><tbody id="apptBody"></tbody></table>';
+        aw.innerHTML='<table class="tbl" style="min-width:1200px"><thead><tr id="apptHead"></tr></thead><tbody id="apptBody"></tbody></table>';
       }
+      const hd=root.querySelector("#apptHead"); if(hd)hd.innerHTML=gridHead("appt");
+      const f = gridApply("appt", filtered());
+      const el = root.querySelector("#apptCount"); if (el) el.textContent = f.length+" total";
       const body=root.querySelector("#apptBody"); if(!body) return;
       let rows='';
       f.forEach((r:any) => {
@@ -3464,14 +3895,60 @@ export function initApp(root: HTMLElement) {
         if(error) throw error;
         // Set leads.visited_at too — that's the field the Health Coach queue reads,
         // so the checked-in client flows through to the coach after screening.
-        if(_ciMatch.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",_ciMatch.lead_id); }catch(_){} }
+        if(_ciMatch.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",_ciMatch.lead_id); }catch(_){}
+          // Record the check-in in the lead's Activity Log (date/time + mode).
+          const mode=(_ciMatch.meeting_type==="zoom"||/zoom/i.test(_ciMatch.source||""))?"Zoom":"Walk-in";
+          logActivity(_ciMatch.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
+        }
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
       toast("✓ "+_ciMatch.name+" checked in → screening ("+now+")");
       await loadReceptionData();   // refresh: appointment now Visited, in screening queue + payment queue
+      try{ loadZoomCheckins(); }catch(_){}
     }
     w.recRegDone = recRegDone;
+    // ===== Zoom check-in (Appointment Fixed – Zoom) — Advisor list + Reception action =====
+    // Zoom appointments the advisor booked, awaiting the receptionist's check-in. Loaded
+    // independently of the reception queue so the list works on the advisor screen too.
+    let _zoomAppts:any[]=[];
+    async function loadZoomCheckins(){
+      try{
+        const {data}=await supabase.from("appointments").select("id,lead_id,client_name,phone,service,appt_date,appt_time,status,source,meeting_type,language,visited_at")
+          .neq("status","visited").neq("status","cancelled").order("appt_date",{ascending:false}).limit(500);
+        _zoomAppts=(data||[]).filter((a:any)=>a.meeting_type==="zoom"||/zoom/i.test(a.source||""));
+      }catch(_){ _zoomAppts=[]; }
+      renderZoomCheckins();
+    }
+    function renderZoomCheckins(){
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const when=(a:any)=>(a.appt_date?fmtISTDate(a.appt_date):"")+(a.appt_time?(" · "+a.appt_time):"");
+      const rowHtml=(a:any,withAction:boolean)=>'<tr>'
+        +'<td style="font-weight:600">'+e(a.client_name||"Client")+'</td>'
+        +'<td class="mono">'+e(a.phone||"—")+'</td>'
+        +'<td>'+e(when(a)||"—")+'</td>'
+        +'<td><span class="chipb warn">'+e(a.status||"expected")+'</span></td>'
+        +(withAction?'<td><button class="btn bsm bp" onclick="window._zoomCheckin('+a.id+')">✓ Check in</button></td>':'')
+        +'</tr>';
+      const fill=(sel:string,withAction:boolean)=>{ const b=root.querySelector(sel); if(!b) return; b.innerHTML=_zoomAppts.length?_zoomAppts.map((a:any)=>rowHtml(a,withAction)).join(""):('<tr><td colspan="'+(withAction?5:4)+'" style="text-align:center;color:var(--faint);padding:16px">No Zoom appointments awaiting check-in</td></tr>'); };
+      fill("#zoomCiListAdv",false);
+      fill("#zoomCiListRec",true);
+      root.querySelectorAll(".zoomCiCount").forEach((x:any)=>{ x.textContent=String(_zoomAppts.length); });
+    }
+    w._zoomCheckin=async(apptId:number)=>{
+      const a=_zoomAppts.find((x:any)=>String(x.id)===String(apptId));
+      const nowIso=new Date().toISOString();
+      try{
+        const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",apptId);
+        if(error) throw error;
+        if(a&&a.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",a.lead_id); }catch(_){}
+          logActivity(a.lead_id,[{action:"Checked In",field:"Visited",new:"Zoom"}]);
+        }
+      }catch(e:any){ toastErr("Zoom check-in failed: "+(e.message||"db error")); return; }
+      toast("✓ "+((a&&a.client_name)||"Client")+" checked in (Zoom)");
+      await loadZoomCheckins();
+      try{ loadReceptionData(); }catch(_){}
+    };
     function showInbound() { root.querySelector("#inboundBar")?.classList.add("show"); }
     w.showInbound = showInbound;
     function hideInbound() { root.querySelector("#inboundBar")?.classList.remove("show"); }
@@ -3638,6 +4115,10 @@ export function initApp(root: HTMLElement) {
       const fu=root.querySelector("#coachFu")as HTMLElement;
       const rf=root.querySelector("#refundPanel")as HTMLElement;
       if(fu)fu.style.display="none"; if(rf)rf.style.display="none";
+      // Review date is only relevant for "Will Join Immediately" (join) and the
+      // This Week / End of Month / Next Month plans (all the 'fup' action) — hidden otherwise.
+      const rdFld=root.querySelector("#reviewDateFld")as HTMLElement|null;
+      if(rdFld) rdFld.style.display=(a==="join"||a==="fup")?"":"none";
       if(a==="refund"){if(rf)rf.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Refund";cBadge.className="chipb al";}return;}
       if(a==="join"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Joining";cBadge.className="chipb ok";}}
       if(a==="fup"){if(fu)fu.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Follow Up";cBadge.className="chipb warn";}}
@@ -3731,10 +4212,8 @@ export function initApp(root: HTMLElement) {
     }
     w._payAttach = _payAttach;
 
-    // Mic
-    let rec=0;
-    const mb=root.querySelector("#micBtn")as HTMLElement;
-    if(mb) mb.onclick=()=>{rec=rec?0:1;mb.classList.toggle("rec",!!rec);const mt=root.querySelector("#micTxt");if(mt)mt.textContent=rec?"Recording…":"Start recording";if(!rec)toast("Saved");};
+    // Mic / office-visit recording is implemented with MediaRecorder in the coach
+    // section (window._ovrToggle / _ovrStop) — the old cosmetic stub was removed.
 
     // SLA timer
     let sla=11398;
@@ -4094,6 +4573,102 @@ export function initApp(root: HTMLElement) {
       const fld=root.querySelector("#coachRecUrl")as HTMLInputElement|null; if(!fld) return;
       try{ const res=await _callRecordings(id); const recs=(res&&res.recordings)||[]; const ready=recs.find((r:any)=>r.recording_url); if(ready&&!fld.value&&String(_coachLeadId)===String(id)) fld.value=ready.recording_url; }catch(_){}
     }
+    // ===== Score card — hybrid: manual Progress+Consultation, auto Attendance+Follow-up =====
+    let _scAuto={attendance:0,followup:0};
+    function _scNum(sel:string){ const el=root.querySelector(sel)as HTMLInputElement|null; const n=parseInt(((el&&el.value)||"").replace(/[^\d]/g,""))||0; return Math.max(0,Math.min(100,n)); }
+    function _scRecalcOverall(){
+      const prog=_scNum("#scProgress"), cons=_scNum("#scConsult");
+      // Weights (tunable): progress .30, consultation .25, attendance .25, follow-up .20.
+      const overall=Math.round(0.30*prog+0.25*cons+0.25*_scAuto.attendance+0.20*_scAuto.followup);
+      const ov=root.querySelector("#scOverallV"); if(ov) ov.textContent=String(overall);
+      const tile=root.querySelector("#scOverallTile")as HTMLElement|null;
+      if(tile) tile.style.borderColor=overall>=75?"var(--ok)":overall>=50?"var(--warn)":"var(--alert)";
+    }
+    w._scRecalcOverall=_scRecalcOverall;
+    async function _renderScoreCard(id:string){
+      let att=0, fu=80;
+      try{
+        const {data:appts}=await supabase.from("appointments").select("status").eq("lead_id",id);
+        const rows=appts||[]; const tot=rows.length; const vis=rows.filter((a:any)=>a.status==="visited").length;
+        att= tot? Math.round(100*vis/tot) : 0;
+      }catch(_){}
+      try{
+        const {data:lr}=await supabase.from("leads").select("next_followup").eq("meta_lead_id",id).limit(1);
+        const nf=lr&&lr[0]&&lr[0].next_followup;
+        if(!nf) fu=80; else { const t=new Date(nf).getTime(); fu= t>=Date.now()?100:40; }   // future = on-track, overdue = poor
+      }catch(_){}
+      if(String(_coachLeadId)!==String(id)) return;
+      _scAuto={attendance:att,followup:fu};
+      const setTxt=(sel:string,v:any)=>{const el=root.querySelector(sel);if(el)el.textContent=String(v);};
+      setTxt("#scAttendanceV",att); setTxt("#scFollowupV",fu);
+      _scRecalcOverall();
+    }
+    // ===== Office-visit audio recording (MediaRecorder → /storage → office_recordings) =====
+    let _ovrRec:any=null; let _ovrChunks:any[]=[]; let _ovrStartMs=0; let _ovrTimer:any=null; let _ovrLeadId="";
+    function _ovrSetUi(recording:boolean){
+      const mb=root.querySelector("#micBtn")as HTMLElement|null; const txt=root.querySelector("#micTxt"); const stop=root.querySelector("#ovrStopBtn")as HTMLElement|null;
+      if(mb) mb.classList.toggle("rec",recording);
+      if(txt) txt.textContent=recording?"Recording…":"Start office-visit recording";
+      if(stop) stop.style.display=recording?"":"none";
+      const t=root.querySelector("#ovrTimer"); if(t&&!recording) t.textContent="";
+    }
+    w._ovrToggle=async()=>{
+      if(_ovrRec&&_ovrRec.state==="recording"){ w._ovrStop(); return; }
+      if(!_coachLeadId){ toast("Open a visited client first"); return; }
+      if(!navigator.mediaDevices||!(window as any).MediaRecorder){ toastErr("Audio recording not supported in this browser"); return; }
+      let stream:MediaStream;
+      try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+      catch(e:any){ toastErr("Microphone permission denied"); return; }
+      _ovrChunks=[];
+      const MR=(window as any).MediaRecorder;
+      const mime=MR.isTypeSupported&&MR.isTypeSupported("audio/webm")?"audio/webm":"";
+      _ovrRec=new MR(stream,mime?{mimeType:mime}:undefined);
+      _ovrRec.ondataavailable=(ev:any)=>{ if(ev.data&&ev.data.size) _ovrChunks.push(ev.data); };
+      _ovrRec.onstop=()=>{ try{ stream.getTracks().forEach((t:any)=>t.stop()); }catch(_){} _ovrFinalize(); };
+      _ovrRec.start();
+      _ovrStartMs=Date.now();
+      _ovrLeadId=String(_coachLeadId);
+      _ovrSetUi(true);
+      const tEl=root.querySelector("#ovrTimer");
+      _ovrTimer=setInterval(()=>{ const s=Math.floor((Date.now()-_ovrStartMs)/1000); const mm=String(Math.floor(s/60)).padStart(2,"0"); const ss=String(s%60).padStart(2,"0"); if(tEl)tEl.textContent="● "+mm+":"+ss; },1000);
+      toast("Recording started");
+    };
+    w._ovrStop=()=>{ if(_ovrRec&&_ovrRec.state!=="inactive"){ try{ _ovrRec.stop(); }catch(_){} } if(_ovrTimer){clearInterval(_ovrTimer);_ovrTimer=null;} _ovrSetUi(false); };
+    async function _ovrFinalize(){
+      const id=String(_ovrLeadId||_coachLeadId||""); if(!id||!_ovrChunks.length) return;
+      const dur=Math.round((Date.now()-_ovrStartMs)/1000);
+      const blob=new Blob(_ovrChunks,{type:(_ovrChunks[0]&&_ovrChunks[0].type)||"audio/webm"});
+      _ovrChunks=[];
+      const safe=id.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=safe+"/"+Date.now()+"_office-visit.webm";
+      toast("Saving recording…");
+      try{
+        const up=await supabase.storage.from("office-recordings").upload(path,blob as any,{upsert:false});
+        if(up.error) throw up.error;
+        const {data}=supabase.storage.from("office-recordings").getPublicUrl(path);
+        const url=(data&&data.publicUrl)||"";
+        await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_asnActor(),created_at:new Date().toISOString()});
+        toast("✓ Recording saved to profile");
+        if(String(_coachLeadId)===id) _ovrRenderList(id);
+      }catch(e:any){ toastErr("Recording save failed: "+(e.message||"upload error")); }
+    }
+    async function _ovrRenderList(id:string){
+      const el=root.querySelector("#ovrList"); if(!el) return;
+      let rows:any[]=[];
+      try{ const {data}=await supabase.from("office_recordings").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(50); rows=data||[]; }catch(_){ rows=[]; }
+      if(String(_coachLeadId)!==String(id)) return;
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const dur=(s:number)=>{ s=s||0; const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
+      el.innerHTML=rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
+        '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">'
+        +'<span style="font-size:12px;font-weight:600">🎙 '+e(fmtIST(r.created_at))+'</span>'
+        +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
+        +(r.recorded_by?'<span style="font-size:10.5px;color:var(--muted)">'+e(r.recorded_by)+'</span>':'')
+        +'<audio controls preload="none" src="'+e(r.file_url||"")+'" style="height:32px;flex:1;min-width:180px"></audio>'
+        +'<a class="btn bsm" href="'+e(r.file_url||"#")+'" download style="text-decoration:none">⬇ Download</a>'
+        +'</div>'
+      ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>';
+    }
     function fillCoachDetail(lead:any){
       if(!lead) return;
       _coachLeadId=String(lead.id);
@@ -4119,11 +4694,17 @@ export function initApp(root: HTMLElement) {
       const crS=root.querySelector("#crSugar")as HTMLInputElement|null; if(crS&&lead.sugar) crS.value=lead.sugar;
       setV("haConsultDate",new Date().toISOString().slice(0,10));
       const fuNotes=root.querySelector("#fuNotes"); if(fuNotes) fuNotes.innerHTML="";
+      // Reset score-card auto tiles until recomputed for this client.
+      _scAuto={attendance:0,followup:0};
+      ["#scAttendanceV","#scFollowupV","#scOverallV"].forEach(s=>{const el=root.querySelector(s);if(el)el.textContent="—";});
+      const rdFld=root.querySelector("#reviewDateFld")as HTMLElement|null; if(rdFld) rdFld.style.display="none";
       renderCoachOpenList();
-      loadAndApplyCoach(lead);
+      loadAndApplyCoach(lead).then(()=>{ try{ _renderScoreCard(String(lead.id)); }catch(_){} });
       _coachSyncAdvisorReports(lead);
       _coachSyncScreeningVitals(lead);
       _coachRenderRecordings(_coachLeadId);
+      _ovrRenderList(_coachLeadId);
+      _renderCoachPayHistory(_coachLeadId);
       _coachPopulateReadOnly(lead);
     }
     async function _coachSyncScreeningVitals(lead:any){
@@ -4179,14 +4760,14 @@ export function initApp(root: HTMLElement) {
     }
     async function loadCoachClients(){
       try{
-        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,is_valid,sugar_poll,coach_profile,screening_vitals").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
         if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
-          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,is_valid,sugar_poll,coach_profile").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
+          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
         }
         if(res.error) throw res.error;
         const data=res.data;
-        const apptStages:Record<string,string>={};
-        try{ const {data:appts}=await supabase.from("appointments").select("lead_id,stage,status").not("stage","is",null).limit(500); (appts||[]).forEach((a:any)=>{ if(a.lead_id) apptStages[a.lead_id]=a.stage; }); }catch(_){}
+        const apptStages:Record<string,string>={}; const apptHc:Record<string,string>={};
+        try{ const {data:appts}=await supabase.from("appointments").select("lead_id,stage,status,hc_pt").limit(500); (appts||[]).forEach((a:any)=>{ if(a.lead_id){ if(a.stage) apptStages[a.lead_id]=a.stage; if(a.hc_pt&&!apptHc[a.lead_id]) apptHc[a.lead_id]=a.hc_pt; } }); }catch(_){}
         _coachClients=(data||[]).map((r:any)=>{
           const cp=r.coach_profile; const sv=r.screening_vitals||null; const apptStage=apptStages[r.meta_lead_id]||"";
           let stage="screening";
@@ -4196,31 +4777,77 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||""};
         });
       }catch(_){ _coachClients=[]; }
+      _coachPopulateFilters();
       renderCoachOpenList();
     }
     let _coachView="list";
+    let _coachQuery=""; let _coachSearchT:any=null;
+    // Dropdown/date filters are APPLIED on demand (Apply button); search stays live.
+    let _coachApplied:{from:string;to:string;coach:string;status:string;service:string}={from:"",to:"",coach:"all",status:"all",service:"all"};
+    // Central filter set — both List and Kanban read this, so filters persist across the toggle.
+    function _coachFiltered(){
+      const from=_coachApplied.from, to=_coachApplied.to, coach=_coachApplied.coach, st=_coachApplied.status, svc=_coachApplied.service;
+      const q=_coachQuery.trim().toLowerCase();
+      const fromT=from?new Date(from+"T00:00:00").getTime():0;
+      const toT=to?new Date(to+"T23:59:59").getTime():0;
+      return _coachClients.filter((c:any)=>{
+        if(coach!=="all"&&(c.hc||"")!==coach) return false;
+        if(st!=="all"&&(c._stage||"")!==st) return false;
+        if(svc!=="all"&&(c.service||"")!==svc) return false;
+        if(fromT||toT){ const t=c.visitedAt?new Date(c.visitedAt).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
+        if(q&&![c.name,c.phone,c.source].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0)) return false;
+        return true;
+      });
+    }
+    function _coachPopulateFilters(){
+      const fill=(sel:string,vals:string[],allLabel:string)=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
+      fill("#coCoach",_coachClients.map((c:any)=>c.hc),"All health coaches");
+      fill("#coService",_coachClients.map((c:any)=>c.service),"All services");
+      const stEl=root.querySelector("#coStatus")as HTMLSelectElement|null;
+      if(stEl){ const cur=stEl.value; const STAGES=["screening","assessment","consultation","payment","enrolled"]; stEl.innerHTML='<option value="all">All statuses</option>'+STAGES.map(s=>'<option value="'+s+'">'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>').join(""); if(Array.from(stEl.options).some(o=>o.value===cur)) stEl.value=cur; }
+    }
+    // Apply the staged coach filters (date / coach / status / service) → refresh list + kanban.
+    w._coachFilterApply=()=>{
+      _coachApplied={
+        from:(root.querySelector("#coFrom")as HTMLInputElement)?.value||"",
+        to:(root.querySelector("#coTo")as HTMLInputElement)?.value||"",
+        coach:(root.querySelector("#coCoach")as HTMLSelectElement)?.value||"all",
+        status:(root.querySelector("#coStatus")as HTMLSelectElement)?.value||"all",
+        service:(root.querySelector("#coService")as HTMLSelectElement)?.value||"all",
+      };
+      renderCoachOpenList();
+    };
+    w._coachFilterClear=()=>{
+      const set=(id:string,v:string)=>{const el=root.querySelector("#"+id)as any; if(el)el.value=v;};
+      set("coFrom",""); set("coTo",""); set("coCoach","all"); set("coStatus","all"); set("coService","all");
+      _coachApplied={from:"",to:"",coach:"all",status:"all",service:"all"};
+      renderCoachOpenList();
+    };
+    // Search stays live (not gated by Apply).
+    w._coachSearch=()=>{ if(_coachSearchT)clearTimeout(_coachSearchT); _coachSearchT=setTimeout(()=>{ _coachQuery=(root.querySelector("#coSearch")as HTMLInputElement)?.value||""; renderCoachOpenList(); },180); };
     w._coachToggleView=(v:string)=>{ _coachView=v; renderCoachOpenList(); };
     function renderCoachOpenList(){
       const el=root.querySelector("#coachOpenList")as HTMLElement|null; if(!el) return;
       const kb=root.querySelector("#coachKanban")as HTMLElement|null;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const list=_coachFiltered();
       const toggleHtml='<div class="pills" style="margin-left:auto;flex-shrink:0"><button class="pill'+(_coachView==="list"?" on":"")+'" onclick="window._coachToggleView(\'list\')">List View</button><button class="pill'+(_coachView==="kanban"?" on":"")+'" onclick="window._coachToggleView(\'kanban\')">Kanban View</button></div>';
       if(!_coachClients.length){ el.innerHTML='<div style="font-size:12px;color:var(--faint);padding:6px 0">No visited clients yet — mark a lead "Visited" in the Health Advisor to see them here.</div>'; if(kb)kb.style.display="none"; return; }
       if(_coachView==="list"){
         el.style.display="";
-        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+_coachClients.length+')</div>'+toggleHtml+'</div>'
-          +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_coachClients.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>';
+        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+list.length+' of '+_coachClients.length+')</div>'+toggleHtml+'</div>'
+          +(list.length?'<div style="display:flex;gap:8px;flex-wrap:wrap">'+list.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>':'<div style="font-size:12px;color:var(--faint);padding:6px 0">No clients match the current filters.</div>');
         if(kb)kb.style.display="none";
       } else {
-        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+_coachClients.length+')</div>'+toggleHtml+'</div>';
+        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+list.length+' of '+_coachClients.length+')</div>'+toggleHtml+'</div>';
         el.style.display="";
-        if(kb){ kb.style.display=""; _renderCoachKanban(kb); }
+        if(kb){ kb.style.display=""; _renderCoachKanban(kb,list); }
       }
     }
-    function _renderCoachKanban(kb:HTMLElement){
+    function _renderCoachKanban(kb:HTMLElement,list:any[]){
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const cols=[
         {key:"screening",label:"Screening",color:"#E8A817",icon:"🔬",filter:(c:any)=>!c._stage||c._stage==="screening"},
@@ -4231,7 +4858,7 @@ export function initApp(root: HTMLElement) {
       ];
       const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
-        const items=_coachClients.filter(col.filter);
+        const items=list.filter(col.filter);
         return '<div style="min-width:220px;max-width:260px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
           +'<div style="padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px"><span>'+col.icon+'</span><span style="font-weight:700;font-size:12px">'+col.label+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
           +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
@@ -4247,6 +4874,51 @@ export function initApp(root: HTMLElement) {
       }).join("")+'</div>';
     }
     w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client")); };
+    // Persist the 2× installment collection to the payments table (Part 1 + Part 2),
+    // so amounts/dates/status/balance are stored and show in the payment history.
+    async function _persistInstallments(id:string){
+      const pm=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"";
+      if(pm!=="i2") return;
+      const total=_payGetPrice();
+      const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
+      if(!p1&&!p2) return;   // nothing collected yet
+      const val=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null)?.value)||"";
+      const d1=val("#i2Inst1Date"), d2=val("#i2BalDate");
+      const bal=Math.max(0,total-p1-p2);
+      const status=(p1&&p2)?"both_paid":(p1?"1st_paid":"pending");
+      // Re-write installment rows for this lead so re-saving doesn't duplicate them.
+      try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment"); }catch(_){}
+      const rows:any[]=[];
+      if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:d1?new Date(d1).toISOString():new Date().toISOString(),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes"});
+      if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:d2?new Date(d2).toISOString():new Date().toISOString(),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes"});
+      if(rows.length){
+        try{
+          await supabase.from("payments").insert(rows);
+          logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+" of ₹"+total.toLocaleString("en-IN")+" ("+status.replace(/_/g," ")+", balance ₹"+bal.toLocaleString("en-IN")+")"}]);
+          if(String(_coachLeadId)===id) _renderCoachPayHistory(id);
+        }catch(e:any){ toastErr("Installment save failed: "+(e.message||"db error")); }
+      }
+    }
+    async function _renderCoachPayHistory(id:string){
+      const el=root.querySelector("#coachPayHist"); if(!el) return;
+      let rows:any[]=[];
+      try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
+      if(String(_coachLeadId)!==String(id)) return;
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const money=(n:any)=>"₹"+(parseInt(n)||0).toLocaleString("en-IN");
+      if(!rows.length){ el.innerHTML='<div class="stub">No payment records for this client yet.</div>'; return; }
+      const paid=rows.reduce((s:number,r:any)=>s+(parseInt(r.amount)||0),0);
+      el.innerHTML='<div style="margin-bottom:8px;font-size:12px;color:var(--muted)">Total collected: <b style="color:var(--ink)">'+money(paid)+'</b> · '+rows.length+' payment'+(rows.length===1?"":"s")+'</div>'
+        +'<div class="tscroll"><table class="tbl" style="min-width:560px"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Mode</th><th>Ref</th><th>Status</th></tr></thead><tbody>'
+        +rows.map((r:any)=>{ const typ=r.payment_type==="installment"?("Installment "+(r.installment_number||"")+"/"+(r.total_installments||2)):(r.payment_type||"full"); return '<tr>'
+          +'<td class="mono" style="font-size:11px">'+e(fmtIST(r.paid_at||r.created_at))+'</td>'
+          +'<td>'+e(typ)+'</td>'
+          +'<td class="mono" style="font-weight:700">'+money(r.amount)+'</td>'
+          +'<td>'+e(r.method||"—")+'</td>'
+          +'<td class="mono" style="font-size:11px">'+e(r.txn_ref||"—")+'</td>'
+          +'<td><span class="chipb '+(r.status==="paid"?"ok":"neu")+'">'+e(r.status||"—")+'</span></td></tr>'; }).join("")
+        +'</tbody></table></div>';
+    }
     w._coachSaveRecord=async()=>{
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);
@@ -4260,6 +4932,7 @@ export function initApp(root: HTMLElement) {
           else toastErr("Save failed: "+(error.message||"DB error"));
           return;
         }
+        await _persistInstallments(id);   // store installment payments (if the 2× method is active)
         toast("Health record saved");
         logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
       }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
@@ -4382,6 +5055,7 @@ export function initApp(root: HTMLElement) {
           try{ await supabase.from("leads").update({assigned_at:nowIso}).eq("meta_lead_id",ids[i]); }catch(_){}
           const ld=_metaLeads.find((x:any)=>String(x.id)===ids[i]); if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
           logActivity(ids[i],[{action:"Assigned",field:"Assigned to",new:name+" (round-robin)"}]);
+          logAssignment(ids[i],name,"assigned");
         }
       }catch(e:any){ toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Distribute failed: "+(e.message||"db error")); return; }
       await _afterAssign();
@@ -4392,6 +5066,29 @@ export function initApp(root: HTMLElement) {
     document.addEventListener("click",(e:any)=>{ (["call","lead"] as const).forEach(wk=>{ const wrap=root.querySelector("#"+wk+"DevAssignWrap"); const m=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; }); });
     const _devEsc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const _devSrcLang=(r:any)=>(r.source==="Meta Ads"?"Meta":(r.source||"Meta"))+" · "+(r.language||"Tamil");
+    const _callDevCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:34px"><input type="checkbox" id="callDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll(\'call\',this.checked)"></th>'},
+      {key:"lead",label:"Lead",filter:true,text:(r:any)=>r.name||"—"},
+      {key:"num",label:"Lead Number",filter:true,text:(r:any)=>r.phone||"—"},
+      {key:"src",label:"Source · Lang",filter:true,text:(r:any)=>_devSrcLang(r)},
+      {key:"stage",label:"Stage",filter:true,text:(r:any)=>r.is_assigned?"Assigned":"Unassigned"},
+      {key:"status",label:"Status",filter:true,text:(_r:any)=>"No call activity"},
+      {key:"recv",label:"Received Date & Time",filter:true,text:(r:any)=>fmtIST(r.created_at)},
+      {key:"dev",label:"Deviation Time",filter:false,head:'<th>Deviation Time</th>'},
+    ];
+    regGrid("callDev",()=>_callDevCols,()=>{try{(w as any)._renderCallDeviation();}catch(_){}});
+    const _leadDevCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:34px"><input type="checkbox" id="leadDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll(\'lead\',this.checked)"></th>'},
+      {key:"lead",label:"Lead",filter:true,text:(r:any)=>r.name||"—"},
+      {key:"num",label:"Lead Number",filter:true,text:(r:any)=>r.phone||"—"},
+      {key:"src",label:"Source · Lang",filter:true,text:(r:any)=>_devSrcLang(r)},
+      {key:"asg",label:"Assigned To",filter:true,text:(r:any)=>r.assigned_to||"—"},
+      {key:"stage",label:"Stage",filter:true,text:(_r:any)=>"Assigned"},
+      {key:"status",label:"Status",filter:true,text:(_r:any)=>"Not called"},
+      {key:"asgd",label:"Assigned Date & Time",filter:true,text:(r:any)=>fmtIST(r.assigned_at||r.created_at)},
+      {key:"dev",label:"Deviation Time",filter:false,head:'<th>Deviation Time</th>'},
+    ];
+    regGrid("leadDev",()=>_leadDevCols,()=>{try{(w as any)._renderLeadsDeviation();}catch(_){}});
     function _setDevBadges(){
       const cc=root.querySelector("#callDevCount"); if(cc)cc.textContent=String(_callDevRows.length);
       const lc=root.querySelector("#leadDevCount"); if(lc)lc.textContent=String(_leadDevRows.length);
@@ -4415,8 +5112,8 @@ export function initApp(root: HTMLElement) {
           .lt("created_at",cutoff).or("call_status.is.null,call_status.eq.New,call_status.eq.Open").order("created_at",{ascending:true}).limit(1000);
         rows=(data||[]).filter((r:any)=>!_recordedLeadIds.has(String(r.meta_lead_id))&&inAbmRange(r.created_at));
       }catch(_){ rows=[]; }
-      _callDevRows=rows; const now=now0; _setDevBadges();
-      if(body) body.innerHTML=rows.length?rows.map((r:any)=>'<tr>'
+      _callDevRows=rows; const now=now0; _setDevBadges(); const _cdh=root.querySelector("#callDevHead"); if(_cdh)_cdh.innerHTML=gridHead("callDev"); const _cdDisp=gridApply("callDev",rows);
+      if(body) body.innerHTML=_cdDisp.length?_cdDisp.map((r:any)=>'<tr>'
         +'<td><input type="checkbox" class="devChk" data-w="call" data-id="'+_devEsc(String(r.meta_lead_id))+'" style="accent-color:var(--brand)" onchange="window._devChkToggle()"></td>'
         +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td>'
         +'<td class="mono" style="font-weight:600">'+_devEsc(r.phone||"—")+'</td>'
@@ -4445,8 +5142,8 @@ export function initApp(root: HTMLElement) {
         if(res.error) throw res.error;
         rows=(res.data||[]).filter((r:any)=>{ if(_recordedLeadIds.has(String(r.meta_lead_id))) return false; const at=r.assigned_at||r.created_at; const t=new Date(at).getTime(); return t<cutoffMs && inAbmRange(at); });
       }catch(_){ rows=[]; }
-      _leadDevRows=rows; const now=Date.now(); _setDevBadges();
-      if(body) body.innerHTML=rows.length?rows.map((r:any)=>{ const at=r.assigned_at||r.created_at; return '<tr>'
+      _leadDevRows=rows; const now=Date.now(); _setDevBadges(); const _ldh=root.querySelector("#leadDevHead"); if(_ldh)_ldh.innerHTML=gridHead("leadDev"); const _ldDisp=gridApply("leadDev",rows);
+      if(body) body.innerHTML=_ldDisp.length?_ldDisp.map((r:any)=>{ const at=r.assigned_at||r.created_at; return '<tr>'
         +'<td><input type="checkbox" class="devChk" data-w="lead" data-id="'+_devEsc(String(r.meta_lead_id))+'" style="accent-color:var(--brand)" onchange="window._devChkToggle()"></td>'
         +'<td style="font-weight:600">'+_devEsc(r.name||"—")+'</td>'
         +'<td class="mono" style="font-weight:600">'+_devEsc(r.phone||"—")+'</td>'
@@ -4730,6 +5427,43 @@ export function initApp(root: HTMLElement) {
       }catch(_){ _accPays=[]; }
       _accRenderAll();
     }
+    const _accTxCols=[
+      {key:"date",label:"Date",filter:true,text:(p:any)=>p.dateFmt||""},
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
+      {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+" · "+(p.method||"")},
+      {key:"gross",label:"Gross",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
+      {key:"subv",label:"Subv.",filter:true,text:(p:any)=>{const x=p.emi_subvention||0;return x?"−₹"+x.toLocaleString("en-IN"):"—";}},
+      {key:"net",label:"Net",filter:true,text:(p:any)=>"₹"+((p.amount||0)-(p.emi_subvention||0)).toLocaleString("en-IN")},
+      {key:"status",label:"Status",filter:true,text:(p:any)=>p.verified?"Verified":"Unverified"},
+    ];
+    const _accVerCols=[
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"claimed",label:"Claimed",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
+      {key:"mode",label:"Mode",filter:true,text:(p:any)=>p.method||"—"},
+      {key:"ref",label:"Ref",filter:true,text:(p:any)=>p.txn_ref||"—"},
+      {key:"proof",label:"Proof",filter:false,head:'<th>Proof</th>'},
+      {key:"act",label:"",filter:false,head:'<th></th>'},
+    ];
+    const _accOutCols=[
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
+      {key:"due",label:"Due",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
+      {key:"date",label:"Date",filter:true,text:(p:any)=>p.dateFmt||""},
+      {key:"act",label:"",filter:false,head:'<th></th>'},
+    ];
+    const _accRefCols=[
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"paid",label:"Paid",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
+      {key:"refund",label:"Refund",filter:true,text:(p:any)=>"₹"+(p.refund_amount||0).toLocaleString("en-IN")},
+      {key:"reason",label:"Reason",filter:true,text:(p:any)=>p.refund_reason||"—"},
+      {key:"status",label:"Status",filter:true,text:(p:any)=>{const m:any={requested:"Requested",abm_approved:"ABM ✓",bm_approved:"BM ✓"};return m[p.refund_status]||p.refund_status||"";}},
+      {key:"act",label:"",filter:false,head:'<th></th>'},
+    ];
+    regGrid("accTx",()=>_accTxCols,()=>_accRenderAll());
+    regGrid("accVer",()=>_accVerCols,()=>_accRenderAll());
+    regGrid("accOut",()=>_accOutCols,()=>_accRenderAll());
+    regGrid("accRef",()=>_accRefCols,()=>_accRenderAll());
     function _accRenderAll(){
       const pays=_accPays; const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const todayStr=new Date().toISOString().substring(0,10);
@@ -4750,39 +5484,43 @@ export function initApp(root: HTMLElement) {
       const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
       // Transactions tab
       const allPaid=pays.filter((p:any)=>p.status==="paid"||p.amount>0);
-      let txH='<table class="tbl"><thead><tr><th>Date</th><th>Client</th><th>Service</th><th>Method</th><th>Gross</th><th>Subv.</th><th>Net</th><th>Status</th></tr></thead><tbody>';
-      if(!allPaid.length) txH+='<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No transactions yet.</td></tr>';
-      else allPaid.slice(0,100).forEach((p:any)=>{
+      const _txF=gridApply("accTx",allPaid);
+      let txH='<table class="tbl"><thead><tr id="accTxHead"></tr></thead><tbody>';
+      if(!_txF.length) txH+='<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No transactions yet.</td></tr>';
+      else _txF.slice(0,100).forEach((p:any)=>{
         const sub=p.emi_subvention||0; const net=(p.amount||0)-sub;
         const verChip=p.verified?'<span class="chipb ok">Verified</span>':'<span class="chipb warn">Unverified</span>';
         txH+='<tr><td class="mono">'+e(p.dateFmt)+'</td><td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td>'+e((p.payment_type||"full")+" · "+(p.method||""))+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td>'
           +'<td class="mono"'+(sub?'style="color:var(--alert-ink)"':'')+'>'+( sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td><td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td><td>'+verChip+'</td></tr>';
       });
       txH+='</tbody></table>';
-      const txEl=root.querySelector("#accTxBody"); if(txEl) txEl.innerHTML=txH;
+      const txEl=root.querySelector("#accTxBody"); if(txEl){ txEl.innerHTML=txH; const _th=root.querySelector("#accTxHead"); if(_th)_th.innerHTML=gridHead("accTx"); }
       // Verify proofs tab
-      let vH='<table class="tbl"><thead><tr><th>Client</th><th>Claimed</th><th>Mode</th><th>Ref</th><th>Proof</th><th></th></tr></thead><tbody>';
-      if(!unverified.length) vH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">All payments verified ✓</td></tr>';
-      else unverified.forEach((p:any)=>{
+      const _verF=gridApply("accVer",unverified);
+      let vH='<table class="tbl"><thead><tr id="accVerHead"></tr></thead><tbody>';
+      if(!_verF.length) vH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">All payments verified ✓</td></tr>';
+      else _verF.forEach((p:any)=>{
         vH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td>'+e(p.method||"—")+'</td><td class="mono">'+e(p.txn_ref||"—")+'</td>'
           +'<td>'+(p.proof_url?'<a href="'+e(p.proof_url)+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button></td></tr>';
       });
       vH+='</tbody></table>';
-      const vEl=root.querySelector("#accVerBody"); if(vEl) vEl.innerHTML=vH;
+      const vEl=root.querySelector("#accVerBody"); if(vEl){ vEl.innerHTML=vH; const _vh=root.querySelector("#accVerHead"); if(_vh)_vh.innerHTML=gridHead("accVer"); }
       // Outstanding tab
-      let oH='<table class="tbl"><thead><tr><th>Client</th><th>Service</th><th>Due</th><th>Date</th><th></th></tr></thead><tbody>';
-      if(!outstanding.length) oH+='<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:20px">No outstanding balances ✓</td></tr>';
-      else outstanding.forEach((p:any)=>{
+      const _outF=gridApply("accOut",outstanding);
+      let oH='<table class="tbl"><thead><tr id="accOutHead"></tr></thead><tbody>';
+      if(!_outF.length) oH+='<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:20px">No outstanding balances ✓</td></tr>';
+      else _outF.forEach((p:any)=>{
         oH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">'+e(p.dateFmt)+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._accCollect('+p.id+',\''+e(p.clientName).replace(/'/g,"")+'\','+(p.amount||0)+',\''+e(p.lead_id||"")+'\')">Collect</button></td></tr>';
       });
       oH+='</tbody></table>';
-      const oEl=root.querySelector("#accOutBody"); if(oEl) oEl.innerHTML=oH;
+      const oEl=root.querySelector("#accOutBody"); if(oEl){ oEl.innerHTML=oH; const _oh=root.querySelector("#accOutHead"); if(_oh)_oh.innerHTML=gridHead("accOut"); }
       // Refunds tab
-      let rH='<table class="tbl"><thead><tr><th>Client</th><th>Paid</th><th>Refund</th><th>Reason</th><th>Status</th><th></th></tr></thead><tbody>';
-      if(!refunds.length) rH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No pending refunds.</td></tr>';
-      else refunds.forEach((p:any)=>{
+      const _refF=gridApply("accRef",refunds);
+      let rH='<table class="tbl"><thead><tr id="accRefHead"></tr></thead><tbody>';
+      if(!_refF.length) rH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No pending refunds.</td></tr>';
+      else _refF.forEach((p:any)=>{
         const sMap:{[k:string]:{l:string;c:string}}={requested:{l:"Requested",c:"warn"},abm_approved:{l:"ABM ✓",c:"info"},bm_approved:{l:"BM ✓",c:"info"}};
         const st=sMap[p.refund_status]||{l:p.refund_status,c:"neu"};
         rH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">₹'+(p.refund_amount||0).toLocaleString("en-IN")+'</td>'
@@ -4790,7 +5528,7 @@ export function initApp(root: HTMLElement) {
           +'<td><button class="btn bsm bp" onclick="window._accProcessRefund('+p.id+')">Process</button></td></tr>';
       });
       rH+='</tbody></table>';
-      const rEl=root.querySelector("#accRefBody"); if(rEl) rEl.innerHTML=rH;
+      const rEl=root.querySelector("#accRefBody"); if(rEl){ rEl.innerHTML=rH; const _rh=root.querySelector("#accRefHead"); if(_rh)_rh.innerHTML=gridHead("accRef"); }
     }
     w._accVerify=async(id:number)=>{
       try{ await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString()}).eq("id",id);

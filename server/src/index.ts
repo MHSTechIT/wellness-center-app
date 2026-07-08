@@ -19,7 +19,14 @@ const origins = (process.env.CORS_ORIGIN || '')
   .filter(Boolean);
 app.use(cors({ origin: origins.length ? origins : true }));
 
-app.use(express.json({ limit: '2mb' }));
+// Default JSON body limit is small; office-visit audio uploads to /storage/upload
+// are base64-encoded and much larger, so that route gets its own bigger parser
+// (registered inside registerStorageRoutes). Skip the small parser for it here.
+const jsonSmall = express.json({ limit: '2mb' });
+app.use((req, res, next) => {
+  if (req.path === '/storage/upload') return next();
+  return jsonSmall(req, res, next);
+});
 // Smartflo may POST the recording webhook as form-encoded.
 app.use(express.urlencoded({ extended: true }));
 
