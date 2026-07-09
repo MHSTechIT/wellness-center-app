@@ -19,6 +19,22 @@ export function initApp(root: HTMLElement) {
     // symbols can never be typed. _digitsOnly keeps digits only (phones, refs).
     w._numOnly=(el:HTMLInputElement)=>{ if(!el)return; let v=(el.value||"").replace(/[^0-9.]/g,""); const i=v.indexOf("."); if(i>=0){ v=v.slice(0,i+1)+v.slice(i+1).replace(/\./g,""); } el.value=v; };
     w._digitsOnly=(el:HTMLInputElement)=>{ if(!el)return; el.value=(el.value||"").replace(/[^0-9]/g,""); };
+    // Money-received guard: numeric only (digits + up to 2 decimals) AND must not exceed the
+    // due amount. Shows an inline validation message (errSel). Returns true when valid.
+    w._payAmtRcvd=(el:HTMLInputElement,dueSel:string,errSel:string)=>{
+      if(!el) return true;
+      let v=(el.value||"").replace(/[^0-9.]/g,""); const dot=v.indexOf(".");
+      if(dot>=0){ v=v.slice(0,dot+1)+v.slice(dot+1).replace(/\./g,"").slice(0,2); }   // one dot, ≤2 decimals
+      el.value=v;
+      const rcvd=parseFloat(v)||0;
+      const dueEl=dueSel?root.querySelector(dueSel)as HTMLInputElement|null:null;
+      const due=parseFloat(((dueEl&&dueEl.value)||"").replace(/[^0-9.]/g,""))||0;
+      const over=due>0 && rcvd>due;
+      el.style.borderColor=over?"var(--alert)":"";
+      const err=errSel?root.querySelector(errSel)as HTMLElement|null:null;
+      if(err){ err.textContent=over?("Cannot exceed amount due (₹"+due.toLocaleString("en-IN")+")"):""; err.style.display=over?"block":"none"; }
+      return !over;
+    };
 
     // ========== AUTH, RBAC & USER MANAGEMENT ==========
     let _currentUser:any = null;
@@ -773,8 +789,8 @@ export function initApp(root: HTMLElement) {
         +'<div style="font-size:12px;color:var(--faint);margin-bottom:16px">Manually capture a lead — it is saved to the database and added to the Unassigned pool.</div>'
         +'<div class="g2" style="gap:11px">'
         +'<div class="fld"><label class="lbl">Name *</label><input class="input" id="slName" placeholder="Full name"></div>'
-        +'<div class="fld"><label class="lbl">Phone *</label><input class="input mono" id="slPhone" placeholder="+91…"></div>'
-        +'<div class="fld"><label class="lbl">Email</label><input class="input" id="slEmail" placeholder="email@example.com"></div>'
+        +'<div class="fld"><label class="lbl">Phone *</label><input class="input mono" id="slPhone" type="tel" inputmode="numeric" maxlength="15" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>'
+        +'<div class="fld"><label class="lbl">Email</label><input class="input" id="slEmail" type="email" placeholder="email@example.com"></div>'
         +'<div class="fld"><label class="lbl">Source</label><select class="select" id="slSource"><option>Walk-in / Referral / Telecalling</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Manual</option></select></div>'
         +'<div class="fld"><label class="lbl">Service</label><select class="select" id="slService"><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>'
         +'<div class="fld"><label class="lbl">Language</label><select class="select" id="slLang"><option>Tamil</option><option>Telugu</option><option>English</option><option>Hindi</option></select></div>'
@@ -792,6 +808,10 @@ export function initApp(root: HTMLElement) {
         const name=val("#slName"),phone=val("#slPhone");
         const msg=box.querySelector("#slMsg")as HTMLElement;
         if(!name||!phone){ if(msg)msg.textContent="Name and phone are required."; return; }
+        const _phoneDigits=phone.replace(/\D/g,"");
+        if(_phoneDigits.length<10){ if(msg)msg.textContent="Enter a valid phone number (at least 10 digits)."; return; }
+        const _email=val("#slEmail");
+        if(_email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(_email)){ if(msg)msg.textContent="Enter a valid email address."; return; }
         // Duplicate check: does this phone already exist anywhere in the feed
         // (Meta-synced OR a previously-added manual/other-source lead)?
         const np=normPhone(phone);
@@ -1434,7 +1454,7 @@ export function initApp(root: HTMLElement) {
           +'<td><span class="tag">'+esc(p.src)+'</span></td>'
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
           +'<td class="mono">'+esc(p.waiting)+'</td>'
-          +'<td><button class="btn bsm" title="Return this lead to its original source table (Live Incoming Feed or Bulk CSV Import Wizard) and remove it from the pool" onclick="window._poolReturnToSource(\''+esc(String(p.id))+'\')">↩ Return to Pool</button></td></tr>';
+          +'<td><button class="btn bsm" title="Return this lead to its original source table (Live Incoming Feed or Bulk CSV Import Wizard) and remove it from the pool" onclick="window._poolReturnToSource(\''+esc(String(p.id))+'\')">↩ Return to Source</button></td></tr>';
       }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
       // Populate the "Assign to" checkbox multi-select from active assignees (preserve ticks).
       const asgMenu=root.querySelector("#poolAssignMenu")as HTMLElement|null;
@@ -1462,8 +1482,14 @@ export function initApp(root: HTMLElement) {
     // Advisor Load's "Active leads" count and the Advisor Load Leads table both derive
     // from THIS function, so the count always matches the rows shown.
     function _asgActiveLeadsFor(name:string){
-      return _metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt))
+      const all=_metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt))
         .concat(_assignedExtras.filter((l:any)=>l.assignedTo===name&&inAbmRange(l.poolAddedAt||l.createdAt)));
+      // Collapse repeat leads (same phone) into ONE assigned record — keep the most recent —
+      // so a lead received/assigned multiple times counts once in the advisor's load.
+      const _t=(x:any)=>new Date(x.assignedAt||x.poolAddedAt||x.createdAt||0).getTime()||0;
+      const byPhone:Record<string,any>={}; const noPhone:any[]=[];
+      all.forEach((l:any)=>{ const p=normPhone(l.phone); if(!p){ noPhone.push(l); return; } const cur=byPhone[p]; if(!cur||_t(l)>=_t(cur)) byPhone[p]=l; });
+      return noPhone.concat(Object.keys(byPhone).map(p=>byPhone[p]));
     }
     function _asgActiveLeadCount(name:string){
       // Advisor workload within the selected time range (by pool/lead timestamp).
@@ -1510,9 +1536,12 @@ export function initApp(root: HTMLElement) {
     function _advLeadsBaseRows(){
       const active=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
       const names=_advLeadsAdv.size?Array.from(_advLeadsAdv):active;
-      const seen=new Set<string>(); const out:any[]=[];
-      names.forEach((n:string)=>_asgActiveLeadsFor(n).forEach((l:any)=>{ const k=String(l.id); if(!seen.has(k)){ seen.add(k); out.push(l); } }));
-      return out;
+      // Dedupe globally by phone (fallback to id when no phone), keeping the most recent —
+      // so a repeat lead assigned across advisors/records shows once in the load table.
+      const _t=(x:any)=>new Date(x.assignedAt||x.poolAddedAt||x.createdAt||0).getTime()||0;
+      const byKey:Record<string,any>={};
+      names.forEach((n:string)=>_asgActiveLeadsFor(n).forEach((l:any)=>{ const k=normPhone(l.phone)||String(l.id); const cur=byKey[k]; if(!cur||_t(l)>=_t(cur)) byKey[k]=l; }));
+      return Object.keys(byKey).map(k=>byKey[k]);
     }
     const _advLeadsBtnLabel=()=>_advLeadsAdv.size===0?"All Advisors":(_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0]:_advLeadsAdv.size+" advisors selected");
     const _advLeadsWhoLabel=()=>_advLeadsAdv.size===0?"all advisors":(_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0]:_advLeadsAdv.size+" advisors");
@@ -1713,6 +1742,7 @@ export function initApp(root: HTMLElement) {
       try{
         const {error}=await supabase.from("leads").update({assigned_to:name,is_assigned:true,in_pool:false}).eq("meta_lead_id",id);
         if(error) throw error;
+        try{ await supabase.from("leads").update({assigned_at:new Date().toISOString()}).eq("meta_lead_id",id); }catch(_){}
       }catch(e:any){
         toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Assign failed: "+(e.message||"db error"));
         return;
@@ -2284,6 +2314,11 @@ export function initApp(root: HTMLElement) {
       let nfIso:string|null=null;
       if(nfEl&&nfEl.value){ const d=new Date(nfEl.value); if(!isNaN(d.getTime())) nfIso=d.toISOString(); }
       upd.next_followup=nfIso;
+      // Persist canonical contact fields edited in Basic info to the leads columns (not just
+      // the advisor_profile JSONB), so the header, tables and downstream screens reflect them.
+      const _fv=(sel:string)=>((root.querySelector(sel)as HTMLInputElement)?.value||"").trim();
+      const _nm=_fv("#advfName"), _ph=_fv("#advfPhone"), _em=_fv("#advfEmail");
+      if(_nm) upd.name=_nm; if(_ph) upd.phone=_ph; if(_em) upd.email=_em;   // only write non-empty (never blank existing)
       try{
         const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",id);
         if(error){
@@ -2291,8 +2326,10 @@ export function initApp(root: HTMLElement) {
           else toastErr("Save failed: "+(error.message||"DB error"));
           return;
         }
-        [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].forEach((x:any)=>{ if(x&&String(x.id)===id){ x.advisorProfile=obj; if(csLabel)x.callStatus=csLabel; } });
-        renderHealthDashboard();
+        [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].forEach((x:any)=>{ if(x&&String(x.id)===id){ x.advisorProfile=obj; if(csLabel)x.callStatus=csLabel; if(_nm)x.name=_nm; if(_ph)x.phone=_ph; if(_em)x.email=_em; } });
+        // Reflect updated name/phone in the open header immediately.
+        if(_nm){ const an=root.querySelector("#advName"); if(an)an.textContent=_nm; }
+        renderHealthDashboard(); renderAssignedLeads();
         toast("Lead record saved");
         if(entries.length) logActivity(id,entries);
       }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
@@ -2483,7 +2520,7 @@ export function initApp(root: HTMLElement) {
     function haBook(){
       // The advisor's book = assigned leads (Meta + Manual/CSV). Role enforcement
       // (only-own-leads) requires auth; without it, this shows the full assigned book.
-      return [..._metaLeads.filter((l:any)=>l.isAssigned), ..._assignedExtras];
+      return [..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
     }
     function haEffStatus(l:any){ return l.callStatus || (l.isAssigned?"Open":"New"); }
     // Shared TOP filters (Date & Time / Source / Service). Applied to BOTH the Advisor
@@ -3529,8 +3566,8 @@ export function initApp(root: HTMLElement) {
       if(!rows.length){toast("Nothing to download");return;}
       downloadCsvRows(rows,"wellnessos_"+which+"_leads.csv");toast("Downloaded "+rows.length+" rows");
     };
-    w._csvDownloadBatch=(id:number)=>{
-      const rows=_csvLeads.filter((r:any)=>r.batch_id===id);
+    w._csvDownloadBatch=(id:any)=>{
+      const rows=_csvLeads.filter((r:any)=>String(r.batch_id)===String(id));
       if(!rows.length){toast("No rows left in this batch");return;}
       downloadCsvRows(rows,"wellnessos_batch_"+id+".csv");toast("Downloaded batch");
     };
@@ -3813,15 +3850,18 @@ export function initApp(root: HTMLElement) {
       if(!name||!ph){ toastErr("Enter name and phone"); return; }
       if(!/^\d{10}$/.test(ph)){ toastErr("Enter a valid 10-digit mobile number"); return; }
       const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
+      const apptDate=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||today;   // honour the chosen date
+      const email=((root.querySelector("#nwEmail")as HTMLInputElement)?.value||"").trim();
+      if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); return; }
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
       const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
       const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
       const langSel=root.querySelector("#nwPanel .select") as HTMLSelectElement|null; let langParts:NodeListOf<HTMLSelectElement>|null=null; try{ langParts=root.querySelectorAll("#nwPanel select.select") as NodeListOf<HTMLSelectElement>; }catch(_){} const langVal=langParts&&langParts.length>=2?langParts[1].value:"Tamil";
       try{
-        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
+        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
       try{
-        await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:today,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
+        await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       nwToggle(); await loadReceptionData();
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
@@ -3832,7 +3872,10 @@ export function initApp(root: HTMLElement) {
     let _recCollect:{apptId:any,leadId:string,amt:number}|null=null;
     function recOpen(apptId:any,name:string,amt:any,leadId:string) {
       _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
-      const wb=root.querySelector("#recWb")as HTMLElement; if(wb) wb.style.display="block";
+      // The collection panel lives on the Reception screen — when triggered from Blood test /
+      // Physio / Accounts, switch to Reception so the form is actually visible.
+      try{ const nav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null; if(nav) nav.click(); }catch(_){}
+      const wb=root.querySelector("#recWb")as HTMLElement; if(wb){ wb.style.display="block"; try{ wb.scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){} }
       const rn=root.querySelector("#recWbName"); if(rn) rn.textContent=name;
       const rp=root.querySelector("#recWbPlan"); if(rp) rp.textContent="Collection";
       const rd=root.querySelector("#recWbDue")as HTMLInputElement; if(rd) rd.value="₹"+(Number(amt)||0).toLocaleString("en-IN");
@@ -4110,10 +4153,14 @@ export function initApp(root: HTMLElement) {
 
     // Coach consultation
     const cBadge=root.querySelector("#coachBadge");
+    let _coachConsStatus="Open";   // the open client's consultation status (persisted in coach_profile)
     function consAct(a:string,el:HTMLElement){
       const pay=root.querySelector("#paySec")as HTMLElement;
       const fu=root.querySelector("#coachFu")as HTMLElement;
       const rf=root.querySelector("#refundPanel")as HTMLElement;
+      // Record the chosen consultation status (the pill's label) so the dashboard/table
+      // can categorize this client. Runs for user clicks AND profile restores.
+      if(el&&el.textContent) _coachConsStatus=el.textContent.trim();
       if(fu)fu.style.display="none"; if(rf)rf.style.display="none";
       // Review date is only relevant for "Will Join Immediately" (join) and the
       // This Week / End of Month / Next Month plans (all the 'fup' action) — hidden otherwise.
@@ -4194,19 +4241,34 @@ export function initApp(root: HTMLElement) {
     }
     w._payVerify = _payVerify;
 
+    // Uploaded payment-proof files, keyed by their container id — included in the payments
+    // row on save (proof_url/proof_name) so proofs persist and are visible to Accounts.
+    const _payProofs:Record<string,{url:string,name:string}>={};
     function _payAttach(containerId:string){
       const fi=document.createElement("input");
       fi.type="file";fi.accept="image/*,.pdf";
       fi.onchange=async()=>{
         const file=fi.files?.[0];
         if(!file) return;
+        if(file.size>15*1024*1024){ toast("File too large (max 15 MB)"); return; }
         const container=root.querySelector("#"+containerId);
         if(!container) return;
+        const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
         const tag=document.createElement("span");
-        tag.className="att";tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+file.name;
+        tag.className="att";tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+e(file.name)+' · uploading…';
         const addBtn=container.querySelector(".att.add");
         if(addBtn) container.insertBefore(tag,addBtn);
-        toast("File attached: "+file.name);
+        const lid=String(_coachLeadId||"unassigned").replace(/[^a-zA-Z0-9._-]/g,"_");
+        const path=lid+"/"+Date.now()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+        try{
+          const up=await supabase.storage.from("payment-proofs").upload(path,file,{upsert:false});
+          if(up.error) throw up.error;
+          const {data}=supabase.storage.from("payment-proofs").getPublicUrl(path);
+          const url=(data&&data.publicUrl)||"";
+          _payProofs[containerId]={url,name:file.name};
+          tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(url)+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(file.name)+'</a>';
+          toast("Proof uploaded: "+file.name);
+        }catch(err:any){ tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+e(file.name)+' · upload failed'; toastErr("Proof upload failed: "+(err&&err.message||"error")); }
       };
       fi.click();
     }
@@ -4470,8 +4532,9 @@ export function initApp(root: HTMLElement) {
         }catch(e:any){ toastErr("Screening save failed: "+(e.message||"network error")); return; }
       }
       try{
-        await supabase.from("appointments").update({stage:"screened",status:"visited",screening_vitals_data:vitals}).eq("id",_scOpenAppt.id);
-      }catch(_){}
+        const {error}=await supabase.from("appointments").update({stage:"screened",status:"visited",screening_vitals_data:vitals}).eq("id",_scOpenAppt.id);
+        if(error && !/screening_vitals_data|column|schema|exist/i.test(error.message||"")){ toastErr("Screening save failed: "+(error.message||"DB error")); return; }
+      }catch(e:any){ toastErr("Screening save failed: "+(e.message||"network error")); return; }
       const e2=root.querySelector("#scrEmpty")as HTMLElement;if(e2)e2.style.display="none";
       const d2=root.querySelector("#scrData")as HTMLElement;if(d2)d2.style.display="grid";
       const ch=root.querySelector("#scrChip")as HTMLElement;if(ch){ch.textContent="Completed · M0 locked";ch.className="chipb ok";}
@@ -4508,7 +4571,7 @@ export function initApp(root: HTMLElement) {
       const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
       const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
-      return {v:1,f,pills,chips,attachments:_coachAttachments.slice()};
+      return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus};
     }
     function applyCoachProfile(obj:any){
       const p=_coachPanelEl(); if(!p||!obj) return;
@@ -4691,6 +4754,8 @@ export function initApp(root: HTMLElement) {
         p.querySelectorAll(".chip-o.on").forEach((b:any)=>b.classList.remove("on"));
       }
       _coachAttachments=[]; renderCoachAtts();
+      Object.keys(_payProofs).forEach(k=>delete _payProofs[k]);   // clear per-client payment proofs
+      _coachConsStatus="Open";   // reset; a restored profile re-sets it via consAct
       const crS=root.querySelector("#crSugar")as HTMLInputElement|null; if(crS&&lead.sugar) crS.value=lead.sugar;
       setV("haConsultDate",new Date().toISOString().slice(0,10));
       const fuNotes=root.querySelector("#fuNotes"); if(fuNotes) fuNotes.innerHTML="";
@@ -4777,7 +4842,7 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||""};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open"};
         });
       }catch(_){ _coachClients=[]; }
       _coachPopulateFilters();
@@ -4786,28 +4851,34 @@ export function initApp(root: HTMLElement) {
     let _coachView="list";
     let _coachQuery=""; let _coachSearchT:any=null;
     // Dropdown/date filters are APPLIED on demand (Apply button); search stays live.
-    let _coachApplied:{from:string;to:string;coach:string;status:string;service:string}={from:"",to:"",coach:"all",status:"all",service:"all"};
-    // Central filter set — both List and Kanban read this, so filters persist across the toggle.
+    let _coachApplied:{from:string;to:string;coach:string;status:string;source:string;service:string}={from:"",to:"",coach:"all",status:"all",source:"all",service:"all"};
+    // Central filter set — dashboard cards, Visited-clients table, List and Kanban all read
+    // this, so everything stays in sync with the applied filters.
     function _coachFiltered(){
-      const from=_coachApplied.from, to=_coachApplied.to, coach=_coachApplied.coach, st=_coachApplied.status, svc=_coachApplied.service;
+      const from=_coachApplied.from, to=_coachApplied.to, coach=_coachApplied.coach, st=_coachApplied.status, src=_coachApplied.source, svc=_coachApplied.service;
       const q=_coachQuery.trim().toLowerCase();
       const fromT=from?new Date(from+"T00:00:00").getTime():0;
       const toT=to?new Date(to+"T23:59:59").getTime():0;
       return _coachClients.filter((c:any)=>{
         if(coach!=="all"&&(c.hc||"")!==coach) return false;
-        if(st!=="all"&&(c._stage||"")!==st) return false;
+        if(st!=="all"&&_coachConsOf(c)!==st) return false;   // filter by consultation status (matches cards + column)
+        if(src!=="all"&&(c.source||"")!==src) return false;
         if(svc!=="all"&&(c.service||"")!==svc) return false;
         if(fromT||toT){ const t=c.visitedAt?new Date(c.visitedAt).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
         if(q&&![c.name,c.phone,c.source].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0)) return false;
         return true;
       });
     }
+    // Consultation status label for a client (persisted in coach_profile.consStatus).
+    // Prefer the live coach_profile (fresh after a save) over the load-time snapshot.
+    function _coachConsOf(c:any){ return (c&&((c.coachProfile&&c.coachProfile.consStatus)||c.consStatus))||"Open"; }
     function _coachPopulateFilters(){
       const fill=(sel:string,vals:string[],allLabel:string)=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
       fill("#coCoach",_coachClients.map((c:any)=>c.hc),"All health coaches");
+      fill("#coSource",_coachClients.map((c:any)=>c.source),"All sources");
       fill("#coService",_coachClients.map((c:any)=>c.service),"All services");
       const stEl=root.querySelector("#coStatus")as HTMLSelectElement|null;
-      if(stEl){ const cur=stEl.value; const STAGES=["screening","assessment","consultation","payment","enrolled"]; stEl.innerHTML='<option value="all">All statuses</option>'+STAGES.map(s=>'<option value="'+s+'">'+s.charAt(0).toUpperCase()+s.slice(1)+'</option>').join(""); if(Array.from(stEl.options).some(o=>o.value===cur)) stEl.value=cur; }
+      if(stEl){ const cur=stEl.value; const eo=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); stEl.innerHTML='<option value="all">All statuses</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); if(Array.from(stEl.options).some(o=>o.value===cur)) stEl.value=cur; }
     }
     // Apply the staged coach filters (date / coach / status / service) → refresh list + kanban.
     w._coachFilterApply=()=>{
@@ -4816,33 +4887,99 @@ export function initApp(root: HTMLElement) {
         to:(root.querySelector("#coTo")as HTMLInputElement)?.value||"",
         coach:(root.querySelector("#coCoach")as HTMLSelectElement)?.value||"all",
         status:(root.querySelector("#coStatus")as HTMLSelectElement)?.value||"all",
+        source:(root.querySelector("#coSource")as HTMLSelectElement)?.value||"all",
         service:(root.querySelector("#coService")as HTMLSelectElement)?.value||"all",
       };
       renderCoachOpenList();
     };
     w._coachFilterClear=()=>{
       const set=(id:string,v:string)=>{const el=root.querySelector("#"+id)as any; if(el)el.value=v;};
-      set("coFrom",""); set("coTo",""); set("coCoach","all"); set("coStatus","all"); set("coService","all");
-      _coachApplied={from:"",to:"",coach:"all",status:"all",service:"all"};
+      set("coFrom",""); set("coTo",""); set("coCoach","all"); set("coStatus","all"); set("coSource","all"); set("coService","all");
+      _coachApplied={from:"",to:"",coach:"all",status:"all",source:"all",service:"all"};
       renderCoachOpenList();
     };
     // Search stays live (not gated by Apply).
     w._coachSearch=()=>{ if(_coachSearchT)clearTimeout(_coachSearchT); _coachSearchT=setTimeout(()=>{ _coachQuery=(root.querySelector("#coSearch")as HTMLInputElement)?.value||""; renderCoachOpenList(); },180); };
     w._coachToggleView=(v:string)=>{ _coachView=v; renderCoachOpenList(); };
+    // ===== Health Coach dashboard cards (by consultation status) + Visited-clients table =====
+    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund"];
+    let _coachDashSel="";
+    function renderCoachDash(){
+      const el=root.querySelector("#coachDash"); if(!el) return;
+      const list=_coachFiltered();   // cards reflect the applied filter bar (NOT the card selection)
+      const counts:Record<string,number>={}; _coachStatusCards.forEach(l=>counts[l]=0);
+      list.forEach((c:any)=>{ const s=_coachConsOf(c); counts[s]=(counts[s]||0)+1; });
+      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      el.innerHTML=_coachStatusCards.map(l=>{
+        const on=_coachDashSel===l;
+        return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
+      }).join("");
+    }
+    w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachDash(); renderCoachClientsTable(); };
+    const COACH_CLI_PER=12; let _coachCliPage=1;
+    const _coachCliCols=[
+      {key:"name",label:"Lead Name",filter:true,text:(c:any)=>c.name||""},
+      {key:"phone",label:"Phone",filter:true,text:(c:any)=>c.phone||""},
+      {key:"source",label:"Source",filter:true,text:(c:any)=>c.source||""},
+      {key:"service",label:"Service",filter:true,text:(c:any)=>c.service||""},
+      {key:"hc",label:"Health Coach",filter:true,text:(c:any)=>c.hc||"—"},
+      {key:"cons",label:"Consultation Status",filter:true,text:(c:any)=>_coachConsOf(c)},
+      {key:"visited",label:"Visited Date & Time",filter:true,text:(c:any)=>fmtIST(c.visitedAt)},
+      {key:"act",label:"Action",filter:false,head:"Action"},
+    ];
+    regGrid("coachClients",()=>_coachCliCols,()=>renderCoachClientsTable());
+    function _coachCliBase(){ let base=_coachFiltered(); if(_coachDashSel) base=base.filter((c:any)=>_coachConsOf(c)===_coachDashSel); return base; }
+    function renderCoachClientsTable(){
+      const head=root.querySelector("#coachClientsHead"); if(head)head.innerHTML=gridHead("coachClients");
+      const rows=gridApply("coachClients",_coachCliBase());
+      const cnt=root.querySelector("#coachCliCount"); if(cnt)cnt.textContent=String(rows.length);
+      const body=root.querySelector("#coachClientsBody"); if(!body) return;
+      const total=rows.length; const pages=Math.max(1,Math.ceil(total/COACH_CLI_PER));
+      if(_coachCliPage>pages)_coachCliPage=pages; if(_coachCliPage<1)_coachCliPage=1;
+      const pageRows=rows.slice((_coachCliPage-1)*COACH_CLI_PER,(_coachCliPage-1)*COACH_CLI_PER+COACH_CLI_PER);
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      body.innerHTML=pageRows.length?pageRows.map((c:any)=>{
+        const active=String(c.id)===String(_coachLeadId);
+        return '<tr'+(active?' style="background:var(--brand-tint)"':'')+'>'
+          +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._coachOpen(\''+e(String(c.id))+'\')">'+e(c.name||"—")+' ↗</td>'
+          +'<td class="mono">'+e(c.phone||"—")+'</td>'
+          +'<td><span class="tag">'+e(c.source||"—")+'</span></td>'
+          +'<td>'+e(c.service||"—")+'</td>'
+          +'<td>'+e(c.hc||"—")+'</td>'
+          +'<td><span class="chipb neu">'+e(_coachConsOf(c))+'</span></td>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(c.visitedAt))+'</td>'
+          +'<td><button class="btn bsm bp" onclick="window._coachOpen(\''+e(String(c.id))+'\')">Open</button></td></tr>';
+      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
+      const info=root.querySelector("#coachCliPageInfo"); if(info)info.textContent="Page "+_coachCliPage+" of "+pages;
+      _pgBtns("coachCli",_coachCliPage,pages);
+    }
+    w._coachCliPage=(dir:any)=>{ _coachCliPage=_pgApply(_coachCliPage,dir); renderCoachClientsTable(); };
+    w._coachCliDownload=()=>{
+      const rows=gridApply("coachClients",_coachCliBase());
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Lead Name","Phone","Source","Service","Health Coach","Consultation Status","Visited Date & Time"]];
+      rows.forEach((c:any)=>out.push([c.name||"",c.phone||"",c.source||"",c.service||"",c.hc||"",_coachConsOf(c),fmtIST(c.visitedAt)]));
+      _downloadCsv("wellnessos_visited_clients.csv",out);
+      toast("Downloaded "+rows.length+" visited clients");
+    };
     function renderCoachOpenList(){
-      const el=root.querySelector("#coachOpenList")as HTMLElement|null; if(!el) return;
+      try{ renderCoachDash(); }catch(_){}
+      try{ renderCoachClientsTable(); }catch(_){}
+      const el=root.querySelector("#coachOpenList")as HTMLElement|null;
       const kb=root.querySelector("#coachKanban")as HTMLElement|null;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const list=_coachFiltered();
-      const toggleHtml='<div class="pills" style="margin-left:auto;flex-shrink:0"><button class="pill'+(_coachView==="list"?" on":"")+'" onclick="window._coachToggleView(\'list\')">List View</button><button class="pill'+(_coachView==="kanban"?" on":"")+'" onclick="window._coachToggleView(\'kanban\')">Kanban View</button></div>';
+      // View toggle now lives in the Health Coach dashboard header (top-right).
+      const tog=root.querySelector("#coachViewToggle");
+      if(tog) tog.innerHTML='<button class="pill'+(_coachView==="list"?" on":"")+'" onclick="window._coachToggleView(\'list\')">List View</button><button class="pill'+(_coachView==="kanban"?" on":"")+'" onclick="window._coachToggleView(\'kanban\')">Kanban View</button>';
+      if(!el) return;
       if(!_coachClients.length){ el.innerHTML='<div style="font-size:12px;color:var(--faint);padding:6px 0">No visited clients yet — mark a lead "Visited" in the Health Advisor to see them here.</div>'; if(kb)kb.style.display="none"; return; }
       if(_coachView==="list"){
         el.style.display="";
-        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+list.length+' of '+_coachClients.length+')</div>'+toggleHtml+'</div>'
-          +(list.length?'<div style="display:flex;gap:8px;flex-wrap:wrap">'+list.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>':'<div style="font-size:12px;color:var(--faint);padding:6px 0">No clients match the current filters.</div>');
+        el.innerHTML=(list.length?'<div style="display:flex;gap:8px;flex-wrap:wrap">'+list.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>':'<div style="font-size:12px;color:var(--faint);padding:6px 0">No clients match the current filters.</div>');
         if(kb)kb.style.display="none";
       } else {
-        el.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-weight:700;font-size:11px;color:var(--faint);letter-spacing:.05em">VISITED CLIENTS ('+list.length+' of '+_coachClients.length+')</div>'+toggleHtml+'</div>';
+        el.innerHTML="";
         el.style.display="";
         if(kb){ kb.style.display=""; _renderCoachKanban(kb,list); }
       }
@@ -4874,29 +5011,42 @@ export function initApp(root: HTMLElement) {
       }).join("")+'</div>';
     }
     w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client")); };
-    // Persist the 2× installment collection to the payments table (Part 1 + Part 2),
-    // so amounts/dates/status/balance are stored and show in the payment history.
+    // Persist the coach's collected payment to the `payments` table so it shows in the
+    // payment history + Accounts. Handles Full / 2× Installment / Advance (each re-written
+    // so re-saving doesn't duplicate). EMI is a financier flow (money goes to the provider,
+    // not collected by us) so it stays tracked in coach_profile only.
     async function _persistInstallments(id:string){
       const pm=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"";
-      if(pm!=="i2") return;
       const total=_payGetPrice();
-      const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
-      if(!p1&&!p2) return;   // nothing collected yet
       const val=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null)?.value)||"";
-      const d1=val("#i2Inst1Date"), d2=val("#i2BalDate");
-      const bal=Math.max(0,total-p1-p2);
-      const status=(p1&&p2)?"both_paid":(p1?"1st_paid":"pending");
-      // Re-write installment rows for this lead so re-saving doesn't duplicate them.
-      try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment"); }catch(_){}
-      const rows:any[]=[];
-      if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:d1?new Date(d1).toISOString():new Date().toISOString(),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes"});
-      if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:d2?new Date(d2).toISOString():new Date().toISOString(),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes"});
-      if(rows.length){
+      const iso=(d:string)=>d?new Date(d).toISOString():new Date().toISOString();
+      const proof=(cid:string)=>{ const p=_payProofs[cid]; return p?{proof_url:p.url,proof_name:p.name}:{}; };
+      const commit=async(ptype:string,rows:any[],label:string,collected:number)=>{
+        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type",ptype); }catch(_){}
+        if(!rows.length) return;
         try{
           await supabase.from("payments").insert(rows);
-          logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+" of ₹"+total.toLocaleString("en-IN")+" ("+status.replace(/_/g," ")+", balance ₹"+bal.toLocaleString("en-IN")+")"}]);
+          logActivity(id,[{action:"Payment",field:label,new:"₹"+collected.toLocaleString("en-IN")+(total?(" of ₹"+total.toLocaleString("en-IN")+", balance ₹"+Math.max(0,total-collected).toLocaleString("en-IN")):"")}]);
           if(String(_coachLeadId)===id) _renderCoachPayHistory(id);
-        }catch(e:any){ toastErr("Installment save failed: "+(e.message||"db error")); }
+        }catch(e:any){ toastErr("Payment save failed: "+(e.message||"db error")); }
+      };
+      if(pm==="i2"){
+        const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
+        if(!p1&&!p2) return;
+        const rows:any[]=[];
+        if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",...proof("i2Inst1Proof")});
+        if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",...proof("i2BalProof")});
+        await commit("installment",rows,"Installment",p1+p2);
+      } else if(pm==="full"){
+        const amt=_payNum("#payFullRcvd"); if(!amt) return;
+        await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",...proof("payFullProof")}],"Full payment",amt);
+      } else if(pm==="adv"){
+        const a1=_payNum("#advAmt"), a2=_payNum("#advBalRcvd");
+        if(!a1&&!a2) return;
+        const rows:any[]=[];
+        if(a1) rows.push({lead_id:id,amount:a1,status:"paid",method:val("#advMode")||null,paid_at:iso(val("#advDate")),payment_type:"advance",installment_number:1,total_installments:2,txn_ref:val("#advRef")||null,service:"Diabetes",...proof("advProof")});
+        if(a2) rows.push({lead_id:id,amount:a2,status:"paid",method:val("#advBalMode")||null,paid_at:iso(val("#advBalDate")),payment_type:"advance",installment_number:2,total_installments:2,txn_ref:val("#advBalRef")||null,service:"Diabetes",...proof("advBalProof")});
+        await commit("advance",rows,"Advance booking",a1+a2);
       }
     }
     async function _renderCoachPayHistory(id:string){
@@ -4933,6 +5083,7 @@ export function initApp(root: HTMLElement) {
           return;
         }
         await _persistInstallments(id);   // store installment payments (if the 2× method is active)
+        try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
         toast("Health record saved");
         logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
       }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
@@ -5380,17 +5531,24 @@ export function initApp(root: HTMLElement) {
     };
     w._phPayModel=(m:string)=>{ root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.remove("on")); root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>{if(b.textContent.toLowerCase().includes(m==="pack"?"upfront":"per"))b.classList.add("on");}); };
     w._phStartSession=async(id:number)=>{ try{ await supabase.from("appointments").update({status:"visited",visited_at:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}).eq("id",id); toast("Session started"); await loadPhysioData(); }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
-    w._phCompleteSession=async(id:number)=>{ try{ const r=_phAll.find((x:any)=>x.id===id); if(!r)return; const pd=r.phData||{}; pd.sessions_completed=(pd.sessions_completed||0)+1;
-      const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:r.painLevel,notes:"Completed"};
-      if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
+    w._phCompleteSession=async(id:number)=>{ try{ const r=_phAll.find((x:any)=>x.id===id); if(!r)return; const pd=r.phData||{};
+      // Idempotent: a session counts + logs a visit exactly once (guards double-click and
+      // Complete-then-Save both bumping the counter / adding duplicate visit rows).
+      if(!pd._completed){ pd._completed=true; pd.sessions_completed=(pd.sessions_completed||0)+1;
+        const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:r.painLevel,notes:"Completed"};
+        if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
+      }
       await supabase.from("appointments").update({status:"visited",stage:"done",physio_data:pd}).eq("id",id); toast("Session completed"); await loadPhysioData();
     }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
     w._phSaveSoap=async()=>{
       if(!_phOpenAppt){toast("Open a session first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
       const pd=_phOpenAppt.phData||{}; pd.soap={subjective:v("phSoapS"),objective:v("phSoapO"),assessment:v("phSoapA"),plan:v("phSoapP"),rom:v("phRom"),exercises:v("phExercises")};
-      pd.pain_level=Number(v("phPain"))||0; pd.sessions_completed=(pd.sessions_completed||0)+1;
-      const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level,notes:v("phSoapA").substring(0,80)};
-      if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
+      pd.pain_level=Math.max(0,Math.min(10,Number(v("phPain"))||0));   // clamp 0–10
+      let visit:any=null;
+      if(!pd._completed){ pd._completed=true; pd.sessions_completed=(pd.sessions_completed||0)+1;
+        visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level,notes:v("phSoapA").substring(0,80)};
+        if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
+      }
       try{ await supabase.from("appointments").update({stage:"done",physio_data:pd}).eq("id",_phOpenAppt.id);
         toast("Session saved & marked complete"); await loadPhysioData();
       }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }

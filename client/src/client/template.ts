@@ -76,7 +76,7 @@ export function getMainContent(): string {
     <div class="rtabs" id="aTabs">
       <button data-t="recep">Walk-in Receptionist</button><button class="on" data-t="sales">Walk-in Sales</button><button data-t="health">Walk-in Health</button>
       <button data-t="pay">Payment History</button><button data-t="notes">Internal Notes</button>
-      <button data-t="extra">Extra Info</button><button data-t="calls">Call History <span class="mini">4</span></button>
+      <button data-t="extra">Extra Info</button><button data-t="calls">Call History <span class="mini" id="advCallCount" style="display:none">0</span></button>
     </div>
     <div class="a-p" data-p="recep" style="display:none">
       <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception-entered data — consent, visited time, registration time, service, token. Audit-logged.</span></div>
@@ -87,10 +87,10 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Basic info <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl">Name</label><input class="input" id="advfName" value=""></div>
-          <div class="fld"><label class="lbl">Phone no</label><input class="input mono" id="advfPhone" value=""></div>
+          <div class="fld"><label class="lbl">Phone no</label><input class="input mono" id="advfPhone" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
           <div class="fld"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
-          <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" id="advfWhats" value=""></div>
-          <div class="fld"><label class="lbl">Email</label><input class="input" id="advfEmail" placeholder="email@example.com"></div>
+          <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" id="advfWhats" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
+          <div class="fld"><label class="lbl">Email</label><input class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
           <div class="fld"><label class="lbl">Gender</label><select class="select"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
           <div class="fld"><label class="lbl">Age</label><input class="input mono" type="number" min="1" max="120" placeholder="e.g. 42"></div>
           <div class="fld"><label class="lbl">Occupation <span class="nb">NEW</span></label><select class="select" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
@@ -238,11 +238,26 @@ export function getMainContent(): string {
       <input class="input" type="date" id="coTo" style="height:30px;font-size:12px;width:145px" title="Visited to">
       <select class="select" id="coCoach" style="height:30px;font-size:12px;width:150px"><option value="all">All health coaches</option></select>
       <select class="select" id="coStatus" style="height:30px;font-size:12px;width:150px"><option value="all">All statuses</option></select>
+      <select class="select" id="coSource" style="height:30px;font-size:12px;width:140px"><option value="all">All sources</option></select>
       <select class="select" id="coService" style="height:30px;font-size:12px;width:140px"><option value="all">All services</option></select>
       <button class="btn bsm bp" onclick="window._coachFilterApply()">Apply</button>
       <button class="btn bsm" onclick="window._coachFilterClear()">Clear</button>
       <input class="input" id="coSearch" placeholder="Search client / phone…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._coachSearch()">
     </div>
+    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span><div class="pills" id="coachViewToggle" style="margin-left:auto;flex-shrink:0"></div></div>
+      <div class="sec-bd"><div class="metrics" id="coachDash" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div></div></div>
+    <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
+      <button class="btn bsm" style="margin-left:auto" onclick="window._coachCliDownload()">⬇ Download</button></div>
+      <div class="sec-bd">
+        <div class="tscroll stick1"><table class="tbl" style="min-width:860px"><thead><tr id="coachClientsHead"></tr></thead><tbody id="coachClientsBody"></tbody></table></div>
+        <div id="coachCliPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <button class="btn bsm" id="coachCliFirstBtn" onclick="window._coachCliPage('first')">« First</button>
+          <button class="btn bsm" id="coachCliPrevBtn" onclick="window._coachCliPage(-1)">← Previous</button>
+          <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="coachCliPageInfo">Page 1 of 1</span>
+          <button class="btn bsm" id="coachCliNextBtn" onclick="window._coachCliPage(1)">Next →</button>
+          <button class="btn bsm" id="coachCliLastBtn" onclick="window._coachCliPage('last')">Last »</button>
+        </div>
+      </div></div>
     <div id="coachOpenList" style="margin-bottom:14px"></div>
     <div id="coachKanban" style="display:none;margin-bottom:14px;overflow-x:auto"></div>
     <div class="chead">
@@ -303,12 +318,12 @@ export function getMainContent(): string {
             <div class="fld fw"><label class="lbl">Chief complaint</label><input class="input" id="haChief"></div>
             <div class="fld"><label class="lbl">Duration of diabetes</label><select class="select"><option>Newly Diagnosed</option><option>1–3 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
             <div class="fld"><label class="lbl">Family history</label><select class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
-            <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="haHeight" oninput="window._haBmiCalc()"></div>
-            <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="haWeight" oninput="window._haBmiCalc()"></div>
+            <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="haHeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
+            <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="haWeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
             <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="haBmi" readonly></div>
             <div class="fld"><label class="lbl">BP</label><input class="input mono" id="haBp"></div>
-            <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="haPulse"></div>
-            <div class="fld"><label class="lbl">Temp</label><input class="input mono" id="haTemp"></div></div></div>
+            <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="haPulse" inputmode="numeric" oninput="window._numOnly(this)"></div>
+            <div class="fld"><label class="lbl">Temp</label><input class="input mono" id="haTemp" inputmode="decimal" oninput="window._numOnly(this)"></div></div></div>
           <div class="aud" style="background:#fff"><div class="ahd">Lifestyle &amp; diet</div><div class="g4">
             <div class="fld"><label class="lbl">Diet type</label><select class="select"><option>Vegetarian</option><option selected>Non-Vegetarian</option><option>Vegan</option><option>Eggetarian</option></select></div>
             <div class="fld"><label class="lbl">Physical activity</label><select class="select"><option selected>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
@@ -381,7 +396,7 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">Program suggested</label><select class="select" id="haProgram" onchange="window._payCalcAll()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
             <div class="fld"><label class="lbl">L1 price · full only</label><select class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
             <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono" id="haSpecialAmt" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this);window._payCalcAll()"></div>
-            <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" oninput="window._payCalcAll()"></div>
+            <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" inputmode="decimal" oninput="window._numOnly(this);window._payCalcAll()"></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code — special discount <span class="nb">NEW</span></label>
               <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
               <div id="couponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
@@ -410,7 +425,7 @@ export function getMainContent(): string {
           <div class="payblk on" id="pb-full"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Full payment</div>
             <div class="g4">
               <div class="fld"><label class="lbl">Amount due <span class="ab">AUTO</span></label><input class="input mono" id="payAmtDue" readonly></div>
-              <div class="fld"><label class="lbl">Amount received (₹)</label><input class="input mono" id="payFullRcvd" oninput="window._payCalcFull()"></div>
+              <div class="fld"><label class="lbl">Amount received (₹)</label><input class="input mono" id="payFullRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#payAmtDue','#payFullRcvdErr');window._payCalcFull()"><div id="payFullRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="payFullMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="payFullRef" placeholder="Mandatory"></div>
               <div class="fld"><label class="lbl">Actual paid date</label><input class="input" type="date" id="payFullDate"></div>
@@ -421,7 +436,7 @@ export function getMainContent(): string {
           <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl">Total <span class="ab">AUTO</span></label><input class="input mono" id="i2Total" readonly></div>
-              <div class="fld"><label class="lbl">Inst-1 received (₹)</label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" oninput="window._payCalcI2()"></div>
+              <div class="fld"><label class="lbl">Inst-1 received (₹)</label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date"></div>
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
@@ -430,7 +445,7 @@ export function getMainContent(): string {
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
               <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="i2BalDue" readonly></div>
               <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="i2BalDueDate"></div>
-              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="i2BalRcvd"></div>
+              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="i2BalDate"></div>
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
@@ -447,7 +462,7 @@ export function getMainContent(): string {
                 <div style="display:flex;gap:7px"><input class="input mono" id="emiCoupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCouponEmi()">Apply</button></div>
                 <div id="emiCouponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
               <div class="fld"><label class="lbl">Program cost <span class="ab">AUTO</span></label><input class="input mono" id="emiCost" readonly></div>
-              <div class="fld"><label class="lbl">Down payment (₹) — drives calculator</label><input class="input mono" id="emiDown" placeholder="e.g. 5000" oninput="emiCalc()"></div>
+              <div class="fld"><label class="lbl">Down payment (₹) — drives calculator</label><input class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
               <div class="fld"><label class="lbl">Financed balance <span class="ab">AUTO</span></label><input class="input mono" id="emiRemain" readonly></div>
               <div class="fld"><label class="lbl">Tenure (months) — drives calculator</label><select class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
               <div class="fld"><label class="lbl">EMI / month <span class="ab">AUTO calculated</span></label><input class="input mono" id="emiPer" readonly></div>
@@ -469,7 +484,7 @@ export function getMainContent(): string {
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
               <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="advBalDue" readonly></div>
               <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="advBalDueDate"></div>
-              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="advBalRcvd"></div>
+              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="advBalDate"></div>
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advBalRef" placeholder="Mandatory"></div>
@@ -834,8 +849,8 @@ export function getMainContent(): string {
             <div class="g4" style="gap:8px">
               <div class="fld"><label class="lbl">Name *</label><input class="input" style="height:34px" id="nwName"></div>
               <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:34px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
-              <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:34px"></div>
-              <div class="fld"><label class="lbl">Email</label><input class="input" style="height:34px"></div>
+              <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:34px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
+              <div class="fld"><label class="lbl">Email</label><input class="input" style="height:34px" id="nwEmail" type="email" placeholder="email@example.com"></div>
               <div class="fld"><label class="lbl">Gender</label><select class="select" style="height:34px"><option>Male</option><option>Female</option><option>Other</option></select></div>
               <div class="fld"><label class="lbl">Age</label><input class="input mono" style="height:34px" type="number" min="1" max="120" placeholder="42"></div>
               <div class="fld"><label class="lbl">Occupation</label><select class="select" style="height:34px"><option>Business</option><option>Private Job</option><option>Govt</option><option>Homemaker</option><option>Others</option></select></div>
@@ -880,7 +895,7 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
             <div id="recWb" class="hideblock" style="display:none;border:1.5px solid var(--brand-line);border-radius:11px;padding:11px 13px;margin-top:8px;background:linear-gradient(180deg,#F7FCFA,#fff)">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b id="recWbName" style="font-family:var(--disp);font-size:14px">—</b><span class="chipb info" id="recWbPlan">—</span></div>
-              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this)"></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
+              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0" oninput="window._payAmtRcvd(this,'#recWbDue','#recWbAmtErr')"><div id="recWbAmtErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
               <div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" onclick="recConfirm()">Confirm → Accounts</button><button class="btn bsm" onclick="recBack()">↩ Back</button></div>
             </div>
           </div></div>
@@ -904,15 +919,15 @@ export function getMainContent(): string {
           <button class="btn bsm" style="margin-left:auto" onclick="window._scCloseAssess()">Close</button></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="sc_h" oninput="window._scBmiCalc()"></div>
-              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" oninput="window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="sc_h" inputmode="decimal" oninput="window._numOnly(this);window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" inputmode="decimal" oninput="window._numOnly(this);window._scBmiCalc()"></div>
               <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="sc_bmi" readonly></div>
               <div class="fld"><label class="lbl">BP</label><input class="input mono" id="sc_bp"></div>
-              <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="sc_pu"></div>
-              <div class="fld"><label class="lbl">SpO2 (%)</label><input class="input mono" id="sc_sp"></div>
-              <div class="fld"><label class="lbl">Waist (cm)</label><input class="input mono" id="sc_wa"></div>
-              <div class="fld"><label class="lbl">Temperature</label><input class="input mono" id="sc_te"></div>
-              <div class="fld"><label class="lbl">Desk glucose (mg/dL)</label><input class="input mono" id="sc_gl"></div>
+              <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="sc_pu" inputmode="numeric" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl">SpO2 (%)</label><input class="input mono" id="sc_sp" inputmode="numeric" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl">Waist (cm)</label><input class="input mono" id="sc_wa" inputmode="decimal" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl">Temperature</label><input class="input mono" id="sc_te" inputmode="decimal" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl">Desk glucose (mg/dL)</label><input class="input mono" id="sc_gl" inputmode="decimal" oninput="window._numOnly(this)"></div>
             </div>
             <div class="g3" style="margin-top:6px">
               <div class="fld"><label class="lbl">Screened by <span class="ab">AUTO</span></label><input class="input" id="sc_by" readonly></div>
