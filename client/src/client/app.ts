@@ -4432,7 +4432,10 @@ export function initApp(root: HTMLElement) {
     }
     w._scFilterSvc=(s:string)=>{ _scSvcFilter=(s&&_scSvcFilter===s)?"":s; _scRenderAll();
       const qh=root.querySelector("#scQueueList"); if(qh)(qh as HTMLElement).scrollIntoView?.({block:"nearest"}); };
-    w._scTogTest=(btn:HTMLElement)=>{ btn.classList.toggle("on"); };
+    // Test pills are a multi-select for the lab order. Toggle the green "selected" look
+    // (p-ok) together with `on` so every pill — not just the pre-selected HbA1c/FBS —
+    // gives clear visual feedback when picked. _scOrderTests reads `.pill.on`.
+    w._scTogTest=(btn:HTMLElement)=>{ const on=btn.classList.toggle("on"); btn.classList.toggle("p-ok",on); };
     w._scOrderTests=()=>{
       const on=Array.from(root.querySelectorAll("#scTestPills .pill.on")).map((b:any)=>b.textContent.trim());
       if(!on.length){ toastErr("Select at least one test to order"); return; }
@@ -4876,7 +4879,12 @@ export function initApp(root: HTMLElement) {
     function _coachConsOf(c:any){ return (c&&((c.coachProfile&&c.coachProfile.consStatus)||c.consStatus))||"Open"; }
     function _coachPopulateFilters(){
       const fill=(sel:string,vals:string[],allLabel:string)=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
-      fill("#coCoach",_coachClients.map((c:any)=>c.hc),"All health coaches");
+      // The coach filter must list EVERY active Health Coach from the Assignees master
+      // (single source of truth), not only those who already have a visited client.
+      // Union with any coach present on a client so historical assignments still show.
+      const coachNames=_assignees.filter((a:any)=>a.is_active&&a.role==="Health Coach").map((a:any)=>a.name)
+        .concat(_coachClients.map((c:any)=>c.hc));
+      fill("#coCoach",coachNames,"All health coaches");
       fill("#coSource",_coachClients.map((c:any)=>c.source),"All sources");
       fill("#coService",_coachClients.map((c:any)=>c.service),"All services");
       const stEl=root.querySelector("#coStatus")as HTMLSelectElement|null;
