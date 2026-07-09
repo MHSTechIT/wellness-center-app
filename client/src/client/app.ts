@@ -48,11 +48,11 @@ export function initApp(root: HTMLElement) {
       {key:"accounts",label:"Accounts"},{key:"reports",label:"Reports"},
       {key:"admin",label:"Settings"}
     ];
-    const FULL_ACCESS=["advisor","coach","import","abm","reception","screening","bloodtest","physio","accounts","reports","admin"];
+    const FULL_ACCESS=["advisor","coach","import","abm","reception","screening","bloodtest","physio","recordings","accounts","reports","admin"];
     const RBAC_ROLES=["Advisor","Senior Advisor","Health Coach","Screening","Receptionist","Diagnostics","Physiotherapist","Accounts","ABM","Manager","Branch Manager"];
     const DEFAULT_RBAC:Record<string,string[]>={
       "Advisor":["advisor"],"Senior Advisor":["advisor","import"],
-      "Health Coach":["coach"],"Screening":["screening"],
+      "Health Coach":["coach","recordings"],"Screening":["screening"],
       "Receptionist":["reception"],"Diagnostics":["bloodtest"],
       "Physiotherapist":["physio"],"Accounts":["accounts"],
       "ABM":["abm","advisor","import","reports"],
@@ -1082,7 +1082,7 @@ export function initApp(root: HTMLElement) {
     ];
     const _feedColsDup:any[]=[
       {key:"_sel",head:'<input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all matching the current filter (all pages)">',thStyle:"width:36px"},
-      {key:"date",label:"Date & Time (IST)",filter:true,text:(g:any)=>fmtIST(g.firstReceived)},
+      {key:"date",label:"First Update Date & Time",filter:true,text:(g:any)=>fmtIST(g.firstReceived)},
       {key:"lastRepeat",label:"Last Repeat Date & Time",filter:true,text:(g:any)=>fmtIST(g.lastReceived)},
       {key:"count",label:"Repeat Leads Count",filter:true,text:(g:any)=>String(g.count)},
       {key:"campaign",label:"Campaign",filter:true,text:(g:any)=>g.rep.campaign||""},
@@ -1777,7 +1777,7 @@ export function initApp(root: HTMLElement) {
       return [l.name,l.phone,l.source,l.assignedTo,l.campaign].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
     }
     function assignedLeads(){
-      const f=(root.querySelector("#assignedFilter")as HTMLSelectElement)?.value||"all";
+      const f=_asnApplied.advisor||"all";   // applied via the Apply button, not on select change
       // Honor the dashboard call/lead-status dropdown too, so List + Kanban stay in
       // sync with it (and with each other). haEffStatus is hoisted, defined below.
       const sf=(root.querySelector("#haStatusFilter")as HTMLSelectElement)?.value||"all";
@@ -1909,8 +1909,8 @@ export function initApp(root: HTMLElement) {
     // across the List⇄Kanban toggle.
     w._asnFilterChange=()=>{ _asnPage=1; renderAssignedLeads(); };
     w._assignedSearch=()=>{ if(_asnSearchT)clearTimeout(_asnSearchT); _asnSearchT=setTimeout(()=>{ _asnQuery=(root.querySelector("#assignedSearch")as HTMLInputElement)?.value||""; _asnPage=1; renderAssignedLeads(); },180); };
-    const _assignedFilterEl=root.querySelector("#assignedFilter")as HTMLSelectElement;
-    if(_assignedFilterEl) _assignedFilterEl.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};
+    // The advisor filter is a TOP filter — held until Apply (see _topFilterApply),
+    // not applied on select change. No onchange handler here by design.
     // Return an assigned lead to the unassigned pool.
     w._unassignLead=async(id:string)=>{
       try{
@@ -2531,15 +2531,16 @@ export function initApp(root: HTMLElement) {
     // The filters are APPLIED on demand (Apply button), not on every keystroke/change.
     // haCommonFilter reads this committed state, so staging a selection in the controls
     // does NOT touch the data until _topFilterApply() copies the controls into it.
-    let _asnApplied:{src:string;svc:string;from:string;to:string}={src:"all",svc:"all",from:"",to:""};
+    let _asnApplied:{src:string;svc:string;from:string;to:string;advisor:string}={src:"all",svc:"all",from:"",to:"",advisor:"all"};
     function haCommonFilter(list:any[]){
-      const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to;
+      const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to, adv=_asnApplied.advisor;
       const fromT=from?new Date(from+"T00:00:00").getTime():0;
       const toT=to?new Date(to+"T23:59:59").getTime():0;
-      if(src==="all"&&svc==="all"&&!fromT&&!toT) return list;
+      if(src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
       return list.filter((l:any)=>{
         if(src!=="all"&&(l.source||"")!==src) return false;
         if(svc!=="all"&&(l.service||"")!==svc) return false;
+        if(adv&&adv!=="all"&&(l.assignedTo||"")!==adv) return false;   // advisor is a TOP filter → drives dashboard + table
         if(fromT||toT){ const dv=_asnDateVal(l); const t=dv?new Date(dv).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
         return true;
       });
@@ -2551,13 +2552,14 @@ export function initApp(root: HTMLElement) {
         svc:(root.querySelector("#asnService")as HTMLSelectElement)?.value||"all",
         from:(root.querySelector("#asnFrom")as HTMLInputElement)?.value||"",
         to:(root.querySelector("#asnTo")as HTMLInputElement)?.value||"",
+        advisor:(root.querySelector("#assignedFilter")as HTMLSelectElement)?.value||"all",
       };
       _asnPage=1; renderAssignedLeads(); renderHealthDashboard();
     };
     w._topFilterClear=()=>{
       const set=(id:string,v:string)=>{const el=root.querySelector("#"+id)as any; if(el)el.value=v;};
-      set("asnFrom",""); set("asnTo",""); set("asnSource","all"); set("asnService","all");
-      _asnApplied={src:"all",svc:"all",from:"",to:""};
+      set("asnFrom",""); set("asnTo",""); set("asnSource","all"); set("asnService","all"); set("assignedFilter","all");
+      _asnApplied={src:"all",svc:"all",from:"",to:"",advisor:"all"};
       _asnPage=1; renderAssignedLeads(); renderHealthDashboard();
     };
     function renderHealthDashboard(){
@@ -2732,7 +2734,7 @@ export function initApp(root: HTMLElement) {
       if(_feedView==="dup"){
         const groups=feedDupGroups();
         if(!groups.length){ toast("No rows to download"); return; }
-        const rows:string[][]=[["Date & Time (IST)","Repeat Leads Count","Campaign","Ad Name","Lead Name","Phone","Sugar","City","Street","Sources","Service","Language"]];
+        const rows:string[][]=[["First Update Date & Time","Repeat Leads Count","Campaign","Ad Name","Lead Name","Phone","Sugar","City","Street","Sources","Service","Language"]];
         groups.forEach((g:any)=>{const l=g.rep; rows.push([fmtIST(l.createdAt),String(g.count),l.campaign||"",l.adName||"",l.name||"",l.phone||"",l.sugar||"",l.city||"",l.street||"",g.sources.join(" | "),l.service||"",l.lang||""]);});
         _downloadCsv("live_feed_duplicates_"+groups.length+".csv",rows);
         toast(groups.length+" duplicate group"+(groups.length===1?"":"s")+" downloaded");
@@ -2809,7 +2811,7 @@ export function initApp(root: HTMLElement) {
     // the UI freeze during sync. (Filters/actions still render their screen immediately.)
     const _screenRender:Record<string,()=>void>={
       import:()=>{ renderImport(); renderMetaPage(); },
-      advisor:()=>{ renderAssignedLeads(); renderHealthDashboard(); renderAsnHist(); loadZoomCheckins(); },
+      advisor:()=>{ renderAssignedLeads(); renderHealthDashboard(); renderAsnHist(); },
       abm:()=>{ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); }
     };
     const _dirtyScreens=new Set<string>();
@@ -4209,9 +4211,11 @@ export function initApp(root: HTMLElement) {
     function _payCalcAll(){
       const price=_payGetPrice();
       _paySetVal("payAmtDue",price);
-      _paySetVal("i2Total",price);
+      // Installment Total is a MANUAL field — never auto-fill it; the balance due
+      // is derived from whatever total the user entered, minus instalment-1.
+      const i2t=_payNum("#i2Total");
       const i2r=parseInt((root.querySelector("#i2Inst1Rcvd")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
-      _paySetVal("i2BalDue",price?Math.max(0,price-i2r):0);
+      _paySetVal("i2BalDue",i2t?Math.max(0,i2t-i2r):0);
       const advA=parseInt((root.querySelector("#advAmt")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
       _paySetVal("advBalDue",price?Math.max(0,price-advA):0);
       emiBase=price||32000;
@@ -4221,9 +4225,9 @@ export function initApp(root: HTMLElement) {
     function _payCalcFull(){ _payCalcAll(); }
     w._payCalcFull = _payCalcFull;
     function _payCalcI2(){
-      const price=_payGetPrice();
+      const total=_payNum("#i2Total");   // manual Total for installment
       const rcvd=parseInt((root.querySelector("#i2Inst1Rcvd")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
-      _paySetVal("i2BalDue",price?Math.max(0,price-rcvd):0);
+      _paySetVal("i2BalDue",total?Math.max(0,total-rcvd):0);
     }
     w._payCalcI2 = _payCalcI2;
     function _payCalcAdv(){
@@ -4674,10 +4678,12 @@ export function initApp(root: HTMLElement) {
     // ===== Office-visit audio recording (MediaRecorder → /storage → office_recordings) =====
     let _ovrRec:any=null; let _ovrChunks:any[]=[]; let _ovrStartMs=0; let _ovrTimer:any=null; let _ovrLeadId="";
     function _ovrSetUi(recording:boolean){
-      const mb=root.querySelector("#micBtn")as HTMLElement|null; const txt=root.querySelector("#micTxt"); const stop=root.querySelector("#ovrStopBtn")as HTMLElement|null;
+      const mb=root.querySelector("#micBtn")as HTMLElement|null; const txt=root.querySelector("#micTxt"); const stop=root.querySelector("#ovrStopBtn")as HTMLElement|null; const start=root.querySelector("#ovrStartBtn")as HTMLElement|null; const st=root.querySelector("#ovrStatus");
       if(mb) mb.classList.toggle("rec",recording);
       if(txt) txt.textContent=recording?"Recording…":"Start office-visit recording";
+      if(st) st.textContent=recording?"● Recording in progress — In-clinic Audio, auto-saving to this Customer Profile":"In-clinic Audio — Auto-saved to this Customer Profile";
       if(stop) stop.style.display=recording?"":"none";
+      if(start) start.style.display=recording?"none":"";
       const t=root.querySelector("#ovrTimer"); if(t&&!recording) t.textContent="";
     }
     w._ovrToggle=async()=>{
@@ -4737,6 +4743,133 @@ export function initApp(root: HTMLElement) {
         +'</div>'
       ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>';
     }
+    // ===== Recordings screen: cross-client Office-visit audio + Zoom meeting tables =====
+    // Both reuse the shared Excel-style filter grid engine (regGrid/gridHead/gridApply),
+    // shared pager helpers (_pgBtns/_pgApply) and CSV export (_downloadCsv).
+    let _ovrRows:any[]=[], _zoomRows:any[]=[];
+    let _ovrQuery="", _zoomQuery="", _ovrSearchT:any=null, _zoomSearchT:any=null;
+    let _ovrApplied:{from:string;to:string}={from:"",to:""};
+    let _zoomApplied:{from:string;to:string}={from:"",to:""};
+    const REC_PER=12; let _ovrTblPageN=1, _zoomTblPageN=1;
+    const _recDur=(s:number)=>{ s=Math.max(0,Math.round(s||0)); const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
+    const _ovrTblCols:any[]=[
+      {key:"dt",label:"Recording Date & Time",filter:true,text:(r:any)=>fmtIST(r.created_at)},
+      {key:"cust",label:"Customer Name",filter:true,text:(r:any)=>r._cust||""},
+      {key:"by",label:"Recorded By",filter:true,text:(r:any)=>r.recorded_by||""},
+      {key:"dur",label:"Duration",filter:true,text:(r:any)=>_recDur(r.duration_seconds)},
+      {key:"status",label:"Recording Status",filter:true,text:(r:any)=>r.file_url?"Ready":"Processing"},
+      {key:"act",label:"Actions",filter:false},
+    ];
+    regGrid("ovrTbl",()=>_ovrTblCols,()=>renderOvrTbl());
+    const _zoomTblCols:any[]=[
+      {key:"dt",label:"Meeting Date & Time",filter:true,text:(r:any)=>fmtIST(r.meeting_at||r.created_at)},
+      {key:"cust",label:"Customer Name",filter:true,text:(r:any)=>r._cust||""},
+      {key:"link",label:"Zoom Recording Link",filter:true,text:(r:any)=>r.meeting_url||""},
+      {key:"dur",label:"Meeting Duration",filter:true,text:(r:any)=>_recDur(r.duration_seconds)},
+      {key:"status",label:"Recording Status",filter:true,text:(r:any)=>r.status||(r.meeting_url?"Ready":"Pending")},
+      {key:"act",label:"Actions",filter:false},
+    ];
+    regGrid("zoomTbl",()=>_zoomTblCols,()=>renderZoomTbl());
+    async function loadRecordings(){
+      try{ const {data}=await supabase.from("office_recordings").select("*").order("created_at",{ascending:false}).limit(2000); _ovrRows=data||[]; }catch(_){ _ovrRows=[]; }
+      try{ const {data}=await supabase.from("zoom_recordings").select("*").order("created_at",{ascending:false}).limit(2000); _zoomRows=data||[]; }catch(_){ _zoomRows=[]; }
+      // Resolve customer name by lead_id (office rows have none; zoom rows keep their own).
+      const ids=Array.from(new Set([..._ovrRows,..._zoomRows].map((r:any)=>String(r.lead_id)).filter(Boolean)));
+      const nameMap:Record<string,string>={};
+      if(ids.length){ try{ const {data}=await supabase.from("leads").select("meta_lead_id,name").in("meta_lead_id",ids); (data||[]).forEach((l:any)=>{ if(l.meta_lead_id!=null) nameMap[String(l.meta_lead_id)]=l.name||""; }); }catch(_){} }
+      const resolve=(r:any,own?:string)=>own||nameMap[String(r.lead_id)]||("Lead #"+(r.lead_id||"?"));
+      _ovrRows.forEach((r:any)=>{ r._cust=resolve(r); });
+      _zoomRows.forEach((r:any)=>{ r._cust=resolve(r,r.customer_name); });
+      _ovrTblPageN=1; _zoomTblPageN=1;
+      renderOvrTbl(); renderZoomTbl();
+    }
+    function _recDateFilter(rows:any[],applied:{from:string;to:string},field:(r:any)=>any){
+      const {from,to}=applied; if(!from&&!to)return rows;
+      const f=from?new Date(from+"T00:00:00").getTime():0; const t=to?new Date(to+"T23:59:59").getTime():0;
+      return rows.filter((r:any)=>{ const d=field(r); const x=d?new Date(d).getTime():0; if(f&&x<f)return false; if(t&&x>t)return false; return true; });
+    }
+    function _ovrBase(){
+      let base=_ovrRows;
+      const q=_ovrQuery.trim().toLowerCase();
+      if(q) base=base.filter((r:any)=>[r._cust,r.recorded_by].some((v:any)=>String(v||"").toLowerCase().includes(q)));
+      return _recDateFilter(base,_ovrApplied,(r:any)=>r.created_at);
+    }
+    function _zoomBase(){
+      let base=_zoomRows;
+      const q=_zoomQuery.trim().toLowerCase();
+      if(q) base=base.filter((r:any)=>[r._cust,r.meeting_url].some((v:any)=>String(v||"").toLowerCase().includes(q)));
+      return _recDateFilter(base,_zoomApplied,(r:any)=>r.meeting_at||r.created_at);
+    }
+    const _recE=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const _recA=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
+    function renderOvrTbl(){
+      const head=root.querySelector("#ovrTblHead"); if(head)head.innerHTML=gridHead("ovrTbl");
+      const rows=gridApply("ovrTbl",_ovrBase());
+      const cnt=root.querySelector("#ovrTblCount"); if(cnt)cnt.textContent=String(rows.length);
+      const body=root.querySelector("#ovrTblBody"); if(!body)return;
+      const pages=Math.max(1,Math.ceil(rows.length/REC_PER));
+      if(_ovrTblPageN>pages)_ovrTblPageN=pages; if(_ovrTblPageN<1)_ovrTblPageN=1;
+      const pr=rows.slice((_ovrTblPageN-1)*REC_PER,(_ovrTblPageN-1)*REC_PER+REC_PER);
+      body.innerHTML=pr.length?pr.map((r:any)=>{
+        const ready=!!r.file_url; const url=_recA(r.file_url||"");
+        return '<tr>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recE(fmtIST(r.created_at))+'</td>'
+          +'<td style="font-weight:600">'+_recE(r._cust||"—")+'</td>'
+          +'<td>'+_recE(r.recorded_by||"—")+'</td>'
+          +'<td class="mono">'+_recE(_recDur(r.duration_seconds))+'</td>'
+          +'<td><span class="chipb '+(ready?"ok":"neu")+'">'+(ready?"Ready":"Processing")+'</span></td>'
+          +'<td>'+(ready?'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><audio controls preload="none" src="'+url+'" style="height:30px;max-width:190px"></audio><a class="btn bsm" href="'+url+'" download style="text-decoration:none">⬇ Download</a></div>':'<span style="font-size:11px;color:var(--faint)">No file</span>')+'</td>'
+          +'</tr>';
+      }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No office-visit recordings match the filters</td></tr>';
+      const info=root.querySelector("#ovrTblPageInfo"); if(info)info.textContent="Page "+_ovrTblPageN+" of "+pages;
+      _pgBtns("ovrTbl",_ovrTblPageN,pages);
+    }
+    function renderZoomTbl(){
+      const head=root.querySelector("#zoomTblHead"); if(head)head.innerHTML=gridHead("zoomTbl");
+      const rows=gridApply("zoomTbl",_zoomBase());
+      const cnt=root.querySelector("#zoomTblCount"); if(cnt)cnt.textContent=String(rows.length);
+      const body=root.querySelector("#zoomTblBody"); if(!body)return;
+      const pages=Math.max(1,Math.ceil(rows.length/REC_PER));
+      if(_zoomTblPageN>pages)_zoomTblPageN=pages; if(_zoomTblPageN<1)_zoomTblPageN=1;
+      const pr=rows.slice((_zoomTblPageN-1)*REC_PER,(_zoomTblPageN-1)*REC_PER+REC_PER);
+      body.innerHTML=pr.length?pr.map((r:any)=>{
+        const url=r.meeting_url||""; const has=!!url; const ua=_recA(url);
+        const status=r.status||(has?"Ready":"Pending");
+        const shortUrl=url.length>42?url.slice(0,42)+"…":url;
+        return '<tr>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recE(fmtIST(r.meeting_at||r.created_at))+'</td>'
+          +'<td style="font-weight:600">'+_recE(r._cust||"—")+'</td>'
+          +'<td>'+(has?'<a href="'+ua+'" target="_blank" rel="noopener" class="mono" style="font-size:11px;color:var(--brand)">'+_recE(shortUrl)+'</a>':'<span style="color:var(--faint)">—</span>')+'</td>'
+          +'<td class="mono">'+_recE(_recDur(r.duration_seconds))+'</td>'
+          +'<td><span class="chipb '+(has?"ok":"neu")+'">'+_recE(status)+'</span></td>'
+          +'<td>'+(has?'<div style="display:flex;gap:6px"><a class="btn bsm bp" href="'+ua+'" target="_blank" rel="noopener" style="text-decoration:none">▶ Play</a><a class="btn bsm" href="'+ua+'" target="_blank" rel="noopener" style="text-decoration:none">⬇ Download</a></div>':'<span style="font-size:11px;color:var(--faint)">No link</span>')+'</td>'
+          +'</tr>';
+      }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No Zoom recordings match the filters</td></tr>';
+      const info=root.querySelector("#zoomTblPageInfo"); if(info)info.textContent="Page "+_zoomTblPageN+" of "+pages;
+      _pgBtns("zoomTbl",_zoomTblPageN,pages);
+    }
+    w._ovrTblSearch=()=>{ if(_ovrSearchT)clearTimeout(_ovrSearchT); _ovrSearchT=setTimeout(()=>{ _ovrQuery=(root.querySelector("#ovrTblSearch")as HTMLInputElement)?.value||""; _ovrTblPageN=1; renderOvrTbl(); },180); };
+    w._ovrTblApply=()=>{ _ovrApplied={from:(root.querySelector("#ovrTblFrom")as HTMLInputElement)?.value||"",to:(root.querySelector("#ovrTblTo")as HTMLInputElement)?.value||""}; _ovrTblPageN=1; renderOvrTbl(); };
+    w._ovrTblClear=()=>{ const f=root.querySelector("#ovrTblFrom")as HTMLInputElement; const t=root.querySelector("#ovrTblTo")as HTMLInputElement; if(f)f.value=""; if(t)t.value=""; _ovrApplied={from:"",to:""}; _ovrTblPageN=1; renderOvrTbl(); };
+    w._ovrTblPage=(dir:any)=>{ _ovrTblPageN=_pgApply(_ovrTblPageN,dir); renderOvrTbl(); };
+    w._ovrTblDownload=()=>{
+      const rows=gridApply("ovrTbl",_ovrBase());
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Recording Date & Time","Customer Name","Recorded By","Duration","Recording Status","Recording URL"]];
+      rows.forEach((r:any)=>out.push([fmtIST(r.created_at),r._cust||"",r.recorded_by||"",_recDur(r.duration_seconds),r.file_url?"Ready":"Processing",r.file_url||""]));
+      _downloadCsv("wellnessos_office_recordings.csv",out); toast("Downloaded "+rows.length+" office recordings");
+    };
+    w._zoomTblSearch=()=>{ if(_zoomSearchT)clearTimeout(_zoomSearchT); _zoomSearchT=setTimeout(()=>{ _zoomQuery=(root.querySelector("#zoomTblSearch")as HTMLInputElement)?.value||""; _zoomTblPageN=1; renderZoomTbl(); },180); };
+    w._zoomTblApply=()=>{ _zoomApplied={from:(root.querySelector("#zoomTblFrom")as HTMLInputElement)?.value||"",to:(root.querySelector("#zoomTblTo")as HTMLInputElement)?.value||""}; _zoomTblPageN=1; renderZoomTbl(); };
+    w._zoomTblClear=()=>{ const f=root.querySelector("#zoomTblFrom")as HTMLInputElement; const t=root.querySelector("#zoomTblTo")as HTMLInputElement; if(f)f.value=""; if(t)t.value=""; _zoomApplied={from:"",to:""}; _zoomTblPageN=1; renderZoomTbl(); };
+    w._zoomTblPage=(dir:any)=>{ _zoomTblPageN=_pgApply(_zoomTblPageN,dir); renderZoomTbl(); };
+    w._zoomTblDownload=()=>{
+      const rows=gridApply("zoomTbl",_zoomBase());
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Meeting Date & Time","Customer Name","Zoom Recording Link","Meeting Duration","Recording Status"]];
+      rows.forEach((r:any)=>out.push([fmtIST(r.meeting_at||r.created_at),r._cust||"",r.meeting_url||"",_recDur(r.duration_seconds),r.status||(r.meeting_url?"Ready":"Pending")]));
+      _downloadCsv("wellnessos_zoom_recordings.csv",out); toast("Downloaded "+rows.length+" Zoom recordings");
+    };
     function fillCoachDetail(lead:any){
       if(!lead) return;
       _coachLeadId=String(lead.id);
@@ -5080,6 +5213,19 @@ export function initApp(root: HTMLElement) {
           +'<td><span class="chipb '+(r.status==="paid"?"ok":"neu")+'">'+e(r.status||"—")+'</span></td></tr>'; }).join("")
         +'</tbody></table></div>';
     }
+    // Persist the coach's Zoom/online recording link into zoom_recordings so it shows
+    // in the Recordings screen's Zoom table. Idempotent: skips a link already stored.
+    async function _persistZoomRecording(id:string){
+      const url=((root.querySelector("#coachRecUrl")as HTMLInputElement)?.value||"").trim();
+      if(!url) return;
+      try{
+        const {data}=await supabase.from("zoom_recordings").select("id,meeting_url").eq("lead_id",id).limit(200);
+        if((data||[]).some((r:any)=>String(r.meeting_url||"")===url)) return;   // already stored
+        const name=((root.querySelector("#coachName")?.textContent)||"").trim();
+        const cd=((root.querySelector("#haConsultDate")as HTMLInputElement)?.value||"");
+        await supabase.from("zoom_recordings").insert({lead_id:id,customer_name:name,meeting_url:url,status:"Ready",recorded_by:_asnActor(),meeting_at:cd?new Date(cd).toISOString():new Date().toISOString(),created_at:new Date().toISOString()});
+      }catch(_){}
+    }
     w._coachSaveRecord=async()=>{
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);
@@ -5094,6 +5240,7 @@ export function initApp(root: HTMLElement) {
           return;
         }
         await _persistInstallments(id);   // store installment payments (if the 2× method is active)
+        await _persistZoomRecording(id);  // store the Zoom/online recording link (if entered)
         try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
         toast("Health record saved");
         logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
@@ -5146,7 +5293,10 @@ export function initApp(root: HTMLElement) {
     // Refresh the coach's visited-client list when the Health Coach screen is opened.
     {
       const coachNav=root.querySelector('#nav button[data-s="coach"]')as HTMLButtonElement|null;
-      if(coachNav) coachNav.addEventListener("click",()=>{ loadCoachClients(); });
+      if(coachNav) coachNav.addEventListener("click",()=>{ loadCoachClients(); loadZoomCheckins(); });
+      // Load the cross-client recordings tables when the Recordings screen is opened.
+      const recNav=root.querySelector('#nav button[data-s="recordings"]')as HTMLButtonElement|null;
+      if(recNav) recNav.addEventListener("click",()=>{ loadRecordings(); });
     }
     loadCoachClients();
 

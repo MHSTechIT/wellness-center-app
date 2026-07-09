@@ -289,6 +289,21 @@ CREATE TABLE IF NOT EXISTS office_recordings (
 );
 CREATE INDEX IF NOT EXISTS idx_office_recordings_lead ON office_recordings(lead_id, created_at DESC);
 
+-- Zoom / online consultation recordings (link-based, distinct from the on-disk
+-- office_recordings audio). Captured from the Health Coach recording-URL field.
+CREATE TABLE IF NOT EXISTS zoom_recordings (
+  id               BIGSERIAL PRIMARY KEY,
+  lead_id          TEXT NOT NULL,   -- meta_lead_id of the customer
+  customer_name    TEXT,
+  meeting_url      TEXT,            -- Zoom (or other) recording link
+  duration_seconds INT,
+  status           TEXT,            -- 'Ready' once a link is present, else 'Pending'
+  recorded_by      TEXT,
+  meeting_at       TIMESTAMPTZ,     -- when the consultation happened
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_zoom_recordings_lead ON zoom_recordings(lead_id, created_at DESC);
+
 -- 14. Appointment meeting metadata (Zoom vs walk-in check-in) -
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS meeting_type TEXT;   -- 'zoom' | 'direct'
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS meeting_link TEXT;

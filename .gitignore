@@ -49,3 +49,6 @@ node_modules/
 .next/
 dist/
 out/
+
+# runtime file storage (uploaded office-visit recordings, etc.)
+server/uploads/

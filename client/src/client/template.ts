@@ -9,6 +9,7 @@ export function getMainContent(): string {
       <input class="input" type="date" id="asnTo" style="height:30px;font-size:12px;width:150px" title="To date">
       <select class="select" id="asnSource" style="height:30px;font-size:12px;width:160px"><option value="all">All sources</option></select>
       <select class="select" id="asnService" style="height:30px;font-size:12px;width:160px"><option value="all">All services</option></select>
+      <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px"><option value="all">All advisors</option></select>
       <button class="btn bsm bp" onclick="window._topFilterApply()">Apply</button>
       <button class="btn bsm" onclick="window._topFilterClear()">Clear</button>
     </div></div>
@@ -22,8 +23,7 @@ export function getMainContent(): string {
           <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span>
-      <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px;margin-left:auto"><option value="all">All advisors</option></select></div>
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
       <div class="sec-bd">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <input class="input" id="assignedSearch" placeholder="Search lead / phone / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._assignedSearch()">
@@ -53,8 +53,6 @@ export function getMainContent(): string {
         </div>
         <div class="tscroll stick1"><table class="tbl" style="min-width:940px"><thead><tr id="asnHistHead"></tr></thead><tbody id="asnHistBody"></tbody></table></div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
-      <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th>Client</th><th>Phone</th><th>When</th><th>Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div style="display:flex;gap:14px;align-items:flex-start;margin-top:4px">
     <div id="advOpenList" style="width:212px;flex-shrink:0;display:none"></div>
     <div id="advDetailPane" style="flex:1;min-width:0">
@@ -263,6 +261,8 @@ export function getMainContent(): string {
         </div>
         <div id="coachKanban" style="display:none;overflow-x:auto"></div>
       </div></div>
+    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
+      <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th>Client</th><th>Phone</th><th>Appointment Fixed Date &amp; Time</th><th>Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
       <div class="cmeta"><h1 id="coachName">No client open</h1>
@@ -350,8 +350,9 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
           </div>
           <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
-            <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)">In-clinic audio · auto-saved to this customer profile <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert)"></span></div></div>
-            <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop</button>
+            <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
+            <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
+            <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop Recording</button>
             <input class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"></div>
           <div id="ovrList" style="margin-top:8px"></div>
 
@@ -438,7 +439,7 @@ export function getMainContent(): string {
 
           <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Total <span class="ab">AUTO</span></label><input class="input mono" id="i2Total" readonly></div>
+              <div class="fld"><label class="lbl">Total</label><input class="input mono" id="i2Total" placeholder="Enter total amount" inputmode="decimal" oninput="window._payCalcI2()"></div>
               <div class="fld"><label class="lbl">Inst-1 received (₹)</label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date"></div>
@@ -892,7 +893,7 @@ export function getMainContent(): string {
           </div></div>
         <div class="sec" id="zoomCiSecRec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:6px">0</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
-            <div class="tscroll"><table class="tbl" style="min-width:440px"><thead><tr><th>Client</th><th>Phone</th><th>When</th><th>Status</th><th>Action</th></tr></thead><tbody id="zoomCiListRec"></tbody></table></div>
+            <div class="tscroll"><table class="tbl" style="min-width:440px"><thead><tr><th>Client</th><th>Phone</th><th>Appointment Fixed Date &amp; Time</th><th>Status</th><th>Action</th></tr></thead><tbody id="zoomCiListRec"></tbody></table></div>
           </div></div>
         <div class="sec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-coin"/></svg> Collect payment <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
@@ -1112,6 +1113,59 @@ export function getMainContent(): string {
         <div class="metrics" style="margin-top:6px" id="repKpis"></div>
         <div id="repTableWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading report data…</div></div>
       </div></div>
+  </div></section>
+
+  <!-- RECORDINGS -->
+  <section class="screen" id="s-recordings"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
+    <div class="ph"><div><h1>Recordings</h1><p>All in-clinic office-visit audio and Zoom consultation recordings across customers.</p></div></div>
+
+    <div class="sec" style="margin-bottom:16px" id="ovrTblSec">
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"/></svg> Office Visit Recordings <span class="chipb ok" id="ovrTblCount" style="margin-left:8px">0</span>
+        <input class="input" id="ovrTblSearch" placeholder="Search name / recorded by…" style="height:30px;font-size:12px;width:220px;margin-left:auto" oninput="window._ovrTblSearch()">
+        <button class="btn bsm" style="margin-left:8px" onclick="window._ovrTblDownload()">⬇ Download</button></div>
+      <div class="sec-bd">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--faint)">Date</span>
+          <input class="input" type="date" id="ovrTblFrom" style="height:30px;font-size:12px;width:150px" title="From">
+          <span style="color:var(--faint);font-size:12px">→</span>
+          <input class="input" type="date" id="ovrTblTo" style="height:30px;font-size:12px;width:150px" title="To">
+          <button class="btn bsm bp" onclick="window._ovrTblApply()">Apply</button>
+          <button class="btn bsm" onclick="window._ovrTblClear()">Clear</button>
+        </div>
+        <div class="tscroll stick1"><table class="tbl" style="min-width:960px"><thead><tr id="ovrTblHead"></tr></thead><tbody id="ovrTblBody"></tbody></table></div>
+        <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <button class="btn bsm" id="ovrTblFirstBtn" onclick="window._ovrTblPage('first')">« First</button>
+          <button class="btn bsm" id="ovrTblPrevBtn" onclick="window._ovrTblPage(-1)">← Previous</button>
+          <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="ovrTblPageInfo">Page 1 of 1</span>
+          <button class="btn bsm" id="ovrTblNextBtn" onclick="window._ovrTblPage(1)">Next →</button>
+          <button class="btn bsm" id="ovrTblLastBtn" onclick="window._ovrTblPage('last')">Last »</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec" id="zoomTblSec">
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"/></svg> Zoom Meeting Recordings <span class="chipb ok" id="zoomTblCount" style="margin-left:8px">0</span>
+        <input class="input" id="zoomTblSearch" placeholder="Search name / link…" style="height:30px;font-size:12px;width:220px;margin-left:auto" oninput="window._zoomTblSearch()">
+        <button class="btn bsm" style="margin-left:8px" onclick="window._zoomTblDownload()">⬇ Download</button></div>
+      <div class="sec-bd">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--faint)">Date</span>
+          <input class="input" type="date" id="zoomTblFrom" style="height:30px;font-size:12px;width:150px" title="From">
+          <span style="color:var(--faint);font-size:12px">→</span>
+          <input class="input" type="date" id="zoomTblTo" style="height:30px;font-size:12px;width:150px" title="To">
+          <button class="btn bsm bp" onclick="window._zoomTblApply()">Apply</button>
+          <button class="btn bsm" onclick="window._zoomTblClear()">Clear</button>
+        </div>
+        <div class="tscroll stick1"><table class="tbl" style="min-width:960px"><thead><tr id="zoomTblHead"></tr></thead><tbody id="zoomTblBody"></tbody></table></div>
+        <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <button class="btn bsm" id="zoomTblFirstBtn" onclick="window._zoomTblPage('first')">« First</button>
+          <button class="btn bsm" id="zoomTblPrevBtn" onclick="window._zoomTblPage(-1)">← Previous</button>
+          <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="zoomTblPageInfo">Page 1 of 1</span>
+          <button class="btn bsm" id="zoomTblNextBtn" onclick="window._zoomTblPage(1)">Next →</button>
+          <button class="btn bsm" id="zoomTblLastBtn" onclick="window._zoomTblPage('last')">Last »</button>
+        </div>
+      </div>
+    </div>
   </div></section>
 
   <!-- SETTINGS -->
