@@ -412,17 +412,37 @@ export function initApp(root: HTMLElement) {
     function istHour(){
       try{ return Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",hour:"2-digit",hour12:false}).format(new Date())); }catch(_){ return new Date().getHours(); }
     }
-    // A dismissible popup pinned top-centre. type: 'warn' (stays) | 'ok' (auto-dismiss).
+    // Top-centre notification stack — deduped, capped, and auto-dismissing so the same
+    // alert never piles up. type: 'warn' (60s) | 'ok' (6s).
+    const _NOTIF_MAX=6;   // at most this many popups on screen; oldest is dropped past it
+    function _notifStackEl(){
+      let s=document.getElementById("metaNotifStack")as HTMLElement|null;
+      if(!s){ s=document.createElement("div"); s.id="metaNotifStack";
+        s.style.cssText="position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:92vw;pointer-events:none";
+        document.body.appendChild(s); }
+      return s;
+    }
     function _metaPopup(msg:string,type:"warn"|"ok"){
-      const ex=document.getElementById("metaConnPopup"); if(ex&&ex.parentNode) ex.parentNode.removeChild(ex);
-      const wrap=document.createElement("div"); wrap.id="metaConnPopup";
+      const stack=_notifStackEl();
       const al=type==="warn";
-      wrap.style.cssText="position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.25);font-size:13.5px;font-weight:600;max-width:92vw;"+(al?"background:var(--alert-bg);border:1.5px solid var(--alert);color:var(--alert-ink)":"background:var(--ok-bg);border:1.5px solid var(--ok);color:var(--ok-ink)");
+      // Auto-dismiss within 5–10s so alerts never linger: warnings 8s, success 6s.
+      const arm=(el:HTMLElement)=>{ const t=(el as any)._t; if(t)clearTimeout(t); (el as any)._t=setTimeout(()=>{ if(el.parentNode)el.parentNode.removeChild(el); }, al?8000:6000); };
+      // Dedupe: an identical message already showing just refreshes its timer.
+      const existing=Array.from(stack.children).find((c:any)=>c.getAttribute("data-msg")===msg)as HTMLElement|undefined;
+      if(existing){ arm(existing); return; }
+      // Cap: drop the oldest until under the limit.
+      while(stack.children.length>=_NOTIF_MAX){ const first=stack.firstElementChild as HTMLElement|null; if(!first)break; const ft=(first as any)._t; if(ft)clearTimeout(ft); stack.removeChild(first); }
+      const wrap=document.createElement("div"); wrap.setAttribute("data-msg",msg);
+      wrap.style.cssText="pointer-events:auto;display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.25);font-size:13.5px;font-weight:600;max-width:92vw;"+(al?"background:var(--alert-bg);border:1.5px solid var(--alert);color:var(--alert-ink)":"background:var(--ok-bg);border:1.5px solid var(--ok);color:var(--ok-ink)");
       wrap.innerHTML='<span style="font-size:16px">'+(al?"⚠":"✓")+'</span><span>'+msg+'</span><button aria-label="Dismiss" style="background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:inherit;font-weight:700">×</button>';
-      (wrap.querySelector("button")as HTMLElement).onclick=()=>{ if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
-      document.body.appendChild(wrap);
-      // Auto-dismiss: success popups after 6s, alert popups after 60s (max 1 min).
-      setTimeout(()=>{ if(wrap.parentNode) wrap.parentNode.removeChild(wrap); }, al?60000:6000);
+      (wrap.querySelector("button")as HTMLElement).onclick=()=>{ const t=(wrap as any)._t; if(t)clearTimeout(t); if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
+      stack.appendChild(wrap);
+      arm(wrap);
+    }
+    // Remove any active notification whose message contains `match` (clear-on-resolve).
+    function _metaPopupClear(match:string){
+      const stack=document.getElementById("metaNotifStack"); if(!stack)return;
+      Array.from(stack.children).forEach((c:any)=>{ if((c.getAttribute("data-msg")||"").indexOf(match)>=0){ if(c._t)clearTimeout(c._t); if(c.parentNode)c.parentNode.removeChild(c); } });
     }
     // Transition the Meta connection state; fire toasts/popups + repaint the status cell.
     function setMetaConn(state:"connected"|"disconnected",reason?:string){
@@ -431,7 +451,7 @@ export function initApp(root: HTMLElement) {
       _metaConn=state;
       try{ renderSrcTable(); }catch(_){}
       if(state==="connected"){
-        if(prev==="disconnected"){ toast("✓ Meta reconnected — leads syncing"); _metaPopup("Meta connection re-established. Leads are syncing again.","ok"); }
+        if(prev==="disconnected"){ toast("✓ Meta reconnected — leads syncing"); _metaPopupClear("Meta connection lost"); _metaPopup("Meta connection re-established. Leads are syncing again.","ok"); }
         else { toast("✓ Meta connected — leads syncing"); }
       }else{
         toastErr("Meta connection lost"+(reason?" — "+reason:""));
@@ -462,6 +482,7 @@ export function initApp(root: HTMLElement) {
         txt.textContent="Alert: notify ABM if no Meta lead for 30 min during campaign hours"+(inHours?"":" · outside campaign hours ("+CAMPAIGN_START_HOUR+":00–"+CAMPAIGN_END_HOUR+":00 IST)");
         txt.style.color="var(--ink)";
         chip.className="chipb ok"; chip.textContent=inHours?"Monitoring":"Idle";
+        if(_metaAlertActive) _metaPopupClear("No Meta leads");   // leads resumed → clear the alert
         _metaAlertActive=false;
       }
     }
@@ -4644,6 +4665,8 @@ export function initApp(root: HTMLElement) {
     async function _coachRenderRecordings(id:string){
       const fld=root.querySelector("#coachRecUrl")as HTMLInputElement|null; if(!fld) return;
       try{ const res=await _callRecordings(id); const recs=(res&&res.recordings)||[]; const ready=recs.find((r:any)=>r.recording_url); if(ready&&!fld.value&&String(_coachLeadId)===String(id)) fld.value=ready.recording_url; }catch(_){}
+      // Restore the most recently saved Zoom link so it stays available on reopen/refresh.
+      try{ if(!fld.value){ const {data}=await supabase.from("zoom_recordings").select("meeting_url,created_at").eq("lead_id",id).order("created_at",{ascending:false}).limit(1); const z=data&&data[0]; if(z&&z.meeting_url&&!fld.value&&String(_coachLeadId)===String(id)) fld.value=z.meeting_url; } }catch(_){}
     }
     // ===== Score card — hybrid: manual Progress+Consultation, auto Attendance+Follow-up =====
     let _scAuto={attendance:0,followup:0};
@@ -4842,7 +4865,7 @@ export function initApp(root: HTMLElement) {
           +'<td>'+(has?'<a href="'+ua+'" target="_blank" rel="noopener" class="mono" style="font-size:11px;color:var(--brand)">'+_recE(shortUrl)+'</a>':'<span style="color:var(--faint)">—</span>')+'</td>'
           +'<td class="mono">'+_recE(_recDur(r.duration_seconds))+'</td>'
           +'<td><span class="chipb '+(has?"ok":"neu")+'">'+_recE(status)+'</span></td>'
-          +'<td>'+(has?'<div style="display:flex;gap:6px"><a class="btn bsm bp" href="'+ua+'" target="_blank" rel="noopener" style="text-decoration:none">▶ Play</a><a class="btn bsm" href="'+ua+'" target="_blank" rel="noopener" style="text-decoration:none">⬇ Download</a></div>':'<span style="font-size:11px;color:var(--faint)">No link</span>')+'</td>'
+          +'<td>'+(has?'<div style="display:flex;gap:6px;flex-wrap:wrap"><a class="btn bsm" href="'+ua+'" target="_blank" rel="noopener" style="text-decoration:none">🔗 Open</a><a class="btn bsm bp" href="'+ua+'" target="_blank" rel="noopener" style="text-decoration:none">▶ Play</a><a class="btn bsm" href="'+ua+'" target="_blank" rel="noopener" download style="text-decoration:none">⬇ Download</a></div>':'<span style="font-size:11px;color:var(--faint)">No link</span>')+'</td>'
           +'</tr>';
       }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No Zoom recordings match the filters</td></tr>';
       const info=root.querySelector("#zoomTblPageInfo"); if(info)info.textContent="Page "+_zoomTblPageN+" of "+pages;
@@ -5226,6 +5249,27 @@ export function initApp(root: HTMLElement) {
         await supabase.from("zoom_recordings").insert({lead_id:id,customer_name:name,meeting_url:url,status:"Ready",recorded_by:_asnActor(),meeting_at:cd?new Date(cd).toISOString():new Date().toISOString(),created_at:new Date().toISOString()});
       }catch(_){}
     }
+    // Dedicated "Save Link" action next to the recording-URL field: validate, store in
+    // zoom_recordings against this customer, confirm, and refresh the Zoom Recordings table.
+    w._coachSaveZoomLink=async()=>{
+      if(!_coachLeadId){ toast("Open a visited client first"); return; }
+      const fld=root.querySelector("#coachRecUrl")as HTMLInputElement|null;
+      const url=(fld?.value||"").trim();
+      if(!url){ toastErr("Paste a Zoom meeting link first"); return; }
+      if(!/^https?:\/\/\S+$/i.test(url)){ toastErr("Enter a valid link — it must start with http:// or https://"); return; }
+      const id=String(_coachLeadId);
+      try{
+        const {data}=await supabase.from("zoom_recordings").select("id,meeting_url").eq("lead_id",id).limit(200);
+        if((data||[]).some((r:any)=>String(r.meeting_url||"")===url)){ toast("This link is already saved for this client"); return; }
+        const name=((root.querySelector("#coachName")?.textContent)||"").trim();
+        const cd=((root.querySelector("#haConsultDate")as HTMLInputElement)?.value||"");
+        const {error}=await supabase.from("zoom_recordings").insert({lead_id:id,customer_name:name,meeting_url:url,status:"Ready",recorded_by:_asnActor(),meeting_at:cd?new Date(cd).toISOString():new Date().toISOString(),created_at:new Date().toISOString()});
+        if(error){ toastErr("Save failed: "+(error.message||"db error")); return; }
+        toast("✓ Zoom link saved to "+(name||"customer profile"));
+        logActivity(id,[{action:"Zoom Recording",field:"Link saved",new:url}]);
+        try{ await loadRecordings(); }catch(_){}   // reflect in the Zoom Recordings table
+      }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
+    };
     w._coachSaveRecord=async()=>{
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);

@@ -353,7 +353,7 @@ export function getMainContent(): string {
             <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
             <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
             <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop Recording</button>
-            <input class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"></div>
+            <input class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"><button class="btn bsm bp" id="coachSaveZoomBtn" onclick="window._coachSaveZoomLink()" style="margin-left:6px;white-space:nowrap">Save Link</button></div>
           <div id="ovrList" style="margin-top:8px"></div>
 
           <div class="fld"><label class="lbl">Consultation status — drives payment &amp; follow-up flow</label>
