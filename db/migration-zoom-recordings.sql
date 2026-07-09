@@ -1,7 +1,10 @@
 -- ============================================================
 -- WellnessOS — Zoom / online consultation recordings
--- Additive and safe to re-run. Keyed by leads.meta_lead_id (TEXT).
--- Distinct from the on-disk office_recordings audio table.
+-- PostgreSQL migration (target DB: PGDATABASE, e.g. Wellness_Center_App).
+-- NOT Supabase. Apply with: psql "<conn>" -f db/migration-zoom-recordings.sql
+-- (also included in db/schema.sql). Additive and safe to re-run.
+-- Keyed by leads.meta_lead_id (TEXT). The Zoom link is a plain URL stored in
+-- this table — no Supabase Storage, no Supabase tables.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS zoom_recordings (
   id               BIGSERIAL PRIMARY KEY,
