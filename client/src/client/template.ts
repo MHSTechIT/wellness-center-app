@@ -244,26 +244,29 @@ export function getMainContent(): string {
       <button class="btn bsm" onclick="window._coachFilterClear()">Clear</button>
       <input class="input" id="coSearch" placeholder="Search client / phone…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._coachSearch()">
     </div>
-    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span><div class="pills" id="coachViewToggle" style="margin-left:auto;flex-shrink:0"></div></div>
+    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span>
+      <div class="pills" id="coachViewToggle" style="margin-left:auto;flex-shrink:0"></div>
+      <select class="select" id="coachConsFilter" style="height:30px;font-size:12px;width:210px;margin-left:8px;flex-shrink:0" title="Filter by consultation status" onchange="window._coachConsFilter(this.value)"></select></div>
       <div class="sec-bd"><div class="metrics" id="coachDash" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div></div></div>
     <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
       <button class="btn bsm" style="margin-left:auto" onclick="window._coachCliDownload()">⬇ Download</button></div>
       <div class="sec-bd">
-        <div class="tscroll stick1"><table class="tbl" style="min-width:860px"><thead><tr id="coachClientsHead"></tr></thead><tbody id="coachClientsBody"></tbody></table></div>
-        <div id="coachCliPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
-          <button class="btn bsm" id="coachCliFirstBtn" onclick="window._coachCliPage('first')">« First</button>
-          <button class="btn bsm" id="coachCliPrevBtn" onclick="window._coachCliPage(-1)">← Previous</button>
-          <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="coachCliPageInfo">Page 1 of 1</span>
-          <button class="btn bsm" id="coachCliNextBtn" onclick="window._coachCliPage(1)">Next →</button>
-          <button class="btn bsm" id="coachCliLastBtn" onclick="window._coachCliPage('last')">Last »</button>
+        <div id="coachCliTableWrap">
+          <div class="tscroll stick1"><table class="tbl" style="min-width:860px"><thead><tr id="coachClientsHead"></tr></thead><tbody id="coachClientsBody"></tbody></table></div>
+          <div id="coachCliPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+            <button class="btn bsm" id="coachCliFirstBtn" onclick="window._coachCliPage('first')">« First</button>
+            <button class="btn bsm" id="coachCliPrevBtn" onclick="window._coachCliPage(-1)">← Previous</button>
+            <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="coachCliPageInfo">Page 1 of 1</span>
+            <button class="btn bsm" id="coachCliNextBtn" onclick="window._coachCliPage(1)">Next →</button>
+            <button class="btn bsm" id="coachCliLastBtn" onclick="window._coachCliPage('last')">Last »</button>
+          </div>
         </div>
+        <div id="coachKanban" style="display:none;overflow-x:auto"></div>
       </div></div>
-    <div id="coachOpenList" style="margin-bottom:14px"></div>
-    <div id="coachKanban" style="display:none;margin-bottom:14px;overflow-x:auto"></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
       <div class="cmeta"><h1 id="coachName">No client open</h1>
-        <div class="sub" id="coachSub"><span class="mono">Pick a visited client below</span></div>
+        <div class="sub" id="coachSub"><span class="mono">Pick a visited client from the table above</span></div>
         <div class="cbadges" id="coachBadges"></div></div>
       <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: —</span><button class="btn bp" id="coachCallBtn"><svg class="icon"><use href="#i-phone"/></svg> Call</button><button class="btn bwa"><svg class="icon"><use href="#i-msg"/></svg> WA</button></div>
     </div>

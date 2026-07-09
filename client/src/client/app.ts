@@ -4915,7 +4915,11 @@ export function initApp(root: HTMLElement) {
         return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
       }).join("");
     }
-    w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachDash(); renderCoachClientsTable(); };
+    w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachOpenList(); };
+    // Top-right "Consultation Status" dropdown — drives the same selection the dashboard cards use,
+    // so it filters both the cards (highlights the match) and the Visited-clients table, persists
+    // across List/Kanban, and composes with the applied filter bar (all via _coachCliBase).
+    w._coachConsFilter=(v:string)=>{ _coachDashSel=v||""; _coachCliPage=1; renderCoachOpenList(); };
     const COACH_CLI_PER=12; let _coachCliPage=1;
     const _coachCliCols=[
       {key:"name",label:"Lead Name",filter:true,text:(c:any)=>c.name||""},
@@ -4962,26 +4966,26 @@ export function initApp(root: HTMLElement) {
       _downloadCsv("wellnessos_visited_clients.csv",out);
       toast("Downloaded "+rows.length+" visited clients");
     };
+    // Master render for the Visited-clients area: dashboard cards + the List/Kanban toggle,
+    // then either the table (List) or the kanban board (Kanban) — both honour the same
+    // applied filters + dashboard-card selection (_coachCliBase).
     function renderCoachOpenList(){
       try{ renderCoachDash(); }catch(_){}
-      try{ renderCoachClientsTable(); }catch(_){}
-      const el=root.querySelector("#coachOpenList")as HTMLElement|null;
-      const kb=root.querySelector("#coachKanban")as HTMLElement|null;
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      const list=_coachFiltered();
-      // View toggle now lives in the Health Coach dashboard header (top-right).
       const tog=root.querySelector("#coachViewToggle");
       if(tog) tog.innerHTML='<button class="pill'+(_coachView==="list"?" on":"")+'" onclick="window._coachToggleView(\'list\')">List View</button><button class="pill'+(_coachView==="kanban"?" on":"")+'" onclick="window._coachToggleView(\'kanban\')">Kanban View</button>';
-      if(!el) return;
-      if(!_coachClients.length){ el.innerHTML='<div style="font-size:12px;color:var(--faint);padding:6px 0">No visited clients yet — mark a lead "Visited" in the Health Advisor to see them here.</div>'; if(kb)kb.style.display="none"; return; }
-      if(_coachView==="list"){
-        el.style.display="";
-        el.innerHTML=(list.length?'<div style="display:flex;gap:8px;flex-wrap:wrap">'+list.map((c:any)=>{const active=String(c.id)===String(_coachLeadId);return '<button onclick="window._coachOpen(\''+e(String(c.id))+'\')" class="btn bsm"'+(active?' style="background:var(--brand-tint);border-color:var(--brand);color:var(--brand-600)"':'')+'>'+e(c.name||c.phone||"Client")+'</button>';}).join("")+'</div>':'<div style="font-size:12px;color:var(--faint);padding:6px 0">No clients match the current filters.</div>');
-        if(kb)kb.style.display="none";
+      const csf=root.querySelector("#coachConsFilter")as HTMLSelectElement|null;
+      if(csf){ const eo=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); csf.innerHTML='<option value="">All Status</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); csf.value=_coachDashSel; }
+      const kb=root.querySelector("#coachKanban")as HTMLElement|null;
+      const tw=root.querySelector("#coachCliTableWrap")as HTMLElement|null;
+      if(_coachView==="kanban"){
+        if(tw)tw.style.display="none";
+        const base=_coachCliBase();
+        const cnt=root.querySelector("#coachCliCount"); if(cnt)cnt.textContent=String(base.length);
+        if(kb){ kb.style.display=""; _renderCoachKanban(kb,base); }
       } else {
-        el.innerHTML="";
-        el.style.display="";
-        if(kb){ kb.style.display=""; _renderCoachKanban(kb,list); }
+        if(kb)kb.style.display="none";
+        if(tw)tw.style.display="";
+        renderCoachClientsTable();
       }
     }
     function _renderCoachKanban(kb:HTMLElement,list:any[]){
