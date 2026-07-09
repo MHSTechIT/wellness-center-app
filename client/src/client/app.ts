@@ -275,16 +275,16 @@ export function initApp(root: HTMLElement) {
       }catch(e:any){ toastErr("Failed: "+(e.message||"db error")); }
     };
 
-    w._usrToggle=async function(id:number){
-      const u=_usrList.find((x:any)=>x.id===id);
+    w._usrToggle=async function(id:any){
+      const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
       if(!u) return;
       await supabase.from("app_users").update({active:!u.active}).eq("id",id);
       toast(u.active?"User deactivated":"User activated");
       await loadUsers();
     };
 
-    w._usrDel=async function(id:number){
-      const u=_usrList.find((x:any)=>x.id===id);
+    w._usrDel=async function(id:any){
+      const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
       if(u&&u.role==="Super Admin"){ toastErr("Cannot remove Super Admin"); return; }
       await supabase.from("app_users").delete().eq("id",id);
       toast("User removed");
@@ -1710,8 +1710,10 @@ export function initApp(root: HTMLElement) {
         toast(/exist|relation|schema/i.test(e.message||"")?"Run supabase-migration-assignees.sql first":"Save failed: "+(e.message||"db error"));
       }
     };
-    w._asgEdit=(id:number)=>{
-      const a=_assignees.find((x:any)=>x.id===id); if(!a) return;
+    w._asgEdit=(id:any)=>{
+      // id column is BIGSERIAL → the data gateway returns it as a string, while the
+      // onclick passes a numeric literal; compare as strings so the lookup matches.
+      const a=_assignees.find((x:any)=>String(x.id)===String(id)); if(!a) return;
       (root.querySelector("#asgName")as HTMLInputElement).value=a.name;
       (root.querySelector("#asgRole")as HTMLSelectElement).value=a.role;
       (root.querySelector("#asgBranch")as HTMLSelectElement).value=a.branch;
@@ -4445,8 +4447,8 @@ export function initApp(root: HTMLElement) {
       win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
       toast("Ordered "+on.length+" test"+(on.length>1?"s":"")+" · slip printed");
     };
-    w._scOpenAssess=(id:number)=>{
-      const r=_scAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;} _scOpenAppt=r;
+    w._scOpenAssess=(id:any)=>{
+      const r=_scAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;} _scOpenAppt=r;   // id is BIGSERIAL → gateway returns a string
       const el=(s:string)=>root.querySelector("#"+s)as any;
       if(el("scAssessName")) el("scAssessName").textContent=r.name;
       if(el("scAssessChip")) el("scAssessChip").textContent="Baseline · M0";
@@ -4990,18 +4992,15 @@ export function initApp(root: HTMLElement) {
     }
     function _renderCoachKanban(kb:HTMLElement,list:any[]){
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      const cols=[
-        {key:"screening",label:"Screening",color:"#E8A817",icon:"🔬",filter:(c:any)=>!c._stage||c._stage==="screening"},
-        {key:"assessment",label:"Assessment",color:"#378ADD",icon:"📋",filter:(c:any)=>c._stage==="assessment"},
-        {key:"consultation",label:"Consultation",color:"#7B6CD9",icon:"🩺",filter:(c:any)=>c._stage==="consultation"},
-        {key:"payment",label:"Payment",color:"#17A87B",icon:"💳",filter:(c:any)=>c._stage==="payment"},
-        {key:"enrolled",label:"Enrolled",color:"#0B6B4C",icon:"✅",filter:(c:any)=>c._stage==="enrolled"}
-      ];
+      // Kanban columns mirror the consultation-status values (the same set the dashboard
+      // cards, List view and All-Status dropdown use) so every view stays in sync.
+      const stageColors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#0B6B4C","#E8A817","#0EA5A0","#D8442B","#A855F7","#EF4444","#64748B"];
+      const cols=_coachStatusCards.map((label:string,ci:number)=>({label,color:stageColors[ci%stageColors.length],filter:(c:any)=>_coachConsOf(c)===label}));
       const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
         const items=list.filter(col.filter);
         return '<div style="min-width:220px;max-width:260px;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden">'
-          +'<div style="padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px"><span>'+col.icon+'</span><span style="font-weight:700;font-size:12px">'+col.label+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
+          +'<div style="padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+col.color+';flex-shrink:0;display:inline-block"></span><span style="font-weight:700;font-size:12px">'+e(col.label)+'</span><span class="chipb neu" style="margin-left:auto;font-size:11px">'+items.length+'</span></div>'
           +'<div style="padding:8px;display:flex;flex-direction:column;gap:6px;min-height:60px">'
           +(items.length?items.map((c:any,i:number)=>{
             const active=String(c.id)===String(_coachLeadId);
@@ -5391,8 +5390,8 @@ export function initApp(root: HTMLElement) {
       const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
       const rw=el("btRemindersWrap"); if(rw)(rw as HTMLElement).innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">Outcome reminders are auto-generated from appointment milestones.</div>';
     }
-    w._btOpenDetail=(id:number)=>{
-      const r=_btAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;}
+    w._btOpenDetail=(id:any)=>{
+      const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;}   // id is BIGSERIAL → gateway returns a string
       _btOpenAppt=r; _btReportAtt=r.btData.report_url?{name:"Report",url:r.btData.report_url}:null;
       const el=(s:string)=>root.querySelector("#"+s) as HTMLInputElement|HTMLSelectElement|null;
       if(el("btDetailName"))(el("btDetailName") as HTMLElement).textContent=r.name+" · "+r.date;
@@ -5509,8 +5508,8 @@ export function initApp(root: HTMLElement) {
           +(r.payStatus!=="paid"?'<span class="chipb warn">Due ₹'+r.packPrice.toLocaleString("en-IN")+'</span>':'')+'</div>';
       }).join(""):'<div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No active patients.</div>';
     }
-    w._phOpenSession=(id:number)=>{
-      const r=_phAll.find((x:any)=>x.id===id); if(!r){toast("Not found");return;} _phOpenAppt=r;
+    w._phOpenSession=(id:any)=>{
+      const r=_phAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;} _phOpenAppt=r;   // id is BIGSERIAL → gateway returns a string
       const el=(s:string)=>root.querySelector("#"+s) as any;
       if(el("phSoapTitle")) el("phSoapTitle").textContent=r.name+" · Session "+(r.sessionsCompleted+1)+" / "+(r.sessionsPlanned||"?");
       if(el("phPlanTitle")) el("phPlanTitle").textContent=r.name;
@@ -5535,7 +5534,7 @@ export function initApp(root: HTMLElement) {
     };
     w._phPayModel=(m:string)=>{ root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.remove("on")); root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>{if(b.textContent.toLowerCase().includes(m==="pack"?"upfront":"per"))b.classList.add("on");}); };
     w._phStartSession=async(id:number)=>{ try{ await supabase.from("appointments").update({status:"visited",visited_at:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}).eq("id",id); toast("Session started"); await loadPhysioData(); }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
-    w._phCompleteSession=async(id:number)=>{ try{ const r=_phAll.find((x:any)=>x.id===id); if(!r)return; const pd=r.phData||{};
+    w._phCompleteSession=async(id:any)=>{ try{ const r=_phAll.find((x:any)=>String(x.id)===String(id)); if(!r)return; const pd=r.phData||{};
       // Idempotent: a session counts + logs a visit exactly once (guards double-click and
       // Complete-then-Save both bumping the counter / adding duplicate visit rows).
       if(!pd._completed){ pd._completed=true; pd.sessions_completed=(pd.sessions_completed||0)+1;
