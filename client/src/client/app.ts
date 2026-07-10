@@ -2287,6 +2287,11 @@ export function initApp(root: HTMLElement) {
       if(prof==null) prof = (l.advisorProfile!=null ? l.advisorProfile : null);
       l.advisorProfile = prof || null;
       if(prof && String(_advLeadId)===String(l.id)) applyAdvisorProfile(prof);
+      // Enrolled status/date come from the SAME in-memory lead (callStatus + enrolledAt) the
+      // Advisor dashboard counts. Apply it AFTER the profile restore (which would otherwise
+      // reset the pills to the saved Open state) and BEFORE the gated DB read below, so the
+      // lead profile always matches the Enrolled card — even if the advisor_profile read is skipped.
+      if(String(_advLeadId)===String(l.id)) _advApplyEnrolled(l.callStatus, l.enrolledAt);
       // 2) BACKGROUND reconcile with the DB (skip once we know the column is absent).
       if(_advProfileColMissing) return;
       try{
