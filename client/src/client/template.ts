@@ -187,6 +187,12 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Visited date <span class="ab">AUTO</span></label><input class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="g3">
+          <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO</span></label><div class="pills" id="enrStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Enrolled</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the health coach marks the client Enrolled.</div></div>
+          <div class="fld"><label class="lbl">Enrolled date &amp; time <span class="ab">AUTO</span></label><input class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
+        </div></div></div>
+
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"/></svg> Sales caller self-audit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">Self evaluation</div><div class="g3">
           <div class="fld"><label class="lbl glbl">✓ Good</label><textarea class="area"></textarea></div>
@@ -850,41 +856,50 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div style="display:flex;gap:7px"><input class="input" id="ccQ" style="height:35px" placeholder="Try: 98412 or 99999 or Prasad"><button class="btn bsm bp" onclick="ccSearch()">Search</button></div><div id="ccRes" style="margin-top:8px"></div></div></div>
         <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> CLIENT DETAILS</div>
           <div class="sec-bd" style="padding:4px 14px 14px">
-            <div id="nwStepNav" class="pills" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">
-              <button type="button" class="pill on" data-step="1" onclick="window._nwStep(1)">1 · CLIENT DETAILS</button>
-              <button type="button" class="pill" data-step="2" onclick="window._nwStep(2)">2 · SERVICE SELECTED</button>
-              <button type="button" class="pill" data-step="3" onclick="window._nwStep(3)">3 · DATA PRIVACY CONSENT</button>
-              <button type="button" class="pill" data-step="4" onclick="window._nwStep(4)">4 · GENERAL DECLARATION</button>
+            <div id="nwStepNav" class="tabs" style="flex-wrap:wrap;max-width:100%;margin:2px 0 12px">
+              <button type="button" class="on" data-step="1" onclick="window._nwStep(1)">1 · CLIENT DETAILS</button>
+              <button type="button" data-step="2" onclick="window._nwStep(2)">2 · SERVICE SELECTED</button>
+              <button type="button" data-step="3" onclick="window._nwStep(3)">3 · DATA PRIVACY CONSENT</button>
+              <button type="button" data-step="4" onclick="window._nwStep(4)">4 · GENERAL DECLARATION</button>
             </div>
-            <div style="height:4px;background:var(--line);border-radius:3px;margin-bottom:12px;overflow:hidden"><div id="nwProgressBar" style="height:100%;width:25%;background:var(--brand);transition:width .2s"></div></div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+              <div style="flex:1;height:6px;background:var(--surface-2,#eef1ef);border-radius:4px;overflow:hidden"><div id="nwProgressBar" style="height:100%;width:25%;background:linear-gradient(90deg,#129468,var(--brand-600));transition:width .25s var(--ease)"></div></div>
+              <span id="nwProgressLbl" style="font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap">Step 1 of 4</span>
+            </div>
             <div class="nwStep" data-step="1">
-            <div class="g4" style="gap:8px">
-              <div class="fld"><label class="lbl">Client ID</label><input class="input mono" style="height:34px" id="nwClientId" readonly placeholder="auto"></div>
-              <div class="fld"><label class="lbl">Name *</label><input class="input" style="height:34px" id="nwName"></div>
-              <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:34px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
-              <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:34px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
-              <div class="fld"><label class="lbl">Email</label><input class="input" style="height:34px" id="nwEmail" type="email" placeholder="email@example.com"></div>
-              <div class="fld"><label class="lbl">Gender</label><select class="select" style="height:34px"><option>Male</option><option>Female</option><option>Other</option></select></div>
-              <div class="fld"><label class="lbl">Age</label><input class="input mono" style="height:34px" type="number" min="1" max="120" placeholder="42"></div>
-              <div class="fld"><label class="lbl">Occupation</label><select class="select" style="height:34px"><option>Business</option><option>Private Job</option><option>Govt</option><option>Homemaker</option><option>Others</option></select></div>
-              <div class="fld"><label class="lbl">Language</label><select class="select" style="height:34px"><option>Tamil</option><option>Telugu</option><option>Hindi</option></select></div>
-              <div class="fld"><label class="lbl">Lead source</label><select class="select" style="height:34px"><option selected>Direct Walk-in</option><option>Referral</option><option>Phone Enquiry</option></select></div>
-              <div class="fld"><label class="lbl">Location</label><select class="select" style="height:34px"><option>Poonamalle</option><option>Porur</option></select></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Address</label><input class="input" style="height:34px" placeholder="Street, area, city, ZIP"></div>
-            </div>
-            <div class="fld"><label class="lbl">Service(s)</label><div class="chips" id="nwSvc"><button class="chip-o on" data-svc="dia">🩺 Diabetes</button><button class="chip-o" data-svc="bt">🩸 Blood test</button><button class="chip-o" data-svc="physio">💪 Physio</button></div></div>
-            <div class="g4" style="gap:8px;margin-top:6px">
-              <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:34px" id="nwDate"></div>
-              <div class="fld"><label class="lbl">Time</label><select class="select" style="height:34px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
-              <div class="fld"><label class="lbl">Provider</label><select class="select" style="height:34px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
-              <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:34px">Check slot</button></div>
-            </div>
-            <div id="nwSlotRes" style="margin-top:6px"></div>
-            <div class="g3" style="gap:8px;margin-top:6px">
-              <div class="fld"><label class="lbl">Cost <span class="ab">Settings</span></label><input class="input mono" style="height:34px" id="nwCost" value="₹0 (free)" readonly></div>
-              <div class="fld"><label class="lbl">Coupon</label><div style="display:flex;gap:4px"><input class="input mono" style="height:34px" id="nwCoupon" placeholder="Code"><button class="btn bsm" style="height:34px" onclick="toast('Coupon applied · ₹200 off')">Apply</button></div></div>
-              <div class="fld"><label class="lbl">Net</label><input class="input mono" style="height:34px" value="₹0" readonly></div>
-            </div>
+              <div class="nwGrpHd">Personal details</div>
+              <div class="g4" style="gap:10px 12px">
+                <div class="fld"><label class="lbl">Client ID</label><input class="input mono" style="height:38px" id="nwClientId" readonly placeholder="auto"></div>
+                <div class="fld"><label class="lbl">Name *</label><input class="input" style="height:38px" id="nwName"></div>
+                <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:38px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
+                <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:38px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
+                <div class="fld"><label class="lbl">Email</label><input class="input" style="height:38px" id="nwEmail" type="email" placeholder="email@example.com"></div>
+                <div class="fld"><label class="lbl">Gender</label><select class="select" style="height:38px" id="nwGender"><option>Male</option><option>Female</option><option>Other</option></select></div>
+                <div class="fld"><label class="lbl">Age</label><input class="input mono" style="height:38px" id="nwAge" type="number" min="1" max="120" placeholder="42"></div>
+                <div class="fld"><label class="lbl">Occupation</label><select class="select" style="height:38px" id="nwOccupation"><option>Business</option><option>Private Job</option><option>Govt</option><option>Homemaker</option><option>Others</option></select></div>
+              </div>
+              <div class="nwGrpHd">Address &amp; source</div>
+              <div class="g4" style="gap:10px 12px">
+                <div class="fld"><label class="lbl">Language</label><select class="select" style="height:38px" id="nwLang"><option>Tamil</option><option>Telugu</option><option>Hindi</option></select></div>
+                <div class="fld"><label class="lbl">Lead source</label><select class="select" style="height:38px" id="nwSource"><option selected>Direct Walk-in</option><option>Referral</option><option>Phone Enquiry</option></select></div>
+                <div class="fld"><label class="lbl">Location</label><select class="select" style="height:38px" id="nwLocation"><option>Poonamalle</option><option>Porur</option></select></div>
+                <div class="fld"><label class="lbl">Address</label><input class="input" style="height:38px" id="nwAddress" placeholder="Street, area, city, ZIP"></div>
+              </div>
+              <div class="nwGrpHd">Service &amp; booking</div>
+              <div class="fld"><label class="lbl">Service(s)</label><div class="chips" id="nwSvc"><button class="chip-o on" data-svc="dia">🩺 Diabetes</button><button class="chip-o" data-svc="bt">🩸 Blood test</button><button class="chip-o" data-svc="physio">💪 Physio</button></div></div>
+              <div class="g4" style="gap:10px 12px;margin-top:10px">
+                <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:38px" id="nwDate"></div>
+                <div class="fld"><label class="lbl">Time</label><select class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
+                <div class="fld"><label class="lbl">Provider</label><select class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
+                <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
+              </div>
+              <div id="nwSlotRes" style="margin-top:8px"></div>
+              <div class="nwGrpHd">Payment</div>
+              <div class="g3" style="gap:10px 12px">
+                <div class="fld"><label class="lbl">Cost <span class="ab">Settings</span></label><input class="input mono" style="height:38px" id="nwCost" value="₹0 (free)" readonly></div>
+                <div class="fld"><label class="lbl">Coupon</label><div style="display:flex;gap:4px"><input class="input mono" style="height:38px" id="nwCoupon" placeholder="Code"><button class="btn bsm" style="height:38px" onclick="toast('Coupon applied · ₹200 off')">Apply</button></div></div>
+                <div class="fld"><label class="lbl">Net</label><input class="input mono" style="height:38px" value="₹0" readonly></div>
+              </div>
             </div>
             <div class="nwStep" data-step="2" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">Service Selected — fields to be added.</div></div>
             <div class="nwStep" data-step="3" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">Data Privacy Consent — fields to be added.</div></div>

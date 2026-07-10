@@ -1374,11 +1374,11 @@ export function initApp(root: HTMLElement) {
       try{
         const [pr,ar]=await Promise.all([
           supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
         _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,service:r.service||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
         // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null}));
       }catch(_){ /* columns/table may be absent — ignore */ }
     }
 
@@ -2290,13 +2290,14 @@ export function initApp(root: HTMLElement) {
       // 2) BACKGROUND reconcile with the DB (skip once we know the column is absent).
       if(_advProfileColMissing) return;
       try{
-        const {data,error}=await supabase.from("leads").select("advisor_profile,visited_at").eq("meta_lead_id",l.id).limit(1);
+        const {data,error}=await supabase.from("leads").select("advisor_profile,visited_at,call_status,enrolled_at").eq("meta_lead_id",l.id).limit(1);
         if(error){ if(/advisor_profile|column|exist|schema/i.test(error.message||"")) _advProfileColMissing=true; return; }
         const dbProf=data&&data[0]&&data[0].advisor_profile;
         if(dbProf){ l.advisorProfile=dbProf; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(dbProf); }
+        if(data&&data[0]&&data[0].enrolled_at) l.enrolledAt=data[0].enrolled_at;   // cache for the enrolled table
         // Visited status reflects leads.visited_at (reception check-in) — applied AFTER the
         // profile restore so it always wins over any stale saved pill state, and survives refresh.
-        if(String(_advLeadId)===String(l.id)) _advApplyVisited(data&&data[0]&&data[0].visited_at);
+        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(data&&data[0]&&data[0].visited_at); _advApplyEnrolled(data&&data[0]&&data[0].call_status, data&&data[0]&&data[0].enrolled_at); }
       }catch(_){/* network error — local copy already applied */}
     }
     function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
@@ -2600,6 +2601,15 @@ export function initApp(root: HTMLElement) {
         kpiEl.innerHTML=cards.join("");
       }
       if(_haActiveBucket) renderHaResults();
+    }
+    // Per-lead Enrolled status (advisor detail) — read-only, mirrors leads.call_status
+    // + enrolled_at. Set automatically when the coach marks the client Enrolled.
+    function _advApplyEnrolled(callStatus:any,enrolledAt:any){
+      const isE=/enrol/i.test(String(callStatus||""));
+      const cont=root.querySelector("#enrStatusPills");
+      if(cont){ cont.querySelectorAll(".pill").forEach((b:any,i:number)=>b.classList.toggle("on", i===(isE?1:0))); }
+      const ed=root.querySelector("#enrDt")as HTMLInputElement|null;
+      if(ed) ed.value=(isE&&enrolledAt)?fmtIST(enrolledAt):"";
     }
     function renderHaResults(){
       const wrap=root.querySelector("#haResultsWrap")as HTMLElement;
@@ -2986,7 +2996,7 @@ export function initApp(root: HTMLElement) {
         campaign:r.campaign||"—",adName:r.ad_name||"",sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
         service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
         adAccountName:r.ad_account_name||"",isValid:r.is_valid,isDuplicate:r.is_duplicate,
-        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||""};
+        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||null};
     }
     function liveRerenderAll(){
       _metaLeads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
@@ -3788,7 +3798,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       body.innerHTML = rows || '<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
@@ -3803,6 +3813,61 @@ export function initApp(root: HTMLElement) {
     w._recCall = async (leadId:string,phone:string) => {
       if(leadId){ const r=await _callInitiate(leadId); if(r&&r.ok){ toast("📞 Calling — your phone rings first, then the customer"); _pollRecordings(leadId,"reception"); return; } if(r&&r.error){ toastErr(r.error); return; } }
       toast("Calling "+(phone||"")+"…");
+    };
+    // ===== Invoice PDF — generated client-side (no backend/library) and auto-downloaded =====
+    // Builds a minimal, valid single-page PDF from ASCII text lines so it opens in any reader.
+    // Offsets are byte-accurate because the whole document is kept ASCII (string len === bytes).
+    function _buildInvoicePdf(lines:string[]):Blob{
+      const clean=(s:any)=>String(s==null?"":s).replace(/[^\x20-\x7E]/g,"?").replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)");
+      let y=800; const body=lines.map(l=>{ const seg="BT /F1 12 Tf 50 "+y+" Td ("+clean(l)+") Tj ET"; y-=20; return seg; }).join("\n");
+      const objs=[
+        "<</Type/Catalog/Pages 2 0 R>>",
+        "<</Type/Pages/Kids[3 0 R]/Count 1>>",
+        "<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>",
+        "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+        "<</Length "+body.length+">>\nstream\n"+body+"\nendstream"
+      ];
+      let pdf="%PDF-1.4\n"; const offs:number[]=[];
+      for(let i=0;i<objs.length;i++){ offs.push(pdf.length); pdf+=(i+1)+" 0 obj\n"+objs[i]+"\nendobj\n"; }
+      const xref=pdf.length;
+      pdf+="xref\n0 "+(objs.length+1)+"\n0000000000 65535 f \n";
+      offs.forEach(o=>{ pdf+=String(o).padStart(10,"0")+" 00000 n \n"; });
+      pdf+="trailer\n<</Size "+(objs.length+1)+"/Root 1 0 R>>\nstartxref\n"+xref+"\n%%EOF";
+      return new Blob([pdf],{type:"application/pdf"});
+    }
+    w._recDownloadInvoice=(id:any)=>{
+      try{
+        const r=_recAll.find((x:any)=>String(x.id)===String(id));
+        if(!r){ toastErr("Invoice data not found for this appointment"); return; }
+        const money=(n:any)=>"INR "+(parseInt(n)||0).toLocaleString("en-IN");
+        const lines=[
+          "WellnessOS  -  Tax Invoice",
+          "Chennai HQ",
+          "----------------------------------------",
+          "Invoice No : INV-"+String(id),
+          "Issued     : "+fmtIST(new Date().toISOString()),
+          "",
+          "Client     : "+(r.name||"-"),
+          "Client ID  : "+(r.clientId||"-"),
+          "Phone      : "+(r.ph||"-"),
+          "Service    : "+(r.svcLabel||r.svc||"-"),
+          "Provider   : "+(r.hc||"-"),
+          "Appt Date  : "+((r.date||"")+(r.time?", "+r.time:"")),
+          "----------------------------------------",
+          "Amount     : "+money(r.payAmt),
+          "Payment    : "+(r.payStatus==="paid"?"PAID":String(r.payStatus||"-").toUpperCase()),
+          "----------------------------------------",
+          "",
+          "Thank you for choosing WellnessOS."
+        ];
+        const blob=_buildInvoicePdf(lines);
+        if(!blob||!blob.size) throw new Error("empty PDF generated");
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a"); a.href=url; a.download="invoice_"+String(r.clientId||("INV-"+id)).replace(/[^A-Za-z0-9._-]/g,"_")+".pdf";
+        document.body.appendChild(a); a.click();
+        setTimeout(()=>{ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(_){} }, 1500);
+        toast("✓ Invoice PDF downloaded");
+      }catch(e:any){ toastErr("Invoice download failed: "+((e&&e.message)||"could not generate PDF")); }
     };
     w._svcF2 = (s:string) => { curSvc=s; curScFilter=null; renderFilters(); renderAll(); };
     w._svcF = (s:string) => { curSvc=s; curScFilter=null; renderFilters(); renderAll(); };
@@ -3865,8 +3930,9 @@ export function initApp(root: HTMLElement) {
     function _nwStep(n:number){
       const panel=root.querySelector("#nwPanel"); if(!panel) return;
       panel.querySelectorAll(".nwStep").forEach((s:any)=>{ s.style.display=(String(s.getAttribute("data-step"))===String(n))?"":"none"; });
-      panel.querySelectorAll("#nwStepNav .pill").forEach((b:any)=>{ b.classList.toggle("on",String(b.getAttribute("data-step"))===String(n)); });
+      panel.querySelectorAll("#nwStepNav button").forEach((b:any)=>{ b.classList.toggle("on",String(b.getAttribute("data-step"))===String(n)); });
       const bar=root.querySelector("#nwProgressBar")as HTMLElement|null; if(bar) bar.style.width=(n*25)+"%";
+      const lbl=root.querySelector("#nwProgressLbl"); if(lbl) lbl.textContent="Step "+n+" of 4";
     }
     w._nwStep=(n:number)=>_nwStep(n);
     // Next Client ID: WC + 2-digit year + 4-digit running number (per year), e.g. WC260001.
@@ -3909,7 +3975,7 @@ export function initApp(root: HTMLElement) {
       const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
       const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
       const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
-      const langSel=root.querySelector("#nwPanel .select") as HTMLSelectElement|null; let langParts:NodeListOf<HTMLSelectElement>|null=null; try{ langParts=root.querySelectorAll("#nwPanel select.select") as NodeListOf<HTMLSelectElement>; }catch(_){} const langVal=langParts&&langParts.length>=2?langParts[1].value:"Tamil";
+      const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";   // read the Language field by id (robust to layout changes)
       try{
         await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
@@ -5018,9 +5084,9 @@ export function initApp(root: HTMLElement) {
     }
     async function loadCoachClients(){
       try{
-        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
         if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
-          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
+          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
         }
         if(res.error) throw res.error;
         const data=res.data;
@@ -5035,7 +5101,17 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open"};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||""};
+        });
+        // Reconcile historical enrollments: a client marked Enrolled on the coach side whose
+        // lead.call_status hasn't caught up → sync it (DB + memory) so the Advisor dashboard,
+        // Enrolled card and Enrolled-clients table reflect it without needing a re-save.
+        _coachClients.filter((c:any)=>/enrol/i.test(c.consStatus||"")&&c.callStatus!=="Enrolled").forEach((c:any)=>{
+          const cid=String(c.id); c.callStatus="Enrolled";
+          const enrIso=c.visitedAt||new Date().toISOString();   // best-effort enrollment time for historical rows
+          supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",cid).then(()=>{});
+          const setE=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===cid){ l.callStatus="Enrolled"; if(!l.enrolledAt) l.enrolledAt=enrIso; } });
+          setE(_metaLeads); setE(_assignedExtras);
         });
       }catch(_){ _coachClients=[]; }
       _coachPopulateFilters();
@@ -5317,6 +5393,21 @@ export function initApp(root: HTMLElement) {
         }
         await _persistInstallments(id);   // store installment payments (if the 2× method is active)
         await _persistZoomRecording(id);  // store the Zoom/online recording link (if entered)
+        // Propagate an ENROLLED consultation status to the lead's call_status so the
+        // Advisor dashboard "Enrolled" card + Enrolled-clients table stay in sync and it
+        // survives a refresh (persisted in the DB, read back via leads.call_status).
+        if(/enrol/i.test((obj&&obj.consStatus)||"")){
+          // New enrollment (wasn't Enrolled before) → stamp enrolled_at now; keep it stable on re-saves.
+          const already=[..._metaLeads,..._assignedExtras].some((l:any)=>String(l.id)===id&&l.callStatus==="Enrolled");
+          const enrIso=new Date().toISOString();
+          const upd:any={call_status:"Enrolled"}; if(!already) upd.enrolled_at=enrIso;
+          try{ await supabase.from("leads").update(upd).eq("meta_lead_id",id); }catch(_){}
+          const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ l.callStatus="Enrolled"; if(!already) l.enrolledAt=enrIso; } });
+          setEnrolled(_metaLeads); setEnrolled(_assignedExtras);
+          if(!already){ logActivity(id,[{action:"Enrolled",field:"Enrolled at",new:fmtIST(enrIso)}]); }
+          try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
+          try{ if(String(_advLeadId)===id&&!already) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
+        }
         try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
         toast("Health record saved");
         logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);

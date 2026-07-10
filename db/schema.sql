@@ -315,3 +315,8 @@ ALTER TABLE leads        ADD COLUMN IF NOT EXISTS client_id TEXT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS client_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_leads_client_id        ON leads(client_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_client_id ON appointments(client_id);
+
+-- 16. Enrollment timestamp — set automatically when a lead is marked Enrolled
+-- (Health Coach → propagated to call_status='Enrolled'). Drives the Advisor page's
+-- Enrolled status + "Enrolled Date & Time" and survives refresh.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS enrolled_at TIMESTAMPTZ;

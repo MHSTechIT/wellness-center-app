@@ -77,6 +77,7 @@ async function getLeads(_req: Request, res: Response) {
         assignedTo: r.assigned_to || '',
         assignedAt: r.assigned_at || null,
         callStatus: r.call_status || '',
+        enrolledAt: r.enrolled_at || null,
       };
     });
 

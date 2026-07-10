@@ -111,6 +111,9 @@ h1,h2,h3{margin:0}
 .tabs button{border:0;background:none;padding:8px 15px;font-size:12.5px;font-weight:600;color:var(--muted);border-radius:9px;transition:all .2s var(--ease)}
 .tabs button:hover{color:var(--ink);background:var(--surface-2)}
 .tabs button.on{color:#fff;background:linear-gradient(135deg,#129468,var(--brand-600));box-shadow:0 3px 12px rgba(14,124,92,.35),inset 0 1px 0 rgba(255,255,255,.18)}
+/* Wizard section sub-heading (New walk-in → Client Details) */
+.nwGrpHd{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--brand);margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+.nwStep>.nwGrpHd:first-child{margin-top:2px}
 
 /* ---------- Section cards ---------- */
 .sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh);margin-top:16px;overflow:hidden;transition:box-shadow .25s var(--ease),border-color .25s var(--ease);animation:fadeUp .4s var(--ease) backwards}
