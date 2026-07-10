@@ -848,9 +848,18 @@ export function getMainContent(): string {
       <div>
         <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-user"/></svg> Client cross-check <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div style="display:flex;gap:7px"><input class="input" id="ccQ" style="height:35px" placeholder="Try: 98412 or 99999 or Prasad"><button class="btn bsm bp" onclick="ccSearch()">Search</button></div><div id="ccRes" style="margin-top:8px"></div></div></div>
-        <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> New walk-in — registration + booking</div>
+        <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> CLIENT DETAILS</div>
           <div class="sec-bd" style="padding:4px 14px 14px">
+            <div id="nwStepNav" class="pills" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">
+              <button type="button" class="pill on" data-step="1" onclick="window._nwStep(1)">1 · CLIENT DETAILS</button>
+              <button type="button" class="pill" data-step="2" onclick="window._nwStep(2)">2 · SERVICE SELECTED</button>
+              <button type="button" class="pill" data-step="3" onclick="window._nwStep(3)">3 · DATA PRIVACY CONSENT</button>
+              <button type="button" class="pill" data-step="4" onclick="window._nwStep(4)">4 · GENERAL DECLARATION</button>
+            </div>
+            <div style="height:4px;background:var(--line);border-radius:3px;margin-bottom:12px;overflow:hidden"><div id="nwProgressBar" style="height:100%;width:25%;background:var(--brand);transition:width .2s"></div></div>
+            <div class="nwStep" data-step="1">
             <div class="g4" style="gap:8px">
+              <div class="fld"><label class="lbl">Client ID</label><input class="input mono" style="height:34px" id="nwClientId" readonly placeholder="auto"></div>
               <div class="fld"><label class="lbl">Name *</label><input class="input" style="height:34px" id="nwName"></div>
               <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:34px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
               <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:34px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
@@ -876,6 +885,10 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Coupon</label><div style="display:flex;gap:4px"><input class="input mono" style="height:34px" id="nwCoupon" placeholder="Code"><button class="btn bsm" style="height:34px" onclick="toast('Coupon applied · ₹200 off')">Apply</button></div></div>
               <div class="fld"><label class="lbl">Net</label><input class="input mono" style="height:34px" value="₹0" readonly></div>
             </div>
+            </div>
+            <div class="nwStep" data-step="2" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">Service Selected — fields to be added.</div></div>
+            <div class="nwStep" data-step="3" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">Data Privacy Consent — fields to be added.</div></div>
+            <div class="nwStep" data-step="4" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">General Declaration — fields to be added.</div></div>
             <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bp" style="height:38px" onclick="nwBook()">Create, book &amp; check-in</button><button class="btn" style="height:38px" onclick="nwToggle()">Cancel</button></div>
           </div></div>
       </div>
@@ -883,7 +896,7 @@ export function getMainContent(): string {
         <div class="sec" style="margin-top:0" id="checkinSec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Check-in <span id="ciName">—</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="g2" style="gap:8px">
-              <div class="fld"><label class="lbl">Search</label><input class="input" style="height:34px" id="ciSearch" placeholder="Phone or name" oninput="window._ciLookup()"></div>
+              <div class="fld"><label class="lbl">Search</label><input class="input" style="height:34px" id="ciSearch" placeholder="Client ID, name or phone" oninput="window._ciLookup()"></div>
               <div class="fld"><label class="lbl">Dedup</label><input class="input" style="height:34px" id="ciDedup" readonly></div>
               <div class="fld"><label class="lbl">Visited <span class="ab">AUTO</span></label><input class="input mono" style="height:34px" id="rcVis" readonly></div>
               <div class="fld"><label class="lbl">Registered <span class="ab">AUTO</span></label><input class="input mono" style="height:34px" id="rcReg" readonly></div>

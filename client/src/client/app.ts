@@ -3653,7 +3653,9 @@ export function initApp(root: HTMLElement) {
     let _recAll: any[] = [];   // all loaded appointments
     function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
     function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
-    function _recFmtDate(d:string){ if(!d)return ""; try{ return new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short"}).format(new Date(d+"T12:00:00")); }catch(_){ return d; } }
+    // IST date, robust to both 'YYYY-MM-DD' and full-ISO timestamps (the /db gateway
+    // returns DATE columns as UTC ISO). Format: DD MMM YYYY (e.g. 06 Jul 2026).
+    function _recFmtDate(d:string){ return fmtISTDate(d); }
     async function loadReceptionData(){
       try{
         const [ar,pr]=await Promise.all([
@@ -3663,7 +3665,7 @@ export function initApp(root: HTMLElement) {
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
         _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":(a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free"),amount:0}; return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
-          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"",
+          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
           payStatus:pay.status, payAmt:pay.amount||0, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:"" };
         });
@@ -3757,13 +3759,13 @@ export function initApp(root: HTMLElement) {
     // Excel-style per-column filters for the Appointments table (shared grid engine).
     // AND-combined with the existing service/date pill filters via filtered().
     const _apptCols=[
-      {key:"dt",label:"Date · time",filter:true,text:(r:any)=>r.date+" "+r.time,thStyle:"min-width:68px"},
+      {key:"dt",label:"Date · time",filter:true,text:(r:any)=>r.date+(r.time?", "+r.time:""),thStyle:"min-width:150px"},
       {key:"client",label:"Client",filter:true,text:(r:any)=>r.name||"",thStyle:"min-width:120px"},
       {key:"phone",label:"Phone",filter:true,text:(r:any)=>r.ph||"",thStyle:"min-width:110px"},
       {key:"svc",label:"Service",filter:true,text:(r:any)=>r.svcLabel||"",thStyle:"min-width:110px"},
       {key:"hc",label:"HC / PT",filter:true,text:(r:any)=>r.hc||"",thStyle:"min-width:90px"},
       {key:"status",label:"Status",filter:true,text:(r:any)=>(STATUS_MAP[r.status]||{l:r.status}).l,thStyle:"min-width:100px"},
-      {key:"visited",label:"Visited at",filter:true,text:(r:any)=>r.visitedAt||"—",thStyle:"min-width:65px"},
+      {key:"visited",label:"Visited at",filter:true,text:(r:any)=>r.visitedAt?fmtIST(r.visitedAt):"—",thStyle:"min-width:150px"},
       {key:"pay",label:"Pay",filter:true,text:(r:any)=>(PAY_MAP[r.payStatus]||{l:"—"}).l,thStyle:"min-width:90px"},
       {key:"amount",label:"Amount",filter:true,text:(r:any)=>r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—",thStyle:"min-width:70px"},
       {key:"inv",label:"Inv",filter:false,head:'<th style="min-width:50px">Inv</th>'},
@@ -3786,7 +3788,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+' '+r.time+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt||"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" onclick="event.stopPropagation();window._toast(\'Invoice PDF downloading\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       body.innerHTML = rows || '<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
@@ -3857,7 +3859,28 @@ export function initApp(root: HTMLElement) {
     }
     w.ccSearch = ccSearch;
 
-    function nwToggle() { const p=root.querySelector("#nwPanel")as HTMLElement; if(p){p.style.display=p.style.display==="none"?"block":"none"; if(p.style.display==="block"){p.scrollIntoView({behavior:"smooth"}); const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=new Date().toISOString().substring(0,10);}} }
+    function nwToggle() { const p=root.querySelector("#nwPanel")as HTMLElement; if(p){p.style.display=p.style.display==="none"?"block":"none"; if(p.style.display==="block"){p.scrollIntoView({behavior:"smooth"}); const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=new Date().toISOString().substring(0,10); _nwStep(1); _nwFillClientId();}} }
+    // ===== New-walk-in wizard: step nav + auto Client ID (WCyyNNNN, shared across services) =====
+    // Show/hide keeps every field mounted, so switching steps never loses entered data.
+    function _nwStep(n:number){
+      const panel=root.querySelector("#nwPanel"); if(!panel) return;
+      panel.querySelectorAll(".nwStep").forEach((s:any)=>{ s.style.display=(String(s.getAttribute("data-step"))===String(n))?"":"none"; });
+      panel.querySelectorAll("#nwStepNav .pill").forEach((b:any)=>{ b.classList.toggle("on",String(b.getAttribute("data-step"))===String(n)); });
+      const bar=root.querySelector("#nwProgressBar")as HTMLElement|null; if(bar) bar.style.width=(n*25)+"%";
+    }
+    w._nwStep=(n:number)=>_nwStep(n);
+    // Next Client ID: WC + 2-digit year + 4-digit running number (per year), e.g. WC260001.
+    async function _genClientId():Promise<string>{
+      const yy=String(new Date().getFullYear()).slice(-2); const prefix="WC"+yy;
+      let maxN=0;
+      try{ const {data}=await supabase.from("leads").select("client_id").ilike("client_id",prefix+"%").limit(100000);
+        (data||[]).forEach((r:any)=>{ const m=String(r.client_id||"").match(/(\d{4})$/); if(m){ const n=parseInt(m[1],10); if(n>maxN)maxN=n; } });
+      }catch(_){}
+      return prefix+String(maxN+1).padStart(4,"0");
+    }
+    // True when no client already holds this Client ID (dedup guard before create).
+    async function _cidFree(cid:string):Promise<boolean>{ try{ const {data}=await supabase.from("leads").select("client_id").eq("client_id",cid).limit(1); return !(data&&data.length); }catch(_){ return true; } }
+    async function _nwFillClientId(){ const el=root.querySelector("#nwClientId")as HTMLInputElement|null; if(!el) return; el.value="…"; try{ el.value=await _genClientId(); }catch(_){ el.value=""; } }
     w.nwToggle = nwToggle;
     function nwCheckSlot() {
       const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value;
@@ -3879,14 +3902,19 @@ export function initApp(root: HTMLElement) {
       const email=((root.querySelector("#nwEmail")as HTMLInputElement)?.value||"").trim();
       if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); return; }
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
+      // Client ID: use the one shown on the form; re-verify it's unique right before
+      // creating (avoids duplicate registrations), regenerating on collision/empty.
+      let clientId=((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"").trim();
+      if(!/^WC\d{6}$/.test(clientId) || !(await _cidFree(clientId))){ clientId=await _genClientId(); let g=0; while(!(await _cidFree(clientId))&&g++<5) clientId=await _genClientId(); }
+      const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
       const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
       const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
       const langSel=root.querySelector("#nwPanel .select") as HTMLSelectElement|null; let langParts:NodeListOf<HTMLSelectElement>|null=null; try{ langParts=root.querySelectorAll("#nwPanel select.select") as NodeListOf<HTMLSelectElement>; }catch(_){} const langVal=langParts&&langParts.length>=2?langParts[1].value:"Tamil";
       try{
-        await supabase.from("leads").insert({meta_lead_id:leadId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
+        await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
       try{
-        await supabase.from("appointments").insert({lead_id:leadId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
+        await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       nwToggle(); await loadReceptionData();
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
@@ -3942,7 +3970,7 @@ export function initApp(root: HTMLElement) {
       const nameEl=root.querySelector("#ciName"); const dd=root.querySelector("#ciDedup")as HTMLInputElement|null;
       if(!q){ _ciMatch=null; if(nameEl)nameEl.textContent="—"; if(dd)dd.value=""; return; }
       const ql=q.toLowerCase(); const digits=q.replace(/\D/g,"");
-      const matches=_recAll.filter((r:any)=>{ const ph=(r.ph||"").replace(/\D/g,""); return (digits.length>=4 && ph.indexOf(digits)>=0) || (r.name||"").toLowerCase().indexOf(ql)>=0; });
+      const matches=_recAll.filter((r:any)=>{ const ph=(r.ph||"").replace(/\D/g,""); const cid=(r.clientId||"").toLowerCase(); return (digits.length>=4 && ph.indexOf(digits)>=0) || (r.name||"").toLowerCase().indexOf(ql)>=0 || (cid!==""&&cid.indexOf(ql)>=0); });
       const pick=matches.find((r:any)=>r.status!=="visited")||matches[0]||null;
       _ciMatch=pick;
       if(nameEl) nameEl.textContent=pick?pick.name:"No match";
@@ -4712,7 +4740,11 @@ export function initApp(root: HTMLElement) {
     w._ovrToggle=async()=>{
       if(_ovrRec&&_ovrRec.state==="recording"){ w._ovrStop(); return; }
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
-      if(!navigator.mediaDevices||!(window as any).MediaRecorder){ toastErr("Audio recording not supported in this browser"); return; }
+      // Browsers only expose the microphone (getUserMedia/MediaRecorder) on a SECURE
+      // context — HTTPS or localhost. On a plain http:// deployment navigator.mediaDevices
+      // is undefined, so surface the real cause instead of a generic "not supported".
+      if(!window.isSecureContext){ toastErr("Audio recording needs a secure (HTTPS) connection — it is blocked on this http:// address. Open the app over https:// to record."); return; }
+      if(!navigator.mediaDevices||!(window as any).MediaRecorder){ toastErr("Audio recording is not supported in this browser"); return; }
       let stream:MediaStream;
       try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
       catch(e:any){ toastErr("Microphone permission denied"); return; }

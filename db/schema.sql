@@ -307,3 +307,11 @@ CREATE INDEX IF NOT EXISTS idx_zoom_recordings_lead ON zoom_recordings(lead_id, 
 -- 14. Appointment meeting metadata (Zoom vs walk-in check-in) -
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS meeting_type TEXT;   -- 'zoom' | 'direct'
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS meeting_link TEXT;
+
+-- 15. Client ID (WCyyNNNN) — one ID per client, shared across ALL services,
+-- generated at reception walk-in registration. Stored on both the client (leads)
+-- and each appointment so the check-in search can match by Client ID.
+ALTER TABLE leads        ADD COLUMN IF NOT EXISTS client_id TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS client_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_leads_client_id        ON leads(client_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_client_id ON appointments(client_id);
