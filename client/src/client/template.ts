@@ -854,13 +854,13 @@ export function getMainContent(): string {
       <div>
         <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-user"/></svg> Client cross-check <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div style="display:flex;gap:7px"><input class="input" id="ccQ" style="height:35px" placeholder="Try: 98412 or 99999 or Prasad"><button class="btn bsm bp" onclick="ccSearch()">Search</button></div><div id="ccRes" style="margin-top:8px"></div></div></div>
-        <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> CLIENT DETAILS</div>
+        <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> CLIENT REGISTRATION FORM</div>
           <div class="sec-bd" style="padding:4px 14px 14px">
-            <div id="nwStepNav" class="tabs" style="flex-wrap:wrap;max-width:100%;margin:2px 0 12px">
-              <button type="button" class="on" data-step="1" onclick="window._nwStep(1)">1 · CLIENT DETAILS</button>
-              <button type="button" data-step="2" onclick="window._nwStep(2)">2 · SERVICE SELECTED</button>
-              <button type="button" data-step="3" onclick="window._nwStep(3)">3 · DATA PRIVACY CONSENT</button>
-              <button type="button" data-step="4" onclick="window._nwStep(4)">4 · GENERAL DECLARATION</button>
+            <div id="nwStepNav" class="tabs" style="flex-wrap:nowrap;width:100%;overflow-x:auto;gap:6px;margin:2px 0 12px">
+              <button type="button" class="on" data-step="1" onclick="window._nwStep(1)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">1 · Client Details</button>
+              <button type="button" data-step="2" onclick="window._nwStep(2)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">2 · Service Selected</button>
+              <button type="button" data-step="3" onclick="window._nwStep(3)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">3 · Data Privacy Consent</button>
+              <button type="button" data-step="4" onclick="window._nwStep(4)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">4 · General Declaration</button>
             </div>
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
               <div style="flex:1;height:6px;background:var(--surface-2,#eef1ef);border-radius:4px;overflow:hidden"><div id="nwProgressBar" style="height:100%;width:25%;background:linear-gradient(90deg,#129468,var(--brand-600));transition:width .25s var(--ease)"></div></div>
@@ -901,10 +901,62 @@ export function getMainContent(): string {
                 <div class="fld"><label class="lbl">Net</label><input class="input mono" style="height:38px" value="₹0" readonly></div>
               </div>
             </div>
-            <div class="nwStep" data-step="2" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">Service Selected — fields to be added.</div></div>
-            <div class="nwStep" data-step="3" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">Data Privacy Consent — fields to be added.</div></div>
-            <div class="nwStep" data-step="4" style="display:none"><div style="text-align:center;color:var(--faint);padding:30px;font-size:13px">General Declaration — fields to be added.</div></div>
-            <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bp" style="height:38px" onclick="nwBook()">Create, book &amp; check-in</button><button class="btn" style="height:38px" onclick="nwToggle()">Cancel</button></div>
+            <div class="nwStep" data-step="2" style="display:none">
+              <div class="nwGrpHd">Service selected today</div>
+              <div style="font-size:12px;color:var(--muted);margin:-2px 0 10px">Please tick all the services the client is visiting for today.</div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">
+                <label class="nwChk"><input type="checkbox" data-svc2="Diabetes Counselling"> Diabetes Counselling</label>
+                <label class="nwChk"><input type="checkbox" data-svc2="Weight Loss Counselling"> Weight Loss Counselling</label>
+                <label class="nwChk"><input type="checkbox" data-svc2="Sauna Bath"> Sauna Bath</label>
+                <label class="nwChk"><input type="checkbox" data-svc2="Cold Plunge"> Cold Plunge</label>
+                <label class="nwChk"><input type="checkbox" data-svc2="Physiotherapy"> Physiotherapy</label>
+                <label class="nwChk"><input type="checkbox" data-svc2="Blood Test"> Blood Test</label>
+                <label class="nwChk"><input type="checkbox" data-svc2="HBOT (Hyperbaric Oxygen Therapy)"> HBOT (Hyperbaric Oxygen Therapy)</label>
+              </div>
+              <div class="nwGrpHd">How did you hear about us?</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px 10px">
+                <label class="nwChk"><input type="checkbox" data-hear="Doctor"> Doctor</label>
+                <label class="nwChk"><input type="checkbox" data-hear="Friend"> Friend</label>
+                <label class="nwChk"><input type="checkbox" data-hear="Social Media"> Social Media</label>
+                <label class="nwChk"><input type="checkbox" data-hear="Google"> Google</label>
+                <label class="nwChk"><input type="checkbox" data-hear="Website"> Website</label>
+                <label class="nwChk"><input type="checkbox" data-hear="MHS"> MHS</label>
+                <label class="nwChk"><input type="checkbox" data-hear="Walk-in"> Walk-in</label>
+              </div>
+            </div>
+            <div class="nwStep" data-step="3" style="display:none">
+              <div class="nwGrpHd">Data privacy consent (DPDP Act 2023)</div>
+              <div style="font-size:12.5px;line-height:1.65;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">Longer Life Wellness Centre collects your personal and health data solely to provide personalised wellness services. Your data will be stored securely, will not be sold to any third party, and will only be shared within your treating team internally. You may request data withdrawal at any time in writing.</div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div class="nwConsentRow">
+                  <span class="nwConsentTxt">I consent to my health data being collected and stored for service delivery</span>
+                  <div class="nwYN">
+                    <label class="nwChk yn-yes"><input type="radio" name="nwConsent1" data-consent="health" value="Yes"> Yes</label>
+                    <label class="nwChk yn-no"><input type="radio" name="nwConsent1" data-consent="health" value="No"> No</label>
+                  </div>
+                </div>
+                <div class="nwConsentRow">
+                  <span class="nwConsentTxt">I consent to receiving wellness updates via WhatsApp / SMS / Email</span>
+                  <div class="nwYN">
+                    <label class="nwChk yn-yes"><input type="radio" name="nwConsent2" data-consent="updates" value="Yes"> Yes</label>
+                    <label class="nwChk yn-no"><input type="radio" name="nwConsent2" data-consent="updates" value="No"> No</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="nwStep" data-step="4" style="display:none">
+              <div class="nwGrpHd">General declaration</div>
+              <div style="font-size:12.5px;line-height:1.65;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px">I declare that all information provided above is true and accurate. I understand that withholding medical information may compromise my safety and the quality of services provided at Longer Life Wellness Centre.</div>
+              <div class="g3" style="gap:10px 12px">
+                <div class="fld"><label class="lbl">Client signature</label><input class="input" style="height:38px" id="nwSign" placeholder="Client name / signature"></div>
+                <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:38px" id="nwDeclDate"></div>
+                <div class="fld"><label class="lbl">Staff received by</label><input class="input" style="height:38px" id="nwStaffRecv" placeholder="Staff name"></div>
+              </div>
+              <div style="background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 14px;margin-top:10px;font-size:11.5px;color:var(--muted)"><b style="color:var(--ink)">For office use only</b> &nbsp;·&nbsp; Client ID: <span class="mono" id="nwOfficeCid">—</span> &nbsp;·&nbsp; Registration date: <span class="mono" id="nwOfficeRegDate">—</span> &nbsp;·&nbsp; Assigned counsellor: <span class="mono" id="nwOfficeCouns">—</span></div>
+              <div class="nwGrpHd">Service consent forms</div>
+              <div id="nwConsentForms"></div>
+            </div>
+            <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bp" style="height:38px" id="nwPrimaryBtn" onclick="window._nwPrimary()">Save &amp; Next Page</button><button class="btn" style="height:38px" onclick="nwToggle()">Cancel</button></div>
           </div></div>
       </div>
       <div>

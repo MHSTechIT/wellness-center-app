@@ -3929,17 +3929,159 @@ export function initApp(root: HTMLElement) {
     }
     w.ccSearch = ccSearch;
 
-    function nwToggle() { const p=root.querySelector("#nwPanel")as HTMLElement; if(p){p.style.display=p.style.display==="none"?"block":"none"; if(p.style.display==="block"){p.scrollIntoView({behavior:"smooth"}); const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=new Date().toISOString().substring(0,10); _nwStep(1); _nwFillClientId();}} }
-    // ===== New-walk-in wizard: step nav + auto Client ID (WCyyNNNN, shared across services) =====
+    // ===== New-walk-in wizard: 4-step nav, Save & Next, draft auto-save, auto Client ID =====
+    let _nwStepN=1; let _nwSaveT:any=null;
+    const _NW_DRAFT_KEY="wos_nw_draft";
+    function nwToggle() {
+      const p=root.querySelector("#nwPanel")as HTMLElement; if(!p) return;
+      p.style.display=p.style.display==="none"?"block":"none";
+      if(p.style.display!=="block") return;
+      p.scrollIntoView({behavior:"smooth"});
+      const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=new Date().toISOString().substring(0,10);
+      // Resume a saved draft (survives refresh/reopen) from its last step; else start fresh.
+      let draft:any=null; try{ const s=localStorage.getItem(_NW_DRAFT_KEY); draft=s?JSON.parse(s):null; }catch(_){}
+      if(draft){ _nwRestoreDraft(draft); _nwStep(Math.min(4,Math.max(1,Number(draft._step)||1))); if(!((root.querySelector("#nwClientId")as HTMLInputElement)?.value)) _nwFillClientId(); toast("Draft restored — resuming step "+(Number(draft._step)||1)); }
+      else{ _nwStep(1); _nwFillClientId(); }
+    }
     // Show/hide keeps every field mounted, so switching steps never loses entered data.
     function _nwStep(n:number){
+      _nwStepN=n;
       const panel=root.querySelector("#nwPanel"); if(!panel) return;
       panel.querySelectorAll(".nwStep").forEach((s:any)=>{ s.style.display=(String(s.getAttribute("data-step"))===String(n))?"":"none"; });
       panel.querySelectorAll("#nwStepNav button").forEach((b:any)=>{ b.classList.toggle("on",String(b.getAttribute("data-step"))===String(n)); });
       const bar=root.querySelector("#nwProgressBar")as HTMLElement|null; if(bar) bar.style.width=(n*25)+"%";
       const lbl=root.querySelector("#nwProgressLbl"); if(lbl) lbl.textContent="Step "+n+" of 4";
+      const pb=root.querySelector("#nwPrimaryBtn"); if(pb) pb.textContent=(n<4)?"Save & Next Page":"✓ Complete Registration";
+      if(n===4){ try{ _nwRenderConsents(); }catch(_){} }   // build consent forms for the services picked in step 2
     }
     w._nwStep=(n:number)=>_nwStep(n);
+    // ---- Draft persistence: entered data survives refresh / reopen, resumes at last step ----
+    function _nwCollectDraft(){
+      const panel=root.querySelector("#nwPanel"); if(!panel) return null;
+      const v:Record<string,any>={_step:_nwStepN};
+      panel.querySelectorAll("input[id^='nw'],select[id^='nw'],textarea[id^='nw']").forEach((el:any)=>{ if(el.type!=="checkbox"&&el.type!=="radio"&&el.id) v[el.id]=el.value; });
+      v._svc1=Array.from(panel.querySelectorAll("#nwSvc .chip-o.on")).map((c:any)=>c.getAttribute("data-svc"));
+      v._svc2=Array.from(panel.querySelectorAll("input[data-svc2]:checked")).map((i:any)=>i.getAttribute("data-svc2"));
+      v._hear=Array.from(panel.querySelectorAll("input[data-hear]:checked")).map((i:any)=>i.getAttribute("data-hear"));
+      v._c1=(panel.querySelector('input[name="nwConsent1"]:checked')as HTMLInputElement)?.value||"";
+      v._c2=(panel.querySelector('input[name="nwConsent2"]:checked')as HTMLInputElement)?.value||"";
+      return v;
+    }
+    function _nwRestoreDraft(v:any){
+      const panel=root.querySelector("#nwPanel"); if(!panel||!v) return;
+      Object.keys(v).forEach(k=>{ if(k[0]==="_")return; const el=panel.querySelector("#"+k)as any; if(el&&"value"in el) el.value=v[k]; });
+      panel.querySelectorAll("#nwSvc .chip-o").forEach((c:any)=>c.classList.toggle("on",(v._svc1||[]).indexOf(c.getAttribute("data-svc"))>=0));
+      panel.querySelectorAll("input[data-svc2]").forEach((i:any)=>i.checked=(v._svc2||[]).indexOf(i.getAttribute("data-svc2"))>=0);
+      panel.querySelectorAll("input[data-hear]").forEach((i:any)=>i.checked=(v._hear||[]).indexOf(i.getAttribute("data-hear"))>=0);
+      const setR=(name:string,val:string)=>{ if(!val)return; const r=panel.querySelector('input[name="'+name+'"][value="'+val+'"]')as HTMLInputElement|null; if(r)r.checked=true; };
+      setR("nwConsent1",v._c1); setR("nwConsent2",v._c2);
+    }
+    function _nwSaveDraft(silent?:boolean){
+      const p=root.querySelector("#nwPanel")as HTMLElement|null; if(!p||p.style.display==="none") return;
+      try{ const d=_nwCollectDraft(); if(d) localStorage.setItem(_NW_DRAFT_KEY,JSON.stringify(d)); }catch(_){}
+      if(!silent) toast("Draft saved successfully");
+    }
+    function _nwClearDraft(){ if(_nwSaveT)clearTimeout(_nwSaveT); try{ localStorage.removeItem(_NW_DRAFT_KEY); }catch(_){} }
+    w._nwClearDraft=_nwClearDraft;
+    // Primary button: Save & Next (steps 1-3) → Complete Registration (step 4 = create/book/check-in).
+    w._nwPrimary=()=>{ if(_nwStepN<4){ _nwStep(_nwStepN+1); _nwSaveDraft(); } else { nwBook(); } };
+    // Silent auto-save on any change while the form is open, so a refresh mid-step keeps data.
+    { const panel=root.querySelector("#nwPanel");
+      const auto=()=>{ const p=root.querySelector("#nwPanel")as HTMLElement|null; if(!p||p.style.display==="none")return; if(_nwSaveT)clearTimeout(_nwSaveT); _nwSaveT=setTimeout(()=>_nwSaveDraft(true),500); };
+      if(panel){ panel.addEventListener("input",auto); panel.addEventListener("change",auto); }
+    }
+    // Service → consent-form map. General Declaration (step 4) renders the matching
+    // form(s) for whatever services are ticked on step 2 (Service Selected). Content for
+    // Physio / Blood Test / HBOT is pending — shown as a placeholder until provided.
+    const _NW_CONSENTS:Record<string,any>={
+      "Diabetes Counselling":{n:1,title:"Diabetes Counselling",items:[
+        "This is a nutritional and lifestyle counselling service by a qualified Nutritionist/Dietitian — NOT a medical consultation or prescription.",
+        "I will continue all medications under my physician's supervision and will NOT alter doses without my doctor's advice.",
+        "I understand that lifestyle-based diabetes reversal outcomes vary individually and no specific result is guaranteed.",
+        "I understand this session may include a recommendation to join the My Health School online program.",
+        "I am under no obligation to enrol in any program and my data will not be shared without my consent.",
+        "I understand that dietary and lifestyle changes may affect my blood glucose levels and I will monitor and report changes to my physician."]},
+      "Weight Loss Counselling":{n:2,title:"Weight Loss Counselling",items:[
+        "This is a nutritional and lifestyle counselling service by a qualified Nutritionist/Dietitian — NOT a medical consultation or prescription.",
+        "Evidence-based weight loss is 0.5–1 kg per week. I understand that rapid results are neither safe nor sustainable.",
+        "Outcomes depend on individual compliance, metabolism, and lifestyle factors — no specific result is guaranteed.",
+        "I understand this session may include a recommendation to join the My Health School online program.",
+        "I do not have any active eating disorder that would contraindicate nutritional counselling.",
+        "I will continue all medications under my physician's supervision and will NOT alter doses without my doctor's advice.",
+        "My data will not be shared with any third party without my written consent."]},
+      "Sauna Bath":{n:3,title:"Sauna Bath",meta:["Sauna Temperature (°C)","Session Duration (min)","Wellness Attendant"],items:[
+        "I understand that sauna use elevates core body temperature and places additional stress on the cardiovascular system.",
+        "I confirm I do not have uncontrolled hypertension, recent cardiac event, pregnancy, epilepsy, or severe neuropathy.",
+        "I confirm I do not have a pacemaker or implanted cardiac device.",
+        "I have not consumed alcohol in the last 12 hours and have consumed at least 200ml water before this session.",
+        "I understand that certain medications (antihypertensives, diuretics, insulin) may increase sauna risk — I have disclosed all medications to staff.",
+        "If I have diabetes, I understand that sauna may cause post-session blood glucose fluctuations and I will monitor accordingly.",
+        "I will exit immediately if I feel dizzy, nauseous, or experience chest discomfort.",
+        "I understand a wellness attendant is stationed outside and I must check in and out with them at every session.",
+        "Maximum session duration is 20 minutes. I agree to follow all safety protocols as briefed."]},
+      "Cold Plunge":{n:4,title:"Cold Plunge",meta:["Water Temperature (°C)","Session Duration (min)","Wellness Attendant"],items:[
+        "I understand cold water immersion triggers a cold shock response including gasping and rapid heart rate elevation and can pose serious cardiovascular risk.",
+        "I confirm I do not have cardiac arrhythmia, uncontrolled hypertension, Raynaud's disease, cold urticaria, peripheral vascular disease, or open wounds.",
+        "I confirm I do not have a history of cardiac events and I am not pregnant.",
+        "I have not had surgery in the last 3 months.",
+        "I understand that if I have diabetes with peripheral neuropathy, my cold sensation may be reduced — I will inform staff.",
+        "If transitioning from sauna, I confirm I have rested for a minimum of 5 minutes before entering the cold plunge.",
+        "I will begin with a maximum of 1–2 minutes for my first session and follow the progressive duration protocol as guided by staff.",
+        "I will breathe slowly upon entering — no breath-holding. I will NOT submerge my head unless cleared by staff.",
+        "A wellness attendant is present outside at all times. I will not use the cold plunge unsupervised."]},
+      "Physiotherapy":{n:5,title:"Physiotherapy",meta:["Physiotherapist Name","Registration No."],items:[
+        "Physiotherapy is delivered by a registered, qualified physiotherapist. All treatments are evidence-based and individualised.",
+        "Treatment may include manual therapy, therapeutic exercises, electrotherapy (TENS, IFT, ultrasound), and heat/cold application.",
+        "I confirm I do not have metallic implants or surgical hardware in my body (absolute contraindication for electrotherapy).",
+        "I confirm I do not have a pacemaker or implanted cardiac device.",
+        "I confirm I do not have active cancer currently under treatment.",
+        "Some discomfort (DOMS) may occur after initial sessions — this is a normal physiological response.",
+        "I will inform the physiotherapist of any worsening symptoms between sessions.",
+        "I have the right to stop treatment at any time without obligation.",
+        "I confirm I have disclosed all relevant medical history, imaging reports, and medications to the physiotherapist."]},
+      "Blood Test":{n:6,title:"Blood Test",options:[{label:"Fasting Status",choices:["Fasting (8–10 hrs)","Non-fasting","Not required for tests ordered"]}],meta:["Tests Requested","Phlebotomist Name"],items:[
+        "Blood collection is performed by a trained phlebotomist / healthcare professional using sterile, single-use equipment.",
+        "I understand minor discomfort, bruising, or lightheadedness may occur following blood collection.",
+        "I confirm I have disclosed all current medications and any bleeding disorders to the centre staff.",
+        "I am not on anticoagulant therapy (blood thinners) unless I have informed staff prior to collection.",
+        "Results will be shared with me and may be used by the counselling team to personalise my wellness program.",
+        "I have followed the required fasting instructions (if applicable) as communicated by the centre.",
+        "I understand that blood test results will NOT be interpreted as a medical diagnosis — I will be referred to my physician for clinical decisions."]},
+      "HBOT (Hyperbaric Oxygen Therapy)":{n:7,title:"HBOT — Hyperbaric Oxygen Therapy",options:[{label:"Chamber Type",choices:["Soft","Hard"]}],meta:["Chamber Pressure (ATA)","Session Duration (min)","Session Number","HBOT Operator","Operator Certification"],items:[
+        "I understand that HBOT involves breathing enriched oxygen in a pressurised chamber at greater than atmospheric pressure.",
+        "I understand this is a wellness-grade HBOT session and is NOT a substitute for medical treatment or therapeutic HBOT.",
+        "I confirm I do not have untreated pneumothorax (collapsed lung), active ear/sinus infection, fever, or implanted electronic devices.",
+        "I confirm I do not have uncontrolled hypertension, severe COPD, epilepsy, or any contraindicated implants.",
+        "I confirm I am not pregnant and am not currently on chemotherapy with bleomycin or cisplatin.",
+        "I understand common side effects include ear pressure (barotrauma) and I have been trained on the Valsalva manoeuvre for ear equalisation.",
+        "I agree not to bring any flammable materials, electronic devices, or petroleum-based products into the chamber.",
+        "I will wear the cotton gown or cotton clothing provided — no synthetic fabrics.",
+        "I have been verbally briefed on oxygen fire risk and chamber emergency exit protocol.",
+        "I will notify staff immediately if I feel claustrophobic, experience ear pain, or any unusual symptom during the session.",
+        "This session is conducted under the supervision of trained HBOT staff and is not a substitute for medical treatment."]}
+    };
+    function _nwRenderConsents(){
+      const wrap=root.querySelector("#nwConsentForms"); if(!wrap) return;
+      const e=(s:any)=>String(s==null?"":s).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      // Office-use summary (Client ID + registration date + assigned counsellor).
+      const setT=(id:string,v:string)=>{const el=root.querySelector("#"+id);if(el)el.textContent=v;};
+      setT("nwOfficeCid",((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"—")||"—");
+      setT("nwOfficeRegDate",fmtISTDate(new Date().toISOString()));
+      setT("nwOfficeCouns",((root.querySelector("#nwProv")as HTMLSelectElement)?.value||"—")||"—");
+      const sel=Array.from(root.querySelectorAll('#nwPanel .nwStep[data-step="2"] input[data-svc2]:checked')).map((i:any)=>i.getAttribute("data-svc2"));
+      if(!sel.length){ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:12.5px;border:1px dashed var(--line);border-radius:10px">Select one or more services on the “Service Selected” step to load the matching consent form(s).</div>'; return; }
+      const sig='<div class="nwSignRow"><div class="fld"><label class="lbl">Client signature</label><input class="input" style="height:34px"></div><div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:34px"></div><div class="fld"><label class="lbl">Staff witness</label><input class="input" style="height:34px"></div></div>';
+      wrap.innerHTML=sel.map((svc:string)=>{ const c=_NW_CONSENTS[svc]; if(!c) return "";
+        let body='';
+        if(c.todo){ body='<div style="color:var(--faint);font-size:12.5px;padding:4px 2px">Consent content for this service will be added shortly.</div>'; }
+        else{
+          body=c.items.map((t:string)=>'<label class="nwConsentItem"><input type="checkbox"><span>'+e(t)+'</span></label>').join("");
+          if(c.options&&c.options.length){ body+=c.options.map((o:any)=>'<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:8px"><span style="font-weight:600;font-size:12.5px">'+e(o.label)+'</span>'+o.choices.map((ch:string)=>'<label class="nwChk" style="padding:6px 12px"><input type="checkbox">'+e(ch)+'</label>').join("")+'</div>').join(""); }
+          if(c.meta&&c.meta.length){ body+='<table class="nwConsentMeta"><tbody>'+c.meta.map((m:string)=>'<tr><td>'+e(m)+'</td><td><input class="input" style="height:30px"></td></tr>').join("")+'</tbody></table>'; }
+        }
+        return '<div class="nwConsentCard"><div class="nwConsentHd">CONSENT '+c.n+' — '+e(c.title)+'</div><div class="nwConsentBody">'+body+sig+'</div></div>';
+      }).join("");
+    }
     // Next Client ID: WC + 2-digit year + 4-digit running number (per year), e.g. WC260001.
     async function _genClientId():Promise<string>{
       const yy=String(new Date().getFullYear()).slice(-2); const prefix="WC"+yy;
@@ -3987,6 +4129,7 @@ export function initApp(root: HTMLElement) {
       try{
         await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
+      _nwClearDraft();   // registration completed → discard the saved draft
       nwToggle(); await loadReceptionData();
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
       toast("Created + booked + checked in → screening");
