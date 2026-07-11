@@ -1712,6 +1712,14 @@ export function initApp(root: HTMLElement) {
       if(apptHc){ const cur=apptHc.value;
         apptHc.innerHTML='<option value="">— Select —</option>'+docs.map((a:any)=>'<option>'+esc(a.name)+'</option>').join("");
         if(cur)apptHc.value=cur; }
+      // Follow-up plan Owner (Consultation status & program → Strong follow-up flow) = ANY active
+      // user who can own a follow-up task (Health Coach / Advisor / Team Lead / etc.). Value is the
+      // name; the role is shown as a hint. Restored positionally by applyCoachProfile — options must
+      // exist first, which they do (this runs on every assignees load, before a client is opened).
+      const fuOwner=root.querySelector("#fuOwner")as HTMLSelectElement|null;
+      if(fuOwner){ const cur=fuOwner.value;
+        fuOwner.innerHTML='<option value="">-- Select --</option>'+active.map((a:any)=>'<option value="'+esc(a.name)+'">'+esc(a.name)+(a.role?(" — "+esc(a.role)):"")+'</option>').join("");
+        if(cur&&Array.from(fuOwner.options).some(o=>o.value===cur))fuOwner.value=cur; }
     }
     w._asgCreate=async()=>{
       const name=((root.querySelector("#asgName")as HTMLInputElement)?.value||"").trim();
@@ -1798,7 +1806,7 @@ export function initApp(root: HTMLElement) {
     function _asnDateVal(l:any){ const d=_advLeadsDet[String(l.id)]; return (d&&d.assigned_at)||l.assignedAt||l.poolAddedAt||l.createdAt||null; }
     function _asnMatchesQuery(l:any){
       const q=_asnQuery.trim().toLowerCase(); if(!q) return true;
-      return [l.name,l.phone,l.source,l.assignedTo,l.campaign].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
+      return [l.name,l.phone,l.source,l.assignedTo,l.campaign,_asnCallStatus(l)].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
     }
     function assignedLeads(){
       const f=_asnApplied.advisor||"all";   // applied via the Apply button, not on select change
@@ -1814,6 +1822,16 @@ export function initApp(root: HTMLElement) {
         return _asnMatchesQuery(l);
       });
     }
+    // Latest saved call status for a lead (leads.call_status via l.callStatus). Defaults to
+    // "New" when nothing has been selected yet — matching the app's default workflow.
+    function _asnCallStatus(l:any){ return (l&&l.callStatus)?String(l.callStatus):"New"; }
+    // Chip colour by call-status family (green = won/progressed, red = lost, amber = pending).
+    function _callStatusCls(s:string){ const t=(s||"").toLowerCase();
+      if(/enrol|payment completed|visited|already paid/.test(t)) return "ok";
+      if(/appointment|confirmed|^interested$|interested/.test(t)) return "info";
+      if(/not interested|dnd|wrong number|out of service|not registered|switched off/.test(t)) return "al";
+      if(/follow up|call back|callback|rnr|line busy|not reachable|no sugar|pending|busy/.test(t)) return "warn";
+      return "neu"; }
     const _asgnLeadCols=[
       {key:"dt",label:"Date & Time",filter:true,text:(l:any)=>fmtIST(_asnDateVal(l))},
       {key:"lead",label:"Lead",filter:true,text:(l:any)=>l.name||""},
@@ -1821,6 +1839,7 @@ export function initApp(root: HTMLElement) {
       {key:"camp",label:"Campaign",filter:true,text:(l:any)=>l.campaign||"—"},
       {key:"asg",label:"Assigned to",filter:true,text:(l:any)=>l.assignedTo||""},
       {key:"status",label:"Status",filter:true,text:(l:any)=>_eligMap[String(l.id)]?"Not Eligible":"Assigned"},
+      {key:"callstatus",label:"Call Status",filter:true,text:(l:any)=>_asnCallStatus(l)},
       {key:"act",label:"Action",filter:false,head:'Action'},
     ];
     regGrid("assignedLeads",()=>_asgnLeadCols,()=>renderAssignedLeads());
@@ -1877,9 +1896,10 @@ export function initApp(root: HTMLElement) {
         +'<td class="mono" style="font-size:11.5px">'+e(l.campaign||"—")+'</td>'
         +'<td style="font-weight:600">'+e(l.assignedTo)+'</td>'
         +status
+        +'<td><span class="chipb '+_callStatusCls(_asnCallStatus(l))+'">'+e(_asnCallStatus(l))+'</span></td>'
         +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>';
       }).join("")
-        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
+        :'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
       void prev; void next;
       _pgBtns("asn",_asnPage,pages);
@@ -2323,6 +2343,9 @@ export function initApp(root: HTMLElement) {
         const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
         if(nf && !nf.value){ toastErr("Set a Next follow-up date & time for status: "+(HA_CODE2LABEL[_csSel.value]||_csSel.value)); try{nf.focus();}catch(_){} return; }
       }
+      // Block saving a follow-up scheduled in the past (covers the mirrored Planned date & time).
+      { const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
+        if(nf && nf.value){ const t=new Date(nf.value).getTime(); if(!isNaN(t) && t<Date.now()-60000){ toastErr("Next follow-up can't be in the past — choose a current or future time"); try{_setFutureMin(nf);nf.focus();}catch(_){} return; } } }
       const id=String(_advLeadId);
       const lead=_advFindLead(id);
       const prev=lead?lead.advisorProfile:null;
@@ -2346,6 +2369,8 @@ export function initApp(root: HTMLElement) {
       let nfIso:string|null=null;
       if(nfEl&&nfEl.value){ const d=new Date(nfEl.value); if(!isNaN(d.getTime())) nfIso=d.toISOString(); }
       upd.next_followup=nfIso;
+      // Reflect the planned follow-up in-memory so the Follow-ups card/table update immediately.
+      _advLeadsDet[id]=Object.assign({},_advLeadsDet[id],{next_followup:nfIso});
       // Persist canonical contact fields edited in Basic info to the leads columns (not just
       // the advisor_profile JSONB), so the header, tables and downstream screens reflect them.
       const _fv=(sel:string)=>((root.querySelector(sel)as HTMLInputElement)?.value||"").trim();
@@ -2555,6 +2580,23 @@ export function initApp(root: HTMLElement) {
       return [..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
     }
     function haEffStatus(l:any){ return l.callStatus || (l.isAssigned?"Open":"New"); }
+    // Follow-up reminder: notify the advisor once per lead when a scheduled follow-up is
+    // due/overdue (only after sign-in). Cleared automatically when the lead leaves the
+    // follow-up bucket (status changed → completed), so it re-arms if re-scheduled.
+    const _fuNotified=new Set<string>();
+    function _checkFuReminders(){
+      if(!_currentUser) return;
+      const now=Date.now(); const live=new Set<string>();
+      haBook().forEach((l:any)=>{
+        if(haBucketOf(haEffStatus(l))!=="followup") return;
+        const key=String(l.id); live.add(key);
+        const nf=(_advLeadsDet[key]||{}).next_followup; if(!nf) return;
+        const t=new Date(nf).getTime(); if(isNaN(t)||t>now) return;
+        if(_fuNotified.has(key)) return; _fuNotified.add(key);
+        _metaPopup("Follow-up due — "+(l.name||l.phone||"lead")+(l.assignedTo?(" · "+l.assignedTo):"")+" (planned "+fmtIST(nf)+")","warn");
+      });
+      _fuNotified.forEach(k=>{ if(!live.has(k)) _fuNotified.delete(k); });   // re-arm when completed
+    }
     // Shared TOP filters (Date & Time / Source / Service). Applied to BOTH the Advisor
     // Dashboard (cards + drill-down) and the Assigned-leads table so they refresh together.
     // Returns the list unchanged when nothing is selected (no behavior change by default).
@@ -2633,6 +2675,21 @@ export function initApp(root: HTMLElement) {
       wrap.style.display="";
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      // Follow-ups card → dedicated table: name, number, planned date & time, source, advisor, status.
+      if(_haActiveBucket==="followup"){
+        const hd=root.querySelector("#haResultsHead"); if(hd)hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Planned Follow-up Date &amp; Time</th><th>Source · Lang</th><th>Assigned Advisor</th><th>Follow-up Status</th>';
+        const now=Date.now();
+        body.innerHTML=list.length?list.map((l:any)=>{ const nf=(_advLeadsDet[String(l.id)]||{}).next_followup; const due=nf&&new Date(nf).getTime()<=now;
+          return '<tr>'
+            +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
+            +'<td class="mono">'+e(l.phone||"—")+'</td>'
+            +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(nf?fmtIST(nf):"—")+'</td>'
+            +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
+            +'<td>'+e(l.assignedTo||"—")+'</td>'
+            +'<td>'+(nf?(due?'<span class="chipb al">Overdue</span>':'<span class="chipb warn">Pending</span>'):'<span class="chipb neu">Pending</span>')+'</td></tr>';
+        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No pending follow-ups</td></tr>';
+        return;
+      }
       const _hhd=root.querySelector("#haResultsHead"); if(_hhd)_hhd.innerHTML=gridHead("haResults"); const _haR=gridApply("haResults",list); body.innerHTML=_haR.length?_haR.map((l:any)=>'<tr>'
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
         +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
@@ -2650,6 +2707,7 @@ export function initApp(root: HTMLElement) {
       if(l) l.callStatus=label;
       supabase.from("leads").update({call_status:label}).eq("meta_lead_id",_advLeadId).then(()=>{});
       renderHealthDashboard();
+      try{ renderAssignedLeads(); }catch(_){}   // keep the Assigned-leads Call Status column live
     };
 
     // Checked pool-lead ids (by data-id, so it's correct even with the time-range filter on).
@@ -2994,6 +3052,11 @@ export function initApp(root: HTMLElement) {
     // fires (and clears) on time even when no new leads arrive.
     updateMetaAlert();
     _metaMonitorTimer=setInterval(updateMetaAlert,60000);
+    // Follow-up due/overdue reminders (checked on the same cadence).
+    _checkFuReminders();
+    setInterval(_checkFuReminders,60000);
+    // Floor all future-scheduling date/time pickers so past dates/times can't be chosen.
+    _wireFutureFields();
 
     // ===== REAL-TIME: Supabase pushes new/changed leads instantly (no refresh) =====
     function dbRowToLead(r:any){
@@ -4272,7 +4335,7 @@ export function initApp(root: HTMLElement) {
     function callStatusChange(v:string) {
       const appt=root.querySelector("#apptSec")as HTMLElement;
       const fu=root.querySelector("#fuPanel")as HTMLElement;
-      if(appt) appt.style.display=(v==="afd"||v==="afz")?"block":"none";
+      if(appt){ appt.style.display=(v==="afd"||v==="afz")?"block":"none"; if(v==="afd"||v==="afz") appt.classList.add("closed"); }   // show the slot board collapsed — it opens only when the advisor clicks it
       if(v==="afd"){const m=root.querySelector("#apptMode");if(m)m.textContent="Direct (Walk-in)";}
       if(v==="afz"){const m=root.querySelector("#apptMode");if(m)m.textContent="Zoom / Online";}
       if(fu) fu.style.display=(v==="fu")?"flex":"none";
@@ -4287,55 +4350,114 @@ export function initApp(root: HTMLElement) {
         if(!needsFu){ nf.value=""; }
         else if(!nf.value && !_advApplying){ const d=new Date(); d.setDate(d.getDate()+1); d.setHours(11,0,0,0); const p=(n:number)=>String(n).padStart(2,"0"); nf.value=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes()); }
       }
+      // Follow-up plan "Planned date & time" mirrors the canonical Next-follow-up field.
+      if(v==="fu"){ const _fp=root.querySelector("#fuPlannedDt")as HTMLInputElement|null; if(_fp) _fp.value=((root.querySelector("#nextFollowUp")as HTMLInputElement)?.value)||_fp.value; }
       const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:["Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"]};
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
-      if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=new Date().toISOString().substring(0,10); renderSlots();ach("📅","Appointment fixed!","Pick a slot");boom(26); if(!_advApplying && _advLeadId) _bookApptForLead(_advLeadId, v==="afz"?"Zoom":"Direct"); }
+      if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=new Date().toISOString().substring(0,10); renderSlots(); }   // no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
       // Persist the call status to the open lead so it drives the KPI dashboard.
       if(w._haSetCallStatus) w._haSetCallStatus(HA_CODE2LABEL[v]||v);
       // Audit: log a real status change (but not when restoring a saved profile).
       if(!_advApplying && _advLeadId) logActivity(_advLeadId,[{action:"Status Changed",field:"Call status",new:HA_CODE2LABEL[v]||v}]);
     }
     w.callStatusChange = callStatusChange;
+    // Follow-up plan → push the entered "Planned date & time" into the canonical Next-follow-up
+    // field so the existing save persists it to leads.next_followup and it drives the dashboard.
+    w._fuPlannedSync=()=>{ const p=(root.querySelector("#fuPlannedDt")as HTMLInputElement)?.value; const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null; if(nf&&p){ nf.disabled=false; nf.style.opacity="1"; nf.value=p; } };
 
-    const CAP=4; let slots:Record<string,string[][]>={}; let selSlot:string|null=null; let booked:string|null=null; let resch=false;
-    // Load REAL slot occupancy for the chosen date from the appointments table.
+    // ===== Future-only date/time validation (scheduling fields) =====
+    // Applied to fields that schedule a FUTURE activity (follow-up / planned / appointment /
+    // review / next-action). Historical fields (actual-paid dates, report dates) and range
+    // FILTERS are intentionally excluded — they carry data-future only where future-only.
+    function _pad2(n:number){return String(n).padStart(2,"0");}
+    function _nowLocalDT(){const d=new Date();return d.getFullYear()+"-"+_pad2(d.getMonth()+1)+"-"+_pad2(d.getDate())+"T"+_pad2(d.getHours())+":"+_pad2(d.getMinutes());}
+    function _todayLocal(){const d=new Date();return d.getFullYear()+"-"+_pad2(d.getMonth()+1)+"-"+_pad2(d.getDate());}
+    // Set the picker floor so past dates/times can't be chosen. datetime-local → now; date → today.
+    function _setFutureMin(el:HTMLInputElement){ if(!el)return; el.min=(el.type==="datetime-local")?_nowLocalDT():_todayLocal(); }
+    // Is the entered value in the past? (empty/unparseable = allowed). 60s grace on datetime for "now".
+    function _isPastVal(el:HTMLInputElement){ const v=el.value; if(!v)return false; if(el.type==="datetime-local"){ const t=new Date(v).getTime(); return !isNaN(t)&&t<Date.now()-60000; } return v<_todayLocal(); }
+    w._futureMin=(el:HTMLInputElement)=>_setFutureMin(el);   // refresh min on focus (clock moves on)
+    // Wire every [data-future] scheduling input once the template is mounted: floor the picker
+    // and reject a manually-typed past value on change.
+    function _wireFutureFields(){
+      root.querySelectorAll<HTMLInputElement>("input[data-future]").forEach(el=>{
+        _setFutureMin(el);
+        el.addEventListener("focus",()=>_setFutureMin(el));
+        el.addEventListener("change",()=>{ _setFutureMin(el); if(_isPastVal(el)){ toastErr("Please choose the current or a future date/time — past values aren't allowed"); el.value=""; el.focus(); } });
+      });
+    }
+
+    // Each slot is now PER HEALTH COACH: a time can hold at most ONE booking for a given HC.
+    // The same time is still independently bookable for a different HC. Occupancy is scoped
+    // to the currently-selected HC so the board shows only that coach's schedule.
+    type SlotBk={name:string;hc:string;leadId:string};
+    const HC_CAP=1; let slots:Record<string,SlotBk[]>={}; let selSlot:string|null=null; let booked:string|null=null; let resch=false;
+    // The HC that drives the slot board is ALWAYS the "HC assigned" value from Assignment &
+    // pipeline (the board's own HC dropdown is locked/read-only and only mirrors it).
+    function _apptHcVal():string{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; if(h) return h; return (root.querySelector("#apptHc")as HTMLSelectElement|null)?.value||""; }
+    // Load REAL slot occupancy for the chosen date AND the selected HC from the appointments table.
     async function loadSlotsFromDB(){
       slots={}; TIMES.forEach(t=>slots[t]=[]);
       const date=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
-      if(!date) return;
+      const hc=_apptHcVal();
+      if(!date||!hc) return;   // no HC selected → nothing loaded; renderSlots shows a prompt
       try{
-        const {data}=await supabase.from("appointments").select("client_name,hc_pt,appt_time,status").eq("appt_date",date).neq("status","cancelled");
-        (data||[]).forEach((a:any)=>{ const t=a.appt_time; if(t&&slots[t]) slots[t].push([a.client_name||"Client",a.hc_pt||"—"]); });
+        const {data}=await supabase.from("appointments").select("client_name,hc_pt,appt_time,status,lead_id").eq("appt_date",date).eq("hc_pt",hc).neq("status","cancelled");
+        (data||[]).forEach((a:any)=>{ const t=a.appt_time; if(t&&slots[t]) slots[t].push({name:a.client_name||"Client",hc:a.hc_pt||"—",leadId:String(a.lead_id||"")}); });
       }catch(_){/* table not migrated yet → all slots free */}
     }
     function seed(){ TIMES.forEach(t=>{ if(!slots[t]) slots[t]=[]; }); }   // no demo data — just ensure keys exist
     async function renderSlots() {
       const g=root.querySelector("#slotGrid"); if(!g) return;
+      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const hc=_apptHcVal();
+      // The board's HC dropdown is LOCKED: always mirror the assigned HC + keep it disabled so
+      // it can't be changed here. Booking is only ever for the assigned Health Coach.
+      const apptHcEl=root.querySelector("#apptHc")as HTMLSelectElement|null;
+      if(apptHcEl){ apptHcEl.value=hc; apptHcEl.disabled=true; apptHcEl.title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"; }
+      const capEl=root.querySelector("#apptCapRule")as HTMLInputElement|null;
+      if(capEl) capEl.value=hc?("1 booking / slot · "+hc):"Assign an HC first";
+      if(!hc){ g.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--faint);padding:22px 8px">Assign a <b>Health Coach</b> in <b>Assignment &amp; pipeline</b> (HC assigned) — the slot board loads that coach\'s schedule automatically. Each coach has an independent schedule.</div>'; selSlot=null; return; }
       await loadSlotsFromDB();
       g.innerHTML=TIMES.map((t)=>{
-        const arr=slots[t]||[]; const n=arr.length; const full=n>=CAP;
-        const cls=full?"s3 full":n>=3?"s2":n>0?"s1":"s0";
-        return '<button class="slotcard '+cls+(selSlot===t?" sel":"")+'" data-t="'+t+'"><div class="st"><span class="tm">'+t+'</span><span class="cap">'+n+'/'+CAP+(full?" FULL":"")+'</span></div><ul>'+(arr.map((x)=>'<li><span>'+x[0]+'</span><span class="hc">'+x[1]+'</span></li>').join("")||'<li style="color:var(--ok-ink)">Free</li>')+'</ul></button>';
+        const arr=slots[t]||[]; const isBooked=arr.length>=HC_CAP;
+        const own=isBooked&&!!_advLeadId&&arr.some(x=>String(x.leadId)===String(_advLeadId));
+        const cls=isBooked?(own?"s2":"s3 full"):"s0";
+        const tag=isBooked?(own?"YOUR SLOT":"BOOKED"):"Free";
+        return '<button class="slotcard '+cls+(selSlot===t?" sel":"")+'" data-t="'+t+'"><div class="st"><span class="tm">'+t+'</span><span class="cap">'+tag+'</span></div><ul>'+(arr.map((x)=>'<li><span>'+esc(x.name)+'</span><span class="hc">'+esc(x.hc)+'</span></li>').join("")||'<li style="color:var(--ok-ink)">Free</li>')+'</ul></button>';
       }).join("");
       g.querySelectorAll(".slotcard").forEach((c)=>{
         (c as HTMLElement).onclick=()=>{
           const t=(c as HTMLElement).dataset.t!;
-          if((slots[t]||[]).length>=CAP){c.classList.add("shake");setTimeout(()=>c.classList.remove("shake"),350);toastErr("Slot FULL");return;}
+          const arr=slots[t]||[];
+          const own=!!_advLeadId&&arr.some(x=>String(x.leadId)===String(_advLeadId));
+          // Booked by another lead for THIS HC → not selectable (one booking per slot per HC).
+          if(arr.length>=HC_CAP && !own){c.classList.add("shake");setTimeout(()=>c.classList.remove("shake"),350);toastErr(t+" is already booked for "+hc);return;}
           selSlot=t; renderSlots();
         };
       });
     }
     w.renderSlots = renderSlots;
+    // Assigning a Health Coach in "Assignment & pipeline" links it to the appointment booking:
+    // the slot board switches to that coach's schedule.
+    w._hcAssignedChange=()=>{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; const a=root.querySelector("#apptHc")as HTMLSelectElement|null; if(a) a.value=h; selSlot=null; renderSlots(); };
+    w._apptHcChange=()=>{ selSlot=null; renderSlots(); };   // changing the board's HC reloads that coach's schedule
     // Book the CURRENTLY OPEN lead into the selected slot (real appointment row).
     async function bookSlot() {
       if(!selSlot){toastErr("Select a slot first");return;}
       const date=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
       if(!date){toastErr("Pick a date first");return;}
+      if(date<_todayLocal()){toastErr("Appointment date can't be in the past");return;}
       if(!_advLeadId){toastErr("Open a lead first (from Assigned leads)");return;}
+      const hc=_apptHcVal();
+      if(!hc){toastErr("Select a Health Coach (HC) first");return;}
       const lead=_advFindLead(String(_advLeadId));
       const name=lead?(lead.name||lead.phone||"Client"):"Client";
-      const hc=(root.querySelector("#apptHc")as HTMLSelectElement|null)?.value||"";
+      // Guard against double-booking: this HC's slot must be free (or already this lead's).
+      await loadSlotsFromDB();
+      const taken=slots[selSlot]||[];
+      if(taken.length>=HC_CAP && !taken.some(x=>String(x.leadId)===String(_advLeadId))){ toastErr(selSlot+" is already booked for "+hc); await renderSlots(); return; }
       try{
         const {data}=await supabase.from("appointments").select("id").eq("lead_id",_advLeadId).eq("appt_date",date).neq("status","cancelled").limit(1);
         if(data&&data[0]) await supabase.from("appointments").update({appt_time:selSlot,hc_pt:hc,status:"expected"}).eq("id",data[0].id);
@@ -4665,7 +4787,7 @@ export function initApp(root: HTMLElement) {
       _scFiltered=_scAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _scRenderAll();
     }
-    w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
+    w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo","scApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
     w._scApplyDate=()=>{ if(_scDate==="cust") _scApplyDateFilter(); };
     function _scRenderAll(){
       const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -5533,6 +5655,14 @@ export function initApp(root: HTMLElement) {
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);
       const obj=collectCoachProfile();
+      // Review Date must be today-or-future for the join / this-week / month plans. Only these
+      // four consultation statuses are validated; every other status is left untouched. An empty
+      // review date is still allowed (unchanged) — we only block a PAST date being saved.
+      const _revStatuses=["Will Join Immediately","This Week","End of Month","Next Month"];
+      if(_revStatuses.indexOf((obj&&obj.consStatus)||"")>=0){
+        const rd=root.querySelector("#haReviewDate")as HTMLInputElement|null;
+        if(rd && rd.value && rd.value<_todayLocal()){ toastErr("Review date can't be in the past — choose today or a future date"); try{_setFutureMin(rd);rd.focus();}catch(_){} return; }
+      }
       saveCoachLocal(id,obj);
       const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
       try{

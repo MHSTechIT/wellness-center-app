@@ -129,7 +129,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Salesperson</label><select class="select" id="salesSel"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Sales team</label><select class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
-          <div class="fld"><label class="lbl">HC assigned <span class="nb">NEW</span></label><select class="select" id="hcSel"><option value="">— Select —</option></select></div>
+          <div class="fld"><label class="lbl">HC assigned <span class="nb">NEW</span></label><select class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
           <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
           <div class="fld"><label class="lbl">Tags</label><input class="input" placeholder="e.g. hot-lead, follow-up"></div>
@@ -142,14 +142,14 @@ export function getMainContent(): string {
               <select class="select" id="callStatus" onchange="callStatusChange(this.value)">
                 <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="ni">Not Interested</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="payp">Payment Pending</option><option value="payc">Payment Completed</option><option value="int">Interested</option><option value="nr">Not Reachable</option><option value="cbr">Callback Requested</option>
               </select></div>
-            <div class="fld"><label class="lbl">Next follow-up date &amp; time</label><input class="input" id="nextFollowUp" type="datetime-local"></div>
+            <div class="fld"><label class="lbl">Next follow-up date &amp; time</label><input class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
           <div class="fld"><label class="lbl">Call notes <span class="nb">NEW</span></label><textarea class="area" rows="3" placeholder="What was discussed, objections, next step…"></textarea></div>
           <div class="banner plan hideblock" id="fuPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Follow-up plan — standard procedure</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--vio-ink)">Reason / intent</label><select class="select" style="height:36px"><option>Will decide this week</option><option>Family discussion needed</option><option>Budget / salary date</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Planned date &amp; time *</label><input class="input" style="height:36px" type="datetime-local"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Planned date &amp; time *</label><input class="input" style="height:36px" type="datetime-local" id="fuPlannedDt" data-future="1" onchange="window._fuPlannedSync()"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Reminder before</label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Attempt # <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" readonly placeholder="—"></div>
             </div>
@@ -171,9 +171,9 @@ export function getMainContent(): string {
       <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"/></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
-            <div class="fld"><label class="lbl">Date</label><input class="input" type="date" id="slotDate" onchange="renderSlots()"></div>
-            <div class="fld"><label class="lbl">HC</label><select class="select" id="apptHc"><option value="">— Select —</option></select></div>
-            <div class="fld"><label class="lbl">Capacity rule</label><input class="input mono" value="Max 4 bookings / slot" readonly></div>
+            <div class="fld"><label class="lbl">Date</label><input class="input" type="date" id="slotDate" data-future="1" onchange="renderSlots()"></div>
+            <div class="fld"><label class="lbl">HC <span class="ab">FROM ASSIGNMENT</span></label><select class="select" id="apptHc" disabled title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"><option value="">— Select —</option></select></div>
+            <div class="fld"><label class="lbl">Capacity rule</label><input class="input mono" id="apptCapRule" value="Select an HC first" readonly></div>
             <div class="fld"><label class="lbl">Appt request <span class="ab">AUTO</span></label><input class="input mono" id="apptReq" readonly placeholder="—"></div>
           </div>
           <div class="fld"><label class="lbl">Day view — slot occupancy</label><div class="slotgrid" id="slotGrid"></div></div>
@@ -283,17 +283,6 @@ export function getMainContent(): string {
     </div>
     <div class="c-p" data-p="health2">
 
-      <div class="sec" id="scoreCardSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Score card <span class="chipb neu" style="margin-left:6px">Patient health scores</span></div>
-        <div class="sec-bd">
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
-            <div class="fld" style="margin:0"><label class="lbl">Patient Progress Score <span class="ab">0–100</span></label><input class="input mono" id="scProgress" type="text" inputmode="numeric" maxlength="3" placeholder="0" oninput="window._numOnly(this);window._scRecalcOverall()"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Consultation Score <span class="ab">0–100</span></label><input class="input mono" id="scConsult" type="text" inputmode="numeric" maxlength="3" placeholder="0" oninput="window._numOnly(this);window._scRecalcOverall()"></div>
-            <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)"><div style="font-size:11px;color:var(--muted);font-weight:600">Follow-up Score <span class="ab">AUTO</span></div><div style="font-size:24px;font-weight:800;font-family:var(--disp);margin-top:2px" id="scFollowupV">—</div></div>
-            <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)"><div style="font-size:11px;color:var(--muted);font-weight:600">Attendance Score <span class="ab">AUTO</span></div><div style="font-size:24px;font-weight:800;font-family:var(--disp);margin-top:2px" id="scAttendanceV">—</div></div>
-            <div id="scOverallTile" style="border:2px solid var(--brand);border-radius:10px;padding:10px 12px;background:var(--surface)"><div style="font-size:11px;color:var(--muted);font-weight:600">Overall Health Score</div><div style="font-size:26px;font-weight:800;font-family:var(--disp);margin-top:2px;color:var(--brand-600)" id="scOverallV">—</div></div>
-          </div>
-        </div></div>
-
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl">Sugar level</label><input class="input" id="crSugar" readonly></div>
@@ -352,7 +341,7 @@ export function getMainContent(): string {
           <div class="g4">
             <div class="fld"><label class="lbl">Attended by (HC)</label><input class="input" id="haAttendedBy" readonly></div>
             <div class="fld"><label class="lbl">Consultation date</label><input class="input" type="date" id="haConsultDate"></div>
-            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl">Review date <span class="ab">for join / this-week / month plans</span></label><input class="input" type="date" id="haReviewDate"></div>
+            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl">Review date <span class="ab">for join / this-week / month plans</span></label><input class="input" type="date" id="haReviewDate" data-future="1"></div>
             <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
           </div>
           <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
@@ -379,10 +368,10 @@ export function getMainContent(): string {
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
-              <div><label class="lbl" style="color:var(--vio-ink)">Commitment date *</label><input class="input" style="height:36px" type="date"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Commitment date *</label><input class="input" style="height:36px" type="date" data-future="1"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Owner</label><select class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input class="input" style="height:36px" type="date"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input class="input" style="height:36px" type="date" data-future="1"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Reminder before <span class="nb">NEW</span></label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
               <div style="grid-column:span 3"><label class="lbl" style="color:var(--vio-ink)">If not actioned — repeat notify</label><input class="input" style="height:36px" value="Re-notify owner every 10 min × 3 → then escalate to ABM + Deviation page" readonly></div>
             </div>
@@ -411,8 +400,8 @@ export function getMainContent(): string {
               <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
               <div id="couponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
             <div class="fld"><label class="lbl">Client category</label><select class="select"><option>-- Select --</option><option>VIP</option><option>Staff Relatives</option><option>Officers</option><option>Complicated</option></select></div>
-            <div class="fld"><label class="lbl">Date of joining</label><input class="input" type="date"></div>
-            <div class="fld"><label class="lbl">Access planned</label><input class="input" type="date"></div>
+            <div class="fld"><label class="lbl">Date of joining</label><input class="input" type="date" data-future="1"></div>
+            <div class="fld"><label class="lbl">Access planned</label><input class="input" type="date" data-future="1"></div>
             <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" id="haAttendedBy2" readonly></div>
           </div>
         </div></div>
@@ -454,7 +443,7 @@ export function getMainContent(): string {
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
               <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="i2BalDue" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="i2BalDueDate"></div>
+              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="i2BalDueDate" data-future="1"></div>
               <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="i2BalDate"></div>
@@ -477,7 +466,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Tenure (months) — drives calculator</label><select class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
               <div class="fld"><label class="lbl">EMI / month <span class="ab">AUTO calculated</span></label><input class="input mono" id="emiPer" readonly></div>
               <div class="fld"><label class="lbl">Documentation date</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date"></div>
+              <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date" data-future="1"></div>
               <div class="fld"><label class="lbl">Net after subvention <span class="ab">AUTO</span></label><input class="input mono" id="emiNet" readonly></div>
               <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach credit proof</span></div></div>
               <div class="fld fw"><label class="lbl">EMI payment collection — status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
@@ -493,7 +482,7 @@ export function getMainContent(): string {
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
               <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="advBalDue" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="advBalDueDate"></div>
+              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="advBalDueDate" data-future="1"></div>
               <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="advBalDate"></div>
@@ -508,7 +497,7 @@ export function getMainContent(): string {
         <div class="sec-bd">
           <div class="fld"><label class="lbl">Call outcome</label>
             <div class="pills"><button class="pill p-ok">Attended — Feedback Collected</button><button class="pill p-warn">Not Attended — Rescheduled</button><button class="pill p-info">Call Back Requested</button><button class="pill p-al">Switched Off</button><button class="pill p-vio on">Open</button></div></div>
-          <div class="g2"><div class="fld"><label class="lbl">Next feedback call</label><input class="input" type="datetime-local"></div></div>
+          <div class="g2"><div class="fld"><label class="lbl">Next feedback call</label><input class="input" type="datetime-local" data-future="1"></div></div>
           <div class="fld"><label class="lbl">Feedback notes</label><textarea class="area"></textarea></div>
         </div></div>
 
@@ -992,8 +981,9 @@ export function getMainContent(): string {
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Health screening</h1>
       <div class="pills" id="scrDateF"><button class="pill on" onclick="window._scDateF('today')">Today</button><button class="pill" onclick="window._scDateF('yest')">Yesterday</button><button class="pill" onclick="window._scDateF('cust')">Custom</button></div>
-      <input type="date" class="input" id="scFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._scApplyDate()">
-      <input type="date" class="input" id="scTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._scApplyDate()">
+      <input type="date" class="input" id="scFrom" style="display:none;height:30px;font-size:12px;width:130px">
+      <input type="date" class="input" id="scTo" style="display:none;height:30px;font-size:12px;width:130px">
+      <button class="btn bsm bp" id="scApplyBtn" style="display:none;height:30px" onclick="window._scApplyDate()">Apply</button>
       <button class="btn" style="margin-left:auto" onclick="window._scExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="scMetrics"></div>
@@ -1113,7 +1103,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Pain (0–10)</label><input class="input mono" id="phPain" type="number" min="0" max="10" style="max-width:80px"></div>
               <div class="fld"><label class="lbl">ROM improvement</label><input class="input" id="phRom" placeholder="e.g. +15°"></div>
               <div class="fld"><label class="lbl">Exercises prescribed</label><input class="input" id="phExercises" placeholder="e.g. stretches, resistance band"></div>
-              <div class="fld"><label class="lbl">Next session</label><input class="input" type="date" id="phNextDate"></div>
+              <div class="fld"><label class="lbl">Next session</label><input class="input" type="date" id="phNextDate" data-future="1"></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Save &amp; mark complete</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
           </div></div>
