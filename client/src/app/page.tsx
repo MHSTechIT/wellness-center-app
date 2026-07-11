@@ -50,10 +50,15 @@ export default function Home() {
 
       <div className="login-overlay" id="loginOverlay">
         <div className="login-card">
-          <div style={{textAlign:"center",marginBottom:"22px"}}>
-            <span className="bm" style={{display:"inline-grid",width:"48px",height:"48px",borderRadius:"14px",margin:"0 auto"}}><svg style={{width:"24px",height:"24px",stroke:"#06281F",strokeWidth:2,fill:"none"}}><use href="#i-leaf"/></svg></span>
-            <h1 style={{fontFamily:"var(--disp)",fontSize:"22px",fontWeight:700,marginTop:"12px",letterSpacing:"-.3px"}}>WellnessOS</h1>
-            <p style={{color:"var(--muted)",fontSize:"13px",margin:"4px 0 0"}}>Sign in to continue</p>
+          <div style={{textAlign:"center",marginBottom:"24px"}}>
+            <svg className="login-logo" viewBox="0 0 120 104" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="My Health School">
+              <defs><linearGradient id="mhsLogo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7A28D9"/><stop offset="1" stopColor="#D426E6"/></linearGradient></defs>
+              <path fill="url(#mhsLogo)" d="M60 98 C 42 80, 31 60, 31 38 C 31 21, 41 8, 54 5 C 47 19, 47 32, 56 45 C 49 43, 43 43, 39 48 C 45 66, 53 82, 60 98 Z"/>
+              <path fill="url(#mhsLogo)" d="M60 98 C 78 80, 89 60, 89 38 C 89 21, 79 8, 66 5 C 73 19, 73 32, 64 45 C 71 43, 77 43, 81 48 C 75 66, 67 82, 60 98 Z"/>
+            </svg>
+            <h1 className="login-title">My Health School</h1>
+            <div className="login-sub">Wellness Center</div>
+            <p className="login-cap">Sign in to continue</p>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
             <div><label className="lbl">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com"/></div>

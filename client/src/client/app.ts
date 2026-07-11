@@ -162,14 +162,16 @@ export function initApp(root: HTMLElement) {
 
     // Login form handlers
     setTimeout(()=>{
-      const loginBtn=root.querySelector("#loginBtn");
-      if(loginBtn) loginBtn.addEventListener("click",()=>doSignIn());
+      const loginBtn=root.querySelector("#loginBtn")as HTMLElement|null;
+      // UI-only wrapper: show the button loading spinner around the (unchanged) sign-in call.
+      const _signIn=async()=>{ if(loginBtn)loginBtn.classList.add("loading"); try{ await doSignIn(); } finally{ if(loginBtn)loginBtn.classList.remove("loading"); } };
+      if(loginBtn) loginBtn.addEventListener("click",()=>{ _signIn(); });
       const loginTog=root.querySelector("#loginToggle");
       if(loginTog) loginTog.addEventListener("click",()=>loginToggleMode());
       const passEl=root.querySelector("#loginPass");
-      if(passEl) passEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter"&&!_loginIsSignUp) doSignIn(); });
+      if(passEl) passEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter"&&!_loginIsSignUp) _signIn(); });
       const confirmEl=root.querySelector("#loginConfirm");
-      if(confirmEl) confirmEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter") doSignIn(); });
+      if(confirmEl) confirmEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter") _signIn(); });
     },0);
 
     // RBAC matrix
@@ -423,6 +425,7 @@ export function initApp(root: HTMLElement) {
       return s;
     }
     function _metaPopup(msg:string,type:"warn"|"ok"){
+      if(!_currentUser) return;   // never surface background alerts on the login screen — only after sign-in
       const stack=_notifStackEl();
       const al=type==="warn";
       // Auto-dismiss within 5–10s so alerts never linger: warnings 8s, success 6s.
@@ -476,7 +479,7 @@ export function initApp(root: HTMLElement) {
         txt.textContent="⚠ Alert: No Meta leads received for the last 30 minutes. Please notify the ABM team.";
         txt.style.color="var(--alert-ink)";
         chip.className="chipb al"; chip.textContent="ACTIVE";
-        if(!_metaAlertActive){ _metaAlertActive=true; toastErr("No Meta leads for 30+ min — notify the ABM team"); _metaPopup("No Meta leads received in the last 30 minutes during campaign hours. Please notify the ABM team.","warn"); }
+        if(!_metaAlertActive && _currentUser){ _metaAlertActive=true; toastErr("No Meta leads for 30+ min — notify the ABM team"); _metaPopup("No Meta leads received in the last 30 minutes during campaign hours. Please notify the ABM team.","warn"); }
       }else{
         box.style.background="var(--surface-2)";box.style.borderColor="var(--line)";
         txt.textContent="Alert: notify ABM if no Meta lead for 30 min during campaign hours"+(inHours?"":" · outside campaign hours ("+CAMPAIGN_START_HOUR+":00–"+CAMPAIGN_END_HOUR+":00 IST)");
