@@ -416,9 +416,8 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">Collected by</label><select class="select" id="collectedBy"><option selected>Reception desk</option><option>Razorpay link (online)</option><option>EMI provider</option><option>POS Machine</option></select></div>
             <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills" id="payVerify"><button class="pill p-warn on" onclick="window._payVerify('pending',this)">Pending</button><button class="pill p-ok" onclick="window._payVerify('verified',this)">Verified</button></div></div>
           </div>
-          <div class="fld" style="margin-top:10px"><label class="lbl">Enrollment status <span class="ab">AUTO — set from payment</span></label><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><span id="payEnrollChip" class="chipb neu">Not enrolled</span><span id="payEnrollAt" class="mono" style="font-size:11.5px;color:var(--muted)"></span><span style="font-size:11px;color:var(--faint)">Enrolled – L1 / L2 is set automatically when this method's status is marked done (Full → Payment Done · Installment → 1st Paid · EMI → EMI Received · Advance → Fully Paid) for the selected program.</span></div></div>
           <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
-            <button class="btn bsm bp" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"/></svg> Send collection request to Reception</button>
+            <button class="btn bsm bp" id="sendCollectBtn" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"/></svg> Send collection request to Reception</button>
             <span style="font-size:11.5px;color:var(--muted)">Appears instantly in <b>Reception → Collect payment</b> queue with client, plan &amp; amount</span>
           </div>
 
@@ -493,6 +492,14 @@ export function getMainContent(): string {
             <div class="fld fw"><label class="lbl">Status</label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Advance Paid</option><option selected>Balance Pending</option><option>Fully Paid</option><option>Cancelled</option></select><div class="pills" style="display:none"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
             </div>
         </div></div>
+
+      <div class="sec" id="enrollStatusSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="g2">
+          <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO — set from payment</span></label>
+            <div><span id="payEnrollChip" class="chipb neu">Not enrolled</span></div>
+            <div style="font-size:11px;color:var(--faint);margin-top:6px">Enrolled – L1 / L2 is set automatically when this method's status is marked done (Full → Payment Done · Installment → 1st Paid · EMI → EMI Received · Advance → Fully Paid) for the selected program.</div></div>
+          <div class="fld"><label class="lbl">Enrolled date &amp; time <span class="ab">AUTO</span></label><input class="input" id="payEnrollAt" readonly placeholder="— set on Enrolled"></div>
+        </div></div></div>
 
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"/></svg> Feedback call <span class="arr">▾</span></div>
         <div class="sec-bd">

@@ -4323,6 +4323,8 @@ export function initApp(root: HTMLElement) {
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
+          // If the Health Coach has this client open, refresh its payment history + locks live.
+          if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
         }
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         await loadReceptionData();
@@ -4735,6 +4737,7 @@ export function initApp(root: HTMLElement) {
       root.querySelectorAll(".payblk").forEach((p)=>p.classList.remove("on"));
       const m:Record<string,string>={full:"pb-full",i2:"pb-i2",emi:"pb-emi",adv:"pb-adv"};
       if(m[v]) root.querySelector("#"+m[v])?.classList.add("on");
+      try{ if(w._coachApplyPayLocks) w._coachApplyPayLocks(); }catch(_){}   // re-apply paid-stage locks for the chosen method
     }
     w.payBlk = payBlk;
     // Payment-section Status = a DROPDOWN backed by the section's existing (hidden) status pills.
@@ -4744,9 +4747,9 @@ export function initApp(root: HTMLElement) {
     // Which status value in each payment method triggers enrollment (drives Enrolled – L1/L2).
     const _payEnrollTrig:Record<string,{method:string;trigger:string}>={ "pb-full":{method:"full",trigger:"Payment Done"}, "pb-i2":{method:"i2",trigger:"1st Paid"}, "pb-emi":{method:"emi",trigger:"EMI Received"}, "pb-adv":{method:"adv",trigger:"Fully Paid"} };
     // Show the auto enrollment level (from payment) in the payment section.
-    function _setPayEnrollDisplay(level:string,iso:string){ const chip=root.querySelector("#payEnrollChip"); if(chip){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+level; } const at=root.querySelector("#payEnrollAt"); if(at) at.textContent=iso?("· "+fmtIST(iso)):""; }
+    function _setPayEnrollDisplay(level:string,iso:string){ const chip=root.querySelector("#payEnrollChip"); if(chip){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+level; } const at=root.querySelector("#payEnrollAt")as HTMLInputElement|null; if(at) at.value=iso?fmtIST(iso):""; }
     // Refresh the payment enrollment chip from the current consultation status (on profile load).
-    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L\d)/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); if(chip){ if(m){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+m[1].toUpperCase(); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } if(at){ const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); at.textContent=(m&&cc&&cc.enrolledAt)?("· "+fmtIST(cc.enrolledAt)):""; } }
+    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L\d)/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); if(chip){ if(m){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+m[1].toUpperCase(); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } const ati=at as HTMLInputElement|null; if(ati){ const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); ati.value=(m&&cc&&cc.enrolledAt)?fmtIST(cc.enrolledAt):""; } }
     w._refreshPayEnrollChip=_refreshPayEnrollChip;
     w._payStSel=(sel:any)=>{
       const box=sel&&sel.parentElement; const grp=box&&box.querySelector(".pills");
@@ -5817,11 +5820,51 @@ export function initApp(root: HTMLElement) {
         await commit("advance",rows,"Advance booking",a1+a2);
       }
     }
+    // Lock a set of input fields (paid stages can't be edited/re-collected).
+    function _lockFields(ids:string[],locked:boolean){ ids.forEach(s=>{ const el=root.querySelector(s)as HTMLInputElement|HTMLSelectElement|null; if(el){ el.disabled=locked; (el as HTMLElement).style.opacity=locked?"0.6":""; (el as HTMLElement).title=locked?"Paid — locked":""; } }); }
+    // Set a payment-section Status dropdown (+ its hidden pill) without firing enrollment.
+    function _setPayStatus(blkId:string,value:string){ const sel=root.querySelector('#'+blkId+' select[data-nocap]')as HTMLSelectElement|null; if(!sel)return; sel.value=value; const grp=sel.parentElement&&sel.parentElement.querySelector(".pills"); if(grp) grp.querySelectorAll(".pill").forEach((b:any)=>b.classList.toggle("on",(b.textContent||"").trim()===value)); }
+    let _coachPayRows:any[]=[];
+    // Apply payment locks from the lead's payment rows: mark paid stages Done, disable their inputs,
+    // lock the fully-collected method, and block re-collection (prevents duplicate payment/enrollment).
+    function _applyPaymentLocks(id:string,rows:any[]){
+      if(String(_coachLeadId)!==String(id)) return;
+      const paid=(rows||[]).filter((r:any)=>r.status==="paid");
+      const fullPaid=paid.some((r:any)=>(r.payment_type||"full")==="full");
+      const inst1Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===1);
+      const inst2Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===2);
+      const adv1Paid=paid.some((r:any)=>r.payment_type==="advance"&&Number(r.installment_number)===1);
+      const adv2Paid=paid.some((r:any)=>r.payment_type==="advance"&&Number(r.installment_number)===2);
+      // FULL — one shot: lock the whole section once paid.
+      _lockFields(["#payFullRcvd","#payFullMode","#payFullRef","#payFullDate"],fullPaid);
+      const fsel=root.querySelector('#pb-full select[data-nocap]')as HTMLSelectElement|null; if(fsel) fsel.disabled=fullPaid;
+      if(fullPaid) _setPayStatus("pb-full","Payment Done");
+      // INSTALLMENT — lock inst-1 once paid (inst-2 stays open); lock inst-2 once paid.
+      _lockFields(["#i2Inst1Rcvd","#i2Inst1Mode","#i2Inst1Ref","#i2Inst1Date"],inst1Paid);
+      _lockFields(["#i2BalRcvd","#i2BalMode","#i2BalRef","#i2BalDate"],inst2Paid);
+      if(inst1Paid&&inst2Paid) _setPayStatus("pb-i2","Both Paid"); else if(inst1Paid) _setPayStatus("pb-i2","1st Paid");
+      const isel=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(isel) isel.disabled=(inst1Paid&&inst2Paid);
+      // ADVANCE
+      _lockFields(["#advAmt","#advMode","#advRef","#advDate"],adv1Paid);
+      _lockFields(["#advBalRcvd","#advBalMode","#advBalRef","#advBalDate"],adv2Paid);
+      if(adv1Paid&&adv2Paid) _setPayStatus("pb-adv","Fully Paid");
+      // Block re-collection: disable "Send collection request to Reception" when the ACTIVE method is fully collected.
+      const method=(root.querySelector("#payMethod")as HTMLSelectElement|null)?.value||"";
+      const done=(method==="full"&&fullPaid)||(method==="i2"&&inst1Paid&&inst2Paid)||(method==="adv"&&adv1Paid&&adv2Paid);
+      const sb=root.querySelector("#sendCollectBtn")as HTMLButtonElement|null;
+      if(sb){ sb.disabled=done; sb.style.opacity=done?"0.55":""; sb.style.pointerEvents=done?"none":""; sb.title=done?"Payment already collected for this method":""; }
+      // A small "collected" note next to the button.
+      let note=root.querySelector("#payCollectedNote")as HTMLElement|null;
+      if(done&&sb){ if(!note){ note=document.createElement("span"); note.id="payCollectedNote"; note.style.cssText="margin-left:8px;font-size:11.5px;font-weight:600;color:var(--ok-ink)"; sb.parentElement?.insertBefore(note,sb.nextSibling); } note.textContent="✓ Payment collected — locked"; }
+      else if(note){ note.remove(); }
+    }
+    w._coachApplyPayLocks=()=>_applyPaymentLocks(String(_coachLeadId),_coachPayRows);   // re-apply on method change
     async function _renderCoachPayHistory(id:string){
       const el=root.querySelector("#coachPayHist"); if(!el) return;
       let rows:any[]=[];
       try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
+      _coachPayRows=rows; try{ _applyPaymentLocks(id,rows); }catch(_){}
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const money=(n:any)=>"₹"+(parseInt(n)||0).toLocaleString("en-IN");
       if(!rows.length){ el.innerHTML='<div class="stub">No payment records for this client yet.</div>'; return; }
