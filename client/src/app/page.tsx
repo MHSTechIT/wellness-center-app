@@ -51,10 +51,10 @@ export default function Home() {
       <div className="login-overlay" id="loginOverlay">
         <div className="login-card">
           <div style={{textAlign:"center",marginBottom:"24px"}}>
-            <svg className="login-logo" viewBox="0 0 120 104" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="My Health School">
+            <svg className="login-logo" viewBox="0 0 200 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="My Health School">
               <defs><linearGradient id="mhsLogo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7A28D9"/><stop offset="1" stopColor="#D426E6"/></linearGradient></defs>
-              <path fill="url(#mhsLogo)" d="M60 98 C 42 80, 31 60, 31 38 C 31 21, 41 8, 54 5 C 47 19, 47 32, 56 45 C 49 43, 43 43, 39 48 C 45 66, 53 82, 60 98 Z"/>
-              <path fill="url(#mhsLogo)" d="M60 98 C 78 80, 89 60, 89 38 C 89 21, 79 8, 66 5 C 73 19, 73 32, 64 45 C 71 43, 77 43, 81 48 C 75 66, 67 82, 60 98 Z"/>
+              <path fill="url(#mhsLogo)" d="M100 142 C 100 106 102 80 114 64 C 120 56 129 52 135 57 C 129 60 124 67 127 77 C 146 58 169 43 187 26 C 191 22 195 27 192 34 C 177 76 145 117 103 143 C 101.5 144 100 144 100 142 Z"/>
+              <path fill="url(#mhsLogo)" d="M100 142 C 100 106 98 80 86 64 C 80 56 71 52 65 57 C 71 60 76 67 73 77 C 54 58 31 43 13 26 C 9 22 5 27 8 34 C 23 76 55 117 97 143 C 98.5 144 100 144 100 142 Z"/>
             </svg>
             <h1 className="login-title">My Health School</h1>
             <div className="login-sub">Wellness Center</div>

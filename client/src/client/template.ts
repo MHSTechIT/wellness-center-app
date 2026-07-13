@@ -358,8 +358,8 @@ export function getMainContent(): string {
               <button class="pill p-vio" onclick="consAct('fup',this)">This Week</button>
               <button class="pill p-info" onclick="consAct('fup',this)">End of Month</button>
               <button class="pill p-warn" onclick="consAct('fup',this)">Next Month</button>
-              <button class="pill p-ok" onclick="consAct('enrol1',this)">Enrolled – L1</button>
-              <button class="pill p-ok" onclick="consAct('enrol2',this)">Enrolled – L2</button>
+              <button class="pill p-ok" style="display:none" onclick="consAct('enrol1',this)">Enrolled – L1</button>
+              <button class="pill p-ok" style="display:none" onclick="consAct('enrol2',this)">Enrolled – L2</button>
               <button class="pill p-info" onclick="consAct('paidb',this)">Already Paid – Before Consultation</button>
               <button class="pill p-info" onclick="consAct('paida',this)">Already Paid – After Consultation</button>
               <button class="pill p-al" onclick="consAct('ni',this)">Not Interested</button>
@@ -392,7 +392,7 @@ export function getMainContent(): string {
           </div>
           <div class="fld"><label class="lbl">Client expectations &amp; commitments</label><textarea class="area" placeholder="e.g. HbA1c 9.2 → below 7 in 3 months; morning walks; diet…"></textarea></div>
           <div class="g4" style="margin-top:3px">
-            <div class="fld"><label class="lbl">Program suggested</label><select class="select" id="haProgram" onchange="window._payCalcAll()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
+            <div class="fld"><label class="lbl">Program suggested</label><select class="select" id="haProgram" onchange="window._syncProgramPricing()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
             <div class="fld"><label class="lbl">L1 price · full only</label><select class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
             <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono" id="haSpecialAmt" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this);window._payCalcAll()"></div>
             <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" inputmode="decimal" oninput="window._numOnly(this);window._payCalcAll()"></div>
@@ -406,16 +406,17 @@ export function getMainContent(): string {
           </div>
         </div></div>
 
-      <div class="sec hideblock" id="paySec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-wallet"/></svg> Payment — standard collection flow <span class="arr">▾</span></div>
+      <div class="sec hideblock" id="paySec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-wallet"/></svg> Payment — <span id="payFlowLbl">standard</span> collection flow <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="steps"><div class="step on"><span class="n">1</span> Quote (auto from price master)</div><div class="step on"><span class="n">2</span> Collect — Reception desk / Razorpay link / EMI provider</div><div class="step"><span class="n">3</span> Attach proof *</div><div class="step"><span class="n">4</span> Accounts verifies vs bank</div><div class="step"><span class="n">5</span> Auto receipt + GST invoice</div></div>
           <div class="banner good" style="margin-top:10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-check"/></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
           <div class="g3" style="margin-top:6px">
             <div class="fld"><label class="lbl">Payment method</label>
               <select class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2x)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
-            <div class="fld"><label class="lbl">Collected by</label><select class="select" id="collectedBy"><option selected>Reception desk</option><option>Razorpay link (online)</option><option>EMI provider</option></select></div>
+            <div class="fld"><label class="lbl">Collected by</label><select class="select" id="collectedBy"><option selected>Reception desk</option><option>Razorpay link (online)</option><option>EMI provider</option><option>POS Machine</option></select></div>
             <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills" id="payVerify"><button class="pill p-warn on" onclick="window._payVerify('pending',this)">Pending</button><button class="pill p-ok" onclick="window._payVerify('verified',this)">Verified</button></div></div>
           </div>
+          <div class="fld" style="margin-top:10px"><label class="lbl">Enrollment status <span class="ab">AUTO — set from payment</span></label><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><span id="payEnrollChip" class="chipb neu">Not enrolled</span><span id="payEnrollAt" class="mono" style="font-size:11.5px;color:var(--muted)"></span><span style="font-size:11px;color:var(--faint)">Enrolled – L1 / L2 is set automatically when this method's status is marked done (Full → Payment Done · Installment → 1st Paid · EMI → EMI Received · Advance → Fully Paid) for the selected program.</span></div></div>
           <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
             <button class="btn bsm bp" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"/></svg> Send collection request to Reception</button>
             <span style="font-size:11.5px;color:var(--muted)">Appears instantly in <b>Reception → Collect payment</b> queue with client, plan &amp; amount</span>
@@ -429,7 +430,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="payFullRef" placeholder="Mandatory"></div>
               <div class="fld"><label class="lbl">Actual paid date</label><input class="input" type="date" id="payFullDate"></div>
               <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach screenshot / receipt</span></div></div>
-              <div class="fld fw"><label class="lbl">Status</label><div class="pills"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
+              <div class="fld fw"><label class="lbl">Status</label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Payment Done</option><option selected>In Process</option><option>Pending</option></select><div class="pills" style="display:none"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
             </div></div>
 
           <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
@@ -450,7 +451,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
               <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
-            <div class="fld fw"><label class="lbl">Status</label><div class="pills"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
+            <div class="fld fw"><label class="lbl">Status</label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>1st Paid</option><option>2nd Paid</option><option>Both Paid</option><option>In Process</option><option selected>Pending</option></select><div class="pills" style="display:none"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
             </div>
 
           <div class="payblk" id="pb-emi"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> EMI (BFL / SaveIn) — client pays financier; we track down payment &amp; disbursement</div>
@@ -469,7 +470,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date" data-future="1"></div>
               <div class="fld"><label class="lbl">Net after subvention <span class="ab">AUTO</span></label><input class="input mono" id="emiNet" readonly></div>
               <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach credit proof</span></div></div>
-              <div class="fld fw"><label class="lbl">EMI payment collection — status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
+              <div class="fld fw"><label class="lbl">EMI payment collection — status</label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option selected>Open</option><option>EMI Received</option><option>EMI Process</option></select><div class="pills" style="display:none"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
             </div></div>
 
           <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Advance booking — locks the price, starts the clock</div>
@@ -489,7 +490,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advBalRef" placeholder="Mandatory"></div>
               <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
-            <div class="fld fw"><label class="lbl">Status</label><div class="pills"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
+            <div class="fld fw"><label class="lbl">Status</label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Advance Paid</option><option selected>Balance Pending</option><option>Fully Paid</option><option>Cancelled</option></select><div class="pills" style="display:none"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
             </div>
         </div></div>
 

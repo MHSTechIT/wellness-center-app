@@ -3732,6 +3732,7 @@ export function initApp(root: HTMLElement) {
     // ========== RECEPTION DATA (live: appointments + payments) ==========
     let RX: any[] = [];        // current date-filtered appointments (shape used by renderers)
     let _recAll: any[] = [];   // all loaded appointments
+    let _recInst: Record<string,any> = {};   // installment aggregation by lead_id (status/balance/history)
     function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
     function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
     // IST date, robust to both 'YYYY-MM-DD' and full-ISO timestamps (the /db gateway
@@ -3744,11 +3745,22 @@ export function initApp(root: HTMLElement) {
           supabase.from("payments").select("*").order("created_at",{ascending:false})
         ]);
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
-        _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":(a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free"),amount:0}; return {
+        // Installment aggregation per lead (from the shared payments table) so Reception can show
+        // Installment 1 / 2 status, remaining balance, next due date + a payment history.
+        _recInst={};
+        (pr.data||[]).filter((p:any)=>p.payment_type==="installment").forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; (_recInst[k]=_recInst[k]||{rows:[]}).rows.push(p); });
+        Object.keys(_recInst).forEach((k)=>{ const o=_recInst[k]; o.rows.sort((a:any,b:any)=>Number(a.installment_number||0)-Number(b.installment_number||0)); const paid=o.rows.filter((r:any)=>r.status==="paid"); const due=o.rows.filter((r:any)=>r.status==="due"); o.inst1=o.rows.find((r:any)=>Number(r.installment_number)===1)||null; o.inst2=o.rows.find((r:any)=>Number(r.installment_number)===2)||null; o.balance=due.reduce((s:number,r:any)=>s+(r.amount||0),0); o.dueDate=(due[0]||{}).due_date||""; o.totalInst=Math.max(2,...o.rows.map((r:any)=>Number(r.total_installments||2))); o.paidCount=paid.length; o.allPaid=o.rows.length>0&&due.length===0&&paid.length>=o.totalInst; });
+        // Enrichment: pull each lead's latest call_status so the Health Coach's Enrolled status
+        // is reflected in Reception (Coach → Reception sync via the SAME leads record).
+        const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
+        const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={};
+        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; }); }catch(_){} }
+        _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":(a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free"),amount:0}; const _cs=_csById[String(a.lead_id)]||""; return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
           payStatus:pay.status, payAmt:pay.amount||0, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
-          sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:"",bmi:"",bp:"",assessment:"" };
+          enrolled:/enrol/i.test(_cs)||a.stage==="enrolled", enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
+          sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
       applyRecDate();
@@ -3823,7 +3835,7 @@ export function initApp(root: HTMLElement) {
     function renderSc() {
       const f = curSvc === "all" ? RX : RX.filter((r) => r.svc === curSvc);
       const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0 };
-      f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.stage==="enrolled")c.enrolled++; });
+      f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)c.enrolled++; });
       const cards = [{k:"expected",l:"Expected",v:f.length,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"noshow",l:"No show",v:c.noshow,c:"r"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"}];
       const el = root.querySelector("#scCards");
       if (el) el.innerHTML = cards.map((x) => '<div class="metric '+x.c+'" style="cursor:pointer;'+(curScFilter===x.k?'outline:2.5px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._scClick(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
@@ -3962,7 +3974,29 @@ export function initApp(root: HTMLElement) {
       root.querySelectorAll(".d-p").forEach((p,i)=>{(p as HTMLElement).style.display=i===0?"":"none";});
       const sm=STATUS_MAP[r.status]||{l:r.status,c:"neu"}; const pm=PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
       const drp=root.querySelector('[data-p="dr"]');
-      if(drp) drp.innerHTML='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Reception record</div><div class="sec-bd" style="padding:4px 14px 14px"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono" style="font-weight:600">'+(r.visitedAt||"—")+'</td><td style="color:var(--muted)">Service</td><td>'+r.svcLabel+'</td></tr><tr><td style="color:var(--muted)">HC / PT</td><td style="font-weight:600">'+r.hc+'</td><td style="color:var(--muted)">Status</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td></tr><tr><td style="color:var(--muted)">Payment</td><td class="mono" style="font-weight:700">'+(r.payAmt?"₹"+r.payAmt.toLocaleString("en-IN"):"—")+'</td><td style="color:var(--muted)">Pay status</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td></tr></tbody></table></div></div>';
+      const e2=(s:string)=>(s||"").replace(/'/g,"");
+      const enrollRow=r.enrolled
+        ? '<div style="padding:2px 14px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="chipb ok">🏆 Enrolled</span>'+(r.enrolledAt?'<span class="mono" style="font-size:11.5px;color:var(--muted)">'+fmtIST(r.enrolledAt)+'</span>':'')+'<span style="font-size:11.5px;color:var(--muted)">· Synced with Health Coach</span></div>'
+        : '<div style="padding:2px 14px 14px"><button class="btn bsm bp" onclick="window._recMarkEnrolled(\''+(r.lead_id||"")+'\',\''+r.id+'\',\''+e2(r.name)+'\')"><svg class="icon" style="width:14px;height:14px"><use href="#i-check"/></svg> Mark Enrolled → sync to Health Coach</button></div>';
+      // Installment payments block (Installment 1 / 2 status, balance, next due, history + Collect).
+      let instBlock='';
+      const inst=r.inst;
+      if(inst&&inst.rows&&inst.rows.length){
+        const money=(n:number)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
+        const stChip=(x:any)=>x&&x.status==="paid"?'<span class="chipb ok">Paid</span>':(x?'<span class="chipb warn">Pending</span>':'<span class="chipb neu">—</span>');
+        const overall=inst.allPaid?'<span class="chipb ok">Fully Paid</span>':'<span class="chipb warn">Balance '+money(inst.balance)+'</span>';
+        const collectBtn=(!inst.allPaid&&inst.inst2&&inst.inst2.status!=="paid")?'<div style="margin-top:10px"><button class="btn bsm bp" onclick="window._recCollectInstallment(\''+(r.lead_id||"")+'\',\''+r.id+'\','+(inst.balance||0)+',\''+e2(r.name)+'\')"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"/></svg> Collect Installment 2 → '+money(inst.balance)+'</button></div>':'';
+        const histRow=(x:any)=>'<tr><td class="mono">'+(x.installment_number||"")+'</td><td class="mono" style="font-weight:600">'+money(x.amount)+'</td><td class="mono" style="font-size:11px;white-space:nowrap">'+(x.paid_at?fmtIST(x.paid_at):(x.due_date?("due "+fmtISTDate(x.due_date)):"—"))+'</td><td>'+(x.method||"—")+'</td><td>'+(x.collected_by||"—")+'</td><td>'+stChip(x)+'</td></tr>';
+        instBlock='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-coin"></use></svg> Installment payments</div><div class="sec-bd" style="padding:4px 14px 14px">'
+          +'<table class="tbl"><tbody>'
+          +'<tr><td style="color:var(--muted)">Installment 1</td><td>'+stChip(inst.inst1)+(inst.inst1?' <span class="mono">'+money(inst.inst1.amount)+'</span>':'')+'</td><td style="color:var(--muted)">Installment 2</td><td>'+stChip(inst.inst2)+(inst.inst2?' <span class="mono">'+money(inst.inst2.amount)+'</span>':'')+'</td></tr>'
+          +'<tr><td style="color:var(--muted)">Overall</td><td>'+overall+'</td><td style="color:var(--muted)">Next due</td><td class="mono">'+((inst.dueDate&&!inst.allPaid)?fmtISTDate(inst.dueDate):"—")+'</td></tr>'
+          +'</tbody></table>'+collectBtn
+          +'<div style="margin-top:12px;font-size:11px;color:var(--muted);font-weight:600">Payment history</div>'
+          +'<div style="overflow-x:auto"><table class="tbl" style="margin-top:4px"><thead><tr><th>#</th><th>Amount</th><th>Date / Due</th><th>Method</th><th>Collected by</th><th>Status</th></tr></thead><tbody>'+inst.rows.map(histRow).join("")+'</tbody></table></div>'
+          +'</div></div>';
+      }
+      if(drp) drp.innerHTML='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Reception record</div><div class="sec-bd" style="padding:4px 14px 14px"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono" style="font-weight:600">'+(r.visitedAt||"—")+'</td><td style="color:var(--muted)">Service</td><td>'+r.svcLabel+'</td></tr><tr><td style="color:var(--muted)">HC / PT</td><td style="font-weight:600">'+r.hc+'</td><td style="color:var(--muted)">Status</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td></tr><tr><td style="color:var(--muted)">Payment</td><td class="mono" style="font-weight:700">'+(r.payAmt?"₹"+r.payAmt.toLocaleString("en-IN"):"—")+'</td><td style="color:var(--muted)">Pay status</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td></tr></tbody></table></div>'+enrollRow+'</div>'+instBlock;
     }
     w._openDrawer = (id:number) => { const r=_recAll.find((x:any)=>String(x.id)===String(id))||RX.find((x:any)=>String(x.id)===String(id)); if(r) openDrawer(r); };
     function closeDrawer() { const d=root.querySelector("#drawer")as HTMLElement; const o=root.querySelector("#dOverlay")as HTMLElement; if(d)d.classList.remove("open"); if(o)o.classList.remove("open"); }
@@ -4202,7 +4236,7 @@ export function initApp(root: HTMLElement) {
     }
     w.nwBook = nwBook;
 
-    let _recCollect:{apptId:any,leadId:string,amt:number}|null=null;
+    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number}|null=null;
     function recOpen(apptId:any,name:string,amt:any,leadId:string) {
       _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
       // The collection panel lives on the Reception screen — when triggered from Blood test /
@@ -4230,7 +4264,22 @@ export function initApp(root: HTMLElement) {
       if(method!=="cash"&&!txnRef){ toastErr("Enter the transaction reference for "+method.toUpperCase()+" payments"); return; }
       const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none";
       try{
-        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString()});
+        // ---- Reception collecting a pending INSTALLMENT (updates that installment, not a new payment) ----
+        if(_recCollect.installment){
+          const num=_recCollect.installment;
+          const {data:ex}=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num).limit(1);
+          const vals:any={status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null};
+          if(ex&&ex[0]) await supabase.from("payments").update(vals).eq("id",ex[0].id);
+          else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes"},vals));
+          if(_recCollect.apptId) await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
+          // Fully-paid check across all of this lead's installments.
+          let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment"); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
+          if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
+          toast("Installment "+num+" collected"+(fully?" — Fully Paid ✓":" · balance updated"));
+          await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
+          _recCollect=null; return;
+        }
+        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk"});
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
@@ -4241,6 +4290,53 @@ export function initApp(root: HTMLElement) {
       _recCollect=null;
     }
     w.recConfirm = recConfirm;
+    // Reception → collect a pending installment for a lead (opens the collection panel prefilled
+    // with the balance, tagged so recConfirm marks that installment Paid + checks Fully Paid).
+    w._recCollectInstallment=(leadId:string,apptId:any,balance:number,name:string)=>{
+      recOpen(apptId,(name||"Client")+" · Installment 2",balance,leadId||"");
+      if(_recCollect) _recCollect.installment=2;
+      const rp=root.querySelector("#recWbPlan"); if(rp) rp.textContent="Installment 2";
+    };
+    // SHARED enrollment sync — the single source of truth used by every module that can
+    // enroll a lead (Reception "Mark Enrolled", Accounts payment-confirm, Health Coach save).
+    // Writes leads.call_status='Enrolled' + enrolled_at + appointment stage, then propagates to
+    // the in-memory Advisor + Health Coach records and refreshes every dependent view. Returns
+    // the enrolled timestamp (or null on failure). Callers refresh Reception/Accounts as needed.
+    async function _enrollLeadShared(leadId:string, srcLabel:string, level:string="L1"):Promise<string|null>{
+      if(!leadId){ toastErr("No linked lead to enroll"); return null; }
+      const lvl=(level==="L2")?"L2":"L1"; const consLabel="Enrolled – "+lvl;
+      const enrIso=new Date().toISOString();
+      const already=[..._metaLeads,..._assignedExtras].some((l:any)=>String(l.id)===String(leadId)&&l.callStatus==="Enrolled");
+      try{
+        const upd:any={call_status:"Enrolled"}; if(!already) upd.enrolled_at=enrIso;
+        const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",leadId);
+        if(error) throw error;
+        await supabase.from("appointments").update({stage:"enrolled"}).eq("lead_id",leadId).neq("status","cancelled");
+      }catch(e:any){ toastErr("Enroll sync failed: "+(e.message||"db error")); return null; }
+      // Advisor in-memory leads → Enrolled (drives the Advisor dashboard + Call Status column).
+      const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===String(leadId)){ l.callStatus="Enrolled"; if(!already) l.enrolledAt=enrIso; } });
+      setEnrolled(_metaLeads); setEnrolled(_assignedExtras);
+      // Health Coach in-memory client → consultation status Enrolled – L1/L2 (drives coach
+      // dashboard/table + is what the profile restores to when opened).
+      const cc=_coachClients.find((x:any)=>String(x.id)===String(leadId));
+      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
+      if(!already) logActivity(leadId,[{action:"Enrolled",field:"Enrolled at ("+srcLabel+")",new:fmtIST(enrIso)}]);
+      try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
+      try{ renderCoachOpenList(); }catch(_){}
+      try{ if(String(_advLeadId)===String(leadId)&&!already) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
+      // If the coach currently has this client open, flip the (hidden) Enrolled pill live at the
+      // right level so the badge + payment enrollment chip reflect it.
+      try{ if(String(_coachLeadId)===String(leadId)){ const code=lvl==="L2"?"enrol2":"enrol1"; const pill=root.querySelector('#consStatus .pill[onclick*="'+code+'"]')as HTMLElement|null; if(pill){ root.querySelectorAll("#consStatus .pill").forEach((b:any)=>b.classList.remove("on")); pill.classList.add("on"); consAct(code,pill); } _refreshPayEnrollChip(); } }catch(_){}
+      return already?"":enrIso;
+    }
+    // Reception → Health Coach enrollment (explicit per-client action).
+    w._recMarkEnrolled=async(leadId:string,apptId:any,name:string)=>{
+      if(!leadId){ toastErr("This walk-in has no linked lead to enroll"); return; }
+      const res=await _enrollLeadShared(leadId,"Reception"); if(res===null) return;
+      await loadReceptionData();   // Reception reflects Enrolled immediately
+      closeDrawer();
+      toast("🏆 "+(name||"Client")+" marked Enrolled — synced to Health Coach");
+    };
     function recBack() { const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none"; toast("↩ Moved back"); }
     w.recBack = recBack;
     // Check-in: match the typed phone/name to a loaded appointment; fill Dedup + name.
@@ -4561,12 +4657,13 @@ export function initApp(root: HTMLElement) {
       if(a==="refund"){if(rf)rf.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Refund";cBadge.className="chipb al";}return;}
       if(a==="join"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Joining";cBadge.className="chipb ok";}}
       if(a==="fup"){if(fu)fu.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Follow Up";cBadge.className="chipb warn";}}
-      if(a==="enrol1"||a==="enrol2"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Enrolled";cBadge.className="chipb ok";}ach("🏆","Enrolled!","");boom(60);}
+      if(a==="enrol1"||a==="enrol2"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Enrolled";cBadge.className="chipb ok";}}   // no auto celebration popup — only updates the consultation status
       if(a==="paidb"||a==="paida"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Paid";cBadge.className="chipb info";}}
       if(a==="ni"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Not Interested";cBadge.className="chipb al";}}
       if(a==="open"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Open";cBadge.className="chipb vio";}}
-      // Whenever the payment section is revealed, refresh the auto quote/balances.
-      if(pay&&pay.style.display==="block"){ try{ _payCalcAll(); }catch(_){} }
+      // Whenever the payment section is revealed, refresh the auto quote/balances and
+      // apply the L1/L2 program-specific pricing view.
+      if(pay&&pay.style.display==="block"){ try{ _syncProgramPricing(); }catch(_){} }
     }
     w.consAct = consAct;
 
@@ -4576,6 +4673,50 @@ export function initApp(root: HTMLElement) {
       if(m[v]) root.querySelector("#"+m[v])?.classList.add("on");
     }
     w.payBlk = payBlk;
+    // Payment-section Status = a DROPDOWN backed by the section's existing (hidden) status pills.
+    // The dropdown is the UI; the pill state remains the storage, so save/load keeps using the
+    // existing positional pill capture — fully backward-compatible, no new status values, no
+    // calc/workflow change. The dropdown itself is excluded from the field capture (data-nocap).
+    // Which status value in each payment method triggers enrollment (drives Enrolled – L1/L2).
+    const _payEnrollTrig:Record<string,{method:string;trigger:string}>={ "pb-full":{method:"full",trigger:"Payment Done"}, "pb-i2":{method:"i2",trigger:"1st Paid"}, "pb-emi":{method:"emi",trigger:"EMI Received"}, "pb-adv":{method:"adv",trigger:"Fully Paid"} };
+    // Show the auto enrollment level (from payment) in the payment section.
+    function _setPayEnrollDisplay(level:string,iso:string){ const chip=root.querySelector("#payEnrollChip"); if(chip){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+level; } const at=root.querySelector("#payEnrollAt"); if(at) at.textContent=iso?("· "+fmtIST(iso)):""; }
+    // Refresh the payment enrollment chip from the current consultation status (on profile load).
+    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L\d)/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); if(chip){ if(m){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+m[1].toUpperCase(); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } if(at){ const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); at.textContent=(m&&cc&&cc.enrolledAt)?("· "+fmtIST(cc.enrolledAt)):""; } }
+    w._refreshPayEnrollChip=_refreshPayEnrollChip;
+    w._payStSel=(sel:any)=>{
+      const box=sel&&sel.parentElement; const grp=box&&box.querySelector(".pills");
+      if(grp){ grp.querySelectorAll(".pill").forEach((b:any)=>b.classList.toggle("on",(b.textContent||"").trim()===sel.value)); }
+      // Payment-driven enrollment: when the ACTIVE payment method's status hits its trigger value,
+      // auto-enroll the open client at the suggested program's level (L1/L2) + record date & sync.
+      const blk=sel&&sel.closest?sel.closest(".payblk"):null; const t=blk?_payEnrollTrig[blk.id]:null;
+      if(!t) return;
+      const activeMethod=(root.querySelector("#payMethod")as HTMLSelectElement|null)?.value||"";
+      if(activeMethod!==t.method) return;                         // only the selected method enrolls
+      if((sel.value||"").trim()!==t.trigger) return;              // only its "done/received/paid" value
+      if(!_coachLeadId){ toast("Open a client first to enroll"); return; }
+      const prog=(root.querySelector("#haProgram")as HTMLSelectElement|null)?.value||"L2";
+      const level=(prog==="L1")?"L1":"L2";
+      _enrollLeadShared(String(_coachLeadId),"Payment "+t.trigger,level).then((iso:string|null)=>{ if(iso!==null){ _setPayEnrollDisplay(level,iso||((_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId))||{}).enrolledAt)||""); toast("🏆 Enrolled – "+level+" (from payment)"); } });
+    };
+    // After a profile restores the (hidden) pills, mirror each on-pill back into its dropdown.
+    function _syncPayStSelects(){ root.querySelectorAll("#s-coach select[data-nocap]").forEach((sel:any)=>{ const grp=sel.parentElement&&sel.parentElement.querySelector(".pills"); const on=grp&&grp.querySelector(".pill.on"); if(on) sel.value=(on.textContent||"").trim(); }); }
+    w._syncPayStSelects=_syncPayStSelects;
+    // Program-suggested → payment flow: show ONLY the price field for the chosen program
+    // (L1 → L1 price, L2 → L2 price, L1 + L2 → both), label the flow, and re-quote. Payment
+    // methods (Full / Installment / EMI / Advance) are shared by both programs.
+    function _syncProgramPricing(){
+      const prog=(root.querySelector("#haProgram")as HTMLSelectElement)?.value||"L2";
+      const l1Fld=(root.querySelector("#haL1Price")as HTMLElement|null)?.closest(".fld")as HTMLElement|null;
+      const l2Fld=(root.querySelector("#haL2Price")as HTMLElement|null)?.closest(".fld")as HTMLElement|null;
+      const showL1=prog==="L1"||prog==="L1 + L2";
+      const showL2=prog==="L2"||prog==="L1 + L2";
+      if(l1Fld) l1Fld.style.display=showL1?"":"none";
+      if(l2Fld) l2Fld.style.display=showL2?"":"none";
+      const lbl=root.querySelector("#payFlowLbl"); if(lbl) lbl.textContent=prog+" · standard";
+      _payCalcAll();
+    }
+    w._syncProgramPricing=_syncProgramPricing;
 
     function _payNum(sel:string):number{
       const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
@@ -4965,7 +5106,10 @@ export function initApp(root: HTMLElement) {
     function _coachPanelEl(){ return root.querySelector('#s-coach .c-p[data-p="health2"]')as HTMLElement|null; }
     function collectCoachProfile(){
       const p=_coachPanelEl(); if(!p) return null;
-      const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
+      // [data-nocap] elements (the payment Status dropdowns, which mirror the existing hidden
+      // pills) are excluded so the positional field capture stays identical to before — existing
+      // saved profiles keep restoring correctly.
+      const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
       const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
       return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus};
@@ -4974,7 +5118,7 @@ export function initApp(root: HTMLElement) {
       const p=_coachPanelEl(); if(!p||!obj) return;
       _coachApplying=true;
       try{
-        const els=Array.from(p.querySelectorAll("input,select,textarea"));
+        const els=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap"));
         (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
         const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
         const chipEls=Array.from(p.querySelectorAll(".chip-o")); (obj.chips||[]).forEach((on:boolean,i:number)=>{ if(chipEls[i]) (chipEls[i]as HTMLElement).classList.toggle("on",!!on); });
@@ -4984,7 +5128,9 @@ export function initApp(root: HTMLElement) {
         const cs=root.querySelector("#consStatus"); if(cs){ const onPill=cs.querySelector(".pill.on")as HTMLElement; if(onPill){ const act=onPill.getAttribute("onclick")||""; const m=act.match(/consAct\('([^']+)'/); if(m) consAct(m[1],onPill); } }
         // Re-trigger payment method panel visibility
         const pm=root.querySelector("#payMethod")as HTMLSelectElement; if(pm&&pm.value) payBlk(pm.value);
-        _payCalcAll();
+        _syncProgramPricing();   // apply L1/L2 program-specific pricing view (also re-quotes)
+        _syncPayStSelects();     // mirror restored payment-Status pills into their dropdowns
+        _refreshPayEnrollChip(); // reflect the enrolled level (L1/L2) in the payment section
       } finally { _coachApplying=false; }
     }
     function renderCoachAtts(){
@@ -5580,11 +5726,21 @@ export function initApp(root: HTMLElement) {
       };
       if(pm==="i2"){
         const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
-        if(!p1&&!p2) return;
+        const totalI2=_payNum("#i2Total")||total;
+        const balance=Math.max(0,totalI2-p1-p2);
+        const dueDate=val("#i2BalDueDate")||null;
+        // Don't clobber (or duplicate) an installment-2 that Reception already collected.
+        let recInst2Paid=false;
+        try{ const {data}=await supabase.from("payments").select("status,collected_by,installment_number").eq("lead_id",id).eq("payment_type","installment"); recInst2Paid=(data||[]).some((r:any)=>Number(r.installment_number)===2&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||""))); }catch(_){}
+        if(!p1&&!p2&&balance<=0) return;
         const rows:any[]=[];
-        if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",...proof("i2Inst1Proof")});
-        if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",...proof("i2BalProof")});
-        await commit("installment",rows,"Installment",p1+p2);
+        if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",collected_by:"Health Coach",...proof("i2Inst1Proof")});
+        if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",collected_by:"Health Coach",...proof("i2BalProof")});
+        // Pending installment-2 → a "due" row so Reception can see the balance + due date + collect it.
+        else if(balance>0&&!recInst2Paid) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",due_date:dueDate,collected_by:"Health Coach"});
+        // Re-write only the coach-owned installment rows (preserve Reception collections), then insert.
+        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").neq("collected_by","Reception desk"); }catch(_){}
+        if(rows.length){ try{ await supabase.from("payments").insert(rows); logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+(totalI2?(" of ₹"+totalI2.toLocaleString("en-IN")+", balance ₹"+balance.toLocaleString("en-IN")):"")}]); if(String(_coachLeadId)===id) _renderCoachPayHistory(id); }catch(e:any){ toastErr("Payment save failed: "+(e.message||"db error")); } }
       } else if(pm==="full"){
         const amt=_payNum("#payFullRcvd"); if(!amt) return;
         await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",...proof("payFullProof")}],"Full payment",amt);
@@ -5683,10 +5839,14 @@ export function initApp(root: HTMLElement) {
           const enrIso=new Date().toISOString();
           const upd:any={call_status:"Enrolled"}; if(!already) upd.enrolled_at=enrIso;
           try{ await supabase.from("leads").update(upd).eq("meta_lead_id",id); }catch(_){}
+          // Coach → Reception sync: stamp this lead's appointment(s) as enrolled so Reception
+          // reflects it in the same DB record, then refresh Reception live (no manual reload).
+          try{ await supabase.from("appointments").update({stage:"enrolled"}).eq("lead_id",id).neq("status","cancelled"); }catch(_){}
           const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ l.callStatus="Enrolled"; if(!already) l.enrolledAt=enrIso; } });
           setEnrolled(_metaLeads); setEnrolled(_assignedExtras);
           if(!already){ logActivity(id,[{action:"Enrolled",field:"Enrolled at",new:fmtIST(enrIso)}]); }
           try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
+          try{ await loadReceptionData(); }catch(_){}   // Reception's Enrolled card/table update immediately
           try{ if(String(_advLeadId)===id&&!already) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
         }
         try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
@@ -6299,7 +6459,13 @@ export function initApp(root: HTMLElement) {
     }
     w._accVerify=async(id:number)=>{
       try{ await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString()}).eq("id",id);
-        toast("Payment verified ✓"); await loadAccountsData();
+        // Accounts confirming the payment ENROLLS the lead automatically (shared record) and
+        // syncs Reception + Health Coach + Advisor + dashboards. Payment date/time is already
+        // stored on the payment row (paid_at / verified_at).
+        const pay=_accPays.find((p:any)=>String(p.id)===String(id));
+        const leadId=pay&&(pay.lead_id||(_accAppts[pay.appointment_id]||{}).lead_id);
+        if(leadId){ await _enrollLeadShared(String(leadId),"Accounts payment confirmed"); try{ await loadReceptionData(); }catch(_){} }
+        toast(leadId?"Payment verified ✓ — lead Enrolled & synced":"Payment verified ✓"); await loadAccountsData();
       }catch(e:any){ toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
     };
     w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen(id,name,amt,leadId); };
