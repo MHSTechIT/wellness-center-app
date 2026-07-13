@@ -62,6 +62,22 @@ export function formatDuration(sec: number): string {
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
+// Pull recent call records (CDR) from Smartflo — the authoritative source for final status +
+// recording URL. Used to sync calls that the webhook (push) never delivered (e.g. localhost, or
+// missing webhook config). Auth = the raw API key header (same as click_to_call).
+const SMARTFLO_RECORDS_URL = 'https://api-smartflo.tatateleservices.com/v1/call/records';
+export async function fetchCallRecords(fromDate: string, toDate: string, limit = 1000): Promise<any[]> {
+  const key = process.env.TATA_TELE_API_KEY;
+  if (!key) return [];
+  const url = SMARTFLO_RECORDS_URL + '?from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate) + '&limit=' + limit;
+  try {
+    const r = await fetch(url, { headers: { 'Authorization': key, 'Accept': 'application/json' } });
+    if (!r.ok) return [];
+    const j: any = await r.json();
+    return Array.isArray(j.results) ? j.results : [];
+  } catch (_) { return []; }
+}
+
 export interface CallResult { ok: boolean; callId?: string | null; status?: number; error?: string; raw?: any; }
 
 // Primary: JSON click_to_call. Rings the agent first, then bridges the customer.

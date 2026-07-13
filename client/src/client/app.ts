@@ -2220,6 +2220,7 @@ export function initApp(root: HTMLElement) {
       renderHealthDashboard();
       loadAndApplyProfile(l);   // restore the saved "Save lead record" form for this lead
       renderActivityLog(l.id);  // show this lead's audit history (latest first)
+      renderCallLogs(l);        // show this lead's call logs + voice recordings (latest first)
     }
 
     // ===== Persisted lead profile (Health Advisor "Save lead record") =====
@@ -2458,17 +2459,56 @@ export function initApp(root: HTMLElement) {
       try{ await supabase.from("lead_assignments").insert(row); _asnHist.unshift(row); try{ populateAsnHistFilters(); renderAsnHist(); }catch(_){} }catch(_){/* table not migrated yet */}
     }
     async function renderActivityLog(leadId:any){
-      const el=root.querySelector("#actLog"); if(!el) return;
+      const els=Array.from(root.querySelectorAll(".js-actlog")); if(!els.length) return;
       let rows:any[]=[];
       try{ const {data}=await supabase.from("lead_activity").select("*").eq("lead_id",String(leadId)).order("created_at",{ascending:false}).limit(200); rows=data||[]; }catch(_){ rows=[]; }
       if(!rows.length) rows=readActLocal(leadId);
       if(String(_advLeadId)!==String(leadId)) return;   // user switched away during the fetch
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div>'; return; }
-      el.innerHTML=rows.map((r:any)=>{
-        const chg=r.field?('<b>'+e(r.field)+'</b>'+((r.old_value!=null||r.new_value!=null)?': <span style="color:var(--faint)">'+e(r.old_value||"—")+'</span> &rarr; <b>'+e(r.new_value||"—")+'</b>':'')):'';
-        return '<div class="tl"><div class="t"><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span> '+chg+'</div><div class="m">'+e(r.actor||ADV_ACTOR)+' &middot; '+_actTime(r.created_at)+'</div></div>';
-      }).join("");
+      const html=rows.length
+        ? rows.map((r:any)=>{
+            const chg=r.field?('<b>'+e(r.field)+'</b>'+((r.old_value!=null||r.new_value!=null)?': <span style="color:var(--faint)">'+e(r.old_value||"—")+'</span> &rarr; <b>'+e(r.new_value||"—")+'</b>':'')):'';
+            return '<div class="tl"><div class="t"><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span> '+chg+'</div><div class="m">'+e(r.actor||ADV_ACTOR)+' &middot; '+_actTime(r.created_at)+'</div></div>';
+          }).join("")
+        : '<div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div>';
+      els.forEach((el:any)=>{ el.innerHTML=html; });
+    }
+    // Render the lead's Call logs + voice recordings from `call_recordings` (contact_id = lead id,
+    // with a phone/to_number fallback so calls placed before the id mapping still surface). Latest
+    // first. Each call shows date/time, direction, duration, status, agent + a recording Play/Download.
+    async function renderCallLogs(lead:any){
+      const el=root.querySelector("#advCallLog"); if(!el||!lead) return;
+      const leadId=String(lead.id); const ph=(lead.phone||"").replace(/\D/g,"");
+      // Pull the latest call status + recordings from the provider CDR first (resolves calls stuck
+      // at "initiated" and surfaces recordings the push webhook never delivered), then read the DB.
+      try{ await _callSync(leadId); }catch(_){}
+      if(String(_advLeadId)!==leadId) return;   // user switched away during the sync
+      let rows:any[]=[];
+      try{ const {data}=await supabase.from("call_recordings").select("*").eq("contact_id",leadId).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
+      if(ph && ph.length>=6){ try{ const {data:d2}=await supabase.from("call_recordings").select("*").ilike("to_number","%"+ph.slice(-10)+"%").order("created_at",{ascending:false}).limit(100); (d2||[]).forEach((r:any)=>{ if(!rows.some((x:any)=>String(x.id)===String(r.id))) rows.push(r); }); }catch(_){} }
+      if(String(_advLeadId)!==leadId) return;   // user switched away during the fetch
+      rows.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime());
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const recCount=rows.filter((r:any)=>r.recording_url).length;
+      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div>'; return; }
+      el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span></div>'
+        +rows.map((r:any)=>{
+          const out=/out/i.test(r.direction||"outbound");
+          const dir=out?'<span class="chipb vio">Outgoing</span>':'<span class="chipb info">Incoming</span>';
+          const dur=r.duration_seconds?((r.duration_seconds/60|0)+":"+String(r.duration_seconds%60).padStart(2,"0")):"—";
+          const st=r.call_status||"—"; const stc=/complet|answer|connect/i.test(st)?"ok":/miss|fail|no.?answer|busy|reject|cancel/i.test(st)?"al":"warn";
+          const rec=r.recording_url
+            ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px"><audio controls preload="none" style="height:34px;max-width:260px"><source src="'+e(r.recording_url)+'"></audio><a class="btn bsm" href="'+e(r.recording_url)+'" download target="_blank" rel="noopener">⬇ Download</a></div>'
+            : '<div style="margin-top:6px;font-size:11px;color:var(--faint)">'+(/(initiat|ring)/i.test(st)?"Recording will appear once the call completes.":"No recording available.")+'</div>';
+          return '<div style="border-bottom:1px solid var(--line);padding:11px 0">'
+            +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+            +'<span class="mono" style="font-size:12px;font-weight:600">'+e(fmtIST(r.created_at))+'</span>'+dir
+            +'<span class="chipb '+stc+'">'+e(st)+'</span>'
+            +'<span style="font-size:11.5px;color:var(--muted)">Duration '+dur+'</span>'
+            +'<span style="font-size:11.5px;color:var(--muted)">Agent '+e(r.agent_number||r.from_number||"—")+'</span>'
+            +'<span style="font-size:11.5px;color:var(--muted)">→ '+e(r.to_number||"—")+'</span></div>'
+            +rec+'</div>';
+        }).join("");
     }
     w.addFuNoteA=()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
@@ -4600,6 +4640,8 @@ export function initApp(root: HTMLElement) {
     // ===== Click-to-call (Tata Tele / Smartflo) — server keeps the API key =====
     async function _callInitiate(id:string){ try{ const r=await fetch(_api("/api/calls/initiate/"+encodeURIComponent(id)),{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
     async function _callRecordings(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/recordings")); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
+    // Pull final call status + recordings from the provider's CDR into the DB (webhook-independent).
+    async function _callSync(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/sync")); return await r.json(); }catch(_){ return {ok:false,synced:0}; } }
     async function _callTagLatest(id:string,t:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/latest-type"),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({callType:t})}); return await r.json(); }catch(_){ return {ok:false}; } }
     // After a call, poll for the recording the webhook delivers, then auto-tag it.
     function _pollRecordings(id:string,callType:string){
@@ -4617,27 +4659,49 @@ export function initApp(root: HTMLElement) {
         }
       },d));
     }
-    // Call button: initiate the dial (agent rings first), then run a timer + polling.
-    let onCall=0,ct=0,cti:ReturnType<typeof setInterval>|null=null;
-    const cbtn=root.querySelector("#callBtn")as HTMLElement;
-    if(cbtn) cbtn.onclick=async()=>{
-      const sp=cbtn.querySelector("span");
-      if(!onCall){
+    // ===== Advisor Call ↔ End-Call button (Tata/Smartflo click-to-call) =====
+    // Bound as a window handler (via the template's onclick) so it survives any header re-render,
+    // and re-queries the button each tick so state stays correct. Click-to-call has no programmatic
+    // hangup (the call is on the agent's phone), so "End" finalises the CRM side — stops the timer,
+    // records the duration + a "Call ended" activity, resets the UI for the next call, and fetches
+    // the final recording (which the Smartflo webhook writes once the agent hangs up).
+    let _callActive=false, _callSecs=0, _callTimer:ReturnType<typeof setInterval>|null=null, _callBusy=false;
+    function _callBtnState(mode:"idle"|"connecting"|"active"){
+      const b=root.querySelector("#callBtn")as HTMLElement|null; if(!b) return; const s=b.querySelector("span");
+      if(mode==="idle"){ b.style.background=""; b.classList.remove("oncall"); if(s)s.textContent="Call"; }
+      else if(mode==="connecting"){ b.style.background="linear-gradient(135deg,#E2553B,#A8351F)"; b.classList.add("oncall"); if(s)s.textContent="Connecting…"; }
+      else { b.style.background="linear-gradient(135deg,#E2553B,#A8351F)"; b.classList.add("oncall"); if(s)s.textContent="End · "+((_callSecs/60|0)+":"+String(_callSecs%60).padStart(2,"0")); }
+    }
+    function _endCallUi(){ _callActive=false; if(_callTimer){clearInterval(_callTimer);_callTimer=null;} _callBtnState("idle"); }
+    w._advCallToggle=async()=>{
+      if(_callBusy) return;                    // ignore rapid double-clicks during the initiate await
+      if(!_callActive){
         if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
         const id=String(_advLeadId); const nm=(root.querySelector("#advName")?.textContent)||"lead";
-        onCall=1; cbtn.style.background="linear-gradient(135deg,#E2553B,#A8351F)"; if(sp)sp.textContent="Calling…";
+        _callBusy=true; _callActive=true; _callBtnState("connecting");
         const r=await _callInitiate(id);
-        if(!r||!r.ok){ onCall=0; cbtn.style.background=""; if(sp)sp.textContent="Call"; toastErr((r&&r.error)||"Call could not be placed"); return; }
+        _callBusy=false;
+        if(!r||!r.ok){ _endCallUi(); toastErr((r&&r.error)||"Call could not be placed"); return; }
         toast("📞 Calling "+nm+" — your phone rings first, then the customer");
         logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
-        ct=0; if(cti)clearInterval(cti); cti=setInterval(()=>{ct++;const s2=cbtn.querySelector("span");if(s2)s2.textContent=(ct/60|0)+":"+String(ct%60).padStart(2,"0");},1000);
+        _callSecs=0; _callBtnState("active");
+        if(_callTimer)clearInterval(_callTimer);
+        _callTimer=setInterval(()=>{ _callSecs++; _callBtnState("active"); },1000);
         _pollRecordings(id,"outbound");
       } else {
-        onCall=0; if(cti)clearInterval(cti); cbtn.style.background=""; if(sp)sp.textContent="Call";
-        if(_advLeadId) logActivity(_advLeadId,[{action:"Updated",field:"Call ended",new:(ct/60|0)+":"+String(ct%60).padStart(2,"0")}]);
-        toast("Call ended");
+        // End the call (agent hangs up on their phone; CRM finalises + records).
+        const id=_advLeadId?String(_advLeadId):"";
+        const dur=(_callSecs/60|0)+":"+String(_callSecs%60).padStart(2,"0");
+        _endCallUi();
+        if(id){ logActivity(id,[{action:"Updated",field:"Call ended",new:dur}]);
+          // Pull the final status/recording once the webhook posts it (a few seconds after hangup).
+          setTimeout(()=>{ if(String(_advLeadId)===id){ const l=_advFindLead(id); if(l) renderCallLogs(l); } }, 9000);
+        }
+        toast("Call ended · "+dur);
       }
     };
+    // Bind directly too (belt-and-suspenders: works even if the template onclick is missing).
+    { const _cb=root.querySelector("#callBtn")as HTMLElement|null; if(_cb) _cb.onclick=()=>w._advCallToggle(); }
 
     // Coach consultation
     const cBadge=root.querySelector("#coachBadge");
@@ -6623,5 +6687,5 @@ export function initApp(root: HTMLElement) {
     // Auth gate — all data loading happens inside showApp() after successful auth
     checkAuth();
 
-    return () => { clearInterval(slaInterval); if(cti) clearInterval(cti); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
+    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
 }

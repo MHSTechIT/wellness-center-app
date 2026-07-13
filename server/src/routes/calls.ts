@@ -11,6 +11,7 @@ import {
   isTerminalStatus,
   callStatusLabel,
   formatDuration,
+  fetchCallRecords,
 } from '../services/tata';
 
 // ============================================================
@@ -201,9 +202,57 @@ async function recordings(req: Request, res: Response) {
   }
 }
 
+// ============================================================
+// GET /api/calls/:contactId/sync — PULL final call status + recordings from Smartflo's CDR API
+// and sync them into call_recordings for this lead. This makes calls resolve (Answered/Missed…)
+// and recordings appear even when the push webhook never arrives (e.g. localhost / no webhook URL).
+// Matches CDR records to the lead by the customer's phone number.
+// ============================================================
+async function syncProvider(req: Request, res: Response) {
+  try {
+    const contactId = req.params.contactId;
+    const { data } = await supabase.from('leads').select('phone').eq('meta_lead_id', contactId).limit(1);
+    const lead = data && data[0];
+    const phone10 = lead ? digits10(lead.phone) : '';
+    if (!phone10) { res.json({ ok: false, error: 'lead has no phone number', synced: 0 }); return; }
+
+    // Window: last 30 days (CDR is date-filtered).
+    const to = new Date(); const from = new Date(to.getTime() - 30 * 24 * 3600 * 1000);
+    const fmt = (d: Date) => d.toISOString().substring(0, 10);
+    const recs = await fetchCallRecords(fmt(from) + ' 00:00:00', fmt(to) + ' 23:59:59', 2000);
+    const mine = recs.filter((r: any) => digits10(r.client_number || r.destination_number || r.to || r.caller_id_num || '') === phone10);
+
+    let synced = 0;
+    for (const r of mine) {
+      const dur = Number(r.answered_seconds || r.total_call_duration || r.call_duration || 0) || 0;
+      const norm = normalizeCallStatus(r.status || r.description, dur, r.direction);
+      let createdAt = new Date().toISOString();
+      if (r.date && r.time) { const d = new Date(String(r.date) + 'T' + String(r.time) + '+05:30'); if (!isNaN(d.getTime())) createdAt = d.toISOString(); }
+      // Smartflo recording URLs self-authenticate via a ?token= param and stream audio/mp3, so
+      // the browser plays/downloads them directly — no re-hosting or proxy needed.
+      const recUrl: string | null = r.recording_url || null;
+      const row: any = {
+        call_id: String(r.call_id || r.uuid || r.id), contact_id: contactId,
+        recording_url: recUrl, duration_seconds: dur,
+        from_number: r.agent_number || null, to_number: r.client_number || null,
+        agent_number: r.agent_number || null, direction: r.direction || 'outbound',
+        call_status: norm, raw_payload: r, created_at: createdAt,
+      };
+      try { await supabase.from('call_recordings').upsert(row, { onConflict: 'call_id' }); synced++; } catch (_) {}
+    }
+    // Drop the transient "initiated" placeholder rows (fallback ids) now that the real CDR rows exist.
+    if (synced > 0) { try { await supabase.from('call_recordings').delete().eq('contact_id', contactId).ilike('call_id', 'init-%'); } catch (_) {} }
+
+    res.json({ ok: true, synced, matched: mine.length, scanned: recs.length });
+  } catch (e: any) {
+    res.json({ ok: false, error: e?.message || 'server error', synced: 0 });
+  }
+}
+
 export function registerCallRoutes(app: Express) {
   app.post('/api/calls/initiate/:contactId', initiate);
   app.post('/api/calls/webhook/recording', webhook);
   app.put('/api/calls/:contactId/latest-type', latestType);
   app.get('/api/calls/:contactId/recordings', recordings);
+  app.get('/api/calls/:contactId/sync', syncProvider);
 }
