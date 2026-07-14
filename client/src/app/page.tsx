@@ -71,8 +71,8 @@ export default function Home() {
       <div className="app" id="appShell" style={{display:"none"}}>
         <aside className="side">
           <div className="sb">
-            <span className="bm"><svg><use href="#i-leaf"/></svg></span>
-            <div><div className="bn">WellnessOS</div><div className="bs">Chennai · HQ</div></div>
+            <img src="/mhs-logo.png" alt="MHS Wellness Center" style={{height:"32px",width:"auto",maxWidth:"56px",objectFit:"contain",display:"block",flex:"0 0 auto"}} />
+            <div><div className="bn">MHS Wellness Center</div><div className="bs">Chennai · HQ</div></div>
           </div>
           <nav className="snav" id="nav">
             <div className="ng">Hero screens</div>

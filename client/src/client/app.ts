@@ -3942,58 +3942,191 @@ export function initApp(root: HTMLElement) {
       if(leadId){ const r=await _callInitiate(leadId); if(r&&r.ok){ toast("📞 Calling — your phone rings first, then the customer"); _pollRecordings(leadId,"reception"); return; } if(r&&r.error){ toastErr(r.error); return; } }
       toast("Calling "+(phone||"")+"…");
     };
-    // ===== Invoice PDF — generated client-side (no backend/library) and auto-downloaded =====
-    // Builds a minimal, valid single-page PDF from ASCII text lines so it opens in any reader.
-    // Offsets are byte-accurate because the whole document is kept ASCII (string len === bytes).
-    function _buildInvoicePdf(lines:string[]):Blob{
-      const clean=(s:any)=>String(s==null?"":s).replace(/[^\x20-\x7E]/g,"?").replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)");
-      let y=800; const body=lines.map(l=>{ const seg="BT /F1 12 Tf 50 "+y+" Td ("+clean(l)+") Tj ET"; y-=20; return seg; }).join("\n");
-      const objs=[
-        "<</Type/Catalog/Pages 2 0 R>>",
-        "<</Type/Pages/Kids[3 0 R]/Count 1>>",
-        "<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>",
-        "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
-        "<</Length "+body.length+">>\nstream\n"+body+"\nendstream"
-      ];
-      let pdf="%PDF-1.4\n"; const offs:number[]=[];
-      for(let i=0;i<objs.length;i++){ offs.push(pdf.length); pdf+=(i+1)+" 0 obj\n"+objs[i]+"\nendobj\n"; }
-      const xref=pdf.length;
-      pdf+="xref\n0 "+(objs.length+1)+"\n0000000000 65535 f \n";
-      offs.forEach(o=>{ pdf+=String(o).padStart(10,"0")+" 00000 n \n"; });
-      pdf+="trailer\n<</Size "+(objs.length+1)+"/Root 1 0 R>>\nstartxref\n"+xref+"\n%%EOF";
-      return new Blob([pdf],{type:"application/pdf"});
+    // ===== Tax Invoice PDF — professional A4 layout (jsPDF), matches the MHS reference template =====
+    // Company/branding + Terms are fixed (from the reference); every other field is pulled live from
+    // the database. Course Membership Fees are itemised per ACTUAL enrolled program (L1 / L2 / both)
+    // using the real per-program amounts stored in the payments table — never split/estimated.
+    const INV_COMPANY={
+      name:"Integfarms My Health School Pvt Ltd",
+      addr:["No 108/2B, D Block, Grahalaya Paramjeeta Apartments,","Poonamallee High Road, Kumananchavadi,","Chennai-600056, Tamil Nadu"],
+      gstin:"GSTIN - 33AAHCI2845R1Z2",
+      email:"info@myhealthschool.in",
+      phone:"+91 89259 45902",
+    };
+    const INV_TERMS=[
+      "1) Personal Access Only: Course access is for the enrolled participant only. Sharing login, videos, or materials is not permitted.",
+      "2) Health & Safety: Please do not change or stop any medications without consulting your doctor. The course is not a substitute for medical advice.",
+      "3) Pregnancy Policy: If pregnancy occurs, kindly inform us. Course access will be paused during pregnancy and lactation.",
+      "4) Medical Emergency Pause: In case of surgeries, hospitalization, accidents, or family loss, a temporary pause may be approved based on management discretion.",
+      "5) Attendance Commitment: Personal events (travel, celebrations, exams, busy schedule) cannot be considered for extensions or compensation.",
+      "6) No Extensions: Course duration is fixed; additional days or make-up sessions will not be provided.",
+      "7) Registered Number: The mobile number provided at enrollment cannot be changed after access is activated.",
+      "8) Device & Internet: A good device and stable internet are required for smooth course access.",
+      "9) No Batch Changes: Batch changes are not allowed once the program begins.",
+      "Refund Policy: Fees are non-refundable. However, in exceptional cases, the management may review the situation. Applicable charges will be deducted, and the final refundable amount (if any) will be decided by the management based on the services utilized.",
+    ];
+    // Indian-system integer → words ("Rupees Twenty Nine Thousand Nine Hundred Ninety Nine Only" style).
+    function _numToWordsIN(num:number):string{
+      num=Math.round(num||0); if(num<=0) return "Zero";
+      const ones=["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+      const tens=["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+      const two=(n:number)=>n<20?ones[n]:tens[Math.floor(n/10)]+(n%10?" "+ones[n%10]:"");
+      const three=(n:number)=>(n>=100?ones[Math.floor(n/100)]+" Hundred"+(n%100?" ":""):"")+(n%100?two(n%100):"");
+      let w=""; const crore=Math.floor(num/10000000); num%=10000000; const lakh=Math.floor(num/100000); num%=100000; const thou=Math.floor(num/1000); num%=1000;
+      if(crore) w+=three(crore)+" Crore ";
+      if(lakh) w+=two(lakh)+" Lakh ";
+      if(thou) w+=two(thou)+" Thousand ";
+      if(num) w+=three(num);
+      return w.trim();
     }
-    w._recDownloadInvoice=(id:any)=>{
+    // Cache the branding logo as a data URL (same-origin static asset) for embedding in the PDF.
+    let _invLogoData:string|null=null;
+    async function _loadInvoiceLogo():Promise<string>{
+      if(_invLogoData!==null) return _invLogoData;
+      try{
+        const res=await fetch("/mhs-logo.png"); if(!res.ok) throw new Error("no logo");
+        const blob=await res.blob();
+        _invLogoData=await new Promise<string>((resolve)=>{ const fr=new FileReader(); fr.onload=()=>resolve(String(fr.result||"")); fr.onerror=()=>resolve(""); fr.readAsDataURL(blob); });
+      }catch(_){ _invLogoData=""; }
+      return _invLogoData;
+    }
+    // Parse the enrolled program out of a consultation-status label ("Enrolled – L1 + L2").
+    function _progFromCons(s:any):string{
+      const m=/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i.exec(String(s||""));
+      if(!m) return "";
+      const v=m[1].replace(/\s+/g,"").toUpperCase();
+      return v==="L1+L2"?"L1 + L2":v;
+    }
+    w._recDownloadInvoice=async (id:any)=>{
       try{
         const r=_recAll.find((x:any)=>String(x.id)===String(id));
         if(!r){ toastErr("Invoice data not found for this appointment"); return; }
-        const money=(n:any)=>"INR "+(parseInt(n)||0).toLocaleString("en-IN");
-        const lines=[
-          "WellnessOS  -  Tax Invoice",
-          "Chennai HQ",
-          "----------------------------------------",
-          "Invoice No : INV-"+String(id),
-          "Issued     : "+fmtIST(new Date().toISOString()),
-          "",
-          "Client     : "+(r.name||"-"),
-          "Client ID  : "+(r.clientId||"-"),
-          "Phone      : "+(r.ph||"-"),
-          "Service    : "+(r.svcLabel||r.svc||"-"),
-          "Provider   : "+(r.hc||"-"),
-          "Appt Date  : "+((r.date||"")+(r.time?", "+r.time:"")),
-          "----------------------------------------",
-          "Amount     : "+money(r.payAmt),
-          "Payment    : "+(r.payStatus==="paid"?"PAID":String(r.payStatus||"-").toUpperCase()),
-          "----------------------------------------",
-          "",
-          "Thank you for choosing WellnessOS."
-        ];
-        const blob=_buildInvoicePdf(lines);
-        if(!blob||!blob.size) throw new Error("empty PDF generated");
-        const url=URL.createObjectURL(blob);
-        const a=document.createElement("a"); a.href=url; a.download="invoice_"+String(r.clientId||("INV-"+id)).replace(/[^A-Za-z0-9._-]/g,"_")+".pdf";
-        document.body.appendChild(a); a.click();
-        setTimeout(()=>{ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(_){} }, 1500);
+        toast("Generating invoice…");
+        // ---- pull the live payment records for this lead (source of truth for per-program fees) ----
+        let pays:any[]=[];
+        try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",r.lead_id).order("created_at",{ascending:true}); pays=data||[]; }catch(_){ pays=[]; }
+        const paid=pays.filter((p:any)=>p.status==="paid");
+        const normProg=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const hasL1=/l1/i.test(s), hasL2=/l2/i.test(s); if(hasL1&&hasL2) return "L1 + L2"; if(hasL2&&!hasL1) return "L2"; return "L1"; };
+        // Group the ACTUAL paid amounts by their stored program tag.
+        const byProg:Record<string,number>={};
+        paid.forEach((p:any)=>{ const k=normProg(p.program); byProg[k]=(byProg[k]||0)+(Number(p.amount)||0); });
+        // One membership line per program present, in a stable L1 → L2 → (L1 + L2) order.
+        const items:{prog:string;incl:number}[]=[];
+        ["L1","L2","L1 + L2"].forEach((k)=>{ if((byProg[k]||0)>0) items.push({prog:k,incl:byProg[k]}); });
+        // Fallback (no program-tagged paid rows): use the appointment's paid amount as a single line,
+        // labelled with the enrolled program from the consultation status when known.
+        if(!items.length){
+          const amt=Number(r.payAmt)||paid.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+          if(amt>0) items.push({prog:_progFromCons(r.consultStatus),incl:amt});
+        }
+        if(!items.length){ toastErr("No paid amount on record for this client — cannot generate invoice"); return; }
+
+        const round2=(n:number)=>Math.round(n*100)/100;
+        const fmt=(n:number)=>(Number(n)||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
+        // Amounts collected are GST-inclusive (18% = CGST 9% + SGST 9%); back-compute the tax-exclusive base.
+        const lines=items.map((it)=>({
+          desc:"Course Membership Fees"+(it.prog?(" ("+it.prog+")"):""),
+          hsn:"999249",
+          base:round2(it.incl/1.18),
+        }));
+        const total=round2(items.reduce((s,it)=>s+it.incl,0));   // Grand Total = actual amount collected
+        const baseTotal=round2(total/1.18);
+        const cgst=round2(baseTotal*0.09);
+        const sgst=round2(baseTotal*0.09);
+
+        // Invoice identity — stable per appointment. Reception appointment id (a serial) drives the suffix.
+        const suffix=(String(id).replace(/\D/g,"").slice(-4))||"0001";
+        const invNo="MHS/DD/"+suffix;
+        const lastPaidAt=paid.length?(paid[paid.length-1].paid_at||paid[paid.length-1].created_at):"";
+        const invDate=fmtISTDate(lastPaidAt||new Date().toISOString());
+
+        // ---- render (A4, mm) ----
+        const { jsPDF }=await import("jspdf");
+        const doc=new jsPDF({unit:"mm",format:"a4"});
+        const PW=210, ML=14, MR=196, CW=MR-ML;
+        const GREEN:[number,number,number]=[15,88,50];
+        let y=16;
+        doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(20,20,20);
+        doc.text("TAX INVOICE", PW/2, y, {align:"center"}); y+=8;
+
+        // Header: logo left, company details right
+        const logo=await _loadInvoiceLogo();
+        const logoW=40, logoH=round2(40*443/795);
+        if(logo){ try{ doc.addImage(logo,"PNG",ML,y,logoW,logoH); }catch(_){} }
+        doc.setFont("helvetica","bold"); doc.setFontSize(10.5); doc.setTextColor(20,20,20);
+        doc.text(INV_COMPANY.name,MR,y+3,{align:"right"});
+        doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(90,90,90);
+        let cy=y+8; [...INV_COMPANY.addr,INV_COMPANY.gstin,INV_COMPANY.email,INV_COMPANY.phone].forEach((l)=>{ doc.text(l,MR,cy,{align:"right"}); cy+=3.8; });
+        y=Math.max(y+logoH,cy)+3;
+        doc.setDrawColor(210); doc.setLineWidth(0.3); doc.line(ML,y,MR,y); y+=6;
+
+        // Invoice no / date
+        doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(20,20,20);
+        doc.text("Invoice No : "+invNo,ML,y);
+        doc.text("Invoice Date : "+invDate,MR,y,{align:"right"}); y+=7;
+
+        // Bill To
+        doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(90,90,90); doc.text("Bill To",ML,y); y+=5;
+        doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(20,20,20); doc.text(String(r.name||"Client"),ML,y); y+=5;
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(70,70,70); doc.text("Phone : "+(r.ph||"-"),ML,y); y+=7;
+
+        // Items table — column right-edges: sno 24, desc, hsn 118, qty 134, rate 165, amount 196(MR)
+        const rowH=8, tableTop=y;
+        const cSno=20, cDesc=27, cHsnR=122, cQtyR=138, cRateR=166, cAmtR=MR;
+        doc.setFillColor(GREEN[0],GREEN[1],GREEN[2]); doc.rect(ML,y,CW,rowH,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+        doc.text("S.No",ML+2,y+5.3);
+        doc.text("Item & Description",cDesc,y+5.3);
+        doc.text("HSN/SAC",cHsnR,y+5.3,{align:"right"});
+        doc.text("Qty",cQtyR,y+5.3,{align:"right"});
+        doc.text("Rate",cRateR,y+5.3,{align:"right"});
+        doc.text("Amount",cAmtR,y+5.3,{align:"right"});
+        y+=rowH;
+        doc.setTextColor(35,35,35); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+        lines.forEach((l,i)=>{
+          const ry=y+5.3;
+          doc.text(String(i+1),cSno,ry,{align:"center"});
+          doc.text(l.desc,cDesc,ry);
+          doc.text(l.hsn,cHsnR,ry,{align:"right"});
+          doc.text("1",cQtyR,ry,{align:"right"});
+          doc.text(fmt(l.base),cRateR,ry,{align:"right"});
+          doc.text(fmt(l.base),cAmtR,ry,{align:"right"});
+          y+=rowH;
+          doc.setDrawColor(228); doc.setLineWidth(0.2); doc.line(ML,y,MR,y);
+        });
+        // table outer border + column separators
+        doc.setDrawColor(200); doc.setLineWidth(0.3); doc.rect(ML,tableTop,CW,y-tableTop);
+        [ML+12,cHsnR+4,cQtyR+4,cRateR+6].forEach((x)=>{ doc.line(x,tableTop,x,y); });
+        y+=6;
+
+        // Totals (right-aligned)
+        const tLabelR=cRateR, tValR=cAmtR;
+        const totRow=(label:string,val:string,bold:boolean)=>{ doc.setFont("helvetica",bold?"bold":"normal"); doc.setFontSize(bold?10.5:9); doc.setTextColor(bold?20:60,bold?20:60,bold?20:60); doc.text(label,tLabelR,y,{align:"right"}); doc.text(val,tValR,y,{align:"right"}); y+=5.5; };
+        totRow("Base Value (Tax Exclusive)",fmt(baseTotal),false);
+        totRow("CGST (9%)",fmt(cgst),false);
+        totRow("SGST (9%)",fmt(sgst),false);
+        doc.setDrawColor(180); doc.setLineWidth(0.3); doc.line(tLabelR-40,y-2,MR,y-2);
+        totRow("Total",fmt(total),true);
+        y+=2;
+
+        // Amount in words
+        doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(25,25,25);
+        const aw=doc.splitTextToSize("Amount in Words: Rupees "+_numToWordsIN(total)+" Only",CW);
+        doc.text(aw,ML,y); y+=aw.length*4.4+4;
+
+        // Terms & Conditions
+        doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(20,20,20); doc.text("Terms & Conditions",ML,y); y+=5;
+        doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(65,65,65);
+        INV_TERMS.forEach((t)=>{ const ls=doc.splitTextToSize(t,CW); doc.text(ls,ML,y); y+=ls.length*3.4+1.4; });
+
+        // Authorized signatory (bottom-right). Space above is intentionally left BLANK (stamp added manually).
+        const sigY=284;
+        doc.setDrawColor(170); doc.setLineWidth(0.3); doc.line(MR-45,sigY-4,MR,sigY-4);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(30,30,30);
+        doc.text("Authorized signatory",MR,sigY,{align:"right"});
+
+        const fname=("MHS-DD-"+suffix+" - "+String(r.name||"Invoice")).replace(/[^A-Za-z0-9._ -]/g,"").trim()+".pdf";
+        doc.save(fname);
         toast("✓ Invoice PDF downloaded");
       }catch(e:any){ toastErr("Invoice download failed: "+((e&&e.message)||"could not generate PDF")); }
     };
