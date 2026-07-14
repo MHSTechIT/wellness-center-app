@@ -4310,7 +4310,7 @@ export function initApp(root: HTMLElement) {
           const {data:ex}=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num).limit(1);
           const vals:any={status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null};
           if(ex&&ex[0]) await supabase.from("payments").update(vals).eq("id",ex[0].id);
-          else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes"},vals));
+          else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:_curProgram()},vals));
           if(_recCollect.apptId) await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
           // Fully-paid check across all of this lead's installments.
           let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment"); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
@@ -4319,7 +4319,7 @@ export function initApp(root: HTMLElement) {
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           _recCollect=null; return;
         }
-        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk"});
+        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_curProgram()});
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
@@ -4346,7 +4346,9 @@ export function initApp(root: HTMLElement) {
     // the enrolled timestamp (or null on failure). Callers refresh Reception/Accounts as needed.
     async function _enrollLeadShared(leadId:string, srcLabel:string, level:string="L1"):Promise<string|null>{
       if(!leadId){ toastErr("No linked lead to enroll"); return null; }
-      const lvl=(level==="L2")?"L2":"L1"; const consLabel="Enrolled – "+lvl;
+      // level may be "L1", "L2" or "L1 + L2"; consLabel keeps the full string, lvl picks the pill.
+      const norm=/l1\s*\+\s*l2/i.test(level)?"L1 + L2":(level==="L2"?"L2":"L1");
+      const lvl=/L2/.test(norm)?"L2":"L1"; const consLabel="Enrolled – "+norm;
       const enrIso=new Date().toISOString();
       const already=[..._metaLeads,..._assignedExtras].some((l:any)=>String(l.id)===String(leadId)&&l.callStatus==="Enrolled");
       try{
@@ -4749,7 +4751,7 @@ export function initApp(root: HTMLElement) {
     // Show the auto enrollment level (from payment) in the payment section.
     function _setPayEnrollDisplay(level:string,iso:string){ const chip=root.querySelector("#payEnrollChip"); if(chip){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+level; } const at=root.querySelector("#payEnrollAt")as HTMLInputElement|null; if(at) at.value=iso?fmtIST(iso):""; }
     // Refresh the payment enrollment chip from the current consultation status (on profile load).
-    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L\d)/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); if(chip){ if(m){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+m[1].toUpperCase(); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } const ati=at as HTMLInputElement|null; if(ati){ const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); ati.value=(m&&cc&&cc.enrolledAt)?fmtIST(cc.enrolledAt):""; } }
+    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); if(chip){ if(m){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+m[1].toUpperCase().replace(/\s*\+\s*/," + "); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } const ati=at as HTMLInputElement|null; if(ati){ const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); ati.value=(m&&cc&&cc.enrolledAt)?fmtIST(cc.enrolledAt):""; } }
     w._refreshPayEnrollChip=_refreshPayEnrollChip;
     w._payStSel=(sel:any)=>{
       const box=sel&&sel.parentElement; const grp=box&&box.querySelector(".pills");
@@ -4762,8 +4764,11 @@ export function initApp(root: HTMLElement) {
       if(activeMethod!==t.method) return;                         // only the selected method enrolls
       if((sel.value||"").trim()!==t.trigger) return;              // only its "done/received/paid" value
       if(!_coachLeadId){ toast("Open a client first to enroll"); return; }
-      const prog=(root.querySelector("#haProgram")as HTMLSelectElement|null)?.value||"L2";
-      const level=(prog==="L1")?"L1":"L2";
+      const prog=_curProgram();
+      let level=(prog==="L1")?"L1":(prog==="L2"?"L2":"L1 + L2");
+      // If the client is already enrolled in the OTHER program, mark them enrolled in BOTH.
+      const cur=_coachConsStatus||""; const hasL1=/\bL1\b/.test(cur), hasL2=/\bL2\b/.test(cur);
+      if(level==="L2"&&hasL1) level="L1 + L2"; else if(level==="L1"&&hasL2) level="L1 + L2";
       _enrollLeadShared(String(_coachLeadId),"Payment "+t.trigger,level).then((iso:string|null)=>{ if(iso!==null){ _setPayEnrollDisplay(level,iso||((_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId))||{}).enrolledAt)||""); toast("🏆 Enrolled – "+level+" (from payment)"); } });
     };
     // After a profile restores the (hidden) pills, mirror each on-pill back into its dropdown.
@@ -4772,6 +4777,8 @@ export function initApp(root: HTMLElement) {
     // Program-suggested → payment flow: show ONLY the price field for the chosen program
     // (L1 → L1 price, L2 → L2 price, L1 + L2 → both), label the flow, and re-quote. Payment
     // methods (Full / Installment / EMI / Advance) are shared by both programs.
+    // The suggested program, normalised to "L1" | "L2" | "L1 + L2" (drives per-program pay locks + enrollment level).
+    function _curProgram():string{ const v=((root.querySelector("#haProgram")as HTMLSelectElement)?.value||"L2").trim(); return /l1\s*\+\s*l2/i.test(v)?"L1 + L2":(/l1/i.test(v)&&!/l2/i.test(v)?"L1":"L2"); }
     function _syncProgramPricing(){
       const prog=(root.querySelector("#haProgram")as HTMLSelectElement)?.value||"L2";
       const l1Fld=(root.querySelector("#haL1Price")as HTMLElement|null)?.closest(".fld")as HTMLElement|null;
@@ -4782,6 +4789,8 @@ export function initApp(root: HTMLElement) {
       if(l2Fld) l2Fld.style.display=showL2?"":"none";
       const lbl=root.querySelector("#payFlowLbl"); if(lbl) lbl.textContent=prog+" · standard";
       _payCalcAll();
+      try{ if(w._coachApplyPayLocks) w._coachApplyPayLocks(); }catch(_){}   // re-apply paid-stage locks for the new program (L1↔L2)
+      try{ _refreshPayEnrollChip(); }catch(_){}
     }
     w._syncProgramPricing=_syncProgramPricing;
 
@@ -5779,11 +5788,13 @@ export function initApp(root: HTMLElement) {
     async function _persistInstallments(id:string){
       const pm=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"";
       const total=_payGetPrice();
+      const _prog=_curProgram();   // tag payments per program (L1 / L2 / L1 + L2) — see _applyPaymentLocks
       const val=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null)?.value)||"";
       const iso=(d:string)=>d?new Date(d).toISOString():new Date().toISOString();
       const proof=(cid:string)=>{ const p=_payProofs[cid]; return p?{proof_url:p.url,proof_name:p.name}:{}; };
       const commit=async(ptype:string,rows:any[],label:string,collected:number)=>{
-        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type",ptype); }catch(_){}
+        // Scope the re-write to THIS program so an L2 save never wipes the L1 payment (and vice versa).
+        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type",ptype).eq("program",_prog); }catch(_){}
         if(!rows.length) return;
         try{
           await supabase.from("payments").insert(rows);
@@ -5801,22 +5812,22 @@ export function initApp(root: HTMLElement) {
         try{ const {data}=await supabase.from("payments").select("status,collected_by,installment_number").eq("lead_id",id).eq("payment_type","installment"); recInst2Paid=(data||[]).some((r:any)=>Number(r.installment_number)===2&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||""))); }catch(_){}
         if(!p1&&!p2&&balance<=0) return;
         const rows:any[]=[];
-        if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",collected_by:"Health Coach",...proof("i2Inst1Proof")});
-        if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",collected_by:"Health Coach",...proof("i2BalProof")});
+        if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2Inst1Proof")});
+        if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2BalProof")});
         // Pending installment-2 → a "due" row so Reception can see the balance + due date + collect it.
-        else if(balance>0&&!recInst2Paid) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",due_date:dueDate,collected_by:"Health Coach"});
-        // Re-write only the coach-owned installment rows (preserve Reception collections), then insert.
-        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").neq("collected_by","Reception desk"); }catch(_){}
+        else if(balance>0&&!recInst2Paid) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
+        // Re-write only the coach-owned installment rows for THIS program (preserve Reception collections + the other program), then insert.
+        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).neq("collected_by","Reception desk"); }catch(_){}
         if(rows.length){ try{ await supabase.from("payments").insert(rows); logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+(totalI2?(" of ₹"+totalI2.toLocaleString("en-IN")+", balance ₹"+balance.toLocaleString("en-IN")):"")}]); if(String(_coachLeadId)===id) _renderCoachPayHistory(id); }catch(e:any){ toastErr("Payment save failed: "+(e.message||"db error")); } }
       } else if(pm==="full"){
         const amt=_payNum("#payFullRcvd"); if(!amt) return;
-        await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",...proof("payFullProof")}],"Full payment",amt);
+        await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",program:_prog,...proof("payFullProof")}],"Full payment",amt);
       } else if(pm==="adv"){
         const a1=_payNum("#advAmt"), a2=_payNum("#advBalRcvd");
         if(!a1&&!a2) return;
         const rows:any[]=[];
-        if(a1) rows.push({lead_id:id,amount:a1,status:"paid",method:val("#advMode")||null,paid_at:iso(val("#advDate")),payment_type:"advance",installment_number:1,total_installments:2,txn_ref:val("#advRef")||null,service:"Diabetes",...proof("advProof")});
-        if(a2) rows.push({lead_id:id,amount:a2,status:"paid",method:val("#advBalMode")||null,paid_at:iso(val("#advBalDate")),payment_type:"advance",installment_number:2,total_installments:2,txn_ref:val("#advBalRef")||null,service:"Diabetes",...proof("advBalProof")});
+        if(a1) rows.push({lead_id:id,amount:a1,status:"paid",method:val("#advMode")||null,paid_at:iso(val("#advDate")),payment_type:"advance",installment_number:1,total_installments:2,txn_ref:val("#advRef")||null,service:"Diabetes",program:_prog,...proof("advProof")});
+        if(a2) rows.push({lead_id:id,amount:a2,status:"paid",method:val("#advBalMode")||null,paid_at:iso(val("#advBalDate")),payment_type:"advance",installment_number:2,total_installments:2,txn_ref:val("#advBalRef")||null,service:"Diabetes",program:_prog,...proof("advBalProof")});
         await commit("advance",rows,"Advance booking",a1+a2);
       }
     }
@@ -5829,7 +5840,10 @@ export function initApp(root: HTMLElement) {
     // lock the fully-collected method, and block re-collection (prevents duplicate payment/enrollment).
     function _applyPaymentLocks(id:string,rows:any[]){
       if(String(_coachLeadId)!==String(id)) return;
-      const paid=(rows||[]).filter((r:any)=>r.status==="paid");
+      // Locks are PER PROGRAM (L1 / L2 / L1 + L2): only payments for the currently-selected program
+      // count, so an L1-enrolled client can still collect for L2. Legacy rows (no program) = L1.
+      const prog=_curProgram();
+      const paid=(rows||[]).filter((r:any)=>r.status==="paid"&&(String(r.program||"L1")===prog));
       const fullPaid=paid.some((r:any)=>(r.payment_type||"full")==="full");
       const inst1Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===1);
       const inst2Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===2);
@@ -5838,11 +5852,12 @@ export function initApp(root: HTMLElement) {
       // FULL — one shot: lock the whole section once paid.
       _lockFields(["#payFullRcvd","#payFullMode","#payFullRef","#payFullDate"],fullPaid);
       const fsel=root.querySelector('#pb-full select[data-nocap]')as HTMLSelectElement|null; if(fsel) fsel.disabled=fullPaid;
-      if(fullPaid) _setPayStatus("pb-full","Payment Done");
+      // Reflect the CURRENT program's state (reset a stale "done" carried from the other program).
+      if(fullPaid) _setPayStatus("pb-full","Payment Done"); else if(fsel&&fsel.value==="Payment Done") _setPayStatus("pb-full","In Process");
       // INSTALLMENT — lock inst-1 once paid (inst-2 stays open); lock inst-2 once paid.
       _lockFields(["#i2Inst1Rcvd","#i2Inst1Mode","#i2Inst1Ref","#i2Inst1Date"],inst1Paid);
       _lockFields(["#i2BalRcvd","#i2BalMode","#i2BalRef","#i2BalDate"],inst2Paid);
-      if(inst1Paid&&inst2Paid) _setPayStatus("pb-i2","Both Paid"); else if(inst1Paid) _setPayStatus("pb-i2","1st Paid");
+      if(inst1Paid&&inst2Paid) _setPayStatus("pb-i2","Both Paid"); else if(inst1Paid) _setPayStatus("pb-i2","1st Paid"); else { const s=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(s&&/Paid/.test(s.value)) _setPayStatus("pb-i2","Pending"); }
       const isel=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(isel) isel.disabled=(inst1Paid&&inst2Paid);
       // ADVANCE
       _lockFields(["#advAmt","#advMode","#advRef","#advDate"],adv1Paid);
