@@ -2476,18 +2476,23 @@ export function initApp(root: HTMLElement) {
     // Render the lead's Call logs + voice recordings from `call_recordings` (contact_id = lead id,
     // with a phone/to_number fallback so calls placed before the id mapping still surface). Latest
     // first. Each call shows date/time, direction, duration, status, agent + a recording Play/Download.
-    async function renderCallLogs(lead:any){
-      const el=root.querySelector("#advCallLog"); if(!el||!lead) return;
+    // Shared by the Advisor + Coach pages. targetSel = the panel to fill; curId = which lead is
+    // currently open on that page (so a mid-fetch switch aborts cleanly).
+    async function renderCallLogs(lead:any, targetSel:string="#advCallLog", curId:()=>string=()=>String(_advLeadId)){
+      const el=root.querySelector(targetSel); if(!el||!lead) return;
       const leadId=String(lead.id); const ph=(lead.phone||"").replace(/\D/g,"");
       // Pull the latest call status + recordings from the provider CDR first (resolves calls stuck
       // at "initiated" and surfaces recordings the push webhook never delivered), then read the DB.
       try{ await _callSync(leadId); }catch(_){}
-      if(String(_advLeadId)!==leadId) return;   // user switched away during the sync
+      if(curId()!==leadId) return;   // user switched away during the sync
       let rows:any[]=[];
       try{ const {data}=await supabase.from("call_recordings").select("*").eq("contact_id",leadId).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
       if(ph && ph.length>=6){ try{ const {data:d2}=await supabase.from("call_recordings").select("*").ilike("to_number","%"+ph.slice(-10)+"%").order("created_at",{ascending:false}).limit(100); (d2||[]).forEach((r:any)=>{ if(!rows.some((x:any)=>String(x.id)===String(r.id))) rows.push(r); }); }catch(_){} }
-      if(String(_advLeadId)!==leadId) return;   // user switched away during the fetch
+      if(curId()!==leadId) return;   // user switched away during the fetch
       rows.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime());
+      // Update the Call History tab badge count.
+      const _cnt=root.querySelector(targetSel==="#coachCallLog"?"#coachCallCount":"#advCallCount")as HTMLElement|null;
+      if(_cnt){ _cnt.textContent=String(rows.length); _cnt.style.display=rows.length?"":"none"; }
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const recCount=rows.filter((r:any)=>r.recording_url).length;
       if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div>'; return; }
@@ -4363,7 +4368,7 @@ export function initApp(root: HTMLElement) {
       // Health Coach in-memory client → consultation status Enrolled – L1/L2 (drives coach
       // dashboard/table + is what the profile restores to when opened).
       const cc=_coachClients.find((x:any)=>String(x.id)===String(leadId));
-      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
+      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; if(!cc.enrolledAt||!already) cc.enrolledAt=enrIso; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
       if(!already) logActivity(leadId,[{action:"Enrolled",field:"Enrolled at ("+srcLabel+")",new:fmtIST(enrIso)}]);
       try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
       try{ renderCoachOpenList(); }catch(_){}
@@ -5188,7 +5193,7 @@ export function initApp(root: HTMLElement) {
       const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
       const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
-      return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus};
+      return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||""};
     }
     function applyCoachProfile(obj:any){
       const p=_coachPanelEl(); if(!p||!obj) return;
@@ -5522,6 +5527,7 @@ export function initApp(root: HTMLElement) {
       _coachSyncAdvisorReports(lead);
       _coachSyncScreeningVitals(lead);
       _coachRenderRecordings(_coachLeadId);
+      renderCallLogs(lead,"#coachCallLog",()=>String(_coachLeadId));   // Call History tab: logs + recordings (same as Advisor)
       _ovrRenderList(_coachLeadId);
       _renderCoachPayHistory(_coachLeadId);
       _coachPopulateReadOnly(lead);
@@ -5579,9 +5585,9 @@ export function initApp(root: HTMLElement) {
     }
     async function loadCoachClients(){
       try{
-        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status,enrolled_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
         if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
-          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
+          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
         }
         if(res.error) throw res.error;
         const data=res.data;
@@ -5596,14 +5602,15 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||""};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||""};
         });
         // Reconcile historical enrollments: a client marked Enrolled on the coach side whose
         // lead.call_status hasn't caught up → sync it (DB + memory) so the Advisor dashboard,
         // Enrolled card and Enrolled-clients table reflect it without needing a re-save.
         _coachClients.filter((c:any)=>/enrol/i.test(c.consStatus||"")&&c.callStatus!=="Enrolled").forEach((c:any)=>{
           const cid=String(c.id); c.callStatus="Enrolled";
-          const enrIso=c.visitedAt||new Date().toISOString();   // best-effort enrollment time for historical rows
+          const enrIso=c.enrolledAt||c.visitedAt||new Date().toISOString();   // best-effort enrollment time for historical rows
+          if(!c.enrolledAt) c.enrolledAt=enrIso;
           supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",cid).then(()=>{});
           const setE=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===cid){ l.callStatus="Enrolled"; if(!l.enrolledAt) l.enrolledAt=enrIso; } });
           setE(_metaLeads); setE(_assignedExtras);
@@ -5690,17 +5697,25 @@ export function initApp(root: HTMLElement) {
     // across List/Kanban, and composes with the applied filter bar (all via _coachCliBase).
     w._coachConsFilter=(v:string)=>{ _coachDashSel=v||""; _coachCliPage=1; renderCoachOpenList(); };
     const COACH_CLI_PER=12; let _coachCliPage=1;
-    const _coachCliCols=[
-      {key:"name",label:"Lead Name",filter:true,text:(c:any)=>c.name||""},
-      {key:"phone",label:"Phone",filter:true,text:(c:any)=>c.phone||""},
-      {key:"source",label:"Source",filter:true,text:(c:any)=>c.source||""},
-      {key:"service",label:"Service",filter:true,text:(c:any)=>c.service||""},
-      {key:"hc",label:"Health Coach",filter:true,text:(c:any)=>c.hc||"—"},
-      {key:"cons",label:"Consultation Status",filter:true,text:(c:any)=>_coachConsOf(c)},
-      {key:"visited",label:"Visited Date & Time",filter:true,text:(c:any)=>fmtIST(c.visitedAt)},
-      {key:"act",label:"Action",filter:false,head:"Action"},
-    ];
-    regGrid("coachClients",()=>_coachCliCols,()=>renderCoachClientsTable());
+    // The Commitment Date column appears only for the follow-up statuses that use it.
+    function _showCommitCol(){ return ["This Week","End of Month","Next Month"].indexOf(_coachDashSel)>=0; }
+    function _coachCommitOf(c:any){ const d=c&&c.coachProfile&&c.coachProfile.commitDate; return d?fmtISTDate(d):"—"; }
+    function _coachCliColsFn(){
+      const cols:any[]=[
+        {key:"name",label:"Lead Name",filter:true,text:(c:any)=>c.name||""},
+        {key:"phone",label:"Phone",filter:true,text:(c:any)=>c.phone||""},
+        {key:"source",label:"Source",filter:true,text:(c:any)=>c.source||""},
+        {key:"service",label:"Service",filter:true,text:(c:any)=>c.service||""},
+        {key:"hc",label:"Health Coach",filter:true,text:(c:any)=>c.hc||"—"},
+        {key:"cons",label:"Consultation Status",filter:true,text:(c:any)=>_coachConsOf(c)},
+        {key:"visited",label:"Visited Date & Time",filter:true,text:(c:any)=>fmtIST(c.visitedAt)},
+        {key:"act",label:"Action",filter:false,head:"Action"},
+      ];
+      // Insert "Commitment Date" immediately AFTER Consultation Status for the three plan statuses.
+      if(_showCommitCol()){ const i=cols.findIndex((c:any)=>c.key==="cons"); cols.splice(i+1,0,{key:"commit",label:"Commitment Date",filter:true,text:(c:any)=>_coachCommitOf(c)}); }
+      return cols;
+    }
+    regGrid("coachClients",_coachCliColsFn,()=>renderCoachClientsTable());
     function _coachCliBase(){ let base=_coachFiltered(); if(_coachDashSel) base=base.filter((c:any)=>_coachConsOf(c)===_coachDashSel); return base; }
     function renderCoachClientsTable(){
       const head=root.querySelector("#coachClientsHead"); if(head)head.innerHTML=gridHead("coachClients");
@@ -5720,9 +5735,10 @@ export function initApp(root: HTMLElement) {
           +'<td>'+e(c.service||"—")+'</td>'
           +'<td>'+e(c.hc||"—")+'</td>'
           +'<td><span class="chipb neu">'+e(_coachConsOf(c))+'</span></td>'
+          +(_showCommitCol()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachCommitOf(c))+'</td>'):'')
           +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(c.visitedAt))+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._coachOpen(\''+e(String(c.id))+'\')">Open</button></td></tr>';
-      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
+      }).join(""):'<tr><td colspan="'+(_showCommitCol()?9:8)+'" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
       const info=root.querySelector("#coachCliPageInfo"); if(info)info.textContent="Page "+_coachCliPage+" of "+pages;
       _pgBtns("coachCli",_coachCliPage,pages);
     }
@@ -5873,13 +5889,52 @@ export function initApp(root: HTMLElement) {
       if(done&&sb){ if(!note){ note=document.createElement("span"); note.id="payCollectedNote"; note.style.cssText="margin-left:8px;font-size:11.5px;font-weight:600;color:var(--ok-ink)"; sb.parentElement?.insertBefore(note,sb.nextSibling); } note.textContent="✓ Payment collected — locked"; }
       else if(note){ note.remove(); }
     }
-    w._coachApplyPayLocks=()=>_applyPaymentLocks(String(_coachLeadId),_coachPayRows);   // re-apply on method change
+    // Consolidated Payment Summary card (near the Payment collection flow): program, method,
+    // total / received / balance, installment statuses, next due, % complete + a pending banner.
+    function _renderPaymentSummary(id:string,rows:any[]){
+      const el=root.querySelector("#coachPaySummary"); if(!el) return;
+      if(String(_coachLeadId)!==String(id)){ el.innerHTML=""; return; }
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const prog=_curProgram();
+      const mine=(rows||[]).filter((r:any)=>String(r.program||"L1")===prog);
+      const paid=mine.filter((r:any)=>r.status==="paid"); const due=mine.filter((r:any)=>r.status==="due");
+      if(!paid.length&&!due.length){ el.innerHTML=""; return; }   // nothing collected for this program yet
+      const money=(n:any)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
+      const received=paid.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
+      const balance=due.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
+      const total=received+balance;
+      const pct=total>0?Math.round(100*received/total):(received>0?100:0);
+      const type=(mine[0]&&mine[0].payment_type)||"full";
+      const methodLbl=({full:"Full Payment",installment:"Installment (2×)",advance:"Advance Booking",emi:"EMI"}as any)[type]||type;
+      const isInst=type==="installment"||type==="advance";
+      const inst1=mine.find((r:any)=>Number(r.installment_number)===1); const inst2=mine.find((r:any)=>Number(r.installment_number)===2);
+      const st=(x:any)=>x?(x.status==="paid"?'<span class="chipb ok">✅ Paid</span>':'<span class="chipb warn">⏳ Pending</span>'):'<span class="chipb neu">—</span>';
+      const nextDue=(due[0]||{}).due_date||""; const fullyPaid=balance<=0&&received>0;
+      const banner=(isInst&&balance>0)
+        ? '<div class="banner plan" style="margin:0 0 10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> <span><b>Installment 2 pending</b> — Received '+money(received)+' · Balance '+money(balance)+(nextDue?(' · Next installment due '+fmtISTDate(nextDue)):'')+'</span></div>'
+        : '';
+      const cell=(l:string,v:string)=>'<div><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em">'+l+'</div><div style="font-weight:700;font-size:13px;margin-top:2px">'+v+'</div></div>';
+      el.innerHTML=banner
+        +'<div class="sec" style="margin:0 0 12px;border:1px solid var(--brand-line);background:linear-gradient(180deg,#F7FCFA,#fff)"><div class="sec-bd" style="padding:12px 14px">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><b style="font-size:13px">Payment summary</b>'+(fullyPaid?'<span class="chipb ok">Fully Paid</span>':'<span class="chipb warn">'+pct+'% paid</span>')+'<span class="chipb neu" style="margin-left:auto">'+e(prog)+'</span></div>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px 16px">'
+        +cell("Method",e(methodLbl))+cell("Total",money(total))
+        +cell("Received",'<span style="color:var(--ok-ink)">'+money(received)+'</span>')
+        +cell("Balance",'<span style="color:'+(balance>0?"var(--warn-ink)":"var(--ok-ink)")+'">'+money(balance)+'</span>')
+        +(isInst?cell("Installment 1",st(inst1)):"")
+        +(isInst?cell("Installment 2",st(inst2)):"")
+        +(isInst&&nextDue&&balance>0?cell("Next due",fmtISTDate(nextDue)):"")
+        +'</div>'
+        +'<div style="margin-top:12px"><div style="height:8px;border-radius:6px;background:var(--surface-2);overflow:hidden"><div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#17A87B,#0EA5A0);border-radius:6px;transition:width .3s"></div></div><div style="font-size:11px;color:var(--muted);margin-top:4px">'+pct+'% complete · '+money(received)+' of '+money(total)+'</div></div>'
+        +'</div></div>';
+    }
+    w._coachApplyPayLocks=()=>{ _applyPaymentLocks(String(_coachLeadId),_coachPayRows); try{ _renderPaymentSummary(String(_coachLeadId),_coachPayRows); }catch(_){} };   // re-apply on method/program change
     async function _renderCoachPayHistory(id:string){
       const el=root.querySelector("#coachPayHist"); if(!el) return;
       let rows:any[]=[];
       try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
-      _coachPayRows=rows; try{ _applyPaymentLocks(id,rows); }catch(_){}
+      _coachPayRows=rows; try{ _applyPaymentLocks(id,rows); }catch(_){} try{ _renderPaymentSummary(id,rows); }catch(_){}
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const money=(n:any)=>"₹"+(parseInt(n)||0).toLocaleString("en-IN");
       if(!rows.length){ el.innerHTML='<div class="stub">No payment records for this client yet.</div>'; return; }
@@ -5990,15 +6045,29 @@ export function initApp(root: HTMLElement) {
       win.document.write('<html><head><title>Consultation — '+name+'</title></head><body style="font-family:system-ui,Arial,sans-serif;padding:28px;color:#111"><h2 style="margin:0">WellnessOS — Consultation Record</h2><div style="color:#666;margin:2px 0 18px">'+name+' &middot; Lead #'+_coachLeadId+' &middot; '+new Date().toLocaleString("en-IN")+'</div><table style="border-collapse:collapse;font-size:13px">'+(rows.join("")||'<tr><td>No details entered yet.</td></tr>')+'</table></body></html>');
       win.document.close(); win.focus(); setTimeout(()=>{ try{ win.print(); }catch(_){} },300);
     };
+    // Coach Call button — same Call/End toggle + timer as the Advisor page.
     const _ccb=root.querySelector("#coachCallBtn")as HTMLElement|null;
+    let _cOnCall=0,_cCt=0,_cCti:ReturnType<typeof setInterval>|null=null;
     if(_ccb) _ccb.onclick=async()=>{
-      if(!_coachLeadId){ toast("Open a visited client first"); return; }
-      const id=String(_coachLeadId); const nm=(root.querySelector("#coachName")?.textContent)||"client";
-      const r=await _callInitiate(id);
-      if(!r||!r.ok){ toastErr((r&&r.error)||"Call could not be placed"); return; }
-      toast("📞 Calling "+nm+" — your phone rings first, then the customer");
-      logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
-      _pollRecordings(id,"coach"); setTimeout(()=>_coachRenderRecordings(id),50000);
+      const sp=_ccb.querySelector("span");
+      if(!_cOnCall){
+        if(!_coachLeadId){ toast("Open a visited client first"); return; }
+        const id=String(_coachLeadId); const nm=(root.querySelector("#coachName")?.textContent)||"client";
+        _cOnCall=1; _ccb.style.background="linear-gradient(135deg,#E2553B,#A8351F)"; if(sp)sp.textContent="Calling…";
+        const r=await _callInitiate(id);
+        if(!r||!r.ok){ _cOnCall=0; _ccb.style.background=""; if(sp)sp.textContent="Call"; toastErr((r&&r.error)||"Call could not be placed"); return; }
+        toast("📞 Calling "+nm+" — your phone rings first, then the customer");
+        logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
+        _cCt=0; if(_cCti)clearInterval(_cCti); _cCti=setInterval(()=>{_cCt++;const s2=_ccb.querySelector("span");if(s2)s2.textContent="End · "+(_cCt/60|0)+":"+String(_cCt%60).padStart(2,"0");},1000);
+        _pollRecordings(id,"coach"); setTimeout(()=>_coachRenderRecordings(id),50000);
+      } else {
+        _cOnCall=0; if(_cCti)clearInterval(_cCti); _ccb.style.background=""; if(sp)sp.textContent="Call";
+        const id=String(_coachLeadId);
+        if(id) logActivity(id,[{action:"Updated",field:"Call ended",new:(_cCt/60|0)+":"+String(_cCt%60).padStart(2,"0")}]);
+        toast("Call ended");
+        // Pull final status + recording from the CDR and refresh the Call History tab.
+        const c=_coachClients.find((x:any)=>String(x.id)===id); if(c) renderCallLogs(c,"#coachCallLog",()=>String(_coachLeadId));
+      }
     };
     // Make the consultation pill groups single-select toggles (Recording / Consultation / Welcome-kit status).
     {
