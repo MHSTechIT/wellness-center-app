@@ -2319,6 +2319,18 @@ export function initApp(root: HTMLElement) {
         try{ eligCheck(); }catch(_){}
         // AUTO field — keep the real lead-generated date even if a stale saved value exists.
         const lg=p.querySelector("#haLeadGen")as HTMLInputElement|null; if(lg&&_advLeadGenStr) lg.value=_advLeadGenStr;
+        // Visited + Enrolled are AUTO (driven by leads.visited_at / call_status / enrolled_at) —
+        // the positional pill restore above may have reset them from an OLDER snapshot (saved
+        // while the lead was still Open). Re-assert them from the current in-memory lead so no
+        // profile apply can ever clobber the live state; only when the value is known (the DB
+        // reconcile still runs after and remains the final authority).
+        try{
+          const l=_advFindLead(String(_advLeadId));
+          if(l){
+            if(l.visitedAt) _advApplyVisited(l.visitedAt);
+            if(/enrol/i.test(String(l.callStatus||""))) _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
+          }
+        }catch(_){}
       } finally { _advApplying=false; }
     }
     // ---- Blood-report attachments + follow-up notes renderers ----
