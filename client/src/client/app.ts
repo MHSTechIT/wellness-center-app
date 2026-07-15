@@ -3856,18 +3856,18 @@ export function initApp(root: HTMLElement) {
         _recAll=(ar.data||[]).map((a:any)=>{
           const _cs=_csById[String(a.lead_id)]||"";
           const _def=a.status==="cancelled"?"refunded":((a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free");
-          const _apptPay=pays[a.id]; const _leadPay=paysByLead[String(a.lead_id)]||{paid:0,due:0,anyPaid:false};
-          // Prefer a payment linked to THIS appointment; otherwise fall back to the lead's
-          // aggregate so coach/installment/Accounts payments (appointment_id NULL) still show.
-          let payStatus:string, payAmt:number;
-          if(_apptPay){ payStatus=_apptPay.status; payAmt=_apptPay.amount||0; }
-          else if(_leadPay.anyPaid){ payAmt=_leadPay.paid; payStatus=_leadPay.due>0?"due":"paid"; }
-          else { payStatus=_def; payAmt=0; }
-          const hasPaid=!!((_apptPay&&_apptPay.status==="paid")||_leadPay.anyPaid);   // invoice available once anything is paid
+          const _leadPay=paysByLead[String(a.lead_id)]||{paid:0,due:0,anyPaid:false};
+          // Amounts come from the lead's payment rows (paid + due), regardless of whether they
+          // were linked to this appointment — coach/installment/Accounts rows carry lead_id only.
+          const collected=_leadPay.paid;    // COLLECTED (paid) → Amount column + Revenue (never the due)
+          const toCollect=_leadPay.due;      // OUTSTANDING (due) → the amount Reception must collect
+          const hasPaid=_leadPay.anyPaid;    // invoice available once anything is paid
+          const payAmt=collected;
+          const payStatus = collected>0 ? (toCollect>0?"due":"paid") : (toCollect>0?"due":_def);
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
-          payStatus, payAmt, hasPaid, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
+          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:/enrol/i.test(_cs)||a.stage==="enrolled", enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
@@ -3997,8 +3997,14 @@ export function initApp(root: HTMLElement) {
     function renderPay() {
       const el = root.querySelector("#recPayList");
       if (el) {
-        const due=RX.filter((r:any)=>r.payStatus==="due"&&r.status==="visited");
-        el.innerHTML = (due.length?due.map((r:any)=>'<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(r.payAmt?' · ₹'+r.payAmt.toLocaleString("en-IN"):'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+(r.payAmt||0)+',\''+(r.lead_id||"")+'\')">Collect</button></div>').join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
+        // Show clients Reception still needs to collect from: a pending collection request
+        // (toCollect>0, e.g. from the coach's "Send collection request") or a visited-unpaid
+        // walk-in. EXCLUDE anyone already collected (hasPaid) — coach direct-collections and
+        // fully-paid clients must not appear here.
+        const due=RX.filter((r:any)=>r.status==="visited"&&!r.hasPaid&&(r.toCollect>0||r.payStatus==="due"));
+        el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.toCollect)||Number(r.payAmt)||0;
+          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\')">Collect</button></div>';
+        }).join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
 
@@ -4071,32 +4077,47 @@ export function initApp(root: HTMLElement) {
         try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",r.lead_id).order("created_at",{ascending:true}); pays=data||[]; }catch(_){ pays=[]; }
         const paid=pays.filter((p:any)=>p.status==="paid");
         const normProg=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const hasL1=/l1/i.test(s), hasL2=/l2/i.test(s); if(hasL1&&hasL2) return "L1 + L2"; if(hasL2&&!hasL1) return "L2"; return "L1"; };
-        // Group the ACTUAL paid amounts by their stored program tag.
-        const byProg:Record<string,number>={};
-        paid.forEach((p:any)=>{ const k=normProg(p.program); byProg[k]=(byProg[k]||0)+(Number(p.amount)||0); });
-        // One membership line per program present, in a stable L1 → L2 → (L1 + L2) order.
-        const items:{prog:string;incl:number}[]=[];
-        ["L1","L2","L1 + L2"].forEach((k)=>{ if((byProg[k]||0)>0) items.push({prog:k,incl:byProg[k]}); });
-        // Fallback (no program-tagged paid rows): use the appointment's paid amount as a single line,
-        // labelled with the enrolled program from the consultation status when known.
+        // Group EVERY payment (paid + due) by its program → a program's fee = paid + balance.
+        const byProg:Record<string,{paid:number;due:number}>={};
+        pays.forEach((p:any)=>{ const k=normProg(p.program); const o=(byProg[k]=byProg[k]||{paid:0,due:0}); const amt=Number(p.amount)||0; if(p.status==="paid") o.paid+=amt; else if(p.status==="due") o.due+=amt; });
+        // Decide which program(s) this invoice covers — the customer's ENROLLED program(s):
+        //   1) the consultation status ("Enrolled – L2") when it names a level;
+        //   2) else the program(s) that have an outstanding balance (a due installment marks the
+        //      real active plan) — this excludes a stray/mis-tagged one-off payment in another
+        //      program (e.g. an L2 installment plan must not pull in a stray L1 payment);
+        //   3) else every program that has a paid amount.
+        const order=["L1","L2","L1 + L2"];
+        const consP=_progFromCons(r.consultStatus);
+        const consSet=consP?(consP==="L1 + L2"?["L1","L2","L1 + L2"]:[consP]):[];
+        let keys:string[];
+        if(consSet.length) keys=order.filter(k=>consSet.indexOf(k)>=0 && byProg[k]);
+        else { const withDue=order.filter(k=>byProg[k]&&byProg[k].due>0); keys=withDue.length?withDue:order.filter(k=>byProg[k]&&byProg[k].paid>0); }
+        // One membership line per selected program; fee = paid + due for that program.
+        const items:{prog:string;incl:number;paid:number;due:number}[]=keys.map(k=>({prog:k,incl:byProg[k].paid+byProg[k].due,paid:byProg[k].paid,due:byProg[k].due})).filter(it=>it.incl>0);
+        // Fallback (nothing matched): single line from the appointment's paid amount.
         if(!items.length){
           const amt=Number(r.payAmt)||paid.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
-          if(amt>0) items.push({prog:_progFromCons(r.consultStatus),incl:amt});
+          if(amt>0) items.push({prog:consP,incl:amt,paid:amt,due:0});
         }
-        if(!items.length){ toastErr("No paid amount on record for this client — cannot generate invoice"); return; }
+        if(!items.length){ toastErr("No amount on record for this client — cannot generate invoice"); return; }
 
         const round2=(n:number)=>Math.round(n*100)/100;
         const fmt=(n:number)=>(Number(n)||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
-        // Amounts collected are GST-inclusive (18% = CGST 9% + SGST 9%); back-compute the tax-exclusive base.
+        // The program fee is GST-inclusive (18% = CGST 9% + SGST 9%); back-compute the tax-exclusive base.
         const lines=items.map((it)=>({
           desc:"Course Membership Fees"+(it.prog?(" ("+it.prog+")"):""),
           hsn:"999249",
           base:round2(it.incl/1.18),
         }));
-        const total=round2(items.reduce((s,it)=>s+it.incl,0));   // Grand Total = actual amount collected
+        const total=round2(items.reduce((s,it)=>s+it.incl,0));       // Grand Total = full program fee (paid + balance)
+        const amountPaid=round2(items.reduce((s,it)=>s+it.paid,0));  // received so far
+        const balanceDue=round2(items.reduce((s,it)=>s+it.due,0));   // outstanding
         const baseTotal=round2(total/1.18);
         const cgst=round2(baseTotal*0.09);
         const sgst=round2(baseTotal*0.09);
+        // Earliest outstanding balance due date (for the "Balance Due (by …)" line).
+        const dueRow=pays.filter((p:any)=>p.status==="due"&&keys.indexOf(normProg(p.program))>=0&&p.due_date).sort((a:any,b:any)=>String(a.due_date).localeCompare(String(b.due_date)))[0];
+        const balDueDate=dueRow?fmtISTDate(dueRow.due_date):"";
 
         // Invoice identity — stable per appointment. Reception appointment id (a serial) drives the suffix.
         const suffix=(String(id).replace(/\D/g,"").slice(-4))||"0001";
@@ -4170,10 +4191,15 @@ export function initApp(root: HTMLElement) {
         totRow("CGST (9%)",fmt(cgst),false);
         totRow("SGST (9%)",fmt(sgst),false);
         doc.setDrawColor(180); doc.setLineWidth(0.3); doc.line(tLabelR-40,y-2,MR,y-2);
-        totRow("Total",fmt(total),true);
+        totRow(balanceDue>0?"Grand Total":"Total",fmt(total),true);
+        // Installment invoices: show what was actually received vs the outstanding balance.
+        if(balanceDue>0){
+          totRow("Amount Paid",fmt(amountPaid),false);
+          totRow("Balance Due"+(balDueDate?" (by "+balDueDate+")":""),fmt(balanceDue),true);
+        }
         y+=2;
 
-        // Amount in words
+        // Amount in words — on the Grand Total (full invoice value).
         doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(25,25,25);
         const aw=doc.splitTextToSize("Amount in Words: Rupees "+_numToWordsIN(total)+" Only",CW);
         doc.text(aw,ML,y); y+=aw.length*4.4+4;
@@ -4490,6 +4516,14 @@ export function initApp(root: HTMLElement) {
       const ra=root.querySelector("#recWbAmt")as HTMLInputElement; if(ra) ra.value=String(Number(amt)||0);
     }
     w._recOpen = recOpen;
+    // Resolve a LEAD's program from its own payment rows — never from _curProgram() (the coach's
+    // on-screen program dropdown), which reflects whoever is open in the Health Coach view, not
+    // the lead Reception is collecting for. That mismatch is what mis-tagged Reception payments.
+    async function _recLeadProgram(leadId:string):Promise<string>{
+      try{ const {data}=await supabase.from("payments").select("program,created_at").eq("lead_id",leadId).order("created_at",{ascending:false}).limit(20);
+        const row=(data||[]).find((r:any)=>r.program); if(row&&row.program) return String(row.program); }catch(_){}
+      return "L2";   // standard program default when the lead has no program on record yet
+    }
     async function recConfirm() {
       if(!_recCollect){ toast("Nothing to collect"); return; }
       // Validate BEFORE hiding the panel, so failures keep the form open.
@@ -4511,7 +4545,7 @@ export function initApp(root: HTMLElement) {
           const {data:ex}=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num).limit(1);
           const vals:any={status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null};
           if(ex&&ex[0]) await supabase.from("payments").update(vals).eq("id",ex[0].id);
-          else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:_curProgram()},vals));
+          else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:(await _recLeadProgram(_recCollect.leadId))},vals));
           if(_recCollect.apptId) await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
           // Fully-paid check across all of this lead's installments.
           let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment"); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
@@ -4536,7 +4570,25 @@ export function initApp(root: HTMLElement) {
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           _recCollect=null; return;
         }
-        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_curProgram()});
+        // ---- Reception collecting a coach "Send collection request" (a pending due row):
+        //      settle THAT request in place (no duplicate) and auto-ENROL the lead at the
+        //      request's program (L1 / L2 / L1 + L2) so Coach + dashboards sync automatically. ----
+        {
+          let reqRow:any=null;
+          try{ const {data:rq}=await supabase.from("payments").select("id,program,appointment_id").eq("lead_id",_recCollect.leadId).eq("status","due").in("collected_by",["Reception desk","POS Machine","Razorpay link (online)"]).order("created_at",{ascending:true}).limit(1); reqRow=rq&&rq[0]; }catch(_){}
+          if(reqRow){
+            const prog=reqRow.program||_curProgram();
+            await supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null}).eq("id",reqRow.id);
+            const apptId=_recCollect.apptId||reqRow.appointment_id;
+            if(apptId) try{ await supabase.from("appointments").update({stage:"payment"}).eq("id",apptId); }catch(_){}
+            try{ await _enrollLeadShared(String(_recCollect.leadId),"Reception collected",prog); }catch(_){}
+            if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
+            toast("₹"+amt.toLocaleString("en-IN")+" collected — Enrolled ("+prog+")");
+            await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
+            _recCollect=null; return;
+          }
+        }
+        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:(await _recLeadProgram(_recCollect.leadId))});
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
@@ -5181,7 +5233,34 @@ export function initApp(root: HTMLElement) {
     function addFuNote(){const el=root.querySelector("#fuNote")as HTMLInputElement;if(!el||!el.value.trim()){toastErr("Type note");return;}const now=new Date().toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});const notes=root.querySelector("#fuNotes");if(notes)notes.insertAdjacentHTML("afterbegin",'<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">Attempt '+fuAtt++ +' · '+now+'</b> — '+el.value+'</div>');el.value="";toast("Note added");}
     w.addFuNote = addFuNote;
 
-    function sendToReception(){const who=(root.querySelector("#collectedBy")as HTMLSelectElement)?.value;if(who!=="Reception desk"){toast(who||"");return;}toast("Sent → Reception");addLog("Payment → Reception");}
+    // Send a collection request to Reception: writes a "due" payment for the ACTIVE method's
+    // exact amount so it appears in Reception → Collect payment queue (and the Appointment
+    // table) with the precise amount to be collected. Reception's Collect then settles it.
+    async function sendToReception(){
+      if(!_coachLeadId){ toast("Open a client first"); return; }
+      const who=(root.querySelector("#collectedBy")as HTMLSelectElement)?.value||"Reception desk";
+      const method=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"full";
+      const amt = method==="full" ? (_payNum("#payFullRcvd")||_payNum("#payAmtDue")||_payGetPrice())
+                : method==="i2"   ? (_payNum("#i2Inst1Rcvd")||_payNum("#i2Total")||_payGetPrice())
+                : method==="adv"  ? (_payNum("#advAmt")||_payGetPrice())
+                : method==="emi"  ? (_payNum("#emiDown")||_payGetPrice())   // EMI: Reception collects the down payment
+                : _payGetPrice();
+      if(!amt||amt<=0){ toastErr("Enter the amount to collect first"); return; }
+      const ptype = method==="i2"?"installment":method==="adv"?"advance":method==="emi"?"emi":"full";
+      const prog=_curProgram();
+      const id=String(_coachLeadId);
+      try{
+        // Link to the lead's active appointment so it shows in the Collect queue + Appointment row.
+        let apptId:any=null; try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",id).neq("status","cancelled").order("appt_date",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
+        // One pending request per lead+program+method: replace any earlier unpaid request.
+        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); }catch(_){}
+        const {error}=await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:method==="i2"?1:null});
+        if(error) throw error;
+        addLog("Payment → Reception · ₹"+amt.toLocaleString("en-IN"));
+        try{ await loadReceptionData(); }catch(_){}
+        toast("Sent → Reception · ₹"+amt.toLocaleString("en-IN")+" to collect");
+      }catch(e:any){ toastErr("Could not send to Reception: "+((e&&e.message)||"db error")); }
+    }
     w.sendToReception = sendToReception;
 
     function _bmiCalc(hEl:HTMLInputElement|null,wEl:HTMLInputElement|null,bEl:HTMLInputElement|null){
@@ -6231,6 +6310,7 @@ export function initApp(root: HTMLElement) {
           return;
         }
         await _persistInstallments(id);   // store installment payments (if the 2× method is active)
+        try{ loadReceptionData(); }catch(_){}   // reflect the coach's payment (amount + revenue + queue) on Reception
         await _persistZoomRecording(id);  // store the Zoom/online recording link (if entered)
         // Propagate an ENROLLED consultation status to the lead's call_status so the
         // Advisor dashboard "Enrolled" card + Enrolled-clients table stay in sync and it
