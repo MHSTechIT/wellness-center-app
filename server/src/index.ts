@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './shared/env';   // MUST be first — loads server/.env + .env.local before any env read
 import express from 'express';
 import cors from 'cors';
 import path from 'path';

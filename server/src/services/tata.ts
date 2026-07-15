@@ -11,6 +11,26 @@ const SMARTFLO_URL = 'https://api-smartflo.tatateleservices.com/v1/click_to_call
 const SMARTFLO_SUPPORT_URL = 'https://api-smartflo.tatateleservices.com/v1/click_to_call_support';
 const RECORD_BUCKET = 'call-recordings';
 
+// Read an env var by any of the given aliases, returning the first NON-EMPTY value.
+// process.env is case-sensitive, so we accept both the lowercase names configured in
+// .env.local (tata_tele_api_key, …) and the legacy UPPERCASE names (TATA_TELE_API_KEY, …).
+function envAny(...names: string[]): string {
+  for (const n of names) { const v = process.env[n]; if (v != null && String(v).trim() !== '') return String(v).trim(); }
+  return '';
+}
+
+// The single source of truth for Tata Tele credentials/config used by every call path.
+// Lowercase (.env.local) names take precedence over the legacy uppercase names.
+export function tataConfig() {
+  return {
+    apiKey: envAny('tata_tele_api_key', 'TATA_TELE_API_KEY'),
+    extension: envAny('tata_tele_default_extension_number', 'TATA_TELE_DEFAULT_EXTENSION_NUMBER'),
+    callerId: envAny('tata_tele_caller_id', 'TATA_TELE_CALLER_ID'),
+    agentNumber: envAny('tata_tele_default_agent_number', 'TATA_TELE_DEFAULT_AGENT_NUMBER'),
+    useSupportFallback: envAny('tata_tele_use_support_fallback', 'TATA_TELE_USE_SUPPORT_FALLBACK') === '1',
+  };
+}
+
 // Phone normalisation: strip non-digits, take last 10, prefix +91.
 export function normalizePhone(raw: string): string {
   const last10 = (raw || '').replace(/\D/g, '').slice(-10);
@@ -67,7 +87,7 @@ export function formatDuration(sec: number): string {
 // missing webhook config). Auth = the raw API key header (same as click_to_call).
 const SMARTFLO_RECORDS_URL = 'https://api-smartflo.tatateleservices.com/v1/call/records';
 export async function fetchCallRecords(fromDate: string, toDate: string, limit = 1000): Promise<any[]> {
-  const key = process.env.TATA_TELE_API_KEY;
+  const key = tataConfig().apiKey;
   if (!key) return [];
   const url = SMARTFLO_RECORDS_URL + '?from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate) + '&limit=' + limit;
   try {
@@ -82,8 +102,8 @@ export interface CallResult { ok: boolean; callId?: string | null; status?: numb
 
 // Primary: JSON click_to_call. Rings the agent first, then bridges the customer.
 export async function clickToCall(opts: { agentNumber: string; destinationNumber: string; callerId: string; customIdentifier: any; }): Promise<CallResult> {
-  const key = process.env.TATA_TELE_API_KEY;
-  if (!key) return { ok: false, error: 'TATA_TELE_API_KEY not configured' };
+  const key = tataConfig().apiKey;
+  if (!key) return { ok: false, error: 'tata_tele_api_key not configured' };
   const body = {
     agent_number: opts.agentNumber,
     destination_number: opts.destinationNumber,
@@ -110,8 +130,8 @@ export async function clickToCall(opts: { agentNumber: string; destinationNumber
 
 // Optional fallback: form-urlencoded support endpoint with Bearer auth.
 export async function clickToCallSupport(opts: { destinationNumber: string; customerNumber: string; extension?: string; didNumber?: string; }): Promise<CallResult> {
-  const key = process.env.TATA_TELE_API_KEY;
-  if (!key) return { ok: false, error: 'TATA_TELE_API_KEY not configured' };
+  const key = tataConfig().apiKey;
+  if (!key) return { ok: false, error: 'tata_tele_api_key not configured' };
   const form = new URLSearchParams({
     api_key: key,
     destination_number: opts.destinationNumber,
@@ -136,7 +156,7 @@ export async function clickToCallSupport(opts: { destinationNumber: string; cust
 // with ?token=) and re-host it in Supabase Storage. Returns the public URL + path.
 export async function downloadRecordingToStorage(url: string, callId: string): Promise<{ publicUrl: string; path: string } | null> {
   if (!url || !callId) return null;
-  const key = process.env.TATA_TELE_API_KEY || '';
+  const key = tataConfig().apiKey;
   const hasToken = /[?&]token=/i.test(url);
   const headers: Record<string, string> = {};
   if (!hasToken && key) headers['Authorization'] = key;

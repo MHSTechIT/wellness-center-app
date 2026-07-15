@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { supabase } from '../shared/supabase';
 import {
+  tataConfig,
   clickToCall,
   clickToCallSupport,
   normalizePhone,
@@ -20,14 +21,15 @@ import {
 async function initiate(req: Request, res: Response) {
   try {
     const contactId = req.params.contactId;
-    const key = process.env.TATA_TELE_API_KEY;
-    const extRaw = (process.env.TATA_TELE_DEFAULT_EXTENSION_NUMBER || '').trim();
-    const agentMobileRaw = (process.env.TATA_TELE_DEFAULT_AGENT_NUMBER || '').trim();
-    const callerId = process.env.TATA_TELE_CALLER_ID || '';
+    const cfg = tataConfig();   // reads .env.local (tata_tele_*) with UPPERCASE fallback
+    const key = cfg.apiKey;
+    const extRaw = cfg.extension;
+    const agentMobileRaw = cfg.agentNumber;
+    const callerId = cfg.callerId;
     const useExt = !!extRaw;
     const agent = useExt ? extRaw : normalizePhone(agentMobileRaw) || agentMobileRaw;
     if (!key || !agent || !callerId) {
-      res.status(503).json({ ok: false, error: 'Telephony not configured — set TATA_TELE_API_KEY, TATA_TELE_DEFAULT_EXTENSION_NUMBER (or TATA_TELE_DEFAULT_AGENT_NUMBER) and TATA_TELE_CALLER_ID in the environment.' });
+      res.status(503).json({ ok: false, error: 'Telephony not configured — set tata_tele_api_key, tata_tele_default_extension_number and tata_tele_caller_id in .env.local.' });
       return;
     }
 
@@ -62,7 +64,7 @@ async function initiate(req: Request, res: Response) {
       callerId,
       customIdentifier: { contact_id: contactId, contact_name: lead.name || '', source: 'CRM' },
     });
-    if (!r.ok && process.env.TATA_TELE_USE_SUPPORT_FALLBACK === '1') {
+    if (!r.ok && cfg.useSupportFallback) {
       r = await clickToCallSupport({ destinationNumber: callerId, customerNumber: destination, didNumber: callerId });
     }
     console.log('[call-initiate] smartflo ok=%s status=%s callId=%s raw=%j', r.ok, r.status, r.callId, r.raw);
