@@ -253,7 +253,8 @@ export function getMainContent(): string {
       <select class="select" id="coachConsFilter" style="height:30px;font-size:12px;width:210px;margin-left:8px;flex-shrink:0" title="Filter by consultation status" onchange="window._coachConsFilter(this.value)"></select></div>
       <div class="sec-bd"><div class="metrics" id="coachDash" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div></div></div>
     <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
-      <button class="btn bsm" style="margin-left:auto" onclick="window._coachCliDownload()">⬇ Download</button></div>
+      <input class="input" id="coCliSearch" placeholder="Search client / phone / coach…" style="height:30px;font-size:12px;width:250px;margin-left:auto" oninput="window._coachCliSearch()">
+      <button class="btn bsm" style="margin-left:8px" onclick="window._coachCliDownload()">⬇ Download</button></div>
       <div class="sec-bd">
         <div id="coachCliTableWrap">
           <div class="tscroll stick1"><table class="tbl" style="min-width:860px"><thead><tr id="coachClientsHead"></tr></thead><tbody id="coachClientsBody"></tbody></table></div>

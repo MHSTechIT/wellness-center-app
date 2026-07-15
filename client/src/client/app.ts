@@ -2361,17 +2361,24 @@ export function initApp(root: HTMLElement) {
       // reset the pills to the saved Open state) and BEFORE the gated DB read below, so the
       // lead profile always matches the Enrolled card — even if the advisor_profile read is skipped.
       if(String(_advLeadId)===String(l.id)) _advApplyEnrolled(l.callStatus, l.enrolledAt);
-      // 2) BACKGROUND reconcile with the DB (skip once we know the column is absent).
-      if(_advProfileColMissing) return;
+      // 2) BACKGROUND reconcile with the DB. Enrolled status/date + visited_at live on `leads`
+      //    (call_status / enrolled_at / visited_at) and MUST always be read fresh so the Advisor
+      //    page stays in sync with the Health Coach — even when the advisor_profile column is
+      //    absent (its migration is independent). Only advisor_profile is dropped when missing.
       try{
-        const {data,error}=await supabase.from("leads").select("advisor_profile,visited_at,call_status,enrolled_at").eq("meta_lead_id",l.id).limit(1);
-        if(error){ if(/advisor_profile|column|exist|schema/i.test(error.message||"")) _advProfileColMissing=true; return; }
-        const dbProf=data&&data[0]&&data[0].advisor_profile;
-        if(dbProf){ l.advisorProfile=dbProf; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(dbProf); }
-        if(data&&data[0]&&data[0].enrolled_at) l.enrolledAt=data[0].enrolled_at;   // cache for the enrolled table
-        // Visited status reflects leads.visited_at (reception check-in) — applied AFTER the
-        // profile restore so it always wins over any stale saved pill state, and survives refresh.
-        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(data&&data[0]&&data[0].visited_at); _advApplyEnrolled(data&&data[0]&&data[0].call_status, data&&data[0]&&data[0].enrolled_at); }
+        const cols=_advProfileColMissing?"visited_at,call_status,enrolled_at":"advisor_profile,visited_at,call_status,enrolled_at";
+        let {data,error}=await supabase.from("leads").select(cols).eq("meta_lead_id",l.id).limit(1);
+        if(error&&/advisor_profile|column|exist|schema/i.test(error.message||"")){
+          _advProfileColMissing=true;   // column absent → retry without it so enrolled/visited still sync
+          ({data,error}=await supabase.from("leads").select("visited_at,call_status,enrolled_at").eq("meta_lead_id",l.id).limit(1));
+        }
+        if(error) return;
+        const row:any=data&&data[0]; if(!row) return;
+        if(row.advisor_profile){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(row.advisor_profile); }
+        if(row.enrolled_at) l.enrolledAt=row.enrolled_at;   // cache for the enrolled table
+        l.callStatus=row.call_status||l.callStatus;         // keep in-memory fresh (dashboard cards + re-opens)
+        // Applied AFTER the profile restore so it always wins over any stale saved pill state.
+        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(row.visited_at); _advApplyEnrolled(row.call_status,row.enrolled_at); }
       }catch(_){/* network error — local copy already applied */}
     }
     function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
@@ -4618,30 +4625,58 @@ export function initApp(root: HTMLElement) {
       // level may be "L1", "L2" or "L1 + L2"; consLabel keeps the full string, lvl picks the pill.
       const norm=/l1\s*\+\s*l2/i.test(level)?"L1 + L2":(level==="L2"?"L2":"L1");
       const lvl=/L2/.test(norm)?"L2":"L1"; const consLabel="Enrolled – "+norm;
-      const enrIso=new Date().toISOString();
-      const already=[..._metaLeads,..._assignedExtras].some((l:any)=>String(l.id)===String(leadId)&&l.callStatus==="Enrolled");
+      // The enrolled date/time is STABLE: read the DB's current enrolled_at (the source of truth)
+      // and preserve it if already set — only stamp 'now' the very first time. This stops it being
+      // re-stamped on re-enrollment/re-save and keeps Coach + Advisor showing the identical date,
+      // regardless of in-memory state.
+      let existingEnr:string|null=null;
+      try{ const {data}=await supabase.from("leads").select("enrolled_at").eq("meta_lead_id",leadId).limit(1); if(data&&data[0]) existingEnr=data[0].enrolled_at||null; }catch(_){}
+      const already=!!existingEnr;
+      const enrIso=existingEnr||new Date().toISOString();
       try{
-        const upd:any={call_status:"Enrolled"}; if(!already) upd.enrolled_at=enrIso;
-        const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",leadId);
+        const {error}=await supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",leadId);
         if(error) throw error;
         await supabase.from("appointments").update({stage:"enrolled"}).eq("lead_id",leadId).neq("status","cancelled");
       }catch(e:any){ toastErr("Enroll sync failed: "+(e.message||"db error")); return null; }
       // Advisor in-memory leads → Enrolled (drives the Advisor dashboard + Call Status column).
-      const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===String(leadId)){ l.callStatus="Enrolled"; if(!already) l.enrolledAt=enrIso; } });
+      const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===String(leadId)){ l.callStatus="Enrolled"; l.enrolledAt=enrIso; } });
       setEnrolled(_metaLeads); setEnrolled(_assignedExtras);
       // Health Coach in-memory client → consultation status Enrolled – L1/L2 (drives coach
       // dashboard/table + is what the profile restores to when opened).
       const cc=_coachClients.find((x:any)=>String(x.id)===String(leadId));
-      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; if(!cc.enrolledAt||!already) cc.enrolledAt=enrIso; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
+      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; cc.enrolledAt=enrIso; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
       if(!already) logActivity(leadId,[{action:"Enrolled",field:"Enrolled at ("+srcLabel+")",new:fmtIST(enrIso)}]);
       try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
       try{ renderCoachOpenList(); }catch(_){}
-      try{ if(String(_advLeadId)===String(leadId)&&!already) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
+      try{ if(String(_advLeadId)===String(leadId)) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
       // If the coach currently has this client open, flip the (hidden) Enrolled pill live at the
       // right level so the badge + payment enrollment chip reflect it.
       try{ if(String(_coachLeadId)===String(leadId)){ const code=lvl==="L2"?"enrol2":"enrol1"; const pill=root.querySelector('#consStatus .pill[onclick*="'+code+'"]')as HTMLElement|null; if(pill){ root.querySelectorAll("#consStatus .pill").forEach((b:any)=>b.classList.remove("on")); pill.classList.add("on"); consAct(code,pill); } _refreshPayEnrollChip(); } }catch(_){}
-      return already?"":enrIso;
+      _broadcastLeadSync({leadId:String(leadId),callStatus:"Enrolled",enrolledAt:enrIso,consStatus:consLabel});   // push to other open tabs (Coach/Advisor)
+      return enrIso;   // always the stable enrolled timestamp (existing or newly stamped)
     }
+    // ===== Cross-tab live sync (no websocket) — a BroadcastChannel keeps the Reception, Health
+    // Coach and Health Advisor tabs in sync. When a lead is enrolled (or checked-in) in one tab,
+    // every OTHER open tab applies the same update to its in-memory copy + open profile +
+    // dashboards, exactly as if the change happened in that tab — no refresh, no manual action.
+    let _syncBus:any=null;
+    try{ if(typeof BroadcastChannel!=="undefined") _syncBus=new BroadcastChannel("wos-lead-sync"); }catch(_){ _syncBus=null; }
+    function _broadcastLeadSync(m:any){ try{ if(_syncBus&&m&&m.leadId) _syncBus.postMessage(m); }catch(_){} }
+    function _applyLeadSync(m:any){
+      if(!m||!m.leadId) return; const id=String(m.leadId);
+      const set=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ if(m.callStatus!=null)l.callStatus=m.callStatus; if("enrolledAt" in m)l.enrolledAt=m.enrolledAt; if("visitedAt" in m)l.visitedAt=m.visitedAt; } });
+      try{ set(_metaLeads); set(_assignedExtras); }catch(_){}
+      try{ const cc=_coachClients.find((x:any)=>String(x.id)===id); if(cc){ if(m.callStatus!=null)cc.callStatus=m.callStatus; if("enrolledAt" in m)cc.enrolledAt=m.enrolledAt; if(m.consStatus){ cc.consStatus=m.consStatus; if(cc.coachProfile)cc.coachProfile.consStatus=m.consStatus; } } }catch(_){}
+      try{ renderHealthDashboard(); }catch(_){}
+      try{ renderAssignedLeads(); renderAsnHist(); }catch(_){}
+      try{ renderCoachOpenList(); }catch(_){}
+      try{ loadReceptionData(); }catch(_){}   // keep a Reception tab's amount/queue/revenue + Enrolled card fresh
+      // If the affected lead is OPEN in this tab's Advisor / Coach profile, apply it live.
+      try{ if(String(_advLeadId)===id&&m.callStatus!=null) _advApplyEnrolled(m.callStatus,m.enrolledAt); }catch(_){}
+      try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt); }catch(_){}
+      try{ if(String(_coachLeadId)===id&&/enrol/i.test(String(m.callStatus||""))){ const cs=String(m.consStatus||""); const lvl=/l1\s*\+\s*l2/i.test(cs)?"L1 + L2":(/l2/i.test(cs)?"L2":"L1"); _setPayEnrollDisplay(lvl,m.enrolledAt||""); _refreshPayEnrollChip(); } }catch(_){}
+    }
+    if(_syncBus){ _syncBus.onmessage=(e:any)=>{ try{ _applyLeadSync(e.data); }catch(_){} }; }
     // Reception → Health Coach enrollment (explicit per-client action).
     w._recMarkEnrolled=async(leadId:string,apptId:any,name:string)=>{
       if(!leadId){ toastErr("This walk-in has no linked lead to enroll"); return; }
@@ -5940,7 +5975,7 @@ export function initApp(root: HTMLElement) {
         if(src!=="all"&&(c.source||"")!==src) return false;
         if(svc!=="all"&&(c.service||"")!==svc) return false;
         if(fromT||toT){ const t=c.visitedAt?new Date(c.visitedAt).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
-        if(q&&![c.name,c.phone,c.source].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0)) return false;
+        if(q&&![c.name,c.phone,c.source,c.hc].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0)) return false;
         return true;
       });
     }
@@ -5980,6 +6015,9 @@ export function initApp(root: HTMLElement) {
     };
     // Search stays live (not gated by Apply).
     w._coachSearch=()=>{ if(_coachSearchT)clearTimeout(_coachSearchT); _coachSearchT=setTimeout(()=>{ _coachQuery=(root.querySelector("#coSearch")as HTMLInputElement)?.value||""; renderCoachOpenList(); },180); };
+    // Visited-clients table search box (in the table header) — drives the same live query as the
+    // top search, filtered by client name / phone / coach, and resets to page 1.
+    w._coachCliSearch=()=>{ if(_coachSearchT)clearTimeout(_coachSearchT); _coachSearchT=setTimeout(()=>{ _coachQuery=(root.querySelector("#coCliSearch")as HTMLInputElement)?.value||""; _coachCliPage=1; const top=root.querySelector("#coSearch")as HTMLInputElement|null; if(top)top.value=_coachQuery; renderCoachOpenList(); },180); };
     w._coachToggleView=(v:string)=>{ _coachView=v; renderCoachOpenList(); };
     // ===== Health Coach dashboard cards (by consultation status) + Visited-clients table =====
     const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund"];
@@ -6316,20 +6354,24 @@ export function initApp(root: HTMLElement) {
         // Advisor dashboard "Enrolled" card + Enrolled-clients table stay in sync and it
         // survives a refresh (persisted in the DB, read back via leads.call_status).
         if(/enrol/i.test((obj&&obj.consStatus)||"")){
-          // New enrollment (wasn't Enrolled before) → stamp enrolled_at now; keep it stable on re-saves.
-          const already=[..._metaLeads,..._assignedExtras].some((l:any)=>String(l.id)===id&&l.callStatus==="Enrolled");
-          const enrIso=new Date().toISOString();
-          const upd:any={call_status:"Enrolled"}; if(!already) upd.enrolled_at=enrIso;
-          try{ await supabase.from("leads").update(upd).eq("meta_lead_id",id); }catch(_){}
+          // Enrolled date/time is STABLE — read the DB's current enrolled_at (source of truth) and
+          // preserve it if already set; only stamp 'now' the first time. Prevents re-stamping on
+          // re-save and keeps Coach + Advisor identical regardless of in-memory state.
+          let existingEnr:string|null=null;
+          try{ const {data}=await supabase.from("leads").select("enrolled_at").eq("meta_lead_id",id).limit(1); if(data&&data[0]) existingEnr=data[0].enrolled_at||null; }catch(_){}
+          const already=!!existingEnr;
+          const enrIso=existingEnr||new Date().toISOString();
+          try{ await supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",id); }catch(_){}
           // Coach → Reception sync: stamp this lead's appointment(s) as enrolled so Reception
           // reflects it in the same DB record, then refresh Reception live (no manual reload).
           try{ await supabase.from("appointments").update({stage:"enrolled"}).eq("lead_id",id).neq("status","cancelled"); }catch(_){}
-          const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ l.callStatus="Enrolled"; if(!already) l.enrolledAt=enrIso; } });
+          const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ l.callStatus="Enrolled"; l.enrolledAt=enrIso; } });
           setEnrolled(_metaLeads); setEnrolled(_assignedExtras);
           if(!already){ logActivity(id,[{action:"Enrolled",field:"Enrolled at",new:fmtIST(enrIso)}]); }
           try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
           try{ await loadReceptionData(); }catch(_){}   // Reception's Enrolled card/table update immediately
-          try{ if(String(_advLeadId)===id&&!already) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
+          try{ if(String(_advLeadId)===id) _advApplyEnrolled("Enrolled",enrIso); }catch(_){}
+          _broadcastLeadSync({leadId:id,callStatus:"Enrolled",enrolledAt:enrIso,consStatus:(obj&&obj.consStatus)||"Enrolled"});   // push to other open tabs
         }
         try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
         toast("Health record saved");
