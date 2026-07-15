@@ -3838,6 +3838,11 @@ export function initApp(root: HTMLElement) {
           supabase.from("payments").select("*").order("created_at",{ascending:false})
         ]);
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
+        // Many payments (coach-collected enrollment, installments, Accounts-settled) are stored
+        // with lead_id only and appointment_id = NULL, so they never match by appointment_id.
+        // Aggregate per lead too, so the Reception row can still show the paid amount + invoice.
+        const paysByLead:Record<string,{paid:number,due:number,anyPaid:boolean}>={};
+        (pr.data||[]).forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; const o=(paysByLead[k]=paysByLead[k]||{paid:0,due:0,anyPaid:false}); const amt=Number(p.amount)||0; if(p.status==="paid"){ o.paid+=amt; o.anyPaid=true; } else if(p.status==="due"){ o.due+=amt; } });
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
@@ -3848,10 +3853,21 @@ export function initApp(root: HTMLElement) {
         const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
         const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={};
         if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; }); }catch(_){} }
-        _recAll=(ar.data||[]).map((a:any)=>{ const pay=pays[a.id]||{status:(a.status==="cancelled"?"refunded":(a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free"),amount:0}; const _cs=_csById[String(a.lead_id)]||""; return {
+        _recAll=(ar.data||[]).map((a:any)=>{
+          const _cs=_csById[String(a.lead_id)]||"";
+          const _def=a.status==="cancelled"?"refunded":((a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free");
+          const _apptPay=pays[a.id]; const _leadPay=paysByLead[String(a.lead_id)]||{paid:0,due:0,anyPaid:false};
+          // Prefer a payment linked to THIS appointment; otherwise fall back to the lead's
+          // aggregate so coach/installment/Accounts payments (appointment_id NULL) still show.
+          let payStatus:string, payAmt:number;
+          if(_apptPay){ payStatus=_apptPay.status; payAmt=_apptPay.amount||0; }
+          else if(_leadPay.anyPaid){ payAmt=_leadPay.paid; payStatus=_leadPay.due>0?"due":"paid"; }
+          else { payStatus=_def; payAmt=0; }
+          const hasPaid=!!((_apptPay&&_apptPay.status==="paid")||_leadPay.anyPaid);   // invoice available once anything is paid
+          return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
-          payStatus:pay.status, payAmt:pay.amount||0, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
+          payStatus, payAmt, hasPaid, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:/enrol/i.test(_cs)||a.stage==="enrolled", enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
@@ -3974,7 +3990,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+(r.payStatus==="paid"?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       body.innerHTML = rows || '<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
@@ -5408,8 +5424,21 @@ export function initApp(root: HTMLElement) {
         _syncProgramPricing();   // apply L1/L2 program-specific pricing view (also re-quotes)
         _syncPayStSelects();     // mirror restored payment-Status pills into their dropdowns
         _refreshPayEnrollChip(); // reflect the enrolled level (L1/L2) in the payment section
+        try{ w._syncI2BalDue(); }catch(_){}   // rebuild Balance due date (Inst-1 + 30d) from restored Inst-1 date
       } finally { _coachApplying=false; }
     }
+    // Part 2 — Balance due date = Installment-1 date + 30 days. Auto-filled + read-only (the user
+    // never types it); displayed as DD MMM YYYY, with the ISO date kept in data-iso for persistence
+    // and the Accounts auto-reminders. Recalculates whenever the Inst-1 date changes.
+    w._syncI2BalDue=()=>{
+      const tgt=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; if(!tgt) return;
+      const v=((root.querySelector("#i2Inst1Date")as HTMLInputElement|null)?.value||"").trim();
+      if(!v){ tgt.value=""; delete tgt.dataset.iso; return; }
+      const d=new Date(v+"T00:00:00"); if(isNaN(d.getTime())){ tgt.value=""; delete tgt.dataset.iso; return; }
+      d.setDate(d.getDate()+30);
+      const iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+      tgt.dataset.iso=iso; tgt.value=fmtISTDate(iso);
+    };
     function renderCoachAtts(){
       const ba=root.querySelector("#coachAtts"); if(!ba) return;
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -6018,7 +6047,7 @@ export function initApp(root: HTMLElement) {
         const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
         const totalI2=_payNum("#i2Total")||total;
         const balance=Math.max(0,totalI2-p1-p2);
-        const dueDate=val("#i2BalDueDate")||null;
+        const dueDate=((root.querySelector("#i2BalDueDate")as HTMLInputElement|null)?.dataset.iso)||null;   // auto = Inst-1 date + 30 days (ISO)
         // Don't clobber (or duplicate) an installment-2 that Reception already collected.
         let recInst2Paid=false;
         try{ const {data}=await supabase.from("payments").select("status,collected_by,installment_number").eq("lead_id",id).eq("payment_type","installment"); recInst2Paid=(data||[]).some((r:any)=>Number(r.installment_number)===2&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||""))); }catch(_){}

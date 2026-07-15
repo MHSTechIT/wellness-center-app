@@ -438,13 +438,13 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Total</label><input class="input mono" id="i2Total" placeholder="Enter total amount" inputmode="decimal" oninput="window._payCalcI2()"></div>
               <div class="fld"><label class="lbl">Inst-1 received (₹)</label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date"></div>
+              <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date" onchange="window._syncI2BalDue()"></div>
               <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
               <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
               <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="i2BalDue" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="i2BalDueDate" data-future="1"></div>
+              <div class="fld"><label class="lbl">Balance due date <span class="ab">AUTO · +30d</span></label><input class="input mono" type="text" id="i2BalDueDate" readonly placeholder="30 days after Inst-1 date" title="Auto-calculated: Installment-1 date + 30 days"></div>
               <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="i2BalDate"></div>
