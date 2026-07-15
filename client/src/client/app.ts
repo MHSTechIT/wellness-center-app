@@ -40,11 +40,30 @@ export function initApp(root: HTMLElement) {
     let _currentUser:any = null;
     let _rbacMatrix:any = null;
 
+    // RBAC data-scoping: an "Advisor" only ever sees their OWN leads/data. Leads are keyed
+    // to advisors by NAME (leads.assigned_to === assignees.name); the login account is
+    // mapped to that advisor name via _advisorName() below. _advisorScope() returns the
+    // advisor name to lock to, or "" for any role allowed to see everything (Super Admin,
+    // Branch Manager, ...). A logged-in Advisor that resolves to no name fails CLOSED
+    // (a sentinel matching no lead) so other advisors' data can never leak.
+    function _isAdvisorRole():boolean{ return !!_currentUser && String(_currentUser.role||"")==="Advisor"; }
+    // Resolve the login account to its advisor NAME: prefer an assignee whose "Login email"
+    // matches the account email (reliable even when display names differ), else the account
+    // name itself (works when app_users.name === the assignee name).
+    function _advisorName():string{
+      if(!_currentUser) return "";
+      const email=String(_currentUser.email||"").trim().toLowerCase();
+      if(email){ const a=_assignees.find((x:any)=>String(x.email||"").trim().toLowerCase()===email); if(a&&a.name) return String(a.name).trim(); }
+      return String(_currentUser.name||"").trim();
+    }
+    function _advisorScope():string{ return _isAdvisorRole() ? (_advisorName() || "__no_advisor__") : ""; }
+
     const MODULES_LIST=[
       {key:"advisor",label:"Health advisor"},{key:"coach",label:"Health coach"},
       {key:"import",label:"Lead import"},{key:"abm",label:"Assign & approve"},
       {key:"reception",label:"Reception"},{key:"screening",label:"Screening"},
       {key:"bloodtest",label:"Blood test"},{key:"physio",label:"Physiotherapy"},
+      {key:"recordings",label:"Recordings"},
       {key:"accounts",label:"Accounts"},{key:"reports",label:"Reports"},
       {key:"admin",label:"Settings"}
     ];
@@ -176,8 +195,12 @@ export function initApp(root: HTMLElement) {
 
     // RBAC matrix
     async function loadRbacMatrix(){
-      const {data}=await supabase.from("app_settings").select("value").eq("key","rbac").single();
-      _rbacMatrix=data?.value||{...DEFAULT_RBAC};
+      // Never let a missing/erroring rbac row break sign-in (this runs inside checkAuth):
+      // fall back to the built-in defaults on any failure.
+      try{
+        const {data}=await supabase.from("app_settings").select("value").eq("key","rbac").single();
+        _rbacMatrix=data?.value||{...DEFAULT_RBAC};
+      }catch(_){ _rbacMatrix={...DEFAULT_RBAC}; }
     }
 
     function renderRbacMatrix(){
@@ -215,13 +238,15 @@ export function initApp(root: HTMLElement) {
     function applyNavGating(){
       if(!_currentUser) return;
       const role=_currentUser.role;
-      // Super Admin, or any role not present in the RBAC matrix (misconfigured/legacy
-      // role), gets full access — never lock a valid user out of the entire app.
-      if(role==="Super Admin"||!RBAC_ROLES.includes(role)){
+      // Only Super Admin is unconditionally full-access. Every other role is gated by the
+      // saved RBAC matrix, falling back to the built-in default for that role. A truly
+      // unknown/legacy role gets NO modules (fail CLOSED) rather than full access — this
+      // prevents a mistyped or unlisted role (e.g. "Admin") from silently unlocking the app.
+      if(role==="Super Admin"){
         root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>btn.style.display="");
         return;
       }
-      const allowed=(_rbacMatrix||DEFAULT_RBAC)[role]||[];
+      const allowed=(_rbacMatrix&&_rbacMatrix[role])||DEFAULT_RBAC[role]||[];
       root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>{
         (btn as HTMLElement).style.display=allowed.includes(btn.dataset.s)?"":"none";
       });
@@ -236,8 +261,10 @@ export function initApp(root: HTMLElement) {
     let _usrList:any[]=[];
 
     async function loadUsers(){
-      const {data}=await supabase.from("app_users").select("*").order("created_at",{ascending:false});
-      _usrList=data||[];
+      try{
+        const {data}=await supabase.from("app_users").select("*").order("created_at",{ascending:false});
+        _usrList=data||[];
+      }catch(e:any){ _usrList=[]; toastErr("Could not load users — check your connection"); }
       renderUsers();
     }
 
@@ -1728,12 +1755,14 @@ export function initApp(root: HTMLElement) {
       const branch=(root.querySelector("#asgBranch")as HTMLSelectElement)?.value||"Chennai";
       const phone=((root.querySelector("#asgPhone")as HTMLInputElement)?.value||"").trim();
       if(phone&&!/^\d{10}$/.test(phone)){toast("Phone must be a 10-digit number");return;}
+      const email=((root.querySelector("#asgEmail")as HTMLInputElement)?.value||"").trim().toLowerCase();
+      if(email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){toast("Enter a valid login email");return;}
       try{
         if(_asgEditId){
-          const {error}=await supabase.from("assignees").update({name,role,branch,phone}).eq("id",_asgEditId);
+          const {error}=await supabase.from("assignees").update({name,role,branch,phone,email:email||null}).eq("id",_asgEditId);
           if(error) throw error; toast("Assignee updated");
         }else{
-          const {error}=await supabase.from("assignees").insert({name,role,branch,phone});
+          const {error}=await supabase.from("assignees").insert({name,role,branch,phone,email:email||null});
           if(error) throw error; toast("Assignee added");
         }
         (w as any)._asgCancelEdit();
@@ -1750,6 +1779,7 @@ export function initApp(root: HTMLElement) {
       (root.querySelector("#asgRole")as HTMLSelectElement).value=a.role;
       (root.querySelector("#asgBranch")as HTMLSelectElement).value=a.branch;
       (root.querySelector("#asgPhone")as HTMLInputElement).value=a.phone||"";
+      const _ae=root.querySelector("#asgEmail")as HTMLInputElement|null; if(_ae)_ae.value=a.email||"";
       _asgEditId=id;
       const b=root.querySelector("#asgAddBtn"); if(b)b.textContent="Update assignee";
       const c=root.querySelector("#asgCancelBtn")as HTMLElement; if(c)c.style.display="";
@@ -1758,6 +1788,7 @@ export function initApp(root: HTMLElement) {
       _asgEditId=null;
       const n=root.querySelector("#asgName")as HTMLInputElement; if(n)n.value="";
       const p=root.querySelector("#asgPhone")as HTMLInputElement; if(p)p.value="";
+      const em=root.querySelector("#asgEmail")as HTMLInputElement; if(em)em.value="";
       const b=root.querySelector("#asgAddBtn"); if(b)b.textContent="+ Add assignee";
       const c=root.querySelector("#asgCancelBtn")as HTMLElement; if(c)c.style.display="none";
     };
@@ -1809,7 +1840,7 @@ export function initApp(root: HTMLElement) {
       return [l.name,l.phone,l.source,l.assignedTo,l.campaign,_asnCallStatus(l)].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
     }
     function assignedLeads(){
-      const f=_asnApplied.advisor||"all";   // applied via the Apply button, not on select change
+      const f=_advisorScope()||_asnApplied.advisor||"all";   // Advisor role is locked to self; else applied via Apply
       // Honor the dashboard call/lead-status dropdown too, so List + Kanban stay in
       // sync with it (and with each other). haEffStatus is hoisted, defined below.
       const sf=(root.querySelector("#haStatusFilter")as HTMLSelectElement)?.value||"all";
@@ -1847,10 +1878,23 @@ export function initApp(root: HTMLElement) {
       // populate advisor filter from active assignees (preserve selection)
       const fsel=root.querySelector("#assignedFilter")as HTMLSelectElement;
       if(fsel){
-        const cur=fsel.value;
-        const names=_assignees.map((a:any)=>a.name);
-        fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
-        if(Array.from(fsel.options).some(o=>o.value===cur)) fsel.value=cur;
+        const scope=_advisorScope();
+        if(scope){
+          // Advisor role: only their own (resolved) advisor name, selected + locked. They
+          // cannot see or pick other advisors. Show the resolved name so it matches the
+          // "Assigned to" column even when the login display-name differs.
+          const nm=_advisorName();
+          const lbl=(nm||"My leads").replace(/</g,"&lt;");
+          fsel.innerHTML='<option value="'+lbl+'">'+lbl+'</option>';
+          fsel.value=lbl; fsel.disabled=true; fsel.title="You can only view your own assigned leads";
+          _asnApplied.advisor=nm||scope;   // keep the applied top-filter state consistent
+        } else {
+          fsel.disabled=false; fsel.title="";
+          const cur=fsel.value;
+          const names=_assignees.map((a:any)=>a.name);
+          fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
+          if(Array.from(fsel.options).some(o=>o.value===cur)) fsel.value=cur;
+        }
       }
       // populate service + source filters from the whole assigned set (preserve selection)
       const _asnBaseAll=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
@@ -2007,7 +2051,8 @@ export function initApp(root: HTMLElement) {
     function asnHistBase(){
       const from=(root.querySelector("#asnHistFrom")as HTMLInputElement)?.value||"";
       const to=(root.querySelector("#asnHistTo")as HTMLInputElement)?.value||"";
-      const adv=(root.querySelector("#asnHistAdvisor")as HTMLSelectElement)?.value||"all";
+      const scope=_advisorScope();   // Advisor role → history is limited to their own assignments
+      const adv=scope||(root.querySelector("#asnHistAdvisor")as HTMLSelectElement)?.value||"all";
       const src=(root.querySelector("#asnHistSource")as HTMLSelectElement)?.value||"all";
       const svc=(root.querySelector("#asnHistService")as HTMLSelectElement)?.value||"all";
       const poolOnly=(root.querySelector("#asnHistPool")as HTMLInputElement)?.checked||false;
@@ -2621,7 +2666,8 @@ export function initApp(root: HTMLElement) {
     ];
     function haBook(){
       // The advisor's book = assigned leads (Meta + Manual/CSV). Role enforcement
-      // (only-own-leads) requires auth; without it, this shows the full assigned book.
+      // (Advisor → only-own-leads) is applied downstream in haCommonFilter() via
+      // _advisorScope(), so the dashboard KPIs and results tables stay scoped too.
       return [..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
     }
     function haEffStatus(l:any){ return l.callStatus || (l.isAssigned?"Open":"New"); }
@@ -2650,10 +2696,12 @@ export function initApp(root: HTMLElement) {
     // does NOT touch the data until _topFilterApply() copies the controls into it.
     let _asnApplied:{src:string;svc:string;from:string;to:string;advisor:string}={src:"all",svc:"all",from:"",to:"",advisor:"all"};
     function haCommonFilter(list:any[]){
-      const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to, adv=_asnApplied.advisor;
+      const scope=_advisorScope();   // Advisor role → always locked to their own leads (ignores the top filter)
+      const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to;
+      const adv=scope||_asnApplied.advisor;
       const fromT=from?new Date(from+"T00:00:00").getTime():0;
       const toT=to?new Date(to+"T23:59:59").getTime():0;
-      if(src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
+      if(!scope&&src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
       return list.filter((l:any)=>{
         if(src!=="all"&&(l.source||"")!==src) return false;
         if(svc!=="all"&&(l.service||"")!==svc) return false;
@@ -4398,14 +4446,13 @@ export function initApp(root: HTMLElement) {
       let clientId=((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"").trim();
       if(!/^WC\d{6}$/.test(clientId) || !(await _cidFree(clientId))){ clientId=await _genClientId(); let g=0; while(!(await _cidFree(clientId))&&g++<5) clientId=await _genClientId(); }
       const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
-      const visAt=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
       const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
       const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";   // read the Language field by id (robust to layout changes)
       try{
         await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
       try{
-        await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:visAt,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
+        await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       _nwClearDraft();   // registration completed → discard the saved draft
       nwToggle(); await loadReceptionData();
@@ -4414,7 +4461,7 @@ export function initApp(root: HTMLElement) {
     }
     w.nwBook = nwBook;
 
-    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number}|null=null;
+    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any}|null=null;
     function recOpen(apptId:any,name:string,amt:any,leadId:string) {
       _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
       // The collection panel lives on the Reception screen — when triggered from Blood test /
@@ -4454,6 +4501,22 @@ export function initApp(root: HTMLElement) {
           let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment"); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
           if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
           toast("Installment "+num+" collected"+(fully?" — Fully Paid ✓":" · balance updated"));
+          await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
+          _recCollect=null; return;
+        }
+        // ---- Settling an EXISTING due payment row (Accounts "Collect" on an outstanding
+        //      balance): update that row to paid instead of inserting a duplicate. ----
+        if(_recCollect.payId){
+          const pid=_recCollect.payId;
+          await supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid);
+          // Move the linked appointment to the payment stage (look it up from the payment row
+          // when we weren't handed one) and mark the lead Payment Done.
+          let apptId=_recCollect.apptId;
+          try{ if(!apptId){ const {data:pr}=await supabase.from("payments").select("appointment_id").eq("id",pid).limit(1); apptId=pr&&pr[0]&&pr[0].appointment_id; } }catch(_){}
+          if(apptId) try{ await supabase.from("appointments").update({stage:"payment"}).eq("id",apptId); }catch(_){}
+          if(_recCollect.leadId){ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
+            if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} } }
+          toast("₹"+amt.toLocaleString("en-IN")+" collected — balance cleared");
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           _recCollect=null; return;
         }
@@ -6623,7 +6686,7 @@ export function initApp(root: HTMLElement) {
       sp?.scrollIntoView({behavior:"smooth"}); _phRenderAll();
     };
     w._phPayModel=(m:string)=>{ root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.remove("on")); root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>{if(b.textContent.toLowerCase().includes(m==="pack"?"upfront":"per"))b.classList.add("on");}); };
-    w._phStartSession=async(id:number)=>{ try{ await supabase.from("appointments").update({status:"visited",visited_at:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}).eq("id",id); toast("Session started"); await loadPhysioData(); }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
+    w._phStartSession=async(id:number)=>{ try{ await supabase.from("appointments").update({status:"visited",visited_at:new Date().toISOString()}).eq("id",id); toast("Session started"); await loadPhysioData(); }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
     w._phCompleteSession=async(id:any)=>{ try{ const r=_phAll.find((x:any)=>String(x.id)===String(id)); if(!r)return; const pd=r.phData||{};
       // Idempotent: a session counts + logs a visit exactly once (guards double-click and
       // Complete-then-Save both bumping the counter / adding duplicate visit rows).
@@ -6788,11 +6851,13 @@ export function initApp(root: HTMLElement) {
         // stored on the payment row (paid_at / verified_at).
         const pay=_accPays.find((p:any)=>String(p.id)===String(id));
         const leadId=pay&&(pay.lead_id||(_accAppts[pay.appointment_id]||{}).lead_id);
-        if(leadId){ await _enrollLeadShared(String(leadId),"Accounts payment confirmed"); try{ await loadReceptionData(); }catch(_){} }
+        // Enroll at the ACTUAL program of the verified payment (L1 / L2 / L1 + L2), not a
+        // hard-coded L1 — keeps Accounts-path enrollment consistent with the coach path.
+        if(leadId){ await _enrollLeadShared(String(leadId),"Accounts payment confirmed",(pay&&pay.program)?String(pay.program):"L1"); try{ await loadReceptionData(); }catch(_){} }
         toast(leadId?"Payment verified ✓ — lead Enrolled & synced":"Payment verified ✓"); await loadAccountsData();
       }catch(e:any){ toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
     };
-    w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen(id,name,amt,leadId); };
+    w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen("",name,amt,leadId); if(_recCollect) _recCollect.payId=id; };   // settle this outstanding payment row (not a new insert)
     w._accProcessRefund=async(id:number)=>{
       try{ await supabase.from("payments").update({refund_status:"processed",refund_processed_at:new Date().toISOString()}).eq("id",id);
         toast("Refund processed"); await loadAccountsData();

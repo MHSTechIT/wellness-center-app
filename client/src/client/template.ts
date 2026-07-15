@@ -1260,6 +1260,7 @@ export function getMainContent(): string {
             <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option><option>Health Coach</option></select></div>
             <div class="fld" style="margin:0"><label class="lbl">Branch</label><select class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
             <div class="fld" style="margin:0"><label class="lbl">Phone</label><input class="input mono" id="asgPhone" placeholder="optional · 10 digits" style="height:34px;width:140px" type="tel" inputmode="numeric" maxlength="10" oninput="window._digitsOnly(this)"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Login email</label><input class="input" id="asgEmail" placeholder="links their Advisor login" style="height:34px;width:200px" type="email" title="Match this advisor to their login account (app user email) so an Advisor sees only their own leads"></div>
             <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
             <button class="btn bsm" id="asgCancelBtn" onclick="window._asgCancelEdit()" style="height:34px;display:none">Cancel</button>
           </div>
