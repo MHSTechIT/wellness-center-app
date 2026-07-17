@@ -212,7 +212,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="fld"><textarea class="area" rows="2" placeholder="Add a remark…"></textarea></div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"/></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
-        <div class="sec-bd"><div class="timeline js-actlog" id="actLog" style="margin-top:12px"><div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div></div></div></div>
+        <div class="sec-bd"><div class="tscroll js-actlog" id="actLog" style="margin-top:12px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._advSaveRecord()">Save lead record</button></div>
     </div>
@@ -228,7 +228,7 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"/></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
         <div class="sec-bd" id="advCallLog"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div></div></div>
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"/></svg> History of activity</div>
-        <div class="sec-bd"><div class="timeline js-actlog" style="margin-top:4px"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No activity recorded for this lead yet.</div></div></div></div>
+        <div class="sec-bd"><div class="tscroll js-actlog" style="margin-top:4px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
     </div>
     </div><!-- /advDetailPane -->
     </div><!-- /flex row -->
@@ -1197,7 +1197,7 @@ export function getMainContent(): string {
 
   <!-- RECORDINGS -->
   <section class="screen" id="s-recordings"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
-    <div class="ph"><div><h1>Recordings</h1><p>All in-clinic office-visit audio and Zoom consultation recordings across customers.</p></div></div>
+    <div class="ph"><div><h1>Recordings</h1><p id="recSubtitle">All in-clinic office-visit audio and Zoom consultation recordings across customers.</p></div></div>
 
     <div class="sec" style="margin-bottom:16px" id="ovrTblSec">
       <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"/></svg> Office Visit Recordings <span class="chipb ok" id="ovrTblCount" style="margin-left:8px">0</span>

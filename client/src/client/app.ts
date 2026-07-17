@@ -242,6 +242,23 @@ export function initApp(root: HTMLElement) {
     }
 
     // Nav gating
+    // Hide any nav-group label (.ng) that has no visible button under it, so a role with no
+    // access to a whole section (e.g. an Advisor sees no Finance/Admin items) doesn't get a
+    // bare, dangling section heading. Runs after button visibility is set.
+    function _syncNavGroups(){
+      const navEl=root.querySelector("#nav"); if(!navEl) return;
+      const kids=Array.from(navEl.children) as HTMLElement[];
+      kids.forEach((el,idx)=>{
+        if(!el.classList||!el.classList.contains("ng")) return;
+        let anyVisible=false;
+        for(let j=idx+1;j<kids.length;j++){
+          const n=kids[j];
+          if(n.classList&&n.classList.contains("ng")) break;              // reached the next group
+          if(n.matches&&n.matches("button[data-s]")&&n.style.display!=="none"){ anyVisible=true; break; }
+        }
+        el.style.display=anyVisible?"":"none";
+      });
+    }
     function applyNavGating(){
       if(!_currentUser) return;
       const role=_currentUser.role;
@@ -251,12 +268,14 @@ export function initApp(root: HTMLElement) {
       // prevents a mistyped or unlisted role (e.g. "Admin") from silently unlocking the app.
       if(role==="Super Admin"){
         root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>btn.style.display="");
+        _syncNavGroups();
         return;
       }
       const allowed=(_rbacMatrix&&_rbacMatrix[role])||DEFAULT_RBAC[role]||[];
       root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>{
         (btn as HTMLElement).style.display=allowed.includes(btn.dataset.s)?"":"none";
       });
+      _syncNavGroups();
       const activeBtn=root.querySelector("#nav button.active") as HTMLElement|null;
       if(activeBtn&&activeBtn.style.display==="none"){
         const first=root.querySelector('#nav button[data-s]:not([style*="display: none"])') as HTMLElement|null;
@@ -2545,6 +2564,12 @@ export function initApp(root: HTMLElement) {
     // The `leads` row keeps only current state; every assign/unassign also writes one
     // row here so the history view has Date&Time + Assigned By that `leads` can't express.
     function _asnActor(){ return _currentUser?(((_currentUser.name||"").trim())||((_currentUser.email||"").split("@")[0])||"System"):"System"; }
+    // Identity to STAMP on a recording's recorded_by. It MUST match the value the Recordings
+    // page scopes on (_selfScopeName() → _advisorName()), otherwise an Advisor/Coach whose
+    // login maps to a different assignee name (via "Login email") would never see their own
+    // recordings. _advisorName() resolves any login to its assignee/account name (same key the
+    // whole RBAC layer uses); fall back to the display name if it can't resolve.
+    function _recBy(){ return _advisorName()||_asnActor(); }
     function _findLeadForHist(id:string){
       const s=String(id);
       return _metaLeads.find((x:any)=>String(x.id)===s)
@@ -2563,18 +2588,25 @@ export function initApp(root: HTMLElement) {
     }
     async function renderActivityLog(leadId:any){
       const els=Array.from(root.querySelectorAll(".js-actlog")); if(!els.length) return;
+      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      // Render into the SAME shared grid the Live Incoming Feed uses (.tscroll + .tbl): sticky
+      // header, internal scroll (the page stays put), identical borders/hover/spacing/responsive.
+      // The `.tscroll` wrapper lives in the template; here we (re)build the <table> inside it.
+      const HEAD='<thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead>';
+      const wrap=(inner:string)=>'<table class="tbl" style="min-width:640px">'+HEAD+'<tbody>'+inner+'</tbody></table>';
+      const stateRow=(msg:string)=>'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">'+msg+'</td></tr>';
+      els.forEach((el:any)=>{ el.innerHTML=wrap(stateRow("Loading activity…")); });   // loading state (matches feed)
       let rows:any[]=[];
       try{ const {data}=await supabase.from("lead_activity").select("*").eq("lead_id",String(leadId)).order("created_at",{ascending:false}).limit(200); rows=data||[]; }catch(_){ rows=[]; }
       if(!rows.length) rows=readActLocal(leadId);
       if(String(_advLeadId)!==String(leadId)) return;   // user switched away during the fetch
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      const html=rows.length
+      const body=rows.length
         ? rows.map((r:any)=>{
-            const chg=r.field?('<b>'+e(r.field)+'</b>'+((r.old_value!=null||r.new_value!=null)?': <span style="color:var(--faint)">'+e(r.old_value||"—")+'</span> &rarr; <b>'+e(r.new_value||"—")+'</b>':'')):'';
-            return '<div class="tl"><div class="t"><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span> '+chg+'</div><div class="m">'+e(r.actor||ADV_ACTOR)+' &middot; '+_actTime(r.created_at)+'</div></div>';
+            const chg=r.field?('<b>'+e(r.field)+'</b>'+((r.old_value!=null||r.new_value!=null)?': <span style="color:var(--faint)">'+e(r.old_value||"—")+'</span> &rarr; <b>'+e(r.new_value||"—")+'</b>':'')):'<span style="color:var(--faint)">—</span>';
+            return '<tr><td><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span></td><td style="line-height:1.5;word-break:break-word">'+chg+'</td><td>'+e(r.actor||ADV_ACTOR)+'</td><td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_actTime(r.created_at))+'</td></tr>';
           }).join("")
-        : '<div style="text-align:center;color:var(--faint);padding:18px;font-size:13px">No activity recorded for this lead yet.</div>';
-      els.forEach((el:any)=>{ el.innerHTML=html; });
+        : stateRow("No activity recorded for this lead yet.");
+      els.forEach((el:any)=>{ el.innerHTML=wrap(body); });
     }
     // Render the lead's Call logs + voice recordings from `call_recordings` (contact_id = lead id,
     // with a phone/to_number fallback so calls placed before the id mapping still surface). Latest
@@ -5811,7 +5843,7 @@ export function initApp(root: HTMLElement) {
         if(up.error) throw up.error;
         const {data}=supabase.storage.from("office-recordings").getPublicUrl(path);
         const url=(data&&data.publicUrl)||"";
-        await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_asnActor(),created_at:new Date().toISOString()});
+        await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_recBy(),created_at:new Date().toISOString()});
         toast("✓ Recording saved to profile");
         if(String(_coachLeadId)===id) _ovrRenderList(id);
       }catch(e:any){ toastErr("Recording save failed: "+(e.message||"upload error")); }
@@ -5861,6 +5893,12 @@ export function initApp(root: HTMLElement) {
     ];
     regGrid("zoomTbl",()=>_zoomTblCols,()=>renderZoomTbl());
     async function loadRecordings(){
+      // Role-aware subtitle: Advisor/Coach see only their OWN recordings, so don't claim
+      // "across customers" (which reads like a bug when their list is empty).
+      const _rsub=root.querySelector("#recSubtitle");
+      if(_rsub) _rsub.textContent=_selfScopeName()
+        ? "Your in-clinic office-visit and Zoom consultation recordings."
+        : "All in-clinic office-visit audio and Zoom consultation recordings across customers.";
       try{ const {data}=await supabase.from("office_recordings").select("*").order("created_at",{ascending:false}).limit(2000); _ovrRows=data||[]; }catch(_){ _ovrRows=[]; }
       try{ const {data}=await supabase.from("zoom_recordings").select("*").order("created_at",{ascending:false}).limit(2000); _zoomRows=data||[]; }catch(_){ _zoomRows=[]; }
       // Resolve customer name by lead_id (office rows have none; zoom rows keep their own).
@@ -6446,7 +6484,7 @@ export function initApp(root: HTMLElement) {
         if((data||[]).some((r:any)=>String(r.meeting_url||"")===url)) return;   // already stored
         const name=((root.querySelector("#coachName")?.textContent)||"").trim();
         const cd=((root.querySelector("#haConsultDate")as HTMLInputElement)?.value||"");
-        await supabase.from("zoom_recordings").insert({lead_id:id,customer_name:name,meeting_url:url,status:"Ready",recorded_by:_asnActor(),meeting_at:cd?new Date(cd).toISOString():new Date().toISOString(),created_at:new Date().toISOString()});
+        await supabase.from("zoom_recordings").insert({lead_id:id,customer_name:name,meeting_url:url,status:"Ready",recorded_by:_recBy(),meeting_at:cd?new Date(cd).toISOString():new Date().toISOString(),created_at:new Date().toISOString()});
       }catch(_){}
     }
     // Dedicated "Save Link" action next to the recording-URL field: validate, store in

@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   // — no proxy target, no CORS, nothing to misconfigure.
   output: "export",
   images: { unoptimized: true },
+  // Hide the Next.js dev-mode on-screen indicator (the floating "N" badge). It is a
+  // development-only overlay and never ships in the static export, but disabling it keeps
+  // the local dev view clean. Compile/runtime errors are still surfaced.
+  devIndicators: false,
 };
 
 export default nextConfig;
