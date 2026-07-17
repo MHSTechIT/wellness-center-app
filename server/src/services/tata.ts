@@ -28,10 +28,27 @@ function envAny(...names: string[]): string {
 // caller ID for that team. A role with no override falls back to the plain (unsuffixed)
 // vars, so existing single-config setups keep working unchanged. The API key is shared
 // across roles (same Tata account) unless a role-specific key is explicitly set too.
+// A role can be written many ways in .env — accept the short form the pages send
+// (advisor/coach/reception) AND the descriptive forms operators tend to type
+// (health_advisor/health_coach/reception). Each maps to a list of suffix aliases we try.
+const ROLE_ALIASES: Record<string, string[]> = {
+  advisor: ['advisor', 'health_advisor'],
+  coach: ['coach', 'health_coach'],
+  reception: ['reception', 'receptionist'],
+};
+
 export function tataConfig(role?: string) {
   const r = (role || '').trim().toLowerCase();
-  // base (lowercase) → role-suffixed lowercase → base UPPERCASE, first non-empty wins.
-  const resolve = (base: string, baseUpper: string) => r ? envAny(base + '_' + r, base, baseUpper) : envAny(base, baseUpper);
+  const aliases = ROLE_ALIASES[r] || (r ? [r] : []);
+  // For each alias try lowercase (base_alias) then UPPERCASE (BASEUPPER_ALIAS); then fall back
+  // to the unsuffixed base (lowercase then UPPERCASE). First non-empty value wins. This lets
+  // tata_tele_caller_id_advisor, TATA_TELE_CALLER_ID_HEALTH_ADVISOR, etc. all resolve.
+  const resolve = (base: string, baseUpper: string) => {
+    const names: string[] = [];
+    for (const a of aliases) { names.push(base + '_' + a, baseUpper + '_' + a.toUpperCase()); }
+    names.push(base, baseUpper);
+    return envAny(...names);
+  };
   return {
     apiKey: resolve('tata_tele_api_key', 'TATA_TELE_API_KEY'),
     extension: resolve('tata_tele_default_extension_number', 'TATA_TELE_DEFAULT_EXTENSION_NUMBER'),
