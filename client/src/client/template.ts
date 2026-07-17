@@ -89,20 +89,20 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
           <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" id="advfWhats" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
           <div class="fld"><label class="lbl">Email</label><input class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
-          <div class="fld"><label class="lbl">Gender</label><select class="select"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
-          <div class="fld"><label class="lbl">Age</label><input class="input mono" type="number" min="1" max="120" placeholder="e.g. 42"></div>
-          <div class="fld"><label class="lbl">Occupation <span class="nb">NEW</span></label><select class="select" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
-          <div class="fld"><label class="lbl">Language</label><select class="select"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
+          <div class="fld"><label class="lbl">Gender</label><select class="select" id="advfGender"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
+          <div class="fld"><label class="lbl">Age</label><input class="input mono" id="advfAge" type="number" min="1" max="120" placeholder="e.g. 42"></div>
+          <div class="fld"><label class="lbl">Occupation <span class="nb">NEW</span></label><select class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
+          <div class="fld"><label class="lbl">Language</label><select class="select" id="advfLang"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
           <div class="fld"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
           <div class="fld"><label class="lbl">Lead generated <span class="ab">AUTO</span></label><input class="input mono" id="haLeadGen" readonly></div>
           <div class="fld"><label class="lbl">Batch code</label><input class="input mono" id="haBatch" placeholder="—"></div>
-          <div class="fld"><label class="lbl">Location</label><select class="select"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
+          <div class="fld"><label class="lbl">Location</label><select class="select" id="advfLoc"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
           <div class="fld" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
         </div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl">Sugar level</label><select class="select"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
+          <div class="fld"><label class="lbl">Sugar level</label><select class="select" id="advfSugar"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
           <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date"></div>
           <div class="fld"><label class="lbl">Fasting (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
           <div class="fld"><label class="lbl">Postprandial (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
@@ -315,7 +315,7 @@ export function getMainContent(): string {
         <div class="sec-bd">
           <div class="aud" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
             <div class="fld fw"><label class="lbl">Chief complaint</label><input class="input" id="haChief"></div>
-            <div class="fld"><label class="lbl">Duration of diabetes</label><select class="select"><option>Newly Diagnosed</option><option>1–3 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
+            <div class="fld"><label class="lbl">Duration of diabetes</label><select class="select" id="haDuration"><option value="">-- Select --</option><option>Newly Diagnosed</option><option>1–3 yrs</option><option>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
             <div class="fld"><label class="lbl">Family history</label><select class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
             <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="haHeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
             <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="haWeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>

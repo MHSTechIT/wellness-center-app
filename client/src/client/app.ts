@@ -57,6 +57,13 @@ export function initApp(root: HTMLElement) {
       return String(_currentUser.name||"").trim();
     }
     function _advisorScope():string{ return _isAdvisorRole() ? (_advisorName() || "__no_advisor__") : ""; }
+    // _advisorName() resolves ANY login to its assignee/account name, so it works for coaches too.
+    // A Health Coach is scoped to clients whose assigned coach (appointment hc_pt) is this name.
+    function _isCoachRole():boolean{ return !!_currentUser && String(_currentUser.role||"")==="Health Coach"; }
+    function _coachScope():string{ return _isCoachRole() ? (_advisorName() || "__no_coach__") : ""; }
+    // The logged-in user's own name (Advisor / Coach) — used to scope the Recordings page to the
+    // recordings THEY made. Empty for full-access roles (Manager/Admin/etc.) so they see all.
+    function _selfScopeName():string{ return (_isAdvisorRole()||_isCoachRole()) ? (_advisorName()||"none") : ""; }
 
     const MODULES_LIST=[
       {key:"advisor",label:"Health advisor"},{key:"coach",label:"Health coach"},
@@ -70,9 +77,9 @@ export function initApp(root: HTMLElement) {
     const FULL_ACCESS=["advisor","coach","import","abm","reception","screening","bloodtest","physio","recordings","accounts","reports","admin"];
     const RBAC_ROLES=["Advisor","Senior Advisor","Health Coach","Screening","Receptionist","Diagnostics","Physiotherapist","Accounts","ABM","Manager","Branch Manager"];
     const DEFAULT_RBAC:Record<string,string[]>={
-      "Advisor":["advisor"],"Senior Advisor":["advisor","import"],
+      "Advisor":["advisor","recordings"],"Senior Advisor":["advisor","import","recordings"],
       "Health Coach":["coach","recordings"],"Screening":["screening"],
-      "Receptionist":["reception"],"Diagnostics":["bloodtest"],
+      "Receptionist":["reception","screening","bloodtest","physio","recordings"],"Diagnostics":["bloodtest"],
       "Physiotherapist":["physio"],"Accounts":["accounts"],
       "ABM":["abm","advisor","import","reports"],
       "Manager":FULL_ACCESS.slice(),
@@ -2418,6 +2425,14 @@ export function initApp(root: HTMLElement) {
       // Block saving a follow-up scheduled in the past (covers the mirrored Planned date & time).
       { const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
         if(nf && nf.value){ const t=new Date(nf.value).getTime(); if(!isNaN(t) && t<Date.now()-60000){ toastErr("Next follow-up can't be in the past — choose a current or future time"); try{_setFutureMin(nf);nf.focus();}catch(_){} return; } } }
+      // Mandatory fields (Basic info + Sugar level) — block save until all are filled.
+      const _reqAdv:[string,string][]=[["#advfName","Name"],["#advfPhone","Phone Number"],["#advfGender","Gender"],["#advfAge","Age"],["#advfOcc","Occupation"],["#advfLang","Language"],["#advfLoc","Location"],["#advfSugar","Sugar level"]];
+      for(const [sel,lbl] of _reqAdv){
+        const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
+        const v=((el&&el.value)||"").trim();
+        if(!v||/^--\s*select\s*--$/i.test(v)){ toastErr(lbl+" is required"); try{(el as any)&&(el as any).focus();}catch(_){} return; }
+        if(sel==="#advfOcc"&&/^others$/i.test(v)){ const oth=((root.querySelector("#occOth")as HTMLInputElement)?.value||"").trim(); if(!oth){ toastErr("Enter the occupation"); try{(root.querySelector("#occOth")as HTMLInputElement)?.focus();}catch(_){} return; } }
+      }
       const id=String(_advLeadId);
       const lead=_advFindLead(id);
       const prev=lead?lead.advisorProfile:null;
@@ -4829,9 +4844,10 @@ export function initApp(root: HTMLElement) {
     let _zoomAppts:any[]=[];
     async function loadZoomCheckins(){
       try{
-        const {data}=await supabase.from("appointments").select("id,lead_id,client_name,phone,service,appt_date,appt_time,status,source,meeting_type,language,visited_at")
+        const {data}=await supabase.from("appointments").select("id,lead_id,client_name,phone,service,appt_date,appt_time,status,source,meeting_type,language,visited_at,hc_pt")
           .neq("status","visited").neq("status","cancelled").order("appt_date",{ascending:false}).limit(500);
-        _zoomAppts=(data||[]).filter((a:any)=>a.meeting_type==="zoom"||/zoom/i.test(a.source||""));
+        const _cScope=_coachScope();   // Health Coach role → only their own Zoom appointments
+        _zoomAppts=(data||[]).filter((a:any)=>(a.meeting_type==="zoom"||/zoom/i.test(a.source||""))&&(!_cScope||(a.hc_pt||"")===_cScope));
       }catch(_){ _zoomAppts=[]; }
       renderZoomCheckins();
     }
@@ -5845,14 +5861,16 @@ export function initApp(root: HTMLElement) {
       const f=from?new Date(from+"T00:00:00").getTime():0; const t=to?new Date(to+"T23:59:59").getTime():0;
       return rows.filter((r:any)=>{ const d=field(r); const x=d?new Date(d).getTime():0; if(f&&x<f)return false; if(t&&x>t)return false; return true; });
     }
+    // Advisor / Coach see only recordings THEY made (matched on recorded_by); full-access roles see all.
+    function _recScoped(rows:any[]):any[]{ const s=_selfScopeName(); if(!s) return rows; const sl=s.toLowerCase(); return rows.filter((r:any)=>String(r.recorded_by||"").trim().toLowerCase()===sl); }
     function _ovrBase(){
-      let base=_ovrRows;
+      let base=_recScoped(_ovrRows);
       const q=_ovrQuery.trim().toLowerCase();
       if(q) base=base.filter((r:any)=>[r._cust,r.recorded_by].some((v:any)=>String(v||"").toLowerCase().includes(q)));
       return _recDateFilter(base,_ovrApplied,(r:any)=>r.created_at);
     }
     function _zoomBase(){
-      let base=_zoomRows;
+      let base=_recScoped(_zoomRows);
       const q=_zoomQuery.trim().toLowerCase();
       if(q) base=base.filter((r:any)=>[r._cust,r.meeting_url].some((v:any)=>String(v||"").toLowerCase().includes(q)));
       return _recDateFilter(base,_zoomApplied,(r:any)=>r.meeting_at||r.created_at);
@@ -6062,12 +6080,14 @@ export function initApp(root: HTMLElement) {
     // Central filter set — dashboard cards, Visited-clients table, List and Kanban all read
     // this, so everything stays in sync with the applied filters.
     function _coachFiltered(){
+      const scope=_coachScope();   // Health Coach role → always locked to their own clients
       const from=_coachApplied.from, to=_coachApplied.to, coach=_coachApplied.coach, st=_coachApplied.status, src=_coachApplied.source, svc=_coachApplied.service;
       const q=_coachQuery.trim().toLowerCase();
       const fromT=from?new Date(from+"T00:00:00").getTime():0;
       const toT=to?new Date(to+"T23:59:59").getTime():0;
       return _coachClients.filter((c:any)=>{
-        if(coach!=="all"&&(c.hc||"")!==coach) return false;
+        if(scope){ if((c.hc||"")!==scope) return false; }
+        else if(coach!=="all"&&(c.hc||"")!==coach) return false;
         if(st!=="all"&&_coachConsOf(c)!==st) return false;   // filter by consultation status (matches cards + column)
         if(src!=="all"&&(c.source||"")!==src) return false;
         if(svc!=="all"&&(c.service||"")!==svc) return false;
@@ -6084,9 +6104,19 @@ export function initApp(root: HTMLElement) {
       // The coach filter must list EVERY active Health Coach from the Assignees master
       // (single source of truth), not only those who already have a visited client.
       // Union with any coach present on a client so historical assignments still show.
-      const coachNames=_assignees.filter((a:any)=>a.is_active&&a.role==="Health Coach").map((a:any)=>a.name)
-        .concat(_coachClients.map((c:any)=>c.hc));
-      fill("#coCoach",coachNames,"All health coaches");
+      const _cScope=_coachScope();
+      const _cc=root.querySelector("#coCoach")as HTMLSelectElement|null;
+      if(_cScope&&_cc){
+        // Health Coach role: only their own name, selected + locked (can't view other coaches).
+        const nm=_advisorName()||"My clients"; const lbl=nm.replace(/</g,"&lt;");
+        _cc.innerHTML='<option value="'+lbl+'">'+lbl+'</option>'; _cc.value=lbl; _cc.disabled=true; _cc.title="You can only view your own clients";
+        _coachApplied.coach=nm;
+      } else {
+        if(_cc){ _cc.disabled=false; _cc.title=""; }
+        const coachNames=_assignees.filter((a:any)=>a.is_active&&a.role==="Health Coach").map((a:any)=>a.name)
+          .concat(_coachClients.map((c:any)=>c.hc));
+        fill("#coCoach",coachNames,"All health coaches");
+      }
       fill("#coSource",_coachClients.map((c:any)=>c.source),"All sources");
       fill("#coService",_coachClients.map((c:any)=>c.service),"All services");
       const stEl=root.querySelector("#coStatus")as HTMLSelectElement|null;
@@ -6434,6 +6464,25 @@ export function initApp(root: HTMLElement) {
       if(_revStatuses.indexOf((obj&&obj.consStatus)||"")>=0){
         const rd=root.querySelector("#haReviewDate")as HTMLInputElement|null;
         if(rd && rd.value && rd.value<_todayLocal()){ toastErr("Review date can't be in the past — choose today or a future date"); try{_setFutureMin(rd);rd.focus();}catch(_){} return; }
+      }
+      // Mandatory: Duration of diabetes (Health Assessment · Basic health info).
+      { const dur=((root.querySelector("#haDuration")as HTMLSelectElement)?.value||"").trim();
+        if(!dur){ toastErr("Duration of diabetes is required"); try{(root.querySelector("#haDuration")as HTMLSelectElement)?.focus();}catch(_){} return; } }
+      // Payment section: when a payment is being MARKED collected (status = Done/Paid/Received/Fully),
+      // the Amount received + Mode become mandatory for that method — you can't mark paid with no amount.
+      { const pm=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"";
+        const pmap:Record<string,{blk:string;amt:string;mode:string}>={full:{blk:"pb-full",amt:"#payFullRcvd",mode:"#payFullMode"},i2:{blk:"pb-i2",amt:"#i2Inst1Rcvd",mode:"#i2Inst1Mode"},adv:{blk:"pb-adv",amt:"#advAmt",mode:"#advMode"},emi:{blk:"pb-emi",amt:"#emiDown",mode:""}};
+        const pcfg=pmap[pm];
+        if(pcfg){
+          const status=((root.querySelector("#"+pcfg.blk+" select[data-nocap]")as HTMLSelectElement)?.value||"").trim();
+          const collected=/done|paid|received|fully/i.test(status)&&!/pending|in\s*process/i.test(status);
+          if(collected){
+            const amtEl=root.querySelector(pcfg.amt)as HTMLInputElement|null;
+            const amt=parseInt((((amtEl&&amtEl.value)||"")).replace(/[^\d]/g,""))||0;
+            if(amt<=0){ toastErr("Enter the Amount received for this payment"); try{amtEl&&amtEl.focus();}catch(_){} return; }
+            if(pcfg.mode){ const modeEl=root.querySelector(pcfg.mode)as HTMLSelectElement|null; if(!((modeEl&&modeEl.value)||"").trim()){ toastErr("Select the payment Mode"); try{modeEl&&modeEl.focus();}catch(_){} return; } }
+          }
+        }
       }
       saveCoachLocal(id,obj);
       const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
