@@ -1299,6 +1299,11 @@ export function initApp(root: HTMLElement) {
       const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       _dupColorMap=buildDupColorMap();
       let totalPages=1;
+      // Leads that WERE in this feed (same date/source/service scope) but have since been
+      // assigned or sent to the pool — they now live in Assign & approve, not here. Shown as a
+      // note so the feed count reconciles with the Total Leads card (feed = Total − routed).
+      const _routedInScope=feedAll().filter((l:any)=>feedIsProcessed(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service)).length;
+      const _routedNote=_routedInScope?" · "+_routedInScope+" assigned → Assign & approve":"";
       if(_feedView==="dup"){
         // Collapsed view: one row per duplicate phone, with Repeat Leads Count + all sources.
         if(head){ head.innerHTML=gridHead("feed"); bindFeedSelAll(); }
@@ -1334,7 +1339,7 @@ export function initApp(root: HTMLElement) {
               +'</tr>';
           }).join(""):'<tr><td colspan="16" style="text-align:center;color:var(--faint);padding:22px">No duplicate leads in this range</td></tr>';
         }
-        if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" duplicate lead"+(total===1?"":"s");
+        if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" duplicate lead"+(total===1?"":"s")+_routedNote;
       } else {
         if(head){ head.innerHTML=gridHead("feed"); bindFeedSelAll(); }
         const filtered=gridApply("feed",feedFiltered());
@@ -1368,7 +1373,7 @@ export function initApp(root: HTMLElement) {
           }).join(""):'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:22px">'+(_feedView==="valid"?"No valid leads in this range":_feedView==="invalid"?"No invalid leads in this range":"No leads in this range")+'</td></tr>';
         }
         const _vw=_feedView==="valid"?"valid ":_feedView==="invalid"?"invalid ":"";
-        if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" "+_vw+"leads";
+        if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" "+_vw+"leads"+_routedNote;
       }
       void prevBtn; void nextBtn;
       _pgBtns("meta",_metaPageNum,totalPages);
@@ -3863,8 +3868,43 @@ export function initApp(root: HTMLElement) {
     let RX: any[] = [];        // current date-filtered appointments (shape used by renderers)
     let _recAll: any[] = [];   // all loaded appointments
     let _recInst: Record<string,any> = {};   // installment aggregation by lead_id (status/balance/history)
+    // Per-lead, per-program payment progress (for the detailed Enrolled label in the Appointments
+    // table): type = the payment method for that program; inst1Paid/inst2Paid track a 2-part plan
+    // (installment or advance); anyPaid/anyDue flag whether anything has actually moved.
+    let _progPayByLead: Record<string,Record<string,{type:string;inst1Paid:boolean;inst2Paid:boolean;anyPaid:boolean;anyDue:boolean}>> = {};
     function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
     function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
+    // Enrolled program(s) parsed from a consultation-status string ("Enrolled – L2" / "Enrolled – L1 + L2").
+    function _enrolProgramsOf(consStatus:any):string[]{
+      const s=String(consStatus||"");
+      if(/l1\s*\+\s*l2/i.test(s)) return ["L1","L2"];
+      if(/\bl2\b/i.test(s)) return ["L2"];
+      if(/\bl1\b/i.test(s)) return ["L1"];
+      return [];
+    }
+    // Build the Appointments-table "Stage" label for an ENROLLED lead: the enrolled program(s)
+    // plus payment progress (Completed / Installment N Pending / Fully Paid), driven by the same
+    // per-program payment records used everywhere else (invoice, payment summary). Falls back to
+    // a bare "Enrolled – L1/L2" when nothing has been paid yet, or "Enrolled" if no level is known.
+    function _enrollStatusLine(leadId:string,consStatus:any):string{
+      const levels=_enrolProgramsOf(consStatus);
+      if(!levels.length) return "Enrolled";
+      const progMap=_progPayByLead[String(leadId)]||{};
+      // A combined "L1 + L2" package (one plan covering both) takes priority over two separate ones.
+      const keys=(levels.length===2&&progMap["L1 + L2"])?["L1 + L2"]:levels;
+      const labelFor=(k:string):string=>{
+        const o=progMap[k];
+        if(!o||(!o.anyPaid&&!o.anyDue)) return "Enrolled – "+k;
+        if(o.inst1Paid||o.inst2Paid){
+          if(o.inst1Paid&&o.inst2Paid) return k+" Completed | Fully Paid";
+          if(o.inst1Paid) return k+" Completed | Installment 2 Pending";
+          return k+" Completed | Installment 1 Pending";
+        }
+        if(o.anyPaid&&!o.anyDue) return k+" Completed";
+        return "Enrolled – "+k;   // only a due request outstanding, nothing collected yet
+      };
+      return keys.map(labelFor).join(keys.length>1?" · ":"");
+    }
     // IST date, robust to both 'YYYY-MM-DD' and full-ISO timestamps (the /db gateway
     // returns DATE columns as UTC ISO). Format: DD MMM YYYY (e.g. 06 Jul 2026).
     function _recFmtDate(d:string){ return fmtISTDate(d); }
@@ -3880,6 +3920,19 @@ export function initApp(root: HTMLElement) {
         // Aggregate per lead too, so the Reception row can still show the paid amount + invoice.
         const paysByLead:Record<string,{paid:number,due:number,anyPaid:boolean}>={};
         (pr.data||[]).forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; const o=(paysByLead[k]=paysByLead[k]||{paid:0,due:0,anyPaid:false}); const amt=Number(p.amount)||0; if(p.status==="paid"){ o.paid+=amt; o.anyPaid=true; } else if(p.status==="due"){ o.due+=amt; } });
+        // Per-lead, per-program payment progress — powers the detailed Enrolled label
+        // ("L2 Completed | Installment 2 Pending", "L1 Completed", "Fully Paid", …).
+        _progPayByLead={};
+        const _normProg=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const hasL1=/l1/i.test(s), hasL2=/l2/i.test(s); if(hasL1&&hasL2) return "L1 + L2"; if(hasL2&&!hasL1) return "L2"; return "L1"; };
+        (pr.data||[]).forEach((p:any)=>{
+          const lid=String(p.lead_id||""); if(!lid) return;
+          const prog=_normProg(p.program);
+          const byLead=(_progPayByLead[lid]=_progPayByLead[lid]||{});
+          const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,anyPaid:false,anyDue:false});
+          if(p.payment_type) o.type=p.payment_type;
+          if(p.status==="paid"){ o.anyPaid=true; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
+          else if(p.status==="due"){ o.anyDue=true; }
+        });
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
@@ -3888,8 +3941,8 @@ export function initApp(root: HTMLElement) {
         // Enrichment: pull each lead's latest call_status so the Health Coach's Enrolled status
         // is reflected in Reception (Coach → Reception sync via the SAME leads record).
         const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
-        const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={};
-        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; }); }catch(_){} }
+        const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={}; const _consById:Record<string,string>={};
+        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at,coach_profile").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; _consById[String(r.meta_lead_id)]=(r.coach_profile&&r.coach_profile.consStatus)||""; }); }catch(_){} }
         _recAll=(ar.data||[]).map((a:any)=>{
           const _cs=_csById[String(a.lead_id)]||"";
           const _def=a.status==="cancelled"?"refunded":((a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free");
@@ -3901,10 +3954,12 @@ export function initApp(root: HTMLElement) {
           const hasPaid=_leadPay.anyPaid;    // invoice available once anything is paid
           const payAmt=collected;
           const payStatus = collected>0 ? (toCollect>0?"due":"paid") : (toCollect>0?"due":_def);
+          const _isEnrolled=/enrol/i.test(_cs)||a.stage==="enrolled";
+          const enrollLine=_isEnrolled?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
-          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
+          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:/enrol/i.test(_cs)||a.stage==="enrolled", enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
@@ -4027,7 +4082,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.enrollLine?'<span class="chipb ok" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.enrollLine+'</span>':(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—"))+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       body.innerHTML = rows || '<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
