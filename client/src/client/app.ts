@@ -1165,7 +1165,7 @@ export function initApp(root: HTMLElement) {
     // Filter rows for a table (AND across columns; a row passes if its value is allowed).
     function gridApply(id:string,rows:any[]){ const g=_grids[id]; if(!g)return rows; g.base=rows; const cols=g.cols(); const active=cols.filter((c:any)=>c.filter&&g.F[c.key]); if(!active.length)return rows; return rows.filter((row:any)=>active.every((c:any)=>g.F[c.key].has(String(c.text(row)??"").trim()))); }
     // Build a header row's <th> cells (with filter carets) for a table.
-    function gridHead(id:string){ const g=_grids[id]; const cols=g?g.cols():[]; return cols.map((c:any)=>{ const st=c.thStyle?' style="'+c.thStyle+'"':''; if(c.head!==undefined) return '<th'+st+'>'+c.head+'</th>'; if(!c.filter) return '<th'+st+'>'+_attr(c.label||"")+'</th>'; const active=!!(g&&g.F[c.key]); const caret='<span title="Filter" style="margin-left:6px;font-size:10px;padding:1px 5px;border-radius:5px;'+(active?'background:var(--brand);color:#fff':'background:var(--surface-2);color:var(--muted)')+'">▾</span>'; return '<th style="white-space:nowrap'+(c.thStyle?';'+c.thStyle:'')+'"><span style="display:inline-flex;align-items:center;cursor:pointer;user-select:none" onclick="window._gridFilter(\''+id+'\',\''+c.key+'\',event)"><span>'+_attr(c.label)+'</span>'+caret+'</span></th>'; }).join(""); }
+    function gridHead(id:string){ const g=_grids[id]; const cols=g?g.cols():[]; return cols.map((c:any)=>{ const st=c.thStyle?' style="'+c.thStyle+'"':''; if(c.head!==undefined){ const h=String(c.head); return /^\s*<th[\s>]/i.test(h)?h:'<th'+st+'>'+h+'</th>'; } if(!c.filter) return '<th'+st+'>'+_attr(c.label||"")+'</th>'; const active=!!(g&&g.F[c.key]); const caret='<span title="Filter" style="margin-left:6px;font-size:10px;padding:1px 5px;border-radius:5px;'+(active?'background:var(--brand);color:#fff':'background:var(--surface-2);color:var(--muted)')+'">▾</span>'; return '<th style="white-space:nowrap'+(c.thStyle?';'+c.thStyle:'')+'"><span style="display:inline-flex;align-items:center;cursor:pointer;user-select:none" onclick="window._gridFilter(\''+id+'\',\''+c.key+'\',event)"><span>'+_attr(c.label)+'</span>'+caret+'</span></th>'; }).join(""); }
     // Distinct values for a column, respecting the OTHER active column filters.
     function gridValues(id:string,key:string){ const g=_grids[id]; if(!g)return []; const cols=g.cols(); const col=cols.find((c:any)=>c.key===key); if(!col)return []; let base=g.base||[]; const active=cols.filter((c:any)=>c.filter&&c.key!==key&&g.F[c.key]); if(active.length) base=base.filter((row:any)=>active.every((c:any)=>g.F[c.key].has(String(c.text(row)??"").trim()))); const set=new Set<string>(); base.forEach((row:any)=>set.add(String(col.text(row)??"").trim())); return Array.from(set).sort((a,b)=>a.localeCompare(b)); }
     // ---- Shared filter popup (search + checkbox list + select-all + Apply/Clear) ----
@@ -2415,6 +2415,9 @@ export function initApp(root: HTMLElement) {
       const l=_advFindLead(id); if(l) l.advisorProfile=obj;
       supabase.from("leads").update({advisor_profile:obj}).eq("meta_lead_id",id).then(()=>{},()=>{});
     }
+    // Clear the missing-field highlight the moment the user edits a flagged field.
+    root.addEventListener("input",(e:Event)=>{ const t=e.target as HTMLElement; if(t&&t.classList&&t.classList.contains("err")) t.classList.remove("err"); },true);
+    root.addEventListener("change",(e:Event)=>{ const t=e.target as HTMLElement; if(t&&t.classList&&t.classList.contains("err")) t.classList.remove("err"); },true);
     w._advSaveRecord=async()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
       const _csSel=root.querySelector("#callStatus")as HTMLSelectElement|null;
@@ -2425,13 +2428,27 @@ export function initApp(root: HTMLElement) {
       // Block saving a follow-up scheduled in the past (covers the mirrored Planned date & time).
       { const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
         if(nf && nf.value){ const t=new Date(nf.value).getTime(); if(!isNaN(t) && t<Date.now()-60000){ toastErr("Next follow-up can't be in the past — choose a current or future time"); try{_setFutureMin(nf);nf.focus();}catch(_){} return; } } }
-      // Mandatory fields (Basic info + Sugar level) — block save until all are filled.
+      // Mandatory Basic-info fields — block save until ALL are filled. Highlight every missing
+      // field at once (red border) and name them in a single notification, so the user sees
+      // exactly what's still pending rather than one-at-a-time.
       const _reqAdv:[string,string][]=[["#advfName","Name"],["#advfPhone","Phone Number"],["#advfGender","Gender"],["#advfAge","Age"],["#advfOcc","Occupation"],["#advfLang","Language"],["#advfLoc","Location"],["#advfSugar","Sugar level"]];
+      const _clrErr=(sel:string)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.classList.remove("err"); };
+      _reqAdv.forEach(([sel])=>_clrErr(sel)); _clrErr("#occOth");
+      const _missing:string[]=[]; let _firstBad:HTMLElement|null=null;
       for(const [sel,lbl] of _reqAdv){
         const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
         const v=((el&&el.value)||"").trim();
-        if(!v||/^--\s*select\s*--$/i.test(v)){ toastErr(lbl+" is required"); try{(el as any)&&(el as any).focus();}catch(_){} return; }
-        if(sel==="#advfOcc"&&/^others$/i.test(v)){ const oth=((root.querySelector("#occOth")as HTMLInputElement)?.value||"").trim(); if(!oth){ toastErr("Enter the occupation"); try{(root.querySelector("#occOth")as HTMLInputElement)?.focus();}catch(_){} return; } }
+        let bad=!v||/^--\s*select\s*--$/i.test(v);
+        if(!bad&&sel==="#advfOcc"&&/^others$/i.test(v)){
+          const othEl=root.querySelector("#occOth")as HTMLInputElement|null;
+          if(!((othEl?.value||"").trim())){ bad=true; othEl&&othEl.classList.add("err"); }
+        }
+        if(bad){ _missing.push(lbl); if(el){ el.classList.add("err"); if(!_firstBad)_firstBad=el as HTMLElement; } }
+      }
+      if(_missing.length){
+        toastErr("Please complete the required field"+(_missing.length>1?"s":"")+": "+_missing.join(", "));
+        try{ _firstBad&&_firstBad.focus(); }catch(_){}
+        return;
       }
       const id=String(_advLeadId);
       const lead=_advFindLead(id);
@@ -4082,10 +4099,10 @@ export function initApp(root: HTMLElement) {
       {key:"visited",label:"Visited at",filter:true,text:(r:any)=>r.visitedAt?fmtIST(r.visitedAt):"—",thStyle:"min-width:150px"},
       {key:"pay",label:"Pay",filter:true,text:(r:any)=>(PAY_MAP[r.payStatus]||{l:"—"}).l,thStyle:"min-width:90px"},
       {key:"amount",label:"Amount",filter:true,text:(r:any)=>r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—",thStyle:"min-width:70px"},
-      {key:"inv",label:"Inv",filter:false,head:'<th style="min-width:50px">Inv</th>'},
+      {key:"inv",label:"Inv",filter:false,head:'<th style="min-width:60px">Invoice</th>'},
       {key:"stage",label:"Stage",filter:true,text:(r:any)=>r.stage||"—",thStyle:"min-width:90px"},
-      {key:"call",label:"call",filter:false,head:'<th style="min-width:40px">📞</th>'},
-      {key:"rec",label:"rec",filter:false,head:'<th style="min-width:40px">🎤</th>'},
+      {key:"call",label:"call",filter:false,head:'<th style="min-width:56px">📞 Call</th>'},
+      {key:"rec",label:"rec",filter:false,head:'<th style="min-width:70px">🎤 Calls</th>'},
     ];
     regGrid("appt",()=>_apptCols,()=>renderAppt());
     function renderAppt() {
@@ -6465,22 +6482,33 @@ export function initApp(root: HTMLElement) {
         const rd=root.querySelector("#haReviewDate")as HTMLInputElement|null;
         if(rd && rd.value && rd.value<_todayLocal()){ toastErr("Review date can't be in the past — choose today or a future date"); try{_setFutureMin(rd);rd.focus();}catch(_){} return; }
       }
+      // Highlight-clearing helper for the coach form (mirrors the missing-field style used elsewhere).
+      const _clr=(sel:string)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.classList.remove("err"); };
       // Mandatory: Duration of diabetes (Health Assessment · Basic health info).
-      { const dur=((root.querySelector("#haDuration")as HTMLSelectElement)?.value||"").trim();
-        if(!dur){ toastErr("Duration of diabetes is required"); try{(root.querySelector("#haDuration")as HTMLSelectElement)?.focus();}catch(_){} return; } }
-      // Payment section: when a payment is being MARKED collected (status = Done/Paid/Received/Fully),
-      // the Amount received + Mode become mandatory for that method — you can't mark paid with no amount.
+      { const durEl=root.querySelector("#haDuration")as HTMLSelectElement|null; _clr("#haDuration");
+        if(!((durEl&&durEl.value)||"").trim()){ durEl&&durEl.classList.add("err"); toastErr("Please complete the required field: Duration of diabetes"); try{durEl&&durEl.focus();}catch(_){} return; } }
+      // Payment section: mandatory Amount received + Mode + Status BEFORE a payment can be submitted.
+      // A payment is considered "being submitted" when the coach has entered an amount for the active
+      // method OR marked its status as collected/paid. Assessment-only saves (no amount, default status)
+      // stay allowed, so existing functionality is unaffected.
       { const pm=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"";
         const pmap:Record<string,{blk:string;amt:string;mode:string}>={full:{blk:"pb-full",amt:"#payFullRcvd",mode:"#payFullMode"},i2:{blk:"pb-i2",amt:"#i2Inst1Rcvd",mode:"#i2Inst1Mode"},adv:{blk:"pb-adv",amt:"#advAmt",mode:"#advMode"},emi:{blk:"pb-emi",amt:"#emiDown",mode:""}};
         const pcfg=pmap[pm];
         if(pcfg){
-          const status=((root.querySelector("#"+pcfg.blk+" select[data-nocap]")as HTMLSelectElement)?.value||"").trim();
-          const collected=/done|paid|received|fully/i.test(status)&&!/pending|in\s*process/i.test(status);
-          if(collected){
-            const amtEl=root.querySelector(pcfg.amt)as HTMLInputElement|null;
-            const amt=parseInt((((amtEl&&amtEl.value)||"")).replace(/[^\d]/g,""))||0;
-            if(amt<=0){ toastErr("Enter the Amount received for this payment"); try{amtEl&&amtEl.focus();}catch(_){} return; }
-            if(pcfg.mode){ const modeEl=root.querySelector(pcfg.mode)as HTMLSelectElement|null; if(!((modeEl&&modeEl.value)||"").trim()){ toastErr("Select the payment Mode"); try{modeEl&&modeEl.focus();}catch(_){} return; } }
+          const stEl=root.querySelector("#"+pcfg.blk+" select[data-nocap]")as HTMLSelectElement|null;
+          const status=((stEl&&stEl.value)||"").trim();
+          const collected=/done|paid|received|fully/i.test(status)&&!/pending|in\s*process|open/i.test(status);
+          const amtEl=root.querySelector(pcfg.amt)as HTMLInputElement|null;
+          const amt=parseInt((((amtEl&&amtEl.value)||"")).replace(/[^\d]/g,""))||0;
+          _clr(pcfg.amt); if(pcfg.mode)_clr(pcfg.mode);
+          // Submitting a payment = an amount was entered, or the status says money was collected.
+          if(amt>0||collected){
+            const _missP:string[]=[]; let _firstP:HTMLElement|null=null;
+            if(amt<=0){ _missP.push("Amount received"); if(amtEl){ amtEl.classList.add("err"); _firstP=_firstP||amtEl; } }
+            if(pcfg.mode){ const modeEl=root.querySelector(pcfg.mode)as HTMLSelectElement|null;
+              if(!((modeEl&&modeEl.value)||"").trim()){ _missP.push("Mode"); if(modeEl){ modeEl.classList.add("err"); _firstP=_firstP||modeEl; } } }
+            if(!status){ _missP.push("Status"); if(stEl){ stEl.classList.add("err"); _firstP=_firstP||stEl; } }
+            if(_missP.length){ toastErr("Payment — please complete: "+_missP.join(", ")); try{_firstP&&_firstP.focus();}catch(_){} return; }
           }
         }
       }

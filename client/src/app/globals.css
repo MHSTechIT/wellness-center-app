@@ -156,6 +156,9 @@ h1,h2,h3{margin:0}
 .fw{grid-column:1/-1}
 .fld{margin-top:11px}
 label.lbl{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px;letter-spacing:.01em}
+/* Mandatory-field marker + missing-field highlight (form validation) */
+.lbl .req{color:var(--alert);font-weight:800;margin-left:1px}
+.input.err,.select.err{border-color:var(--alert)!important;box-shadow:0 0 0 3px rgba(216,68,43,.16)!important}
 .nb{font-size:9px;font-weight:700;background:linear-gradient(135deg,var(--vio-bg),#E3DEFA);color:var(--vio-ink);border-radius:6px;padding:1.5px 6px;margin-left:5px;vertical-align:1px}
 .ab{font-size:9px;font-weight:700;background:linear-gradient(135deg,var(--info-bg),#DDE9F6);color:var(--info-ink);border-radius:6px;padding:1.5px 6px;margin-left:5px;vertical-align:1px}
 .select,.input,.area{width:100%;font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:0 11px;height:39px;outline:none;transition:border-color .18s var(--ease),box-shadow .18s var(--ease),background .18s var(--ease)}
