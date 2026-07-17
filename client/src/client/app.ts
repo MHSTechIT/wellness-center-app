@@ -64,6 +64,10 @@ export function initApp(root: HTMLElement) {
     // The logged-in user's own name (Advisor / Coach) — used to scope the Recordings page to the
     // recordings THEY made. Empty for full-access roles (Manager/Admin/etc.) so they see all.
     function _selfScopeName():string{ return (_isAdvisorRole()||_isCoachRole()) ? (_advisorName()||"none") : ""; }
+    // Who should receive the "no Meta leads for 30 min" ops alert (top popup + toast). It's an
+    // ABM / lead-flow concern — NOT relevant to Reception / Advisor / Health Coach / Senior
+    // Advisor, so only Super Admin and Manager are alerted.
+    function _metaAlertRole():boolean{ const r=_currentUser?String(_currentUser.role||""):""; return r==="Super Admin"||r==="Manager"; }
 
     const MODULES_LIST=[
       {key:"advisor",label:"Health advisor"},{key:"coach",label:"Health coach"},
@@ -506,6 +510,10 @@ export function initApp(root: HTMLElement) {
       if(prev===state){ return; }
       _metaConn=state;
       try{ renderSrcTable(); }catch(_){}
+      // Meta connection toasts/popups are an ABM / lead-flow ops concern — surface them ONLY to
+      // Super Admin / Manager. Reception / Advisor / Coach / Senior Advisor still get the state
+      // change (and the source-table repaint above), just no pop-up noise.
+      if(!_metaAlertRole()) return;
       if(state==="connected"){
         if(prev==="disconnected"){ toast("✓ Meta reconnected — leads syncing"); _metaPopupClear("Meta connection lost"); _metaPopup("Meta connection re-established. Leads are syncing again.","ok"); }
         else { toast("✓ Meta connected — leads syncing"); }
@@ -532,7 +540,7 @@ export function initApp(root: HTMLElement) {
         txt.textContent="⚠ Alert: No Meta leads received for the last 30 minutes. Please notify the ABM team.";
         txt.style.color="var(--alert-ink)";
         chip.className="chipb al"; chip.textContent="ACTIVE";
-        if(!_metaAlertActive && _currentUser){ _metaAlertActive=true; toastErr("No Meta leads for 30+ min — notify the ABM team"); _metaPopup("No Meta leads received in the last 30 minutes during campaign hours. Please notify the ABM team.","warn"); }
+        if(!_metaAlertActive && _currentUser && _metaAlertRole()){ _metaAlertActive=true; toastErr("No Meta leads for 30+ min — notify the ABM team"); _metaPopup("No Meta leads received in the last 30 minutes during campaign hours. Please notify the ABM team.","warn"); }
       }else{
         box.style.background="var(--surface-2)";box.style.borderColor="var(--line)";
         txt.textContent="Alert: notify ABM if no Meta lead for 30 min during campaign hours"+(inHours?"":" · outside campaign hours ("+CAMPAIGN_START_HOUR+":00–"+CAMPAIGN_END_HOUR+":00 IST)");
@@ -3288,7 +3296,7 @@ export function initApp(root: HTMLElement) {
           setMetaConn("connected");       // leads flowing → connected
           liveRerenderAll();
           const st=root.querySelector("#metaFeedStatus");if(st)st.textContent="🟢 Live — new lead "+(lead.name||"")+" just now";
-          toast("New lead received: "+(lead.name||lead.phone||"Meta lead"));
+          if(_metaAlertRole()) toast("New lead received: "+(lead.name||lead.phone||"Meta lead"));   // Meta-flow toast → Super Admin / Manager only
         })
         .on("postgres_changes",{event:"UPDATE",schema:"public",table:"leads",filter:"source=eq.Meta Ads"},(payload:any)=>{
           const upd=dbRowToLead(payload.new);
