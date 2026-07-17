@@ -21,13 +21,24 @@ function envAny(...names: string[]): string {
 
 // The single source of truth for Tata Tele credentials/config used by every call path.
 // Lowercase (.env.local) names take precedence over the legacy uppercase names.
-export function tataConfig() {
+//
+// ROLE-BASED CONFIG: each page (advisor / coach / reception) can click-to-call with its OWN
+// agent extension + caller ID — e.g. tata_tele_default_extension_number_advisor,
+// tata_tele_caller_id_reception — so calls ring the right desk phone and show the right
+// caller ID for that team. A role with no override falls back to the plain (unsuffixed)
+// vars, so existing single-config setups keep working unchanged. The API key is shared
+// across roles (same Tata account) unless a role-specific key is explicitly set too.
+export function tataConfig(role?: string) {
+  const r = (role || '').trim().toLowerCase();
+  // base (lowercase) → role-suffixed lowercase → base UPPERCASE, first non-empty wins.
+  const resolve = (base: string, baseUpper: string) => r ? envAny(base + '_' + r, base, baseUpper) : envAny(base, baseUpper);
   return {
-    apiKey: envAny('tata_tele_api_key', 'TATA_TELE_API_KEY'),
-    extension: envAny('tata_tele_default_extension_number', 'TATA_TELE_DEFAULT_EXTENSION_NUMBER'),
-    callerId: envAny('tata_tele_caller_id', 'TATA_TELE_CALLER_ID'),
-    agentNumber: envAny('tata_tele_default_agent_number', 'TATA_TELE_DEFAULT_AGENT_NUMBER'),
+    apiKey: resolve('tata_tele_api_key', 'TATA_TELE_API_KEY'),
+    extension: resolve('tata_tele_default_extension_number', 'TATA_TELE_DEFAULT_EXTENSION_NUMBER'),
+    callerId: resolve('tata_tele_caller_id', 'TATA_TELE_CALLER_ID'),
+    agentNumber: resolve('tata_tele_default_agent_number', 'TATA_TELE_DEFAULT_AGENT_NUMBER'),
     useSupportFallback: envAny('tata_tele_use_support_fallback', 'TATA_TELE_USE_SUPPORT_FALLBACK') === '1',
+    role: r || null,
   };
 }
 

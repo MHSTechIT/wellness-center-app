@@ -2561,8 +2561,9 @@ export function initApp(root: HTMLElement) {
       if(ph && ph.length>=6){ try{ const {data:d2}=await supabase.from("call_recordings").select("*").ilike("to_number","%"+ph.slice(-10)+"%").order("created_at",{ascending:false}).limit(100); (d2||[]).forEach((r:any)=>{ if(!rows.some((x:any)=>String(x.id)===String(r.id))) rows.push(r); }); }catch(_){} }
       if(curId()!==leadId) return;   // user switched away during the fetch
       rows.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime());
-      // Update the Call History tab badge count.
-      const _cnt=root.querySelector(targetSel==="#coachCallLog"?"#coachCallCount":"#advCallCount")as HTMLElement|null;
+      // Update the Call History tab badge count (each page has its own count-chip id).
+      const _cntSel=targetSel==="#coachCallLog"?"#coachCallCount":targetSel==="#recCallLog"?"#recCallCount":"#advCallCount";
+      const _cnt=root.querySelector(_cntSel)as HTMLElement|null;
       if(_cnt){ _cnt.textContent=String(rows.length); _cnt.style.display=rows.length?"":"none"; }
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const recCount=rows.filter((r:any)=>r.recording_url).length;
@@ -3868,6 +3869,7 @@ export function initApp(root: HTMLElement) {
     let RX: any[] = [];        // current date-filtered appointments (shape used by renderers)
     let _recAll: any[] = [];   // all loaded appointments
     let _recInst: Record<string,any> = {};   // installment aggregation by lead_id (status/balance/history)
+    let _drLeadId="";          // lead id currently shown in the Reception row drawer (for the call-log panel)
     // Per-lead, per-program payment progress (for the detailed Enrolled label in the Appointments
     // table): type = the payment method for that program; inst1Paid/inst2Paid track a 2-part plan
     // (installment or advance); anyPaid/anyDue flag whether anything has actually moved.
@@ -3910,10 +3912,13 @@ export function initApp(root: HTMLElement) {
     function _recFmtDate(d:string){ return fmtISTDate(d); }
     async function loadReceptionData(){
       try{
-        const [ar,pr]=await Promise.all([
+        const [ar,pr,cr]=await Promise.all([
           supabase.from("appointments").select("*").order("appt_date",{ascending:false}).limit(500),
-          supabase.from("payments").select("*").order("created_at",{ascending:false})
+          supabase.from("payments").select("*").order("created_at",{ascending:false}),
+          supabase.from("call_recordings").select("contact_id").limit(5000)
         ]);
+        // Real call count per lead (drives the 🎤 column) — was hardcoded to 0 before.
+        const callsByLead:Record<string,number>={}; (cr.data||[]).forEach((c:any)=>{ const k=String(c.contact_id||""); if(k) callsByLead[k]=(callsByLead[k]||0)+1; });
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
         // Many payments (coach-collected enrollment, installments, Accounts-settled) are stored
         // with lead_id only and appointment_id = NULL, so they never match by appointment_id.
@@ -3959,7 +3964,7 @@ export function initApp(root: HTMLElement) {
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
-          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:0, source:a.source||"", lang:a.language||"Tamil",
+          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:/enrol/i.test(_cs)||a.stage==="enrolled", enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
@@ -4101,7 +4106,7 @@ export function initApp(root: HTMLElement) {
     }
 
     w._recCall = async (leadId:string,phone:string) => {
-      if(leadId){ const r=await _callInitiate(leadId); if(r&&r.ok){ toast("📞 Calling — your phone rings first, then the customer"); _pollRecordings(leadId,"reception"); return; } if(r&&r.error){ toastErr(r.error); return; } }
+      if(leadId){ const r=await _callInitiate(leadId,"reception"); if(r&&r.ok){ toast("📞 Calling — your phone rings first, then the customer"); _pollRecordings(leadId,"reception"); return; } if(r&&r.error){ toastErr(r.error); return; } }
       toast("Calling "+(phone||"")+"…");
     };
     // ===== Tax Invoice PDF — professional A4 layout (jsPDF), matches the MHS reference template =====
@@ -4356,7 +4361,12 @@ export function initApp(root: HTMLElement) {
           +'<div style="overflow-x:auto"><table class="tbl" style="margin-top:4px"><thead><tr><th>#</th><th>Amount</th><th>Date / Due</th><th>Method</th><th>Collected by</th><th>Status</th></tr></thead><tbody>'+inst.rows.map(histRow).join("")+'</tbody></table></div>'
           +'</div></div>';
       }
-      if(drp) drp.innerHTML='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Reception record</div><div class="sec-bd" style="padding:4px 14px 14px"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono" style="font-weight:600">'+(r.visitedAt||"—")+'</td><td style="color:var(--muted)">Service</td><td>'+r.svcLabel+'</td></tr><tr><td style="color:var(--muted)">HC / PT</td><td style="font-weight:600">'+r.hc+'</td><td style="color:var(--muted)">Status</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td></tr><tr><td style="color:var(--muted)">Payment</td><td class="mono" style="font-weight:700">'+(r.payAmt?"₹"+r.payAmt.toLocaleString("en-IN"):"—")+'</td><td style="color:var(--muted)">Pay status</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td></tr></tbody></table></div>'+enrollRow+'</div>'+instBlock;
+      // Call logs & recordings — same panel component as Advisor/Coach (renderCallLogs), so every
+      // call placed from the Reception 📞 button (or any other page) shows up here too.
+      const callLogBlock='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-mic"></use></svg> Call logs &amp; recordings <span class="chipb neu" id="recCallCount" style="margin-left:8px;display:none">0</span></div><div class="sec-bd" style="padding:4px 14px 14px"><div id="recCallLog"><div style="text-align:center;color:var(--faint);padding:14px;font-size:13px">Loading…</div></div></div></div>';
+      if(drp) drp.innerHTML='<div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Reception record</div><div class="sec-bd" style="padding:4px 14px 14px"><table class="tbl"><tbody><tr><td style="color:var(--muted)">Visited</td><td class="mono" style="font-weight:600">'+(r.visitedAt||"—")+'</td><td style="color:var(--muted)">Service</td><td>'+r.svcLabel+'</td></tr><tr><td style="color:var(--muted)">HC / PT</td><td style="font-weight:600">'+r.hc+'</td><td style="color:var(--muted)">Status</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td></tr><tr><td style="color:var(--muted)">Payment</td><td class="mono" style="font-weight:700">'+(r.payAmt?"₹"+r.payAmt.toLocaleString("en-IN"):"—")+'</td><td style="color:var(--muted)">Pay status</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td></tr></tbody></table></div>'+enrollRow+'</div>'+instBlock+callLogBlock;
+      _drLeadId=String(r.lead_id||"");
+      if(_drLeadId){ try{ renderCallLogs({id:_drLeadId,phone:r.ph},"#recCallLog",()=>_drLeadId); }catch(_){} }
     }
     w._openDrawer = (id:number) => { const r=_recAll.find((x:any)=>String(x.id)===String(id))||RX.find((x:any)=>String(x.id)===String(id)); if(r) openDrawer(r); };
     function closeDrawer() { const d=root.querySelector("#drawer")as HTMLElement; const o=root.querySelector("#dOverlay")as HTMLElement; if(d)d.classList.remove("open"); if(o)o.classList.remove("open"); }
@@ -5031,7 +5041,9 @@ export function initApp(root: HTMLElement) {
     };
 
     // ===== Click-to-call (Tata Tele / Smartflo) — server keeps the API key =====
-    async function _callInitiate(id:string){ try{ const r=await fetch(_api("/api/calls/initiate/"+encodeURIComponent(id)),{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
+    // role selects which page's Tata Tele extension/caller ID the server dials with
+    // ("advisor" | "coach" | "reception") — see server tataConfig(role).
+    async function _callInitiate(id:string,role?:string){ try{ const url=_api("/api/calls/initiate/"+encodeURIComponent(id))+(role?("?role="+encodeURIComponent(role)):""); const r=await fetch(url,{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
     async function _callRecordings(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/recordings")); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
     // Pull final call status + recordings from the provider's CDR into the DB (webhook-independent).
     async function _callSync(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/sync")); return await r.json(); }catch(_){ return {ok:false,synced:0}; } }
@@ -5072,7 +5084,7 @@ export function initApp(root: HTMLElement) {
         if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
         const id=String(_advLeadId); const nm=(root.querySelector("#advName")?.textContent)||"lead";
         _callBusy=true; _callActive=true; _callBtnState("connecting");
-        const r=await _callInitiate(id);
+        const r=await _callInitiate(id,"advisor");
         _callBusy=false;
         if(!r||!r.ok){ _endCallUi(); toastErr((r&&r.error)||"Call could not be placed"); return; }
         toast("📞 Calling "+nm+" — your phone rings first, then the customer");
@@ -6486,7 +6498,7 @@ export function initApp(root: HTMLElement) {
         if(!_coachLeadId){ toast("Open a visited client first"); return; }
         const id=String(_coachLeadId); const nm=(root.querySelector("#coachName")?.textContent)||"client";
         _cOnCall=1; _ccb.style.background="linear-gradient(135deg,#E2553B,#A8351F)"; if(sp)sp.textContent="Calling…";
-        const r=await _callInitiate(id);
+        const r=await _callInitiate(id,"coach");
         if(!r||!r.ok){ _cOnCall=0; _ccb.style.background=""; if(sp)sp.textContent="Call"; toastErr((r&&r.error)||"Call could not be placed"); return; }
         toast("📞 Calling "+nm+" — your phone rings first, then the customer");
         logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);

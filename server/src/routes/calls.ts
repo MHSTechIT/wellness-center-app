@@ -21,7 +21,11 @@ import {
 async function initiate(req: Request, res: Response) {
   try {
     const contactId = req.params.contactId;
-    const cfg = tataConfig();   // reads .env.local (tata_tele_*) with UPPERCASE fallback
+    // Which PAGE triggered the call (advisor / coach / reception) — each can be configured
+    // with its own extension + caller ID in .env.local (tata_tele_*_<role>), so the call
+    // rings the right desk phone and shows the right caller ID for that team.
+    const role = String((req.query.role as string) || req.body?.role || '').trim().toLowerCase();
+    const cfg = tataConfig(role);   // reads .env.local (tata_tele_*[_role]) with UPPERCASE fallback
     const key = cfg.apiKey;
     const extRaw = cfg.extension;
     const agentMobileRaw = cfg.agentNumber;
@@ -56,7 +60,7 @@ async function initiate(req: Request, res: Response) {
       }
     }
 
-    console.log('[call-initiate] contact=%s agent=%s(%s) callerId=%s dest=%s', contactId, agent, useExt ? 'ext' : 'mobile', callerId, destination);
+    console.log('[call-initiate] contact=%s role=%s agent=%s(%s) callerId=%s dest=%s', contactId, role || '(default)', agent, useExt ? 'ext' : 'mobile', callerId, destination);
 
     let r = await clickToCall({
       agentNumber: agent,
@@ -79,7 +83,7 @@ async function initiate(req: Request, res: Response) {
       }, { onConflict: 'call_id' });
       if (error) logged = false;
     } catch (_) { logged = false; }
-    res.json({ ok: true, callId: r.callId || null, logged, agent, agentType: useExt ? 'ext' : 'mobile', callerId, provider: r.raw });
+    res.json({ ok: true, callId: r.callId || null, logged, agent, agentType: useExt ? 'ext' : 'mobile', callerId, role: role || null, provider: r.raw });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message || 'server error' });
   }
