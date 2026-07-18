@@ -6485,6 +6485,19 @@ export function initApp(root: HTMLElement) {
       const inst2Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===2);
       const adv1Paid=paid.some((r:any)=>r.payment_type==="advance"&&Number(r.installment_number)===1);
       const adv2Paid=paid.some((r:any)=>r.payment_type==="advance"&&Number(r.installment_number)===2);
+      // Lock the PAYMENT METHOD once any payment exists for this program — the method chosen for the
+      // first payment (e.g. Installment 2×) must stay fixed for the 2nd collection; only the balance
+      // is then entered. No payment yet → method stays freely selectable.
+      const _mFor=(t:string)=>t==="installment"?"i2":t==="advance"?"adv":t==="emi"?"emi":"full";
+      // Method lock keys off ANY paid row for the client (not program-scoped) — once they've started
+      // paying by installment, the method is fixed for every subsequent collection.
+      const _anyPaidRow=(rows||[]).find((r:any)=>r.status==="paid");
+      const _lockedMethod=_anyPaidRow?_mFor(String(_anyPaidRow.payment_type||"full")):"";
+      const _pmSel=root.querySelector("#payMethod")as HTMLSelectElement|null;
+      if(_pmSel){
+        if(_lockedMethod){ const _mName:any={i2:"Installment (2×)",full:"Full Payment",adv:"Advance Booking",emi:"EMI"}; if(_pmSel.value!==_lockedMethod){ _pmSel.value=_lockedMethod; try{ if(w.payBlk) w.payBlk(_lockedMethod); }catch(_){} } _pmSel.disabled=true; (_pmSel as HTMLElement).style.opacity="0.75"; _pmSel.title="Method locked — "+(_mName[_lockedMethod]||_lockedMethod)+" already in progress"; }
+        else { _pmSel.disabled=false; (_pmSel as HTMLElement).style.opacity=""; _pmSel.title=""; }
+      }
       // FULL — one shot: lock the whole section once paid.
       _lockFields(["#payFullRcvd","#payFullMode","#payFullRef","#payFullDate"],fullPaid);
       const fsel=root.querySelector('#pb-full select[data-nocap]')as HTMLSelectElement|null; if(fsel) fsel.disabled=fullPaid;
@@ -6554,6 +6567,14 @@ export function initApp(root: HTMLElement) {
       let rows:any[]=[];
       try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
+      // Auto-select the client's program from their payment records so the pay-locks, method-lock and
+      // pricing reflect the program they're actually paying for (the dropdown otherwise defaults to L1).
+      try{
+        const set=new Set((rows||[]).filter((r:any)=>r.program).map((r:any)=>String(r.program)));
+        const arr=[...set] as string[]; const hasL1=arr.some((p:string)=>/l1/i.test(p)), hasL2=arr.some((p:string)=>/l2/i.test(p));
+        const cliProg=(hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":"";
+        if(cliProg){ const ps=root.querySelector("#haProgram")as HTMLSelectElement|null; if(ps&&ps.value!==cliProg){ ps.value=cliProg; try{ if(w._syncProgramPricing) w._syncProgramPricing(); }catch(_){} } }
+      }catch(_){}
       _coachPayRows=rows; try{ _applyPaymentLocks(id,rows); }catch(_){} try{ _renderPaymentSummary(id,rows); }catch(_){}
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const money=(n:any)=>"₹"+(parseInt(n)||0).toLocaleString("en-IN");
