@@ -2367,7 +2367,7 @@ export function initApp(root: HTMLElement) {
           const l=_advFindLead(String(_advLeadId));
           if(l){
             if(l.visitedAt) _advApplyVisited(l.visitedAt);
-            if(/enrol/i.test(String(l.callStatus||""))) _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
+            if(l.enrolledAt||/enrol/i.test(String(l.callStatus||""))) _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
           }
         }catch(_){}
       } finally { _advApplying=false; }
@@ -2428,7 +2428,16 @@ export function initApp(root: HTMLElement) {
         if(row.advisor_profile){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(row.advisor_profile); }
         if(row.enrolled_at) l.enrolledAt=row.enrolled_at;   // cache for the enrolled table
         l.callStatus=row.call_status||l.callStatus;         // keep in-memory fresh (dashboard cards + re-opens)
-        const enrLvl=_advEnrolLevel(row.coach_profile);     // enrolled program (L1 / L2 / L1 + L2) from coach_profile.consStatus
+        let enrLvl=_advEnrolLevel(row.coach_profile);     // enrolled program (L1 / L2 / L1 + L2) from coach_profile.consStatus
+        // Payment-driven enrollment (Reception/Accounts) may not carry the level in consStatus —
+        // derive it from the client's PAID payment programs so the Advisor shows "Enrolled – L2" too.
+        if(!enrLvl && row.enrolled_at){
+          try{ const {data:pd}=await supabase.from("payments").select("program,status").eq("lead_id",String(l.id));
+            const arr:string[]=Array.from(new Set<string>((pd||[]).filter((p:any)=>p.status==="paid"&&p.program).map((p:any)=>String(p.program).toUpperCase())));
+            const hasL1=arr.some((p:string)=>/L1/.test(p)), hasL2=arr.some((p:string)=>/L2/.test(p));
+            enrLvl=(hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":"";
+          }catch(_){}
+        }
         if(enrLvl) l.enrolledLevel=enrLvl;
         // Applied AFTER the profile restore so it always wins over any stale saved pill state.
         if(String(_advLeadId)===String(l.id)){ _advApplyVisited(row.visited_at); _advApplyEnrolled(row.call_status,row.enrolled_at,enrLvl); }
@@ -2857,7 +2866,11 @@ export function initApp(root: HTMLElement) {
       return v==="L1+L2"?"L1 + L2":v;
     }
     function _advApplyEnrolled(callStatus:any,enrolledAt:any,level?:any){
-      const isE=/enrol/i.test(String(callStatus||""));
+      // Enrolled is driven by the CANONICAL enrolled_at timestamp (stable, set once on enrollment
+      // via Coach / Reception / Accounts). call_status is a mutable disposition that a later save
+      // can overwrite ("Appointment Fixed" etc.) — so never rely on it alone or the Enrolled
+      // status silently reverts. If enrolled_at is set, the lead IS enrolled.
+      const isE=!!enrolledAt || /enrol/i.test(String(callStatus||""));
       const lvl=_advEnrolLevel(level);
       const cont=root.querySelector("#enrStatusPills");
       if(cont){
@@ -4031,13 +4044,13 @@ export function initApp(root: HTMLElement) {
           const hasPaid=_leadPay.anyPaid;    // invoice available once anything is paid
           const payAmt=collected;
           const payStatus = collected>0 ? (toCollect>0?"due":"paid") : (toCollect>0?"due":_def);
-          const _isEnrolled=/enrol/i.test(_cs)||a.stage==="enrolled";
+          const _isEnrolled=/enrol/i.test(_cs)||a.stage==="enrolled"||!!_enrAtById[String(a.lead_id)];   // canonical enrolled_at drives it too
           const enrollLine=_isEnrolled?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
-          enrolled:/enrol/i.test(_cs)||a.stage==="enrolled", enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
+          enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
@@ -4886,6 +4899,8 @@ export function initApp(root: HTMLElement) {
           // Record the check-in in the lead's Activity Log (date/time + mode).
           const mode=(_ciMatch.meeting_type==="zoom"||/zoom/i.test(_ciMatch.source||""))?"Zoom":"Walk-in";
           logActivity(_ciMatch.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
+          // Push Visited status + date to any open Advisor / Coach tab so it updates live.
+          _broadcastLeadSync({leadId:String(_ciMatch.lead_id),callStatus:"Visited",visitedAt:nowIso});
         }
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
@@ -4901,10 +4916,27 @@ export function initApp(root: HTMLElement) {
     let _zoomAppts:any[]=[];
     async function loadZoomCheckins(){
       try{
-        const {data}=await supabase.from("appointments").select("id,lead_id,client_name,phone,service,appt_date,appt_time,status,source,meeting_type,language,visited_at,hc_pt")
-          .neq("status","visited").neq("status","cancelled").order("appt_date",{ascending:false}).limit(500);
         const _cScope=_coachScope();   // Health Coach role → only their own Zoom appointments
-        _zoomAppts=(data||[]).filter((a:any)=>(a.meeting_type==="zoom"||/zoom/i.test(a.source||""))&&(!_cScope||(a.hc_pt||"")===_cScope));
+        // Zoom check-in is driven by the lead's Call Status = "Appointment Fixed – Zoom" (not yet
+        // visited) — the single source of truth. Date/time + the check-in target come from the
+        // lead's appointment row when one exists (regardless of its meeting_type, which the slot
+        // board doesn't always set); otherwise from the planned follow-up (next_followup).
+        const {data:zl}=await supabase.from("leads").select("meta_lead_id,name,phone,service,language,next_followup,visited_at").eq("call_status","Appointment Fixed – Zoom").limit(500);
+        const pending=(zl||[]).filter((l:any)=>!l.visited_at);
+        const ids=pending.map((l:any)=>String(l.meta_lead_id));
+        const apptByLead:Record<string,any>={};
+        if(ids.length){ try{
+          const {data:ap}=await supabase.from("appointments").select("id,lead_id,appt_date,appt_time,status,hc_pt").in("lead_id",ids).neq("status","cancelled").neq("status","visited");
+          (ap||[]).forEach((a:any)=>{ const k=String(a.lead_id); if(!apptByLead[k]) apptByLead[k]=a; });
+        }catch(_){} }
+        let list=pending.map((l:any)=>{
+          const a=apptByLead[String(l.meta_lead_id)];
+          const nf=l.next_followup?new Date(l.next_followup):null;
+          const tm=nf?new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit",hour12:true}).format(nf):"";
+          return {id:a?a.id:null,_leadOnly:!a,lead_id:String(l.meta_lead_id),client_name:l.name||"Client",phone:l.phone||"",service:l.service||"",appt_date:a?(a.appt_date||""):(l.next_followup||""),appt_time:a?(a.appt_time||""):tm,status:a?(a.status||"expected"):"expected",meeting_type:"zoom",language:l.language||"Tamil",hc_pt:a?(a.hc_pt||""):""};
+        });
+        if(_cScope) list=list.filter((a:any)=>(a.hc_pt||"")===_cScope);   // real Health Coach → only their assigned zoom appts
+        _zoomAppts=list;
       }catch(_){ _zoomAppts=[]; }
       renderZoomCheckins();
     }
@@ -4916,21 +4948,30 @@ export function initApp(root: HTMLElement) {
         +'<td class="mono">'+e(a.phone||"—")+'</td>'
         +'<td>'+e(when(a)||"—")+'</td>'
         +'<td><span class="chipb warn">'+e(a.status||"expected")+'</span></td>'
-        +(withAction?'<td><button class="btn bsm bp" onclick="window._zoomCheckin('+a.id+')">✓ Check in</button></td>':'')
+        +(withAction?'<td><button class="btn bsm bp" onclick="window._zoomCheckin(\''+(a.id!=null?a.id:('lead:'+a.lead_id))+'\')">✓ Check in</button></td>':'')
         +'</tr>';
       const fill=(sel:string,withAction:boolean)=>{ const b=root.querySelector(sel); if(!b) return; b.innerHTML=_zoomAppts.length?_zoomAppts.map((a:any)=>rowHtml(a,withAction)).join(""):('<tr><td colspan="'+(withAction?5:4)+'" style="text-align:center;color:var(--faint);padding:16px">No Zoom appointments awaiting check-in</td></tr>'); };
       fill("#zoomCiListAdv",false);
       fill("#zoomCiListRec",true);
       root.querySelectorAll(".zoomCiCount").forEach((x:any)=>{ x.textContent=String(_zoomAppts.length); });
     }
-    w._zoomCheckin=async(apptId:number)=>{
-      const a=_zoomAppts.find((x:any)=>String(x.id)===String(apptId));
+    w._zoomCheckin=async(ref:any)=>{
+      const refS=String(ref); const leadOnly=refS.indexOf("lead:")===0;
+      const a=_zoomAppts.find((x:any)=> leadOnly ? ("lead:"+x.lead_id)===refS : String(x.id)===refS);
+      const leadId=a?a.lead_id:(leadOnly?refS.slice(5):null);
       const nowIso=new Date().toISOString();
       try{
-        const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",apptId);
-        if(error) throw error;
-        if(a&&a.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",a.lead_id); }catch(_){}
-          logActivity(a.lead_id,[{action:"Checked In",field:"Visited",new:"Zoom"}]);
+        if(leadOnly){
+          // No appointment row yet (status set on the Advisor page without the slot board) — create
+          // one now (visited) so it lands in the reception queue + Health Coach, then mark Visited.
+          if(a){ try{ await supabase.from("appointments").insert({lead_id:a.lead_id,client_name:a.client_name,phone:a.phone,service:a.service||"Diabetes",appt_date:(a.appt_date?String(a.appt_date).slice(0,10):nowIso.slice(0,10)),appt_time:a.appt_time||"",status:"visited",visited_at:nowIso,stage:"screening",source:"Advisor (Zoom)",meeting_type:"zoom",language:a.language||"Tamil"}); }catch(_){} }
+        } else {
+          const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",ref);
+          if(error) throw error;
+        }
+        if(leadId){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",leadId); }catch(_){}
+          logActivity(leadId,[{action:"Checked In",field:"Visited",new:"Zoom"}]);
+          _broadcastLeadSync({leadId:String(leadId),callStatus:"Visited",visitedAt:nowIso});   // live-update open Advisor/Coach tabs
         }
       }catch(e:any){ toastErr("Zoom check-in failed: "+(e.message||"db error")); return; }
       toast("✓ "+((a&&a.client_name)||"Client")+" checked in (Zoom)");
@@ -5225,7 +5266,7 @@ export function initApp(root: HTMLElement) {
     // Show the auto enrollment level (from payment) in the payment section.
     function _setPayEnrollDisplay(level:string,iso:string){ const chip=root.querySelector("#payEnrollChip"); if(chip){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+level; } const at=root.querySelector("#payEnrollAt")as HTMLInputElement|null; if(at) at.value=iso?fmtIST(iso):""; }
     // Refresh the payment enrollment chip from the current consultation status (on profile load).
-    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); if(chip){ if(m){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+m[1].toUpperCase().replace(/\s*\+\s*/," + "); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } const ati=at as HTMLInputElement|null; if(ati){ const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); ati.value=(m&&cc&&cc.enrolledAt)?fmtIST(cc.enrolledAt):""; } }
+    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); const enrAt=cc&&cc.enrolledAt; /* Level: LIVE consStatus "Enrolled – Lx" first, else the level derived from PAID payment programs (cc.enrolledLevel). Independent of the Suggested-Program dropdown — enrollment is a fact, not a selection. */ const level=(m?m[1].toUpperCase().replace(/\s*\+\s*/," + "):"")||(cc&&cc.enrolledLevel)||""; const isE=!!m||!!level||!!enrAt; if(chip){ if(isE){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled"+(level?(" – "+level):""); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } const ati=at as HTMLInputElement|null; if(ati){ ati.value=(isE&&enrAt)?fmtIST(enrAt):""; } }
     w._refreshPayEnrollChip=_refreshPayEnrollChip;
     w._payStSel=(sel:any)=>{
       const box=sel&&sel.parentElement; const grp=box&&box.querySelector(".pills");
@@ -6048,6 +6089,10 @@ export function initApp(root: HTMLElement) {
       _ovrRenderList(_coachLeadId);
       _renderCoachPayHistory(_coachLeadId);
       _coachPopulateReadOnly(lead);
+      // Show the enrolled chip immediately from the client's known enrolled level (paid programs /
+      // consStatus) — don't wait for the async profile restore, or a genuinely-enrolled client
+      // flashes "Not enrolled" on open. The async restore re-runs this with any live consStatus.
+      try{ _refreshPayEnrollChip(); }catch(_){}
     }
     async function _coachSyncScreeningVitals(lead:any){
       let sv:any=null;
@@ -6110,6 +6155,13 @@ export function initApp(root: HTMLElement) {
         const data=res.data;
         const apptStages:Record<string,string>={}; const apptHc:Record<string,string>={};
         try{ const {data:appts}=await supabase.from("appointments").select("lead_id,stage,status,hc_pt").limit(500); (appts||[]).forEach((a:any)=>{ if(a.lead_id){ if(a.stage) apptStages[a.lead_id]=a.stage; if(a.hc_pt&&!apptHc[a.lead_id]) apptHc[a.lead_id]=a.hc_pt; } }); }catch(_){}
+        // Enrolled program level (L1 / L2 / L1 + L2) from PAID payments — the source of truth for
+        // what a client is ACTUALLY enrolled in. consStatus may not carry it (payment-driven
+        // enrollment via Reception/Accounts), so we derive from paid programs and fall back to
+        // consStatus's "Enrolled – Lx" when present. Independent of the Suggested-Program dropdown.
+        const _paidProg:Record<string,Set<string>>={};
+        try{ const _ids=(data||[]).map((r:any)=>String(r.meta_lead_id)).filter(Boolean); if(_ids.length){ const {data:_pays}=await supabase.from("payments").select("lead_id,program,status").in("lead_id",_ids); (_pays||[]).forEach((p:any)=>{ if(p.status==="paid"&&p.program){ const k=String(p.lead_id); (_paidProg[k]=_paidProg[k]||new Set()).add(String(p.program).toUpperCase()); } }); } }catch(_){}
+        const _enrLevelFor=(id:any,cons:string):string=>{ const m=/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i.exec(cons||""); if(m) return m[1].toUpperCase().replace(/\s*\+\s*/," + "); const set=_paidProg[String(id)]; if(set&&set.size){ const arr=[...set]; const hasL1=arr.some((p:string)=>/L1/.test(p)); const hasL2=arr.some((p:string)=>/L2/.test(p)); return (hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":""; } return ""; };
         _coachClients=(data||[]).map((r:any)=>{
           const cp=r.coach_profile; const sv=r.screening_vitals||null; const apptStage=apptStages[r.meta_lead_id]||"";
           let stage="screening";
@@ -6119,7 +6171,7 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||""};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,(cp&&cp.consStatus)||"")};
         });
         // Reconcile historical enrollments: a client marked Enrolled on the coach side whose
         // lead.call_status hasn't caught up → sync it (DB + memory) so the Advisor dashboard,
