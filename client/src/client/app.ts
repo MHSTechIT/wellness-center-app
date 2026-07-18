@@ -3958,7 +3958,7 @@ export function initApp(root: HTMLElement) {
     // Per-lead, per-program payment progress (for the detailed Enrolled label in the Appointments
     // table): type = the payment method for that program; inst1Paid/inst2Paid track a 2-part plan
     // (installment or advance); anyPaid/anyDue flag whether anything has actually moved.
-    let _progPayByLead: Record<string,Record<string,{type:string;inst1Paid:boolean;inst2Paid:boolean;anyPaid:boolean;anyDue:boolean}>> = {};
+    let _progPayByLead: Record<string,Record<string,{type:string;inst1Paid:boolean;inst2Paid:boolean;instPaid:number;anyPaid:boolean;anyDue:boolean}>> = {};
     function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
     function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
     // Payment-type label for the Reception Collect queue — tells Reception exactly which payment is
@@ -4000,14 +4000,14 @@ export function initApp(root: HTMLElement) {
       const labelFor=(k:string):string=>{
         const o=progMap[k];
         if(!o||(!o.anyPaid&&!o.anyDue)) return "Enrolled – "+k;
-        if(o.inst1Paid||o.inst2Paid){
-          // Fully paid = both installments recorded OR simply nothing left due for this program
-          // (guards against a 2nd installment mis-tagged as installment 1).
-          if((o.inst1Paid&&o.inst2Paid)||!o.anyDue) return k+" Completed | Fully Paid";
-          if(o.inst1Paid) return k+" Completed | Installment 2 Pending";
-          return k+" Completed | Installment 1 Pending";
+        // Installment plan — use the COUNT of paid installment rows (the installment_number tag is
+        // unreliable): 2+ paid = program fully paid; exactly 1 = installment 1 done, installment 2
+        // still pending. Never call it "Fully Paid" on a single paid installment.
+        if((o.instPaid||0)>0){
+          if((o.instPaid||0)>=2) return k+" Completed | Fully Paid";
+          return k+" – Installment 1 Completed";
         }
-        if(o.anyPaid&&!o.anyDue) return k+" Completed";
+        if(o.anyPaid&&!o.anyDue) return k+" Completed";   // full/one-shot payment
         return "Enrolled – "+k;   // only a due request outstanding, nothing collected yet
       };
       return keys.map(labelFor).join(keys.length>1?" · ":"");
@@ -4038,15 +4038,15 @@ export function initApp(root: HTMLElement) {
           const lid=String(p.lead_id||""); if(!lid) return;
           const prog=_normProg(p.program);
           const byLead=(_progPayByLead[lid]=_progPayByLead[lid]||{});
-          const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,anyPaid:false,anyDue:false});
+          const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,instPaid:0,anyPaid:false,anyDue:false});
           if(p.payment_type) o.type=p.payment_type;
-          if(p.status==="paid"){ o.anyPaid=true; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
+          if(p.status==="paid"){ o.anyPaid=true; if(p.payment_type==="installment") o.instPaid++; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
           else if(p.status==="due"){ o.anyDue=true; }
         });
         // The outstanding DUE per lead (oldest first — the one Reception collects next) → drives the
         // Collect-queue payment-type label (L2 – 1st/2nd Installment, Full Payment, …).
         const dueByLead:Record<string,any>={};
-        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]=_recCollectLabel(p.program,p.payment_type,p.installment_number); });
+        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]={label:_recCollectLabel(p.program,p.payment_type,p.installment_number),amount:Number(p.amount)||0}; });
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
@@ -4074,7 +4074,7 @@ export function initApp(root: HTMLElement) {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
-          enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:dueByLead[String(a.lead_id)]||"",
+          enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
@@ -4209,7 +4209,7 @@ export function initApp(root: HTMLElement) {
         // L2 installment due must still appear. Fully-paid clients have toCollect=0 / payStatus
         // "paid", so the due check already excludes them (no need for a hasPaid gate).
         const due=RX.filter((r:any)=>r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"));
-        el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.toCollect)||Number(r.payAmt)||0;
+        el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||0;   // next installment / due amount (not the aggregate)
           const typeChip=r.collectLabel?' <span class="chipb info" style="font-size:10px">'+r.collectLabel+'</span>':'';
           return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\')">Collect</button></div>';
         }).join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
@@ -5292,7 +5292,35 @@ export function initApp(root: HTMLElement) {
     // Show the auto enrollment level (from payment) in the payment section.
     function _setPayEnrollDisplay(level:string,iso:string){ const chip=root.querySelector("#payEnrollChip"); if(chip){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled – "+level; } const at=root.querySelector("#payEnrollAt")as HTMLInputElement|null; if(at) at.value=iso?fmtIST(iso):""; }
     // Refresh the payment enrollment chip from the current consultation status (on profile load).
-    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); const enrAt=cc&&cc.enrolledAt; /* Level: LIVE consStatus "Enrolled – Lx" first, else the level derived from PAID payment programs (cc.enrolledLevel). Independent of the Suggested-Program dropdown — enrollment is a fact, not a selection. */ const level=(m?m[1].toUpperCase().replace(/\s*\+\s*/," + "):"")||(cc&&cc.enrolledLevel)||""; const isE=!!m||!!level||!!enrAt; if(chip){ if(isE){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled"+(level?(" – "+level):""); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } } const ati=at as HTMLInputElement|null; if(ati){ ati.value=(isE&&enrAt)?fmtIST(enrAt):""; } }
+    // Detailed enrolled-status label for the SELECTED program, from the client's payment rows:
+    //  L1  → "L1 Completed" / "Enrolled – L1"
+    //  L2  → "L2 – Installment 1 Completed" / "L2 Completed"
+    //  L1 + L2 → each program's status joined, e.g. "L1 Completed + L2 – Installment 1 Completed".
+    // Returns "" when the client has no payment progress (caller falls back to the generic chip).
+    function _coachEnrolledLabel():string{
+      const rows=_coachPayRows||[]; if(!rows.length) return "";
+      const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
+      const agg:Record<string,{paid:number;due:number;instPaid:number;full:boolean}>={};
+      rows.forEach((r:any)=>{ const p=norm(r.program); const o=(agg[p]=agg[p]||{paid:0,due:0,instPaid:0,full:false}); if(r.status==="paid"){ o.paid++; if(r.payment_type==="installment") o.instPaid++; else o.full=true; } else if(r.status==="due") o.due++; });
+      // Use the COUNT of paid installment rows (the installment_number tag is unreliable): 2+ paid
+      // installments = program fully paid; exactly 1 = installment 1 done, installment 2 pending.
+      const progLabel=(k:string):string=>{ const o=agg[k]; if(!o) return "";
+        if(o.instPaid>0){ if(o.instPaid>=2) return k+" Completed"; return k+" – Installment 1 Completed"; }
+        if(o.full||(o.paid>0&&o.due===0)) return k+" Completed";
+        if(o.paid>0||o.due>0) return "Enrolled – "+k;
+        return ""; };
+      if(agg["L1 + L2"]){ const l=progLabel("L1 + L2"); if(l) return l; }   // one combined plan covering both
+      const sel=_curProgram();
+      if(sel==="L1 + L2"){ const parts=[progLabel("L1"),progLabel("L2")].filter(Boolean); if(parts.length) return parts.join(" + "); }
+      return progLabel(sel==="L1"?"L1":"L2");
+    }
+    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); const enrAt=cc&&cc.enrolledAt;
+      // Detailed status for the selected program + installment progress; fall back to the level.
+      const detailed=_coachEnrolledLabel();
+      const level=(m?m[1].toUpperCase().replace(/\s*\+\s*/," + "):"")||(cc&&cc.enrolledLevel)||"";
+      const isE=!!detailed||!!m||!!level||!!enrAt;
+      if(chip){ if(detailed){ (chip as HTMLElement).className="chipb ok"; chip.textContent=detailed; } else if(isE){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled"+(level?(" – "+level):""); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } }
+      const ati=at as HTMLInputElement|null; if(ati){ ati.value=(isE&&enrAt)?fmtIST(enrAt):""; } }
     w._refreshPayEnrollChip=_refreshPayEnrollChip;
     w._payStSel=(sel:any)=>{
       const box=sel&&sel.parentElement; const grp=box&&box.querySelector(".pills");
@@ -5538,6 +5566,17 @@ export function initApp(root: HTMLElement) {
         try{ let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); if(instNum!=null) del=del.eq("installment_number",instNum); await del; }catch(_){}
         const {error}=await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null});
         if(error) throw error;
+        // 2-part plan, installment 1 request → ALSO track the remaining balance as installment 2
+        // (due), so the Total, Balance and "Installment 2 pending" are never lost once inst 1 is
+        // collected. Balance = entered Total − Installment 1. Due date = the auto +30d field.
+        if(method==="i2" && instNum===1){
+          const total=_payNum("#i2Total")||0; const bal=(total>amt)?(total-amt):0;
+          if(bal>0){
+            const bdd=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; const dueIso=(bdd&&(bdd as any).dataset&&(bdd as any).dataset.iso)||null;
+            try{ await supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","installment").eq("program",prog).eq("installment_number",2); }catch(_){}
+            try{ await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:who}); }catch(_){}
+          }
+        }
         addLog("Payment → Reception · ₹"+amt.toLocaleString("en-IN"));
         try{ await loadReceptionData(); }catch(_){}
         toast("Sent → Reception · ₹"+amt.toLocaleString("en-IN")+" to collect");
@@ -6507,6 +6546,20 @@ export function initApp(root: HTMLElement) {
       // INSTALLMENT — lock inst-1 once paid (inst-2 stays open); lock inst-2 once paid.
       _lockFields(["#i2Inst1Rcvd","#i2Inst1Mode","#i2Inst1Ref","#i2Inst1Date"],inst1Paid);
       _lockFields(["#i2BalRcvd","#i2BalMode","#i2BalRef","#i2BalDate"],inst2Paid);
+      // Reconstruct the installment form from stored rows so a reopened client shows Total, the paid
+      // Installment 1, the auto Balance Due, and the pending Balance-Received default (none of which
+      // are persisted on the form itself).
+      { const i2r=(rows||[]).filter((r:any)=>String(r.program||"L1")===prog&&r.payment_type==="installment");
+        if(i2r.length){
+          const p1=i2r.find((r:any)=>r.status==="paid"); const p1amt=p1?Number(p1.amount)||0:0;
+          const bal=i2r.filter((r:any)=>r.status==="due").reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
+          const tot=p1amt+bal;
+          const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null; if(i1e&&p1amt) i1e.value=String(p1amt);
+          const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&tot) te.value=String(tot);
+          const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");
+          const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null; if(bre&&bal>0&&!inst2Paid&&!bre.value) bre.value=String(bal);   // default the pending balance
+        }
+      }
       if(inst1Paid&&inst2Paid) _setPayStatus("pb-i2","Both Paid"); else if(inst1Paid) _setPayStatus("pb-i2","1st Paid"); else { const s=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(s&&/Paid/.test(s.value)) _setPayStatus("pb-i2","Pending"); }
       const isel=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(isel) isel.disabled=(inst1Paid&&inst2Paid);
       // ADVANCE
@@ -6568,6 +6621,7 @@ export function initApp(root: HTMLElement) {
       let rows:any[]=[];
       try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
+      _coachPayRows=rows;   // set BEFORE the auto-select so _refreshPayEnrollChip's detailed label sees fresh rows
       // Auto-select the program the coach should collect for, from the client's payment records, so
       // the pay-locks, method-lock and pricing reflect it (the dropdown otherwise defaults to L1).
       // Priority: a program still needing collection (an outstanding due, or installment 1 paid but
