@@ -5297,30 +5297,43 @@ export function initApp(root: HTMLElement) {
     //  L2  → "L2 – Installment 1 Completed" / "L2 Completed"
     //  L1 + L2 → each program's status joined, e.g. "L1 Completed + L2 – Installment 1 Completed".
     // Returns "" when the client has no payment progress (caller falls back to the generic chip).
+    // Enrolled-status label for the CURRENTLY-SELECTED program, from the client's payment rows +
+    // the live consultation status. STRICTLY scoped to the selected program — it never shows another
+    // program's status. Returns "" when the selected program has no enrollment/payment (→ "Not enrolled").
     function _coachEnrolledLabel():string{
-      const rows=_coachPayRows||[]; if(!rows.length) return "";
+      const rows=_coachPayRows||[];
       const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
       const agg:Record<string,{paid:number;due:number;instPaid:number;full:boolean}>={};
       rows.forEach((r:any)=>{ const p=norm(r.program); const o=(agg[p]=agg[p]||{paid:0,due:0,instPaid:0,full:false}); if(r.status==="paid"){ o.paid++; if(r.payment_type==="installment") o.instPaid++; else o.full=true; } else if(r.status==="due") o.due++; });
-      // Use the COUNT of paid installment rows (the installment_number tag is unreliable): 2+ paid
-      // installments = program fully paid; exactly 1 = installment 1 done, installment 2 pending.
+      // Count of PAID installment rows (installment_number tag is unreliable): 2+ = fully paid; 1 = inst 1 done.
       const progLabel=(k:string):string=>{ const o=agg[k]; if(!o) return "";
-        if(o.instPaid>0){ if(o.instPaid>=2) return k+" Completed"; return k+" – Installment 1 Completed"; }
+        if(o.instPaid>0) return o.instPaid>=2?(k+" Completed"):(k+" – Installment 1 Completed");
         if(o.full||(o.paid>0&&o.due===0)) return k+" Completed";
         if(o.paid>0||o.due>0) return "Enrolled – "+k;
         return ""; };
-      if(agg["L1 + L2"]){ const l=progLabel("L1 + L2"); if(l) return l; }   // one combined plan covering both
+      // Live consStatus ("Enrolled – Lx") the coach may have just marked, scoped to the program it names.
+      const csm=(_coachConsStatus||"").match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i);
+      const csProg=csm?csm[1].toUpperCase().replace(/\s*\+\s*/," + "):"";
+      const forProg=(k:string):string=>{ const l=progLabel(k); if(l) return l; if(csProg===k) return "Enrolled – "+k; return ""; };
       const sel=_curProgram();
-      if(sel==="L1 + L2"){ const parts=[progLabel("L1"),progLabel("L2")].filter(Boolean); if(parts.length) return parts.join(" + "); }
-      return progLabel(sel==="L1"?"L1":"L2");
+      if(sel==="L1 + L2"){
+        if(agg["L1 + L2"]) return progLabel("L1 + L2");
+        if(csProg==="L1 + L2") return "Enrolled – L1 + L2";
+        const parts=[forProg("L1"),forProg("L2")].filter(Boolean);
+        return parts.length?parts.join(" + "):"";
+      }
+      // single-program view: its own status; a combined plan (L1 + L2) covers it too
+      return forProg(sel) || (agg["L1 + L2"]?progLabel("L1 + L2"):(csProg==="L1 + L2"?"Enrolled – L1 + L2":""));
     }
-    function _refreshPayEnrollChip(){ const cs=_coachConsStatus||""; const m=cs.match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i); const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt"); const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); const enrAt=cc&&cc.enrolledAt;
-      // Detailed status for the selected program + installment progress; fall back to the level.
+    function _refreshPayEnrollChip(){
+      const chip=root.querySelector("#payEnrollChip"); const at=root.querySelector("#payEnrollAt");
+      const cc=_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId)); const enrAt=cc&&cc.enrolledAt;
+      // Sole source of truth for the chip = the SELECTED program's status. No fallback to a different
+      // program's level (that caused L2 status to show while L1 was selected).
       const detailed=_coachEnrolledLabel();
-      const level=(m?m[1].toUpperCase().replace(/\s*\+\s*/," + "):"")||(cc&&cc.enrolledLevel)||"";
-      const isE=!!detailed||!!m||!!level||!!enrAt;
-      if(chip){ if(detailed){ (chip as HTMLElement).className="chipb ok"; chip.textContent=detailed; } else if(isE){ (chip as HTMLElement).className="chipb ok"; chip.textContent="Enrolled"+(level?(" – "+level):""); } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } }
-      const ati=at as HTMLInputElement|null; if(ati){ ati.value=(isE&&enrAt)?fmtIST(enrAt):""; } }
+      if(chip){ if(detailed){ (chip as HTMLElement).className="chipb ok"; chip.textContent=detailed; } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } }
+      const ati=at as HTMLInputElement|null; if(ati){ ati.value=(detailed&&enrAt)?fmtIST(enrAt):""; }
+    }
     w._refreshPayEnrollChip=_refreshPayEnrollChip;
     w._payStSel=(sel:any)=>{
       const box=sel&&sel.parentElement; const grp=box&&box.querySelector(".pills");
