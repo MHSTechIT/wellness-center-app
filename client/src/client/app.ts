@@ -3961,6 +3961,16 @@ export function initApp(root: HTMLElement) {
     let _progPayByLead: Record<string,Record<string,{type:string;inst1Paid:boolean;inst2Paid:boolean;anyPaid:boolean;anyDue:boolean}>> = {};
     function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
     function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
+    // Payment-type label for the Reception Collect queue — tells Reception exactly which payment is
+    // due (e.g. "L2 – 1st Installment", "L2 – 2nd Installment", "L1 – Full Payment",
+    // "L1 + L2 – Full Payment"), so they never confuse installment 1 vs 2 / full vs installment.
+    function _recCollectLabel(prog:any,ptype:any,inst:any):string{
+      const s=String(prog||""); const p=/l1\s*\+\s*l2/i.test(s)?"L1 + L2":(/l2/i.test(s)?"L2":"L1");
+      if(ptype==="installment") return p+" – "+(Number(inst)===2?"2nd":"1st")+" Installment";
+      if(ptype==="advance") return p+" – Advance";
+      if(ptype==="emi") return p+" – EMI Down Payment";
+      return p+" – Full Payment";
+    }
     // Enrolled program(s) parsed from a consultation-status string ("Enrolled – L2" / "Enrolled – L1 + L2").
     function _enrolProgramsOf(consStatus:any):string[]{
       const s=String(consStatus||"");
@@ -3974,16 +3984,26 @@ export function initApp(root: HTMLElement) {
     // per-program payment records used everywhere else (invoice, payment summary). Falls back to
     // a bare "Enrolled – L1/L2" when nothing has been paid yet, or "Enrolled" if no level is known.
     function _enrollStatusLine(leadId:string,consStatus:any):string{
-      const levels=_enrolProgramsOf(consStatus);
-      if(!levels.length) return "Enrolled";
       const progMap=_progPayByLead[String(leadId)]||{};
+      let levels=_enrolProgramsOf(consStatus);
+      // consStatus may not carry the level (payment-driven enrollment via Reception/Accounts).
+      // Fall back to the programs that actually have payment records — the real record of what the
+      // client enrolled in — so the Stage shows "L1 Completed · L2 Completed | Fully Paid", etc.
+      if(!levels.length){
+        const set=new Set<string>();
+        Object.keys(progMap).forEach((k:string)=>{ if(/l1\s*\+\s*l2/i.test(k)){set.add("L1");set.add("L2");} else if(/l2/i.test(k))set.add("L2"); else if(/l1/i.test(k))set.add("L1"); });
+        levels=["L1","L2"].filter((l:string)=>set.has(l));
+      }
+      if(!levels.length) return "Enrolled";
       // A combined "L1 + L2" package (one plan covering both) takes priority over two separate ones.
       const keys=(levels.length===2&&progMap["L1 + L2"])?["L1 + L2"]:levels;
       const labelFor=(k:string):string=>{
         const o=progMap[k];
         if(!o||(!o.anyPaid&&!o.anyDue)) return "Enrolled – "+k;
         if(o.inst1Paid||o.inst2Paid){
-          if(o.inst1Paid&&o.inst2Paid) return k+" Completed | Fully Paid";
+          // Fully paid = both installments recorded OR simply nothing left due for this program
+          // (guards against a 2nd installment mis-tagged as installment 1).
+          if((o.inst1Paid&&o.inst2Paid)||!o.anyDue) return k+" Completed | Fully Paid";
           if(o.inst1Paid) return k+" Completed | Installment 2 Pending";
           return k+" Completed | Installment 1 Pending";
         }
@@ -4023,6 +4043,10 @@ export function initApp(root: HTMLElement) {
           if(p.status==="paid"){ o.anyPaid=true; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
           else if(p.status==="due"){ o.anyDue=true; }
         });
+        // The outstanding DUE per lead (oldest first — the one Reception collects next) → drives the
+        // Collect-queue payment-type label (L2 – 1st/2nd Installment, Full Payment, …).
+        const dueByLead:Record<string,any>={};
+        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]=_recCollectLabel(p.program,p.payment_type,p.installment_number); });
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
@@ -4050,7 +4074,7 @@ export function initApp(root: HTMLElement) {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
-          enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null,
+          enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:dueByLead[String(a.lead_id)]||"",
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
@@ -4179,13 +4203,15 @@ export function initApp(root: HTMLElement) {
     function renderPay() {
       const el = root.querySelector("#recPayList");
       if (el) {
-        // Show clients Reception still needs to collect from: a pending collection request
-        // (toCollect>0, e.g. from the coach's "Send collection request") or a visited-unpaid
-        // walk-in. EXCLUDE anyone already collected (hasPaid) — coach direct-collections and
-        // fully-paid clients must not appear here.
-        const due=RX.filter((r:any)=>r.status==="visited"&&!r.hasPaid&&(r.toCollect>0||r.payStatus==="due"));
+        // Show clients Reception still needs to collect from = a visited client with an OUTSTANDING
+        // due (a pending collection request or a visited-unpaid walk-in). We key off the due itself
+        // (toCollect>0 / payStatus "due"), NOT on "never paid" — a client who paid L1 and now has an
+        // L2 installment due must still appear. Fully-paid clients have toCollect=0 / payStatus
+        // "paid", so the due check already excludes them (no need for a hasPaid gate).
+        const due=RX.filter((r:any)=>r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"));
         el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.toCollect)||Number(r.payAmt)||0;
-          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b><div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\')">Collect</button></div>';
+          const typeChip=r.collectLabel?' <span class="chipb info" style="font-size:10px">'+r.collectLabel+'</span>':'';
+          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\')">Collect</button></div>';
         }).join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
@@ -5486,21 +5512,31 @@ export function initApp(root: HTMLElement) {
       if(!_coachLeadId){ toast("Open a client first"); return; }
       const who=(root.querySelector("#collectedBy")as HTMLSelectElement)?.value||"Reception desk";
       const method=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"full";
+      const ptype = method==="i2"?"installment":method==="adv"?"advance":method==="emi"?"emi":"full";
+      const prog=_curProgram();
+      const id=String(_coachLeadId);
+      // Installment (2x): decide WHICH installment this request is for. If installment 1 has already
+      // been collected for this program, the request is the BALANCE (installment 2) — we never send a
+      // second installment 1. The amount then comes from the Balance-received field, not Inst-1.
+      let instNum:any=null;
+      if(method==="i2"){
+        let inst1Done=false;
+        try{ const {data}=await supabase.from("payments").select("status").eq("lead_id",id).eq("program",prog).eq("payment_type","installment").eq("status","paid").limit(1); inst1Done=!!(data&&data.length); }catch(_){}
+        instNum=inst1Done?2:1;
+      }
       const amt = method==="full" ? (_payNum("#payFullRcvd")||_payNum("#payAmtDue")||_payGetPrice())
-                : method==="i2"   ? (_payNum("#i2Inst1Rcvd")||_payNum("#i2Total")||_payGetPrice())
+                : method==="i2"   ? (instNum===2 ? (_payNum("#i2BalRcvd")||_payNum("#i2BalDue")) : (_payNum("#i2Inst1Rcvd")||_payNum("#i2Total")||_payGetPrice()))
                 : method==="adv"  ? (_payNum("#advAmt")||_payGetPrice())
                 : method==="emi"  ? (_payNum("#emiDown")||_payGetPrice())   // EMI: Reception collects the down payment
                 : _payGetPrice();
       if(!amt||amt<=0){ toastErr("Enter the amount to collect first"); return; }
-      const ptype = method==="i2"?"installment":method==="adv"?"advance":method==="emi"?"emi":"full";
-      const prog=_curProgram();
-      const id=String(_coachLeadId);
       try{
         // Link to the lead's active appointment so it shows in the Collect queue + Appointment row.
         let apptId:any=null; try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",id).neq("status","cancelled").order("appt_date",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
-        // One pending request per lead+program+method: replace any earlier unpaid request.
-        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); }catch(_){}
-        const {error}=await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:method==="i2"?1:null});
+        // One pending request per lead+program+method (+ same installment for i2): replace any
+        // earlier UNPAID request. Scoped to installment so an inst-2 request never wipes an inst-1 due.
+        try{ let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); if(instNum!=null) del=del.eq("installment_number",instNum); await del; }catch(_){}
+        const {error}=await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null});
         if(error) throw error;
         addLog("Payment → Reception · ₹"+amt.toLocaleString("en-IN"));
         try{ await loadReceptionData(); }catch(_){}
