@@ -6489,10 +6489,11 @@ export function initApp(root: HTMLElement) {
       // first payment (e.g. Installment 2×) must stay fixed for the 2nd collection; only the balance
       // is then entered. No payment yet → method stays freely selectable.
       const _mFor=(t:string)=>t==="installment"?"i2":t==="advance"?"adv":t==="emi"?"emi":"full";
-      // Method lock keys off ANY paid row for the client (not program-scoped) — once they've started
-      // paying by installment, the method is fixed for every subsequent collection.
-      const _anyPaidRow=(rows||[]).find((r:any)=>r.status==="paid");
-      const _lockedMethod=_anyPaidRow?_mFor(String(_anyPaidRow.payment_type||"full")):"";
+      // Method lock is PER PROGRAM: L2 is handled independently of L1. Only lock the method once a
+      // payment exists FOR THE CURRENTLY-SELECTED program (`paid` is already program-scoped). So an
+      // L1-paid client selecting a fresh L2 can still choose Full / Installment; once L2's
+      // installment 1 is paid, L2's method locks and only the balance is collected.
+      const _lockedMethod=paid.length?_mFor(String(paid[0].payment_type||"full")):"";
       const _pmSel=root.querySelector("#payMethod")as HTMLSelectElement|null;
       if(_pmSel){
         if(_lockedMethod){ const _mName:any={i2:"Installment (2×)",full:"Full Payment",adv:"Advance Booking",emi:"EMI"}; if(_pmSel.value!==_lockedMethod){ _pmSel.value=_lockedMethod; try{ if(w.payBlk) w.payBlk(_lockedMethod); }catch(_){} } _pmSel.disabled=true; (_pmSel as HTMLElement).style.opacity="0.75"; _pmSel.title="Method locked — "+(_mName[_lockedMethod]||_lockedMethod)+" already in progress"; }
@@ -6567,12 +6568,19 @@ export function initApp(root: HTMLElement) {
       let rows:any[]=[];
       try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(100); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
-      // Auto-select the client's program from their payment records so the pay-locks, method-lock and
-      // pricing reflect the program they're actually paying for (the dropdown otherwise defaults to L1).
+      // Auto-select the program the coach should collect for, from the client's payment records, so
+      // the pay-locks, method-lock and pricing reflect it (the dropdown otherwise defaults to L1).
+      // Priority: a program still needing collection (an outstanding due, or installment 1 paid but
+      // not installment 2) — that's the ACTIVE one — then a single paid program, then the combined
+      // view. This lands the coach on e.g. L2 (inst-1 paid) so its method locks and only the balance
+      // is collectable, instead of a combined "L1 + L2" view where the L2 payment wouldn't match.
       try{
-        const set=new Set((rows||[]).filter((r:any)=>r.program).map((r:any)=>String(r.program)));
-        const arr=[...set] as string[]; const hasL1=arr.some((p:string)=>/l1/i.test(p)), hasL2=arr.some((p:string)=>/l2/i.test(p));
-        const cliProg=(hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":"";
+        const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
+        const stat:Record<string,{paid:number;due:number;i1:boolean;i2:boolean}>={};
+        (rows||[]).forEach((r:any)=>{ const p=norm(r.program); const o=(stat[p]=stat[p]||{paid:0,due:0,i1:false,i2:false}); if(r.status==="paid"){o.paid++; if(r.payment_type==="installment"){ if(Number(r.installment_number)===1)o.i1=true; if(Number(r.installment_number)===2)o.i2=true; }} else if(r.status==="due")o.due++; });
+        const progs=Object.keys(stat);
+        let cliProg=progs.find(p=>stat[p].due>0||(stat[p].i1&&!stat[p].i2))||"";   // 1) still needs collection
+        if(!cliProg){ const hasL1=progs.some(p=>/L1/.test(p)), hasL2=progs.some(p=>/L2/.test(p)); cliProg=(hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":""; }
         if(cliProg){ const ps=root.querySelector("#haProgram")as HTMLSelectElement|null; if(ps&&ps.value!==cliProg){ ps.value=cliProg; try{ if(w._syncProgramPricing) w._syncProgramPricing(); }catch(_){} } }
       }catch(_){}
       _coachPayRows=rows; try{ _applyPaymentLocks(id,rows); }catch(_){} try{ _renderPaymentSummary(id,rows); }catch(_){}
