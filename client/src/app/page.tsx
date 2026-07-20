@@ -105,7 +105,7 @@ export default function Home() {
       {/* New-build prompt — revealed by checkVersion() in app.ts when the deployed SHA differs from this bundle's. */}
       <div id="updBar" style={{display:"none",position:"fixed",bottom:"18px",left:"50%",transform:"translateX(-50%)",zIndex:9999,alignItems:"center",gap:"12px",background:"#1f6f54",color:"#fff",padding:"10px 16px",borderRadius:"10px",boxShadow:"0 8px 28px rgba(0,0,0,.28)",fontSize:"13px",fontWeight:600}}>
         <span>A new version is available.</span>
-        <button onClick={()=>window.location.reload()} style={{background:"#fff",color:"#1f6f54",border:"none",borderRadius:"7px",padding:"5px 12px",fontSize:"12.5px",fontWeight:700,cursor:"pointer"}}>Refresh</button>
+        <button onClick={()=>{const f=(window as any)._updRefresh; if(typeof f==="function"){f();}else{window.location.reload();}}} style={{background:"#fff",color:"#1f6f54",border:"none",borderRadius:"7px",padding:"5px 12px",fontSize:"12.5px",fontWeight:700,cursor:"pointer"}}>Refresh</button>
       </div>
       <div className="doverlay" id="dOverlay" onClick={()=>(window as any).closeDrawer?.()}></div>
       <div className="drawer" id="drawer">

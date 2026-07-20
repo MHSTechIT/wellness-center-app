@@ -2370,7 +2370,9 @@ export function initApp(root: HTMLElement) {
           const l=_advFindLead(String(_advLeadId));
           if(l){
             if(l.visitedAt) _advApplyVisited(l.visitedAt);
-            if(l.enrolledAt||/enrol/i.test(String(l.callStatus||""))) _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
+            // Always call _advApplyEnrolled (not only when enrolled): it also manages the call-status
+            // dropdown lock, so a non-enrolled lead opened after an enrolled one must run it to UNLOCK.
+            _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
           }
         }catch(_){}
       } finally { _advApplying=false; }
@@ -2431,14 +2433,14 @@ export function initApp(root: HTMLElement) {
         if(row.advisor_profile){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(row.advisor_profile); }
         if(row.enrolled_at) l.enrolledAt=row.enrolled_at;   // cache for the enrolled table
         l.callStatus=row.call_status||l.callStatus;         // keep in-memory fresh (dashboard cards + re-opens)
-        let enrLvl=_advEnrolLevel(row.coach_profile);     // enrolled program (L1 / L2 / L1 + L2) from coach_profile.consStatus
-        // Payment-driven enrollment (Reception/Accounts) may not carry the level in consStatus —
-        // derive it from the client's PAID payment programs so the Advisor shows "Enrolled – L2" too.
-        if(!enrLvl && row.enrolled_at){
+        let enrLvl=_advEnrolLevel(row.coach_profile);     // consStatus level — may be a SUBSET of what's paid
+        // Union the consStatus level with the client's PAID programs: a lead enrolled in L2 who also
+        // paid L1 must read "L1 + L2" (was showing only the consStatus subset), and payment-driven
+        // enrollments (no level in consStatus) still resolve from the paid programs.
+        if(row.enrolled_at){
           try{ const {data:pd}=await supabase.from("payments").select("program,status").eq("lead_id",String(l.id));
             const arr:string[]=Array.from(new Set<string>((pd||[]).filter((p:any)=>p.status==="paid"&&p.program).map((p:any)=>String(p.program).toUpperCase())));
-            const hasL1=arr.some((p:string)=>/L1/.test(p)), hasL2=arr.some((p:string)=>/L2/.test(p));
-            enrLvl=(hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":"";
+            enrLvl=_levelUnion((row.coach_profile&&row.coach_profile.consStatus)||"", arr);
           }catch(_){}
         }
         if(enrLvl) l.enrolledLevel=enrLvl;
@@ -2889,6 +2891,17 @@ export function initApp(root: HTMLElement) {
       }
       const ed=root.querySelector("#enrDt")as HTMLInputElement|null;
       if(ed) ed.value=(isE&&enrolledAt)?fmtIST(enrolledAt):"";
+      // Reflect the canonical Enrolled state in the "Call status" dropdown too. applyAdvisorProfile
+      // restores the dropdown from the saved profile snapshot (e.g. "Appointment Fixed – Direct" from
+      // before enrollment), so for an enrolled lead it looks stale. Enrollment is terminal → set it to
+      // "Enrolled" and lock it; unlock again if the lead is no longer enrolled. Runs AFTER the profile
+      // restore (see the callers), so it always wins. Guarded by _advApplying elsewhere, so this
+      // programmatic set never writes call_status back to the DB.
+      const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
+      if(cs){
+        if(isE){ if(cs.value!=="enr") cs.value="enr"; cs.disabled=true; (cs as HTMLElement).style.opacity="0.8"; cs.title="Enrolled — call status is locked"; }
+        else if(cs.title==="Enrolled — call status is locked"){ cs.disabled=false; (cs as HTMLElement).style.opacity=""; cs.title=""; }
+      }
     }
     function renderHaResults(){
       const wrap=root.querySelector("#haResultsWrap")as HTMLElement;
@@ -3987,25 +4000,29 @@ export function initApp(root: HTMLElement) {
       if(/\bl1\b/i.test(s)) return ["L1"];
       return [];
     }
+    // Enrolled LEVEL = the UNION of programs the lead COMMITTED to (consStatus "Enrolled – Lx") and/or
+    // actually PAID for. A program counts if EITHER names it, so a lead enrolled in L2 who also paid L1
+    // reads "L1 + L2" — never just the consStatus subset (nor the paid subset). The single source of
+    // truth for the level across Advisor / Coach / Reception. Returns ""|"L1"|"L2"|"L1 + L2".
+    function _levelUnion(consStatus:any,paidPrograms:any):string{
+      const set=new Set<string>(_enrolProgramsOf(consStatus));
+      (Array.isArray(paidPrograms)?paidPrograms:[]).forEach((x:any)=>{ const p=String(x).toUpperCase(); if(/L1/.test(p))set.add("L1"); if(/L2/.test(p))set.add("L2"); });
+      const has1=set.has("L1"),has2=set.has("L2");
+      return (has1&&has2)?"L1 + L2":has2?"L2":has1?"L1":"";
+    }
     // Build the Appointments-table "Stage" label for an ENROLLED lead: the enrolled program(s)
     // plus payment progress (Completed / Installment N Pending / Fully Paid), driven by the same
     // per-program payment records used everywhere else (invoice, payment summary). Falls back to
     // a bare "Enrolled – L1/L2" when nothing has been paid yet, or "Enrolled" if no level is known.
     function _enrollStatusLine(leadId:string,consStatus:any):string{
       const progMap=_progPayByLead[String(leadId)]||{};
-      let levels=_enrolProgramsOf(consStatus);
-      // consStatus may not carry the level (payment-driven enrollment via Reception/Accounts).
-      // Fall back to the programs that actually have payment records — the real record of what the
-      // client enrolled in — so the Stage shows "L1 Completed · L2 Completed | Fully Paid", etc.
-      if(!levels.length){
-        const set=new Set<string>();
-        // Only PAID programs count toward the enrolled level (matches the Advisor rule at ~2436 and
-        // the Coach chip). A due-only request (collection sent, nothing collected) is NOT enrollment,
-        // so it must not inflate the level — otherwise the same lead reads "Enrolled – L2" here but a
-        // bare "Enrolled" on the Advisor page. The per-program "due" progress still shows in labelFor.
-        Object.keys(progMap).forEach((k:string)=>{ if(!progMap[k]||!progMap[k].anyPaid) return; if(/l1\s*\+\s*l2/i.test(k)){set.add("L1");set.add("L2");} else if(/l2/i.test(k))set.add("L2"); else if(/l1/i.test(k))set.add("L1"); });
-        levels=["L1","L2"].filter((l:string)=>set.has(l));
-      }
+      // UNION the consStatus level with the programs that actually have a PAID record — so a lead
+      // enrolled in L2 who also paid L1 shows BOTH (was showing only the consStatus subset), and
+      // payment-driven enrollments (no level in consStatus) still resolve. A due-only request (nothing
+      // collected) is NOT enrollment, so it never inflates the level; its progress still shows in labelFor.
+      const _lset=new Set<string>(_enrolProgramsOf(consStatus));
+      Object.keys(progMap).forEach((k:string)=>{ if(!progMap[k]||!progMap[k].anyPaid) return; if(/l1\s*\+\s*l2/i.test(k)){_lset.add("L1");_lset.add("L2");} else if(/l2/i.test(k))_lset.add("L2"); else if(/l1/i.test(k))_lset.add("L1"); });
+      const levels=["L1","L2"].filter((l:string)=>_lset.has(l));
       if(!levels.length) return "Enrolled";
       // A combined "L1 + L2" package (one plan covering both) takes priority over two separate ones.
       const keys=(levels.length===2&&progMap["L1 + L2"])?["L1 + L2"]:levels;
@@ -6290,7 +6307,7 @@ export function initApp(root: HTMLElement) {
         // consStatus's "Enrolled – Lx" when present. Independent of the Suggested-Program dropdown.
         const _paidProg:Record<string,Set<string>>={};
         try{ const _ids=(data||[]).map((r:any)=>String(r.meta_lead_id)).filter(Boolean); if(_ids.length){ const {data:_pays}=await supabase.from("payments").select("lead_id,program,status").in("lead_id",_ids); (_pays||[]).forEach((p:any)=>{ if(p.status==="paid"&&p.program){ const k=String(p.lead_id); (_paidProg[k]=_paidProg[k]||new Set()).add(String(p.program).toUpperCase()); } }); } }catch(_){}
-        const _enrLevelFor=(id:any,cons:string):string=>{ const m=/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i.exec(cons||""); if(m) return m[1].toUpperCase().replace(/\s*\+\s*/," + "); const set=_paidProg[String(id)]; if(set&&set.size){ const arr=[...set]; const hasL1=arr.some((p:string)=>/L1/.test(p)); const hasL2=arr.some((p:string)=>/L2/.test(p)); return (hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":""; } return ""; };
+        const _enrLevelFor=(id:any,cons:string):string=>{ const set=_paidProg[String(id)]; return _levelUnion(cons, set?[...set]:[]); };   // UNION of consStatus level + paid programs
         _coachClients=(data||[]).map((r:any)=>{
           const cp=r.coach_profile; const sv=r.screening_vitals||null; const apptStage=apptStages[r.meta_lead_id]||"";
           let stage="screening";
@@ -7652,19 +7669,32 @@ export function initApp(root: HTMLElement) {
     // /version. When they differ, a newer build is live but this tab is still running the old one —
     // reveal the "Refresh" bar. Durable fix for the recurring "works on localhost, stale in
     // production" reports (a single-page app never self-reloads). Skips dev/unconfigured (no SHA).
-    let _versionTimer:any=null;
+    let _versionTimer:any=null; let _liveVer="";
     async function checkVersion(){
       if(!BUILD_VERSION) return;
+      // Localhost has no real "deploy": the client (next dev) and the API are started independently,
+      // so their baked SHAs routinely differ and would nag forever. The version watch is a
+      // production-only concern — skip it entirely in local dev.
+      try{ const h=location.hostname; if(h==="localhost"||h==="127.0.0.1"||h==="::1"||h==="") return; }catch(_){}
       try{
         const r=await fetch(_api("/version"),{cache:"no-store"});
         const j=await r.json();
         const live=String((j&&j.version)||"");
-        if(!live||live==="dev"||live===BUILD_VERSION) return;
+        if(!live||live==="dev"||live===BUILD_VERSION) return;   // already current / unconfigured
+        // If the user already clicked Refresh for THIS exact live version but our baked version still
+        // didn't change (an inconsistent deploy where the served bundle and the API report different
+        // commits), do NOT nag again — otherwise the banner reappears on every reload forever.
+        let ack=""; try{ ack=localStorage.getItem("wos_ackVersion")||""; }catch(_){}
+        if(live===ack) return;
+        _liveVer=live;
         const bar=root.querySelector("#updBar")as HTMLElement|null; if(bar) bar.style.display="flex";
         if(_versionTimer){ clearInterval(_versionTimer); _versionTimer=null; }   // detected — stop polling
         window.removeEventListener("focus",checkVersion);
       }catch(_){/* transient — retry on next tick */}
     }
+    // Refresh button: remember the version we're reloading INTO so that, if the reload doesn't change
+    // our baked version (inconsistent deploy), we don't show the banner again for the same version.
+    w._updRefresh=()=>{ try{ if(_liveVer) localStorage.setItem("wos_ackVersion",_liveVer); }catch(_){} try{ location.reload(); }catch(_){} };
 
     // Auth gate — all data loading happens inside showApp() after successful auth
     checkAuth();
