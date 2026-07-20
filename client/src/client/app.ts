@@ -2903,6 +2903,12 @@ export function initApp(root: HTMLElement) {
         else if(cs.title==="Enrolled — call status is locked"){ cs.disabled=false; (cs as HTMLElement).style.opacity=""; cs.title=""; }
       }
     }
+    // Per-lead payment progress for the Advisor Enrolled table's detailed CALL STATUS stage. Loaded
+    // on demand (Enrolled card click) and reused across renders. Same builder as Reception → identical labels.
+    let _advProgPay:Record<string,any>={};
+    async function _advLoadEnrollProgress(){
+      try{ const {data}=await supabase.from("payments").select("lead_id,program,amount,status,payment_type,installment_number"); _advProgPay=_buildProgPay(data||[]); }catch(_){}
+    }
     function renderHaResults(){
       const wrap=root.querySelector("#haResultsWrap")as HTMLElement;
       const body=root.querySelector("#haResultsBody");
@@ -2936,10 +2942,14 @@ export function initApp(root: HTMLElement) {
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
         +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
         +'<td>'+e(l.assignedTo||"—")+'</td>'
-        +'<td><span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span></td></tr>').join("")
+        // Enrolled leads show the DETAILED payment stage (same label as Reception) instead of a
+        // generic "Enrolled" chip, so the stage is readable without opening the lead.
+        +'<td>'+(l.enrolledAt
+            ?'<span class="chipb ok" style="white-space:normal;line-height:1.5">'+e(_enrollStatusLine(String(l.id),l.enrolledLevel||"",_advProgPay))+'</span>'
+            :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td></tr>').join("")
         :'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:16px">No leads in this status</td></tr>';
     }
-    w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
+    w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();if(key==="enrolled"){_advLoadEnrollProgress().then(()=>{if(_haActiveBucket==="enrolled")renderHaResults();});}const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
     w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";};
     {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};}
     // Persist a call-status change for the currently-open lead (drives KPIs).
@@ -4014,8 +4024,26 @@ export function initApp(root: HTMLElement) {
     // plus payment progress (Completed / Installment N Pending / Fully Paid), driven by the same
     // per-program payment records used everywhere else (invoice, payment summary). Falls back to
     // a bare "Enrolled – L1/L2" when nothing has been paid yet, or "Enrolled" if no level is known.
-    function _enrollStatusLine(leadId:string,consStatus:any):string{
-      const progMap=_progPayByLead[String(leadId)]||{};
+    // Build the per-lead, per-program payment-progress map from payment rows. Shared by the Reception
+    // queue and the Advisor Enrolled table so both show the SAME detailed enrollment stage.
+    function _buildProgPay(payRows:any[]):Record<string,any>{
+      const map:Record<string,any>={};
+      const norm=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const h1=/l1/i.test(s),h2=/l2/i.test(s); if(h1&&h2) return "L1 + L2"; if(h2&&!h1) return "L2"; return "L1"; };
+      (payRows||[]).forEach((p:any)=>{
+        const lid=String(p.lead_id||""); if(!lid) return;
+        const prog=norm(p.program);
+        const byLead=(map[lid]=map[lid]||{});
+        const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,instPaid:0,anyPaid:false,anyDue:false});
+        if(p.payment_type) o.type=p.payment_type;
+        if(p.status==="paid"){ o.anyPaid=true; if(p.payment_type==="installment") o.instPaid++; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
+        else if(p.status==="due"){ o.anyDue=true; }
+      });
+      return map;
+    }
+    // consStatus/level + an optional progMap (defaults to Reception's _progPayByLead; the Advisor
+    // passes its own _advProgPay). Produces the detailed enrollment stage shown on both pages.
+    function _enrollStatusLine(leadId:string,consStatus:any,progMapAll?:any):string{
+      const progMap=((progMapAll||_progPayByLead)[String(leadId)])||{};
       // UNION the consStatus level with the programs that actually have a PAID record — so a lead
       // enrolled in L2 who also paid L1 shows BOTH (was showing only the consStatus subset), and
       // payment-driven enrollments (no level in consStatus) still resolve. A due-only request (nothing
@@ -4061,17 +4089,7 @@ export function initApp(root: HTMLElement) {
         (pr.data||[]).forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; const o=(paysByLead[k]=paysByLead[k]||{paid:0,due:0,anyPaid:false}); const amt=Number(p.amount)||0; if(p.status==="paid"){ o.paid+=amt; o.anyPaid=true; } else if(p.status==="due"){ o.due+=amt; } });
         // Per-lead, per-program payment progress — powers the detailed Enrolled label
         // ("L2 Completed | Installment 2 Pending", "L1 Completed", "Fully Paid", …).
-        _progPayByLead={};
-        const _normProg=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const hasL1=/l1/i.test(s), hasL2=/l2/i.test(s); if(hasL1&&hasL2) return "L1 + L2"; if(hasL2&&!hasL1) return "L2"; return "L1"; };
-        (pr.data||[]).forEach((p:any)=>{
-          const lid=String(p.lead_id||""); if(!lid) return;
-          const prog=_normProg(p.program);
-          const byLead=(_progPayByLead[lid]=_progPayByLead[lid]||{});
-          const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,instPaid:0,anyPaid:false,anyDue:false});
-          if(p.payment_type) o.type=p.payment_type;
-          if(p.status==="paid"){ o.anyPaid=true; if(p.payment_type==="installment") o.instPaid++; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
-          else if(p.status==="due"){ o.anyDue=true; }
-        });
+        _progPayByLead=_buildProgPay(pr.data||[]);
         // The outstanding DUE per lead (oldest first — the one Reception collects next) → drives the
         // Collect-queue payment-type label (L2 – 1st/2nd Installment, Full Payment, …).
         const dueByLead:Record<string,any>={};
