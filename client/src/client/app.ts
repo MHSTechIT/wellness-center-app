@@ -6218,6 +6218,19 @@ export function initApp(root: HTMLElement) {
       rows.forEach((r:any)=>out.push([fmtIST(r.meeting_at||r.created_at),r._cust||"",r.meeting_url||"",_recDur(r.duration_seconds),r.status||(r.meeting_url?"Ready":"Pending")]));
       _downloadCsv("wellnessos_zoom_recordings.csv",out); toast("Downloaded "+rows.length+" Zoom recordings");
     };
+    // Populate the coach lead profile's read-only "Reception record" (Visited / Registered / Consent).
+    // The table (#coachRecepBody) was a static "—" placeholder — never wired to data. Visited comes
+    // from the lead's visited_at, Registered from the lead's appointment created_at. Consent isn't
+    // persisted per-lead in the DB, so it reflects that it was recorded as part of registration.
+    async function _coachFillRecep(lead:any){
+      const tb=root.querySelector("#coachRecepBody"); if(!tb||!lead) return;
+      let visited=(lead.visitedAt)||""; let registered="";
+      try{ const {data}=await supabase.from("appointments").select("visited_at,created_at").eq("lead_id",String(lead.id)).order("created_at",{ascending:true}).limit(1); const a=data&&data[0]; if(a){ if(!visited) visited=a.visited_at||""; registered=a.created_at||""; } }catch(_){}
+      if(String(_coachLeadId)!==String(lead.id)) return;   // the coach opened another client during the fetch
+      const f=(d:any)=>d?fmtIST(d):"—";
+      const consent=(visited||registered)?'<span class="chipb ok">✓ Recorded at registration</span>':"—";
+      tb.innerHTML='<tr><td style="color:var(--muted)">Visited</td><td class="mono">'+f(visited)+'</td><td style="color:var(--muted)">Registered</td><td class="mono">'+f(registered)+'</td><td style="color:var(--muted)">Consent</td><td>'+consent+'</td></tr>';
+    }
     function fillCoachDetail(lead:any){
       if(!lead) return;
       _coachLeadId=String(lead.id);
@@ -6258,6 +6271,7 @@ export function initApp(root: HTMLElement) {
       _ovrRenderList(_coachLeadId);
       _renderCoachPayHistory(_coachLeadId);
       _coachPopulateReadOnly(lead);
+      try{ _coachFillRecep(lead); }catch(_){}   // fill the read-only Reception record (Visited / Registered / Consent)
       // Show the enrolled chip immediately from the client's known enrolled level (paid programs /
       // consStatus) — don't wait for the async profile restore, or a genuinely-enrolled client
       // flashes "Not enrolled" on open. The async restore re-runs this with any live consStatus.
