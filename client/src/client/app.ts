@@ -2320,7 +2320,10 @@ export function initApp(root: HTMLElement) {
       const seen:Record<string,number>={};
       return _advCtrls().map((el:any,i:number)=>{
         const fld=el.closest?el.closest(".fld"):null; const lab=fld?fld.querySelector(".lbl"):null;
-        let t=lab?(lab.textContent||"").replace(/\b(NEW|AUTO|SYNCED)\b/g,"").replace(/\s+/g," ").trim():"";
+        // Strip badge text (NEW/AUTO/SYNCED) AND the "*" mandatory marker — otherwise the label
+        // reads "Occupation *", the named key becomes "Occupation *", and every named["Occupation"]
+        // lookup (coach read-only Sales view, recap fields) misses → the field shows blank.
+        let t=lab?(lab.textContent||"").replace(/\b(NEW|AUTO|SYNCED)\b/g,"").replace(/[*]/g,"").replace(/\s+/g," ").trim():"";
         if(!t) t="Field "+(i+1);
         seen[t]=(seen[t]||0)+1; if(seen[t]>1) t=t+" ("+seen[t]+")";
         return t;
@@ -6306,11 +6309,17 @@ export function initApp(root: HTMLElement) {
     async function _coachPopulateReadOnly(lead:any){
       let adv:any=null;
       try{ const {data}=await supabase.from("leads").select("advisor_profile,source,language,campaign,assigned_to").eq("meta_lead_id",lead.id).limit(1); adv=data&&data[0]; }catch(_){}
+      let appt:any=null;
+      try{ const {data:ap}=await supabase.from("appointments").select("appt_date,appt_time").eq("lead_id",String(lead.id)).order("appt_date",{ascending:false}).limit(1); appt=ap&&ap[0]; }catch(_){}
       if(String(_coachLeadId)!==String(lead.id)) return;
       const esc=(s:string)=>(s||"--").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const rb=root.querySelector("#roBasic"); if(rb&&adv){
         const named=adv.advisor_profile?_advNamed(adv.advisor_profile.f):null;
-        const occ=(named&&named["Occupation"])||"--"; const loc=(named&&named["Location"])||"--"; const pr=(named&&named["Priority"])||"--";
+        const occ=(named&&named["Occupation"])||"--"; const loc=(named&&named["Location"])||"--";
+        // Priority is the star rating — saved in advisor_profile.stars (a separate array), NOT in the
+        // positional `f`, so named["Priority"] is always empty. Render the filled stars instead.
+        const _st=(adv.advisor_profile&&adv.advisor_profile.stars)||[]; const _pn=(_st as any[]).filter((x:any)=>!!x).length;
+        const pr=_pn?"★".repeat(_pn):((named&&named["Priority"])||"--");
         rb.innerHTML='<tr><td style="color:var(--muted)">Occupation</td><td>'+esc(occ)+'</td><td style="color:var(--muted)">Language</td><td>'+esc(adv.language||lead.lang)+'</td><td style="color:var(--muted)">Source</td><td>'+esc((adv.source||lead.source||"Meta")+" · "+(adv.campaign||""))+'</td></tr>'
           +'<tr><td style="color:var(--muted)">Location</td><td>'+esc(loc)+'</td><td style="color:var(--muted)">Salesperson</td><td style="font-weight:600">'+esc(adv.assigned_to||"--")+'</td><td style="color:var(--muted)">Priority</td><td>'+esc(pr)+'</td></tr>';
       }
@@ -6323,9 +6332,14 @@ export function initApp(root: HTMLElement) {
       }
       const rc=root.querySelector("#roCalls"); if(rc&&adv){
         const named=adv.advisor_profile?_advNamed(adv.advisor_profile.f):null;
-        const cs=(named&&named["Call status"])||"--"; const hc=adv.assigned_to||"--";
-        rc.innerHTML='<tr><td style="color:var(--muted)">Call status</td><td>'+esc(cs)+'</td><td style="color:var(--muted)">Appointment</td><td class="mono">--</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">'+esc(hc)+'</td></tr>'
-          +'<tr><td style="color:var(--muted)">Last call note</td><td colspan="5">'+esc((named&&named["Last note"])||"--")+'</td></tr>';
+        // Call status = the lead's live status (the profile stores a raw code); Appointment = the
+        // lead's appointment date/time (was hardcoded "--"); Last note = the "Call notes" field
+        // (the old "Last note" key never matched the form label).
+        const cs=(lead.callStatus)||(named&&named["Call status"])||"--"; const hc=adv.assigned_to||lead.hc||"--";
+        const apptTxt=appt?(fmtISTDate(appt.appt_date)+(appt.appt_time?(", "+appt.appt_time):"")):"--";
+        const note=(named&&(named["Call notes"]||named["Last note"]||named["Call notes / objections"]))||"--";
+        rc.innerHTML='<tr><td style="color:var(--muted)">Call status</td><td>'+esc(cs)+'</td><td style="color:var(--muted)">Appointment</td><td class="mono">'+esc(apptTxt)+'</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">'+esc(hc)+'</td></tr>'
+          +'<tr><td style="color:var(--muted)">Last call note</td><td colspan="5">'+esc(note)+'</td></tr>';
       }
     }
     async function loadCoachClients(){
