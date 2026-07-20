@@ -13,6 +13,9 @@ export function initApp(root: HTMLElement) {
     // https://api.example.com) when the client and server run separately.
     const API_BASE=(process.env.NEXT_PUBLIC_API_BASE_URL||"").replace(/\/+$/,"");
     const _api=(p:string)=>API_BASE+p;
+    // Commit SHA baked into this bundle at build time (see next.config.ts). Compared against the
+    // server's /version to detect when a newer build has been deployed while this tab is still open.
+    const BUILD_VERSION=process.env.NEXT_PUBLIC_BUILD_VERSION||"";
 
     // Live numeric-only input guard (digits + one optional decimal). Wire via
     // oninput="window._numOnly(this)" on money/number fields so letters and
@@ -2778,7 +2781,12 @@ export function initApp(root: HTMLElement) {
       // _advisorScope(), so the dashboard KPIs and results tables stay scoped too.
       return [..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
     }
-    function haEffStatus(l:any){ return l.callStatus || (l.isAssigned?"Open":"New"); }
+    // Enrolled is driven by the CANONICAL enrolled_at timestamp (stable, set once at enrollment).
+    // call_status is a mutable disposition that can drift to a non-enrolled value even after a lead
+    // is enrolled, so the dashboard must bucket by enrolled_at first — otherwise an enrolled lead
+    // silently drops out of the Enrolled card/table (root cause of the recurring "not showing as
+    // enrolled" reports). Matches _advApplyEnrolled / Reception _isEnrolled, which are enrolled_at-based.
+    function haEffStatus(l:any){ return l.enrolledAt ? "Enrolled" : (l.callStatus || (l.isAssigned?"Open":"New")); }
     // Follow-up reminder: notify the advisor once per lead when a scheduled follow-up is
     // due/overdue (only after sign-in). Cleared automatically when the lead leaves the
     // follow-up bucket (status changed → completed), so it re-arms if re-scheduled.
@@ -3991,7 +3999,11 @@ export function initApp(root: HTMLElement) {
       // client enrolled in — so the Stage shows "L1 Completed · L2 Completed | Fully Paid", etc.
       if(!levels.length){
         const set=new Set<string>();
-        Object.keys(progMap).forEach((k:string)=>{ if(/l1\s*\+\s*l2/i.test(k)){set.add("L1");set.add("L2");} else if(/l2/i.test(k))set.add("L2"); else if(/l1/i.test(k))set.add("L1"); });
+        // Only PAID programs count toward the enrolled level (matches the Advisor rule at ~2436 and
+        // the Coach chip). A due-only request (collection sent, nothing collected) is NOT enrollment,
+        // so it must not inflate the level — otherwise the same lead reads "Enrolled – L2" here but a
+        // bare "Enrolled" on the Advisor page. The per-program "due" progress still shows in labelFor.
+        Object.keys(progMap).forEach((k:string)=>{ if(!progMap[k]||!progMap[k].anyPaid) return; if(/l1\s*\+\s*l2/i.test(k)){set.add("L1");set.add("L2");} else if(/l2/i.test(k))set.add("L2"); else if(/l1/i.test(k))set.add("L1"); });
         levels=["L1","L2"].filter((l:string)=>set.has(l));
       }
       if(!levels.length) return "Enrolled";
@@ -5035,8 +5047,11 @@ export function initApp(root: HTMLElement) {
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
       if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=new Date().toISOString().substring(0,10); renderSlots(); }   // no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
-      // Persist the call status to the open lead so it drives the KPI dashboard.
-      if(w._haSetCallStatus) w._haSetCallStatus(HA_CODE2LABEL[v]||v);
+      // Persist the call status to the open lead so it drives the KPI dashboard — but NEVER while
+      // restoring/opening a saved profile (_advApplying). Otherwise merely opening an enrolled lead's
+      // profile re-writes its (possibly stale) saved call_status back to the DB, silently un-enrolling
+      // it on the dashboard. This mirrors the _advApplying guard already used for the activity log below.
+      if(!_advApplying && w._haSetCallStatus) w._haSetCallStatus(HA_CODE2LABEL[v]||v);
       // Audit: log a real status change (but not when restoring a saved profile).
       if(!_advApplying && _advLeadId) logActivity(_advLeadId,[{action:"Status Changed",field:"Call status",new:HA_CODE2LABEL[v]||v}]);
     }
@@ -5309,7 +5324,10 @@ export function initApp(root: HTMLElement) {
       const progLabel=(k:string):string=>{ const o=agg[k]; if(!o) return "";
         if(o.instPaid>0) return o.instPaid>=2?(k+" Completed"):(k+" – Installment 1 Completed");
         if(o.full||(o.paid>0&&o.due===0)) return k+" Completed";
-        if(o.paid>0||o.due>0) return "Enrolled – "+k;
+        // Only a PAID program counts as enrolled here. A due-only request is not enrollment, so it
+        // returns "" and forProg() falls back to the coach's consStatus level (an explicit enroll).
+        // This keeps the Coach chip, Reception Stage, and Advisor level in agreement for the lead.
+        if(o.paid>0) return "Enrolled – "+k;
         return ""; };
       // Live consStatus ("Enrolled – Lx") the coach may have just marked, scoped to the program it names.
       const csm=(_coachConsStatus||"").match(/Enrolled\s*[–-]\s*(L1\s*\+\s*L2|L[12])/i);
@@ -6291,7 +6309,7 @@ export function initApp(root: HTMLElement) {
       return _coachClients.filter((c:any)=>{
         if(scope){ if((c.hc||"")!==scope) return false; }
         else if(coach!=="all"&&(c.hc||"")!==coach) return false;
-        if(st!=="all"&&_coachConsOf(c)!==st) return false;   // filter by consultation status (matches cards + column)
+        if(st!=="all"&&!_coachConsMatch(c,st)) return false;   // filter by consultation status (matches cards + column; L1+L2 matches both Enrolled cards)
         if(src!=="all"&&(c.source||"")!==src) return false;
         if(svc!=="all"&&(c.service||"")!==svc) return false;
         if(fromT||toT){ const t=c.visitedAt?new Date(c.visitedAt).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
@@ -6299,9 +6317,32 @@ export function initApp(root: HTMLElement) {
         return true;
       });
     }
-    // Consultation status label for a client (persisted in coach_profile.consStatus).
-    // Prefer the live coach_profile (fresh after a save) over the load-time snapshot.
-    function _coachConsOf(c:any){ return (c&&((c.coachProfile&&c.coachProfile.consStatus)||c.consStatus))||"Open"; }
+    // Raw consultation status persisted in coach_profile.consStatus (live profile wins over snapshot).
+    function _coachRawCons(c:any){ return (c&&((c.coachProfile&&c.coachProfile.consStatus)||c.consStatus))||"Open"; }
+    // Consultation status label used across the coach dashboard, table and kanban. The CANONICAL
+    // enrolled state (enrolled_at, or a paid program level) OVERRIDES the mutable consultation-status
+    // disposition: an actually-enrolled client must read "Enrolled – Lx" and land in the Enrolled
+    // cards, never a stale "Will Join Immediately". Mirrors the Advisor haEffStatus fix. Non-enrolled
+    // clients keep their stored status.
+    function _coachConsOf(c:any){
+      const stored=_coachRawCons(c);
+      const lvl=(c&&c.enrolledLevel)||"";
+      const enrolled=!!(c&&c.enrolledAt)||/enrol/i.test(stored)||!!lvl;
+      if(!enrolled) return stored;
+      const L=lvl||(/l1\s*\+\s*l2/i.test(stored)?"L1 + L2":/l2/i.test(stored)?"L2":/l1/i.test(stored)?"L1":"");
+      return L?("Enrolled – "+L):"Enrolled";
+    }
+    // Does client c belong in the given dashboard card / kanban column / status-filter value?
+    // Exact match, EXCEPT the two Enrolled cards use MEMBERSHIP so an L1 + L2 client counts in BOTH.
+    function _coachConsMatch(c:any,label:string){
+      const s=_coachConsOf(c);
+      if(/^Enrolled\s*[–-]\s*L/i.test(label)){
+        if(!/enrol/i.test(s)) return false;
+        if(/l2/i.test(label)) return /l2/i.test(s);
+        if(/l1/i.test(label)) return /l1/i.test(s);
+      }
+      return s===label;
+    }
     function _coachPopulateFilters(){
       const fill=(sel:string,vals:string[],allLabel:string)=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
       // The coach filter must list EVERY active Health Coach from the Assignees master
@@ -6356,7 +6397,11 @@ export function initApp(root: HTMLElement) {
       const el=root.querySelector("#coachDash"); if(!el) return;
       const list=_coachFiltered();   // cards reflect the applied filter bar (NOT the card selection)
       const counts:Record<string,number>={}; _coachStatusCards.forEach(l=>counts[l]=0);
-      list.forEach((c:any)=>{ const s=_coachConsOf(c); counts[s]=(counts[s]||0)+1; });
+      list.forEach((c:any)=>{ const s=_coachConsOf(c);
+        // Enrolled clients count by MEMBERSHIP: an L1 + L2 client is counted in BOTH Enrolled cards.
+        if(/^Enrolled\s*[–-]\s*L/i.test(s)){ if(/l1/i.test(s)) counts["Enrolled – L1"]=(counts["Enrolled – L1"]||0)+1; if(/l2/i.test(s)) counts["Enrolled – L2"]=(counts["Enrolled – L2"]||0)+1; }
+        else counts[s]=(counts[s]||0)+1;
+      });
       const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       el.innerHTML=_coachStatusCards.map(l=>{
         const on=_coachDashSel===l;
@@ -6388,7 +6433,7 @@ export function initApp(root: HTMLElement) {
       return cols;
     }
     regGrid("coachClients",_coachCliColsFn,()=>renderCoachClientsTable());
-    function _coachCliBase(){ let base=_coachFiltered(); if(_coachDashSel) base=base.filter((c:any)=>_coachConsOf(c)===_coachDashSel); return base; }
+    function _coachCliBase(){ let base=_coachFiltered(); if(_coachDashSel) base=base.filter((c:any)=>_coachConsMatch(c,_coachDashSel)); return base; }
     function renderCoachClientsTable(){
       const head=root.querySelector("#coachClientsHead"); if(head)head.innerHTML=gridHead("coachClients");
       const rows=gridApply("coachClients",_coachCliBase());
@@ -6450,7 +6495,7 @@ export function initApp(root: HTMLElement) {
       // Kanban columns mirror the consultation-status values (the same set the dashboard
       // cards, List view and All-Status dropdown use) so every view stays in sync.
       const stageColors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#0B6B4C","#E8A817","#0EA5A0","#D8442B","#A855F7","#EF4444","#64748B"];
-      const cols=_coachStatusCards.map((label:string,ci:number)=>({label,color:stageColors[ci%stageColors.length],filter:(c:any)=>_coachConsOf(c)===label}));
+      const cols=_coachStatusCards.map((label:string,ci:number)=>({label,color:stageColors[ci%stageColors.length],filter:(c:any)=>_coachConsMatch(c,label)}));
       const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
         const items=list.filter(col.filter);
@@ -7564,8 +7609,30 @@ export function initApp(root: HTMLElement) {
       const rbacTabBtn=root.querySelector('#settTabs button[data-t="st-rbac"]')as HTMLButtonElement|null;
       if(rbacTabBtn) rbacTabBtn.addEventListener("click",()=>{ renderRbacMatrix(); });
     }
+    // ---- Build-version watch: prompt an already-open client to reload after a new deploy ----
+    // The bundle bakes its commit SHA (BUILD_VERSION); the server reports the deployed SHA at
+    // /version. When they differ, a newer build is live but this tab is still running the old one —
+    // reveal the "Refresh" bar. Durable fix for the recurring "works on localhost, stale in
+    // production" reports (a single-page app never self-reloads). Skips dev/unconfigured (no SHA).
+    let _versionTimer:any=null;
+    async function checkVersion(){
+      if(!BUILD_VERSION) return;
+      try{
+        const r=await fetch(_api("/version"),{cache:"no-store"});
+        const j=await r.json();
+        const live=String((j&&j.version)||"");
+        if(!live||live==="dev"||live===BUILD_VERSION) return;
+        const bar=root.querySelector("#updBar")as HTMLElement|null; if(bar) bar.style.display="flex";
+        if(_versionTimer){ clearInterval(_versionTimer); _versionTimer=null; }   // detected — stop polling
+        window.removeEventListener("focus",checkVersion);
+      }catch(_){/* transient — retry on next tick */}
+    }
+
     // Auth gate — all data loading happens inside showApp() after successful auth
     checkAuth();
+    checkVersion();
+    _versionTimer=setInterval(checkVersion,60000);
+    window.addEventListener("focus",checkVersion);
 
-    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
+    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); if(_versionTimer) clearInterval(_versionTimer); window.removeEventListener("focus",checkVersion); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
 }

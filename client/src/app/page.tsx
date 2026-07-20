@@ -56,6 +56,7 @@ export default function Home() {
             <h1 className="login-title">My Health School</h1>
             <div className="login-sub">Wellness Center</div>
             <p className="login-cap">Sign in to continue</p>
+            <div style={{fontSize:"10px",color:"var(--muted)",marginTop:"6px",letterSpacing:".02em"}}>Build {process.env.NEXT_PUBLIC_BUILD_VERSION || "dev"}</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
             <div><label className="lbl">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com"/></div>
@@ -93,7 +94,7 @@ export default function Home() {
             <div className="ng">Admin</div>
             <button data-s="admin"><svg className="icon"><use href="#i-cog"/></svg> Settings &amp; masters</button>
           </nav>
-          <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
+          <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><span id="sfootVer" title="Deployed build" style={{fontSize:"9.5px",color:"#7C9488",whiteSpace:"nowrap",marginRight:"6px"}}>v{process.env.NEXT_PUBLIC_BUILD_VERSION || "dev"}</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
         </aside>
         <main className="main" id="main" dangerouslySetInnerHTML={{__html: getMainContent()}}/>
       </div>
@@ -101,6 +102,11 @@ export default function Home() {
       <div className="toast" id="toast"><svg className="icon"><use href="#i-check"/></svg><span id="toastMsg">Saved</span></div>
       <div className="toast err" id="toastE" style={{background:"#7A2416"}}><svg className="icon"><use href="#i-x"/></svg><span id="toastEMsg">Error</span></div>
       <div className="ach" id="ach"><span className="em" id="achEm">🎉</span><div><b id="achT">Achievement</b><span id="achS">Nice work</span></div></div>
+      {/* New-build prompt — revealed by checkVersion() in app.ts when the deployed SHA differs from this bundle's. */}
+      <div id="updBar" style={{display:"none",position:"fixed",bottom:"18px",left:"50%",transform:"translateX(-50%)",zIndex:9999,alignItems:"center",gap:"12px",background:"#1f6f54",color:"#fff",padding:"10px 16px",borderRadius:"10px",boxShadow:"0 8px 28px rgba(0,0,0,.28)",fontSize:"13px",fontWeight:600}}>
+        <span>A new version is available.</span>
+        <button onClick={()=>window.location.reload()} style={{background:"#fff",color:"#1f6f54",border:"none",borderRadius:"7px",padding:"5px 12px",fontSize:"12.5px",fontWeight:700,cursor:"pointer"}}>Refresh</button>
+      </div>
       <div className="doverlay" id="dOverlay" onClick={()=>(window as any).closeDrawer?.()}></div>
       <div className="drawer" id="drawer">
         <div className="dclose">

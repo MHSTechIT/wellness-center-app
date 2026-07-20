@@ -3,6 +3,15 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
+
+// Deployed commit SHA — reported at /version and /health so an already-open client can detect a new
+// build and prompt a reload. Prefer an explicit BUILD_VERSION env; else read the checked-out commit
+// (the server runs from the git repo on the prod box after `git reset --hard`); else 'dev'.
+const BUILD_VERSION = (() => {
+  if (process.env.BUILD_VERSION) return process.env.BUILD_VERSION;
+  try { return execSync('git rev-parse --short HEAD', { cwd: process.cwd() }).toString().trim(); } catch { return 'dev'; }
+})();
 import { registerMetaRoutes, refreshExpiringTokens } from './routes/meta';
 import { registerCallRoutes } from './routes/calls';
 import { registerDataRoutes } from './routes/data';
@@ -32,7 +41,14 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check (used by ECS/ALB target-group probes).
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'wellness-api', ts: new Date().toISOString() });
+  res.json({ ok: true, service: 'wellness-api', version: BUILD_VERSION, ts: new Date().toISOString() });
+});
+
+// Deployed build version — the client polls this and compares to its own baked SHA to know when a
+// newer build is live. Never cached so a reload can't serve a stale value.
+app.get('/version', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ version: BUILD_VERSION });
 });
 
 registerMetaRoutes(app);
