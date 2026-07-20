@@ -846,7 +846,7 @@ export function getMainContent(): string {
       <div id="scCards" class="metrics" style="margin:0;grid-template-columns:repeat(4,1fr)"></div>
       <div id="svcFlows" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
     </div>
-    <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-cal"/></svg> Appointments <span class="chipb info" style="margin-left:6px" id="apptCount">0</span> <span style="margin-left:auto;font-size:11px;color:var(--faint)">Click row → full record</span> <span class="arr">▾</span></div>
+    <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-cal"/></svg> Appointments <span class="chipb info" style="margin-left:6px" id="apptCount">0</span> <span style="margin-left:auto;font-size:11px;color:var(--faint)">Click row → full record</span> <input class="input" id="apptSearch" placeholder="Search lead number…" onclick="event.stopPropagation()" oninput="window._apptSearch(this.value)" style="height:32px;max-width:220px;margin-left:12px;font-size:12px"> <span class="arr">▾</span></div>
       <div class="ftable-wrap" id="apptWrap" style="max-height:380px"></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">

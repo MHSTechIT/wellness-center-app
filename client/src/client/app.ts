@@ -4214,6 +4214,7 @@ export function initApp(root: HTMLElement) {
     // Excel-style per-column filters for the Appointments table (shared grid engine).
     // AND-combined with the existing service/date pill filters via filtered().
     const _apptCols=[
+      {key:"sno",label:"S.No.",filter:false,head:'<th style="min-width:52px">S.No.</th>'},
       {key:"dt",label:"Date · time",filter:true,text:(r:any)=>r.date+(r.time?", "+r.time:""),thStyle:"min-width:150px"},
       {key:"client",label:"Client",filter:true,text:(r:any)=>r.name||"",thStyle:"min-width:120px"},
       {key:"phone",label:"Phone",filter:true,text:(r:any)=>r.ph||"",thStyle:"min-width:110px"},
@@ -4229,6 +4230,9 @@ export function initApp(root: HTMLElement) {
       {key:"rec",label:"rec",filter:false,head:'<th style="min-width:70px">🎤 Calls</th>'},
     ];
     regGrid("appt",()=>_apptCols,()=>renderAppt());
+    // Quick "lead number" search box in the Appointments header — matches phone digits, lead id, or name.
+    let _apptQuery="";
+    w._apptSearch=(v:string)=>{ _apptQuery=String(v||"").trim(); renderAppt(); };
     function renderAppt() {
       const aw = root.querySelector("#apptWrap") as HTMLElement|null; if(!aw) return;
       // Build the table shell once; header + body re-render each pass.
@@ -4236,16 +4240,17 @@ export function initApp(root: HTMLElement) {
         aw.innerHTML='<table class="tbl" style="min-width:1200px"><thead><tr id="apptHead"></tr></thead><tbody id="apptBody"></tbody></table>';
       }
       const hd=root.querySelector("#apptHead"); if(hd)hd.innerHTML=gridHead("appt");
-      const f = gridApply("appt", filtered());
+      let f = gridApply("appt", filtered());
+      if(_apptQuery){ const qd=_apptQuery.toLowerCase(); const qDigits=_apptQuery.replace(/\D/g,""); f=f.filter((r:any)=>{ const ph=String(r.ph||"").replace(/\D/g,""); return (!!qDigits&&ph.indexOf(qDigits)>=0)||String(r.name||"").toLowerCase().indexOf(qd)>=0||String(r.lead_id||"").toLowerCase().indexOf(qd)>=0||String((r as any).client_id||(r as any).clientId||"").toLowerCase().indexOf(qd)>=0; }); }
       const el = root.querySelector("#apptCount"); if (el) el.textContent = f.length+" total";
       const body=root.querySelector("#apptBody"); if(!body) return;
       let rows='';
-      f.forEach((r:any) => {
+      f.forEach((r:any,i:number) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.enrollLine?'<span class="chipb ok" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.enrollLine+'</span>':(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—"))+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.enrollLine?'<span class="chipb ok" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.enrollLine+'</span>':(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—"))+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
-      body.innerHTML = rows || '<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
+      body.innerHTML = rows || '<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
     function renderPay() {
       const el = root.querySelector("#recPayList");
