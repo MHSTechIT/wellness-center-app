@@ -4114,7 +4114,7 @@ export function initApp(root: HTMLElement) {
       const lang=lead?(lead.lang||"Tamil"):"Tamil";
       const hc=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||"";
       const sd=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
-      const apptDate=sd||new Date().toISOString().substring(0,10);
+      const apptDate=sd||_todayLocal();   // LOCAL date so an early-morning IST walk-in isn't dated yesterday (UTC)
       const apptTime=selSlot||"";
       const mt=(mode.toLowerCase()==="zoom")?"zoom":"direct";
       try{
@@ -4530,7 +4530,7 @@ export function initApp(root: HTMLElement) {
       p.style.display=p.style.display==="none"?"block":"none";
       if(p.style.display!=="block") return;
       p.scrollIntoView({behavior:"smooth"});
-      const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=new Date().toISOString().substring(0,10);
+      const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=_todayLocal();   // LOCAL date (UTC would read yesterday in early-morning IST)
       // Resume a saved draft (survives refresh/reopen) from its last step; else start fresh.
       let draft:any=null; try{ const s=localStorage.getItem(_NW_DRAFT_KEY); draft=s?JSON.parse(s):null; }catch(_){}
       if(draft){ _nwRestoreDraft(draft); _nwStep(Math.min(4,Math.max(1,Number(draft._step)||1))); if(!((root.querySelector("#nwClientId")as HTMLInputElement)?.value)) _nwFillClientId(); toast("Draft restored — resuming step "+(Number(draft._step)||1)); }
@@ -4884,15 +4884,25 @@ export function initApp(root: HTMLElement) {
       if(!m||!m.leadId) return; const id=String(m.leadId);
       const set=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ if(m.callStatus!=null)l.callStatus=m.callStatus; if("enrolledAt" in m)l.enrolledAt=m.enrolledAt; if("visitedAt" in m)l.visitedAt=m.visitedAt; } });
       try{ set(_metaLeads); set(_assignedExtras); }catch(_){}
-      try{ const cc=_coachClients.find((x:any)=>String(x.id)===id); if(cc){ if(m.callStatus!=null)cc.callStatus=m.callStatus; if("enrolledAt" in m)cc.enrolledAt=m.enrolledAt; if(m.consStatus){ cc.consStatus=m.consStatus; if(cc.coachProfile)cc.coachProfile.consStatus=m.consStatus; } } }catch(_){}
+      // Coach in-memory client: apply every synced field INCLUDING visitedAt (was omitted) so an
+      // already-loaded client refreshes without a reload.
+      try{ const cc=_coachClients.find((x:any)=>String(x.id)===id); if(cc){ if(m.callStatus!=null)cc.callStatus=m.callStatus; if("enrolledAt" in m)cc.enrolledAt=m.enrolledAt; if("visitedAt" in m)cc.visitedAt=m.visitedAt; if(m.consStatus){ cc.consStatus=m.consStatus; if(cc.coachProfile)cc.coachProfile.consStatus=m.consStatus; } } }catch(_){}
+      // Cheap in-memory re-renders are fine anywhere; the HEAVY DB reloads run ONLY when their screen
+      // is actually open (they were firing in every tab on every message — pure thrash).
       try{ renderHealthDashboard(); }catch(_){}
       try{ renderAssignedLeads(); renderAsnHist(); }catch(_){}
       try{ renderCoachOpenList(); }catch(_){}
-      try{ loadReceptionData(); }catch(_){}   // keep a Reception tab's amount/queue/revenue + Enrolled card fresh
+      const _scr=_activeScreenId();
+      if(_scr==="reception"){ try{ loadReceptionData(); }catch(_){} }   // keep a Reception tab's amount/queue/revenue + Enrolled card fresh
+      // A newly-VISITED lead isn't in _coachClients yet (that list is loaded WHERE visited_at NOT NULL),
+      // so an open Coach tab needs a reload to surface it — otherwise it only appears after a manual refresh.
+      if(_scr==="coach"&&("visitedAt" in m)&&m.visitedAt&&!_coachClients.some((x:any)=>String(x.id)===id)){ try{ loadCoachClients(); }catch(_){} }
       // If the affected lead is OPEN in this tab's Advisor / Coach profile, apply it live.
       try{ if(String(_advLeadId)===id&&m.callStatus!=null) _advApplyEnrolled(m.callStatus,m.enrolledAt,m.consStatus); }catch(_){}
       try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt); }catch(_){}
-      try{ if(String(_coachLeadId)===id&&/enrol/i.test(String(m.callStatus||""))){ const cs=String(m.consStatus||""); const lvl=/l1\s*\+\s*l2/i.test(cs)?"L1 + L2":(/l2/i.test(cs)?"L2":"L1"); _setPayEnrollDisplay(lvl,m.enrolledAt||""); _refreshPayEnrollChip(); } }catch(_){}
+      // Open Coach profile on a cross-tab ENROLL: flip the consultation-status pills (not just the pay
+      // chip) so the panel matches, then refresh the chip.
+      try{ if(String(_coachLeadId)===id){ const cs=String(m.consStatus||""); if(/enrol/i.test(String(m.callStatus||""))||/enrol/i.test(cs)){ const lvl=/l1\s*\+\s*l2/i.test(cs)?"L1 + L2":(/l2/i.test(cs)?"L2":"L1"); try{ const code=lvl==="L2"?"enrol2":"enrol1"; const pill=root.querySelector('#consStatus .pill[onclick*="'+code+'"]')as HTMLElement|null; if(pill){ root.querySelectorAll("#consStatus .pill").forEach((b:any)=>b.classList.remove("on")); pill.classList.add("on"); if(typeof consAct==="function") consAct(code,pill); } }catch(_){} _setPayEnrollDisplay(lvl,m.enrolledAt||""); _refreshPayEnrollChip(); } } }catch(_){}
     }
     if(_syncBus){ _syncBus.onmessage=(e:any)=>{ try{ _applyLeadSync(e.data); }catch(_){} }; }
     // Reception → Health Coach enrollment (explicit per-client action).
@@ -4933,12 +4943,16 @@ export function initApp(root: HTMLElement) {
         if(error) throw error;
         // Set leads.visited_at too — that's the field the Health Coach queue reads,
         // so the checked-in client flows through to the coach after screening.
-        if(_ciMatch.lead_id){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",_ciMatch.lead_id); }catch(_){}
-          // Record the check-in in the lead's Activity Log (date/time + mode).
-          const mode=(_ciMatch.meeting_type==="zoom"||/zoom/i.test(_ciMatch.source||""))?"Zoom":"Walk-in";
-          logActivity(_ciMatch.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
-          // Push Visited status + date to any open Advisor / Coach tab so it updates live.
-          _broadcastLeadSync({leadId:String(_ciMatch.lead_id),callStatus:"Visited",visitedAt:nowIso});
+        if(_ciMatch.lead_id){
+          // leads.visited_at is the field the Health Coach queue reads — if THIS write fails, the
+          // client is marked visited on the appointment but silently never reaches the coach. Surface
+          // the failure (don't swallow) and only log/broadcast when it actually succeeded.
+          if(await _dbOk(supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",_ciMatch.lead_id),"Check-in handoff to Coach")){
+            const mode=(_ciMatch.meeting_type==="zoom"||/zoom/i.test(_ciMatch.source||""))?"Zoom":"Walk-in";
+            logActivity(_ciMatch.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
+            // Push Visited status + date to any open Advisor / Coach tab so it updates live.
+            _broadcastLeadSync({leadId:String(_ciMatch.lead_id),callStatus:"Visited",visitedAt:nowIso});
+          }
         }
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
@@ -5002,14 +5016,18 @@ export function initApp(root: HTMLElement) {
         if(leadOnly){
           // No appointment row yet (status set on the Advisor page without the slot board) — create
           // one now (visited) so it lands in the reception queue + Health Coach, then mark Visited.
-          if(a){ try{ await supabase.from("appointments").insert({lead_id:a.lead_id,client_name:a.client_name,phone:a.phone,service:a.service||"Diabetes",appt_date:(a.appt_date?String(a.appt_date).slice(0,10):nowIso.slice(0,10)),appt_time:a.appt_time||"",status:"visited",visited_at:nowIso,stage:"screening",source:"Advisor (Zoom)",meeting_type:"zoom",language:a.language||"Tamil"}); }catch(_){} }
+          if(a){ try{ await supabase.from("appointments").insert({lead_id:a.lead_id,client_name:a.client_name,phone:a.phone,service:a.service||"Diabetes",appt_date:(a.appt_date?String(a.appt_date).slice(0,10):_todayLocal()),appt_time:a.appt_time||"",status:"visited",visited_at:nowIso,stage:"screening",source:"Advisor (Zoom)",meeting_type:"zoom",language:a.language||"Tamil"}); }catch(_){} }
         } else {
           const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",ref);
           if(error) throw error;
         }
-        if(leadId){ try{ await supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",leadId); }catch(_){}
-          logActivity(leadId,[{action:"Checked In",field:"Visited",new:"Zoom"}]);
-          _broadcastLeadSync({leadId:String(leadId),callStatus:"Visited",visitedAt:nowIso});   // live-update open Advisor/Coach tabs
+        if(leadId){
+          // leads.visited_at drives the Health Coach queue — surface a failure instead of swallowing
+          // it, and only log/broadcast the check-in when the handoff write actually succeeded.
+          if(await _dbOk(supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",leadId),"Zoom check-in handoff to Coach")){
+            logActivity(leadId,[{action:"Checked In",field:"Visited",new:"Zoom"}]);
+            _broadcastLeadSync({leadId:String(leadId),callStatus:"Visited",visitedAt:nowIso});   // live-update open Advisor/Coach tabs
+          }
         }
       }catch(e:any){ toastErr("Zoom check-in failed: "+(e.message||"db error")); return; }
       toast("✓ "+((a&&a.client_name)||"Client")+" checked in (Zoom)");
@@ -5046,7 +5064,7 @@ export function initApp(root: HTMLElement) {
       const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:["Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"]};
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
-      if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=new Date().toISOString().substring(0,10); renderSlots(); }   // no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
+      if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=_todayLocal(); renderSlots(); }   // LOCAL date (not UTC) so an early-morning IST default isn't "yesterday" and rejected by bookSlot's _todayLocal check. no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
       // Persist the call status to the open lead so it drives the KPI dashboard — but NEVER while
       // restoring/opening a saved profile (_advApplying). Otherwise merely opening an enrolled lead's
       // profile re-writes its (possibly stale) saved call_status back to the DB, silently un-enrolling
@@ -5583,8 +5601,12 @@ export function initApp(root: HTMLElement) {
         try{ const {data}=await supabase.from("payments").select("status").eq("lead_id",id).eq("program",prog).eq("payment_type","installment").eq("status","paid").limit(1); inst1Done=!!(data&&data.length); }catch(_){}
         instNum=inst1Done?2:1;
       }
+      const _i2PlanTotal=_payNum("#i2Total")||_payGetPrice();   // full value of the 2-part plan
+      // Installment amount fallbacks must NEVER be the full plan total (that made inst-1 = total → no
+      // balance left → inst-2 never tracked). Inst 1 falls back to half the plan; inst 2 to total − inst 1.
       const amt = method==="full" ? (_payNum("#payFullRcvd")||_payNum("#payAmtDue")||_payGetPrice())
-                : method==="i2"   ? (instNum===2 ? (_payNum("#i2BalRcvd")||_payNum("#i2BalDue")) : (_payNum("#i2Inst1Rcvd")||_payNum("#i2Total")||_payGetPrice()))
+                : method==="i2"   ? (instNum===2 ? (_payNum("#i2BalRcvd")||_payNum("#i2BalDue")||Math.max(0,_i2PlanTotal-(_payNum("#i2Inst1Rcvd")||0)))
+                                                  : (_payNum("#i2Inst1Rcvd")||(_i2PlanTotal?Math.round(_i2PlanTotal/2):0)))
                 : method==="adv"  ? (_payNum("#advAmt")||_payGetPrice())
                 : method==="emi"  ? (_payNum("#emiDown")||_payGetPrice())   // EMI: Reception collects the down payment
                 : _payGetPrice();
@@ -5594,18 +5616,19 @@ export function initApp(root: HTMLElement) {
         let apptId:any=null; try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",id).neq("status","cancelled").order("appt_date",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
         // One pending request per lead+program+method (+ same installment for i2): replace any
         // earlier UNPAID request. Scoped to installment so an inst-2 request never wipes an inst-1 due.
-        try{ let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); if(instNum!=null) del=del.eq("installment_number",instNum); await del; }catch(_){}
-        const {error}=await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null});
-        if(error) throw error;
+        // Abort if the delete fails — inserting on top of an un-cleared due row duplicates the request.
+        let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); if(instNum!=null) del=del.eq("installment_number",instNum);
+        if(!(await _dbOk(del,"Collection request update"))) return;
+        if(!(await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null}),"Send to Reception"))) return;
         // 2-part plan, installment 1 request → ALSO track the remaining balance as installment 2
         // (due), so the Total, Balance and "Installment 2 pending" are never lost once inst 1 is
-        // collected. Balance = entered Total − Installment 1. Due date = the auto +30d field.
+        // collected. Balance = plan Total − Installment 1. Due date = the auto +30d field.
         if(method==="i2" && instNum===1){
-          const total=_payNum("#i2Total")||0; const bal=(total>amt)?(total-amt):0;
+          const total=_payNum("#i2Total")||_payGetPrice()||0; const bal=(total>amt)?(total-amt):0;
           if(bal>0){
             const bdd=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; const dueIso=(bdd&&(bdd as any).dataset&&(bdd as any).dataset.iso)||null;
-            try{ await supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","installment").eq("program",prog).eq("installment_number",2); }catch(_){}
-            try{ await supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:who}); }catch(_){}
+            if(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","installment").eq("program",prog).eq("installment_number",2),"Balance update"))
+              await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:who}),"Balance tracking");
           }
         }
         addLog("Payment → Reception · ₹"+amt.toLocaleString("en-IN"));
@@ -6514,6 +6537,14 @@ export function initApp(root: HTMLElement) {
       }).join("")+'</div>';
     }
     w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client")); };
+    // The /db gateway RESOLVES {error} (it never throws), so `try{ await write }catch{}` can't catch a
+    // failed write and the returned error is silently dropped. This awaits a write, and on failure
+    // toasts + returns false so the caller can ABORT — critically, so an insert never runs on top of
+    // a delete that failed (the source of duplicate payment rows). Returns true on success.
+    async function _dbOk(p:Promise<any>,what:string):Promise<boolean>{
+      try{ const r:any=await p; if(r&&r.error){ toastErr(what+" failed: "+(r.error.message||"database error")); return false; } return true; }
+      catch(e:any){ toastErr(what+" failed: "+(e?.message||"network error")); return false; }
+    }
     // Persist the coach's collected payment to the `payments` table so it shows in the
     // payment history + Accounts. Handles Full / 2× Installment / Advance (each re-written
     // so re-saving doesn't duplicate). EMI is a financier flow (money goes to the provider,
@@ -6527,13 +6558,12 @@ export function initApp(root: HTMLElement) {
       const proof=(cid:string)=>{ const p=_payProofs[cid]; return p?{proof_url:p.url,proof_name:p.name}:{}; };
       const commit=async(ptype:string,rows:any[],label:string,collected:number)=>{
         // Scope the re-write to THIS program so an L2 save never wipes the L1 payment (and vice versa).
-        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type",ptype).eq("program",_prog); }catch(_){}
+        // Abort if the delete failed — inserting on top of rows we couldn't clear duplicates them.
+        if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type",ptype).eq("program",_prog),"Payment update"))) return;
         if(!rows.length) return;
-        try{
-          await supabase.from("payments").insert(rows);
-          logActivity(id,[{action:"Payment",field:label,new:"₹"+collected.toLocaleString("en-IN")+(total?(" of ₹"+total.toLocaleString("en-IN")+", balance ₹"+Math.max(0,total-collected).toLocaleString("en-IN")):"")}]);
-          if(String(_coachLeadId)===id) _renderCoachPayHistory(id);
-        }catch(e:any){ toastErr("Payment save failed: "+(e.message||"db error")); }
+        if(!(await _dbOk(supabase.from("payments").insert(rows),"Payment save"))) return;
+        logActivity(id,[{action:"Payment",field:label,new:"₹"+collected.toLocaleString("en-IN")+(total?(" of ₹"+total.toLocaleString("en-IN")+", balance ₹"+Math.max(0,total-collected).toLocaleString("en-IN")):"")}]);
+        if(String(_coachLeadId)===id) _renderCoachPayHistory(id);
       };
       if(pm==="i2"){
         const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
@@ -6550,8 +6580,9 @@ export function initApp(root: HTMLElement) {
         // Pending installment-2 → a "due" row so Reception can see the balance + due date + collect it.
         else if(balance>0&&!recInst2Paid) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
         // Re-write only the coach-owned installment rows for THIS program (preserve Reception collections + the other program), then insert.
-        try{ await supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).neq("collected_by","Reception desk"); }catch(_){}
-        if(rows.length){ try{ await supabase.from("payments").insert(rows); logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+(totalI2?(" of ₹"+totalI2.toLocaleString("en-IN")+", balance ₹"+balance.toLocaleString("en-IN")):"")}]); if(String(_coachLeadId)===id) _renderCoachPayHistory(id); }catch(e:any){ toastErr("Payment save failed: "+(e.message||"db error")); } }
+        // Abort the insert if the delete failed — otherwise the new rows pile on top of the old ones (duplicate installments).
+        if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).neq("collected_by","Reception desk"),"Payment update"))) return;
+        if(rows.length){ if(!(await _dbOk(supabase.from("payments").insert(rows),"Payment save"))) return; logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+(totalI2?(" of ₹"+totalI2.toLocaleString("en-IN")+", balance ₹"+balance.toLocaleString("en-IN")):"")}]); if(String(_coachLeadId)===id) _renderCoachPayHistory(id); }
       } else if(pm==="full"){
         const amt=_payNum("#payFullRcvd"); if(!amt) return;
         await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",program:_prog,...proof("payFullProof")}],"Full payment",amt);
@@ -6609,12 +6640,19 @@ export function initApp(root: HTMLElement) {
       // are persisted on the form itself).
       { const i2r=(rows||[]).filter((r:any)=>String(r.program||"L1")===prog&&r.payment_type==="installment");
         if(i2r.length){
-          const p1=i2r.find((r:any)=>r.status==="paid"); const p1amt=p1?Number(p1.amount)||0:0;
-          const bal=i2r.filter((r:any)=>r.status==="due").reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
-          const tot=p1amt+bal;
+          // Identify installments by their NUMBER, not row order — rows arrive newest-first, so
+          // find(paid) could pick installment 2 and mislabel it as installment 1. Total is the SUM of
+          // both installments (each counted once) so a FULLY-paid plan shows the full amount, not one.
+          const byNum=(n:number)=>i2r.find((r:any)=>Number(r.installment_number)===n);
+          const r1=byNum(1)||i2r.find((r:any)=>r.status==="paid");   // legacy rows w/o a number → any paid
+          const r2=byNum(2)||i2r.find((r:any)=>r.status==="due");    // legacy → the outstanding due
+          const p1amt=r1?Number(r1.amount)||0:0;
+          const p2amt=r2?Number(r2.amount)||0:0;
+          const bal=(r2&&r2.status!=="paid")?p2amt:0;                 // balance = the unpaid installment 2
+          const tot=p1amt+p2amt;
           const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null; if(i1e&&p1amt) i1e.value=String(p1amt);
           const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&tot) te.value=String(tot);
-          const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");
+          const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");   // #i2BalDue is otherwise the live-computed Total−Inst1 (installment-2 amount); don't clobber it
           const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null; if(bre&&bal>0&&!inst2Paid&&!bre.value) bre.value=String(bal);   // default the pending balance
         }
       }
