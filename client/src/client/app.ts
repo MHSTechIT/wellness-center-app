@@ -5367,9 +5367,10 @@ export function initApp(root: HTMLElement) {
       root.querySelectorAll(".payblk").forEach((p)=>p.classList.remove("on"));
       const m:Record<string,string>={full:"pb-full",i2:"pb-i2",emi:"pb-emi",adv:"pb-adv"};
       if(m[v]) root.querySelector("#"+m[v])?.classList.add("on");
-      // Selecting Installment (2×): seed the Total from the program price (if not already set) so the
-      // L2 price flows into the plan automatically, then recompute the balance due.
-      if(v==="i2"){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&!(_payNum("#i2Total")>0)){ const pr=_payGetPrice(); if(pr>0){ te.value=String(pr); try{ _payCalcI2(); }catch(_){} } } }
+      // Selecting Installment (2×): seed the Total from the program price so the L2 price flows into the
+      // plan (overwriting any stray value). Skipped when the client already has recorded installment
+      // payments — _applyPaymentLocks (run just below) reconstructs the real Total from the paid rows.
+      if(v==="i2"){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; const _hasInst=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment"); if(te&&!_hasInst){ const pr=_payGetPrice(); if(pr>0){ te.value=String(pr); try{ _payCalcI2(); }catch(_){} } } }
       try{ if(w._coachApplyPayLocks) w._coachApplyPayLocks(); }catch(_){}   // re-apply paid-stage locks for the chosen method
     }
     w.payBlk = payBlk;
@@ -5491,13 +5492,15 @@ export function initApp(root: HTMLElement) {
     function _payCalcAll(){
       const price=_payGetPrice();
       _paySetVal("payAmtDue",price);
-      // Installment Total defaults to the program price when the 2× method is active and the field is
-      // still empty — so the L2 price flows into the plan just like it does for Full payment. The coach
-      // can still type a different total; a non-empty value is never overwritten. Balance = Total − Inst-1.
+      // Installment Total MIRRORS the program price whenever the 2× method is active — so whatever is
+      // entered as the L2/L1 price (or Special offer) always shows as the plan Total. Skipped only when
+      // the client already has RECORDED installment payments, where the Total is reconstructed from the
+      // actual paid rows (in _applyPaymentLocks) and must not be overwritten. Balance = Total − Inst-1.
       const i2Active=!!root.querySelector("#pb-i2")?.classList.contains("on");
+      const _hasInstPay=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment");
       const i2r=parseInt((root.querySelector("#i2Inst1Rcvd")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
       let i2t=_payNum("#i2Total");
-      if(i2Active && !(i2t>0) && price>0){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te){ te.value=String(price); i2t=price; } }
+      if(i2Active && !_hasInstPay && price>0){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te){ te.value=String(price); i2t=price; } }
       _paySetVal("i2BalDue",i2t?Math.max(0,i2t-i2r):0);
       const advA=parseInt((root.querySelector("#advAmt")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
       _paySetVal("advBalDue",price?Math.max(0,price-advA):0);
