@@ -436,7 +436,7 @@ export function getMainContent(): string {
 
           <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Total</label><input class="input mono" id="i2Total" placeholder="Enter total amount" inputmode="decimal" oninput="window._payCalcI2()"></div>
+              <div class="fld"><label class="lbl">Total <span class="ab">AUTO</span></label><input class="input mono" id="i2Total" placeholder="Auto from L2 price" inputmode="decimal" readonly></div>
               <div class="fld"><label class="lbl">Inst-1 received (₹) <span class="req">*</span></label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl">Mode <span class="req">*</span></label><select class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date" onchange="window._syncI2BalDue()"></div>
