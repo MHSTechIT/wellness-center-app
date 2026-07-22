@@ -52,12 +52,21 @@ export function tataConfig(role?: string) {
   return {
     apiKey: resolve('tata_tele_api_key', 'TATA_TELE_API_KEY'),
     extension: resolve('tata_tele_default_extension_number', 'TATA_TELE_DEFAULT_EXTENSION_NUMBER'),
-    callerId: resolve('tata_tele_caller_id', 'TATA_TELE_CALLER_ID'),
+    // Smartflo's caller_id (DID) must be plain digits — the working base ID is stored as
+    // "919240254219", but the per-role ones were entered as "+9192…". The leading "+" makes
+    // Smartflo reject the call ("agent offline"/invalid), which is exactly why Super Admin
+    // (base, no "+") dials fine while advisor/coach/reception fail. Strip non-digits so every
+    // role dials with the accepted format regardless of how the DID was typed in the env.
+    callerId: normalizeCallerId(resolve('tata_tele_caller_id', 'TATA_TELE_CALLER_ID')),
     agentNumber: resolve('tata_tele_default_agent_number', 'TATA_TELE_DEFAULT_AGENT_NUMBER'),
     useSupportFallback: envAny('tata_tele_use_support_fallback', 'TATA_TELE_USE_SUPPORT_FALLBACK') === '1',
     role: r || null,
   };
 }
+
+// Caller-ID (DID) normalisation: Smartflo wants plain digits (country code + number), no "+",
+// spaces or dashes. Keeps "919240254219" as-is and turns "+919240223973" into "919240223973".
+export function normalizeCallerId(raw: string): string { return (raw || '').replace(/\D/g, ''); }
 
 // Phone normalisation: strip non-digits, take last 10, prefix +91.
 export function normalizePhone(raw: string): string {
