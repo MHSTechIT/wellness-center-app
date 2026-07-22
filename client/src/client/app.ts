@@ -2706,6 +2706,14 @@ export function initApp(root: HTMLElement) {
         }).join("");
     }
 
+    // Scroll the #main container so an element sits at the top. #main has CSS scroll-behavior:smooth,
+    // and the smooth animation gets cancelled by the coach detail's async re-renders — so scroll
+    // INSTANTLY (temporarily disable smooth) via a direct scrollTop, which is reliable on every screen.
+    function _scrollMainTo(el:HTMLElement|null){
+      const main=root.querySelector("#main")as HTMLElement|null; if(!main||!el) return;
+      const top=el.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+      const pb=main.style.scrollBehavior; main.style.scrollBehavior="auto"; main.scrollTop=Math.max(0,top-8); main.style.scrollBehavior=pb;
+    }
     // Click a lead in the Assigned table → add it to the open list + show its detail.
     w._openLeadProfile=(id:string)=>{
       const l=_metaLeads.find((x:any)=>String(x.id)===String(id))
@@ -2720,6 +2728,9 @@ export function initApp(root: HTMLElement) {
       fillAdvisorDetail(l);
       saveOpenLeads();
       toast("Opened: "+(l.name||l.phone||"Lead"));
+      // Auto-scroll down to the OPEN LEADS section so the just-opened lead + its detail are in view
+      // (short delay lets the advisor screen finish rendering after the nav switch).
+      setTimeout(()=>{ try{ const oe=root.querySelector("#advOpenList")as HTMLElement|null; if(oe&&oe.style.display!=="none") _scrollMainTo(oe); }catch(_){} },140);
     };
     // Click a lead in the vertical list → switch the detail pane to that lead.
     w._selectOpenLead=(id:string)=>{
@@ -6610,7 +6621,10 @@ export function initApp(root: HTMLElement) {
           +'</div></div>';
       }).join("")+'</div>';
     }
-    w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client")); };
+    w._coachOpen=(id:string)=>{ const c=_coachClients.find((x:any)=>String(x.id)===String(id)); if(!c){toast("Client not found");return;} fillCoachDetail(c); toast("Opened: "+(c.name||c.phone||"client"));
+      // Same pattern as the Advisor page: scroll down to the opened client's detail card. Longer delay
+      // than the advisor (fillCoachDetail does more async rendering) so the card is at its final position.
+      setTimeout(()=>{ try{ _scrollMainTo(root.querySelector("#s-coach .chead")as HTMLElement|null); }catch(_){} },300); };
     // The /db gateway RESOLVES {error} (it never throws), so `try{ await write }catch{}` can't catch a
     // failed write and the returned error is silently dropped. This awaits a write, and on failure
     // toasts + returns false so the caller can ABORT — critically, so an insert never runs on top of
