@@ -33,7 +33,8 @@ async function initiate(req: Request, res: Response) {
     const useExt = !!extRaw;
     const agent = useExt ? extRaw : normalizePhone(agentMobileRaw) || agentMobileRaw;
     if (!key || !agent || !callerId) {
-      res.status(503).json({ ok: false, error: 'Telephony not configured — set tata_tele_api_key, tata_tele_default_extension_number and tata_tele_caller_id in .env.local.' });
+      const missing = [!key && 'API key', !agent && 'agent extension/number', !callerId && 'caller ID'].filter(Boolean).join(', ');
+      res.status(503).json({ ok: false, error: 'Telephony not configured for role "' + (role || 'default') + '" — missing: ' + missing + '. Set tata_tele_api_key / tata_tele_default_extension_number / tata_tele_caller_id (optionally per-role, e.g. _' + (role || 'advisor') + ') in the server environment, then restart. Check /api/calls/config-status?role=' + (role || '') + '.' });
       return;
     }
 
@@ -255,10 +256,28 @@ async function syncProvider(req: Request, res: Response) {
   }
 }
 
+// GET /api/calls/config-status[?role=advisor|coach|reception] — reports WHICH telephony config
+// values are present for a role (booleans only, NEVER the secret values), so operators can verify
+// the deployed server's environment is configured without exposing the API key / caller IDs.
+function configStatus(req: Request, res: Response) {
+  const role = String((req.query.role as string) || '').trim().toLowerCase();
+  const cfg = tataConfig(role);
+  res.json({
+    ok: true,
+    role: role || '(default)',
+    hasApiKey: !!cfg.apiKey,
+    hasExtension: !!cfg.extension,
+    hasAgentNumber: !!cfg.agentNumber,
+    hasCallerId: !!cfg.callerId,
+    ready: !!(cfg.apiKey && (cfg.extension || cfg.agentNumber) && cfg.callerId),
+  });
+}
+
 export function registerCallRoutes(app: Express) {
   app.post('/api/calls/initiate/:contactId', initiate);
   app.post('/api/calls/webhook/recording', webhook);
   app.put('/api/calls/:contactId/latest-type', latestType);
   app.get('/api/calls/:contactId/recordings', recordings);
   app.get('/api/calls/:contactId/sync', syncProvider);
+  app.get('/api/calls/config-status', configStatus);   // telephony config diagnostic (no secrets)
 }
