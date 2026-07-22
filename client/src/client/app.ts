@@ -2919,7 +2919,7 @@ export function initApp(root: HTMLElement) {
     }
     // Per-lead payment progress for the Advisor Enrolled table's detailed CALL STATUS stage. Loaded
     // on demand (Enrolled card click) and reused across renders. Same builder as Reception → identical labels.
-    let _advProgPay:Record<string,any>={};
+    let _advProgPay:Record<string,any>={}; let _advProgPayLoading=false;
     async function _advLoadEnrollProgress(){
       try{ const {data}=await supabase.from("payments").select("lead_id,program,amount,status,payment_type,installment_number"); _advProgPay=_buildProgPay(data||[]); }catch(_){}
     }
@@ -2951,6 +2951,13 @@ export function initApp(root: HTMLElement) {
             +'<td>'+(nf?(due?'<span class="chipb al">Overdue</span>':'<span class="chipb warn">Pending</span>'):'<span class="chipb neu">Pending</span>')+'</td></tr>';
         }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No pending follow-ups</td></tr>';
         return;
+      }
+      // The Enrolled rows below render the DETAILED payment stage from _advProgPay. That map is loaded
+      // on demand, so if we're about to show any enrolled lead while it's still empty (first render, or a
+      // sort/filter/dashboard re-render that didn't go through the card click), load it and re-render —
+      // otherwise the stage flashes the generic "Enrolled – Lx" fallback (the reported dev/prod-timing bug).
+      if(!_advProgPayLoading && !Object.keys(_advProgPay).length && list.some((l:any)=>l.enrolledAt)){
+        _advProgPayLoading=true; _advLoadEnrollProgress().then(()=>{ _advProgPayLoading=false; renderHaResults(); });
       }
       const _hhd=root.querySelector("#haResultsHead"); if(_hhd)_hhd.innerHTML=gridHead("haResults"); const _haR=gridApply("haResults",list); body.innerHTML=_haR.length?_haR.map((l:any)=>'<tr>'
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
@@ -4075,10 +4082,13 @@ export function initApp(root: HTMLElement) {
         // unreliable): 2+ paid = program fully paid; exactly 1 = installment 1 done, installment 2
         // still pending. Never call it "Fully Paid" on a single paid installment.
         if((o.instPaid||0)>0){
-          // "Fully Paid" ONLY when BOTH installments are actually collected — i.e. no outstanding due.
-          // Counting paid ROWS (instPaid>=2) wrongly marked a DUPLICATED single installment as fully paid.
-          if((o.inst1Paid && o.inst2Paid) || !o.anyDue) return k+" Completed | Fully Paid";
-          return k+" – Installment 1 Completed";   // installment 1 paid, balance still due
+          // "Fully Paid" ONLY when BOTH installments are actually collected (installment 1 AND 2 paid).
+          // Do NOT infer completion from the ABSENCE of a due row ("|| !o.anyDue" — removed): a plan whose
+          // installment-2 due row was never written would then falsely read "Fully Paid" after only
+          // installment 1 (the reported bug). Every installment row is numbered (verified in DB), so the
+          // inst1Paid/inst2Paid flags are authoritative and duplicate inst-1 rows can't fake completion.
+          if(o.inst1Paid && o.inst2Paid) return k+" Completed | Fully Paid";
+          return k+" – Installment 1 Completed";   // installment 1 paid, installment 2 still pending
         }
         if(o.anyPaid&&!o.anyDue) return k+" Completed";   // full/one-shot payment
         return "Enrolled – "+k;   // only a due request outstanding, nothing collected yet
@@ -5408,12 +5418,15 @@ export function initApp(root: HTMLElement) {
     function _coachEnrolledLabel():string{
       const rows=_coachPayRows||[];
       const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
-      const agg:Record<string,{paid:number;due:number;instPaid:number;full:boolean}>={};
-      rows.forEach((r:any)=>{ const p=norm(r.program); const o=(agg[p]=agg[p]||{paid:0,due:0,instPaid:0,full:false}); if(r.status==="paid"){ o.paid++; if(r.payment_type==="installment") o.instPaid++; else o.full=true; } else if(r.status==="due") o.due++; });
-      // Fully paid ONLY when there is NO outstanding balance due — counting paid ROWS (instPaid>=2)
-      // wrongly treated a DUPLICATED single installment as fully paid. One paid + a due = installment 1 done.
+      const agg:Record<string,{paid:number;due:number;instPaid:number;i1:boolean;i2:boolean;full:boolean}>={};
+      rows.forEach((r:any)=>{ const p=norm(r.program); const o=(agg[p]=agg[p]||{paid:0,due:0,instPaid:0,i1:false,i2:false,full:false}); if(r.status==="paid"){ o.paid++; if(r.payment_type==="installment"){ o.instPaid++; if(Number(r.installment_number)===1) o.i1=true; if(Number(r.installment_number)===2) o.i2=true; } else o.full=true; } else if(r.status==="due") o.due++; });
+      // "Completed" ONLY when BOTH installments are actually paid (installment 1 AND 2). Do NOT infer
+      // completion from the absence of a due row (the old "o.due===0" test) — a plan whose installment-2
+      // due row was never written would then falsely read "Completed" after only installment 1 (the
+      // reported bug). Rows are numbered (verified), so i1/i2 are authoritative; duplicate inst-1 rows
+      // can't fake completion. Mirrors the Appointments-stage gate in labelFor for cross-page agreement.
       const progLabel=(k:string):string=>{ const o=agg[k]; if(!o) return "";
-        if(o.instPaid>0) return (o.due===0)?(k+" Completed"):(k+" – Installment 1 Completed");
+        if(o.instPaid>0) return (o.i1&&o.i2)?(k+" Completed"):(k+" – Installment 1 Completed");
         if(o.full||(o.paid>0&&o.due===0)) return k+" Completed";
         // Only a PAID program counts as enrolled here. A due-only request is not enrollment, so it
         // returns "" and forProg() falls back to the coach's consStatus level (an explicit enroll).
@@ -5460,7 +5473,7 @@ export function initApp(root: HTMLElement) {
       // If the client is already enrolled in the OTHER program, mark them enrolled in BOTH.
       const cur=_coachConsStatus||""; const hasL1=/\bL1\b/.test(cur), hasL2=/\bL2\b/.test(cur);
       if(level==="L2"&&hasL1) level="L1 + L2"; else if(level==="L1"&&hasL2) level="L1 + L2";
-      _enrollLeadShared(String(_coachLeadId),"Payment "+t.trigger,level).then((iso:string|null)=>{ if(iso!==null){ _setPayEnrollDisplay(level,iso||((_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId))||{}).enrolledAt)||""); toast("🏆 Enrolled – "+level+" (from payment)"); } });
+      _enrollLeadShared(String(_coachLeadId),"Payment "+t.trigger,level).then((iso:string|null)=>{ if(iso!==null){ _setPayEnrollDisplay(level,iso||((_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId))||{}).enrolledAt)||""); toast("🏆 Enrolled – "+level+" (from payment)"); try{ _refreshPayEnrollChip(); }catch(_){} /* upgrade the generic "Enrolled – Lx" to the detailed stage once payment rows reflect it */ } });
     };
     // After a profile restores the (hidden) pills, mirror each on-pill back into its dropdown.
     function _syncPayStSelects(){ root.querySelectorAll("#s-coach select[data-nocap]").forEach((sel:any)=>{ const grp=sel.parentElement&&sel.parentElement.querySelector(".pills"); const on=grp&&grp.querySelector(".pill.on"); if(on) sel.value=(on.textContent||"").trim(); }); }
