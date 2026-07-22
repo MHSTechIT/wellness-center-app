@@ -4785,6 +4785,7 @@ export function initApp(root: HTMLElement) {
     w.nwBook = nwBook;
 
     let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any}|null=null;
+    let _recBusy=false;   // guards recConfirm against double-submit (double-click) — prevents duplicate paid rows
     function recOpen(apptId:any,name:string,amt:any,leadId:string) {
       _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
       // The collection panel lives on the Reception screen — when triggered from Blood test /
@@ -4807,6 +4808,7 @@ export function initApp(root: HTMLElement) {
     }
     async function recConfirm() {
       if(!_recCollect){ toast("Nothing to collect"); return; }
+      if(_recBusy) return;   // a collect is already in flight — ignore the double-click (prevents duplicate rows)
       // Validate BEFORE hiding the panel, so failures keep the form open.
       const raw=((root.querySelector("#recWbAmt")as HTMLInputElement)?.value||"").trim();
       const amt=Number(raw.replace(/[^0-9.]/g,""));
@@ -4819,13 +4821,17 @@ export function initApp(root: HTMLElement) {
       const txnRef=(txnEl?.value||"").trim();
       if(method!=="cash"&&!txnRef){ toastErr("Enter the transaction reference for "+method.toUpperCase()+" payments"); return; }
       const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none";
+      _recBusy=true;   // block re-entrancy until this collect resolves (reset in finally)
       try{
         // ---- Reception collecting a pending INSTALLMENT (updates that installment, not a new payment) ----
         if(_recCollect.installment){
           const num=_recCollect.installment;
-          const {data:ex}=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num).limit(1);
+          // Settle the OUTSTANDING due row for this installment (prefer status=due; a bare .limit(1)
+          // could pick an already-paid row or the wrong program → a duplicate insert).
+          const {data:ex}=await supabase.from("payments").select("id,status").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num);
+          const _tgt=(ex||[]).find((r:any)=>r.status==="due")||(ex||[])[0];
           const vals:any={status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null};
-          if(ex&&ex[0]) await supabase.from("payments").update(vals).eq("id",ex[0].id);
+          if(_tgt) await supabase.from("payments").update(vals).eq("id",_tgt.id);
           else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:(await _recLeadProgram(_recCollect.leadId))},vals));
           if(_recCollect.apptId) await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
           // Fully-paid check across all of this lead's installments.
@@ -4869,7 +4875,12 @@ export function initApp(root: HTMLElement) {
             _recCollect=null; return;
           }
         }
-        await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:(await _recLeadProgram(_recCollect.leadId))});
+        // No due row / installment to settle → a one-shot collect. Reconcile: if a paid row already
+        // exists for this lead+program (e.g. the coach already recorded it), don't insert a parallel
+        // Reception row — that was another duplicate source.
+        const _fbProg=await _recLeadProgram(_recCollect.leadId);
+        let _fbPaid=false; try{ const {data:ex}=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("program",_fbProg).eq("status","paid").limit(1); _fbPaid=!!(ex&&ex.length); }catch(_){}
+        if(!_fbPaid) await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_fbProg});
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
@@ -4879,6 +4890,7 @@ export function initApp(root: HTMLElement) {
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         await loadReceptionData();
       }catch(e:any){ toastErr(/payment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Collect failed: "+(e.message||"db error")); }
+      finally{ _recBusy=false; }
       _recCollect=null;
     }
     w.recConfirm = recConfirm;
@@ -5683,7 +5695,10 @@ export function initApp(root: HTMLElement) {
         // One pending request per lead+program+method (+ same installment for i2): replace any
         // earlier UNPAID request. Scoped to installment so an inst-2 request never wipes an inst-1 due.
         // Abort if the delete fails — inserting on top of an un-cleared due row duplicates the request.
-        let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog).eq("collected_by",who); if(instNum!=null) del=del.eq("installment_number",instNum);
+        // Replace any prior pending request for the SAME installment regardless of channel/collector —
+        // scoping the delete by collected_by left a stale due row when the coach re-sent via a different
+        // channel (Reception desk → POS), which could later be collected as a duplicate.
+        let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog); if(instNum!=null) del=del.eq("installment_number",instNum);
         if(!(await _dbOk(del,"Collection request update"))) return;
         if(!(await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null}),"Send to Reception"))) return;
         // 2-part plan, installment 1 request → ALSO track the remaining balance as installment 2
@@ -6664,13 +6679,19 @@ export function initApp(root: HTMLElement) {
         const totalI2=_payNum("#i2Total")||total;
         const balance=Math.max(0,totalI2-p1-p2);
         const dueDate=((root.querySelector("#i2BalDueDate")as HTMLInputElement|null)?.dataset.iso)||null;   // auto = Inst-1 date + 30 days (ISO)
-        // Don't clobber (or duplicate) an installment-2 that Reception already collected.
-        let recInst2Paid=false;
-        try{ const {data}=await supabase.from("payments").select("status,collected_by,installment_number").eq("lead_id",id).eq("payment_type","installment"); recInst2Paid=(data||[]).some((r:any)=>Number(r.installment_number)===2&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||""))); }catch(_){}
+        // Don't duplicate an installment Reception has ALREADY collected — the coach save must
+        // reconcile, not re-insert (the delete below preserves Reception rows, so re-inserting a coach
+        // copy of a Reception-paid installment is the root cause of the "two paid Inst-1" duplicate).
+        // Check per-installment (1 AND 2), scoped to THIS program.
+        let recInst1Paid=false, recInst2Paid=false;
+        try{ const {data}=await supabase.from("payments").select("status,collected_by,installment_number,program").eq("lead_id",id).eq("payment_type","installment");
+          const recPaid=(n:number)=>(data||[]).some((r:any)=>Number(r.installment_number)===n&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||""))&&(String(r.program||"")===_prog||!r.program));
+          recInst1Paid=recPaid(1); recInst2Paid=recPaid(2);
+        }catch(_){}
         if(!p1&&!p2&&balance<=0) return;
         const rows:any[]=[];
-        if(p1) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2Inst1Proof")});
-        if(p2) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2BalProof")});
+        if(p1&&!recInst1Paid) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2Inst1Proof")});
+        if(p2&&!recInst2Paid) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2BalProof")});
         // Pending installment-2 → a "due" row so Reception can see the balance + due date + collect it.
         else if(balance>0&&!recInst2Paid) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
         // Re-write only the coach-owned installment rows for THIS program (preserve Reception collections + the other program), then insert.
