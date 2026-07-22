@@ -6769,6 +6769,12 @@ export function initApp(root: HTMLElement) {
           const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&tot) te.value=String(tot);
           const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");   // #i2BalDue is otherwise the live-computed Total−Inst1 (installment-2 amount); don't clobber it
           const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null; if(bre&&bal>0&&!inst2Paid&&!bre.value) bre.value=String(bal);   // default the pending balance
+          // Each installment's Txn Ref / UTR comes from ITS OWN payment row — never copy installment-1's
+          // ref into installment-2. Runs AFTER the profile restore, so it overrides the positional copy:
+          // inst-1 field = inst-1's paid ref; inst-2 field = inst-2's paid ref, or CLEARED while pending
+          // (so a stale/copied inst-1 ref never lingers in the balance section).
+          const i1ref=root.querySelector("#i2Inst1Ref")as HTMLInputElement|null; if(i1ref&&r1&&r1.status==="paid") i1ref.value=String(r1.txn_ref||"");
+          const i2ref=root.querySelector("#i2BalRef")as HTMLInputElement|null; if(i2ref) i2ref.value=(r2&&r2.status==="paid")?String(r2.txn_ref||""):"";
         }
       }
       if(inst1Paid&&inst2Paid) _setPayStatus("pb-i2","Both Paid"); else if(inst1Paid) _setPayStatus("pb-i2","1st Paid"); else { const s=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(s&&/Paid/.test(s.value)) _setPayStatus("pb-i2","Pending"); }
