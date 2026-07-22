@@ -6855,6 +6855,12 @@ export function initApp(root: HTMLElement) {
         if(cliProg){ const ps=root.querySelector("#haProgram")as HTMLSelectElement|null; if(ps&&ps.value!==cliProg){ ps.value=cliProg; try{ if(w._syncProgramPricing) w._syncProgramPricing(); }catch(_){} } }
       }catch(_){}
       _coachPayRows=rows; try{ _applyPaymentLocks(id,rows); }catch(_){} try{ _renderPaymentSummary(id,rows); }catch(_){}
+      // Now that the REAL payment rows are loaded, recompute the enrolled-status chip so it shows the
+      // detailed stage ("L2 – Installment 1 Completed"). The earlier _refreshPayEnrollChip() in
+      // _coachOpen ran before this async load resolved, so with no rows it fell back to the generic
+      // consStatus label ("Enrolled – L2"). This unconditional refresh fixes that regardless of whether
+      // the program dropdown changed (the sync-on-program-change refresh only fires when it does).
+      try{ _refreshPayEnrollChip(); }catch(_){}
       const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const money=(n:any)=>"₹"+(parseInt(n)||0).toLocaleString("en-IN");
       if(!rows.length){ el.innerHTML='<div class="stub">No payment records for this client yet.</div>'; return; }
