@@ -480,7 +480,7 @@ export function initApp(root: HTMLElement) {
     function _notifStackEl(){
       let s=document.getElementById("metaNotifStack")as HTMLElement|null;
       if(!s){ s=document.createElement("div"); s.id="metaNotifStack";
-        s.style.cssText="position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:92vw;pointer-events:none";
+        s.style.cssText="position:fixed;top:14px;right:14px;z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:flex-end;max-width:330px;pointer-events:none";
         document.body.appendChild(s); }
       return s;
     }
@@ -496,8 +496,8 @@ export function initApp(root: HTMLElement) {
       // Cap: drop the oldest until under the limit.
       while(stack.children.length>=_NOTIF_MAX){ const first=stack.firstElementChild as HTMLElement|null; if(!first)break; const ft=(first as any)._t; if(ft)clearTimeout(ft); stack.removeChild(first); }
       const wrap=document.createElement("div"); wrap.setAttribute("data-msg",msg);
-      wrap.style.cssText="pointer-events:auto;display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.25);font-size:13.5px;font-weight:600;max-width:92vw;"+(al?"background:var(--alert-bg);border:1.5px solid var(--alert);color:var(--alert-ink)":"background:var(--ok-bg);border:1.5px solid var(--ok);color:var(--ok-ink)");
-      wrap.innerHTML='<span style="font-size:16px">'+(al?"⚠":"✓")+'</span><span>'+msg+'</span><button aria-label="Dismiss" style="background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:inherit;font-weight:700">×</button>';
+      wrap.style.cssText="pointer-events:auto;display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border-radius:9px;box-shadow:0 6px 22px rgba(0,0,0,0.16);font-size:12px;font-weight:600;line-height:1.35;width:300px;max-width:82vw;"+(al?"background:var(--alert-bg);border:1px solid var(--alert);color:var(--alert-ink)":"background:var(--ok-bg);border:1px solid var(--ok);color:var(--ok-ink)");
+      wrap.innerHTML='<span style="font-size:13px;flex-shrink:0;margin-top:1px">'+(al?"⚠":"✓")+'</span><span style="flex:1">'+msg+'</span><button aria-label="Dismiss" style="background:none;border:none;font-size:15px;line-height:1;cursor:pointer;color:inherit;font-weight:700;flex-shrink:0;padding:0 0 0 2px">×</button>';
       (wrap.querySelector("button")as HTMLElement).onclick=()=>{ const t=(wrap as any)._t; if(t)clearTimeout(t); if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
       stack.appendChild(wrap);
       arm(wrap);
