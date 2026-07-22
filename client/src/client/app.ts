@@ -4075,8 +4075,10 @@ export function initApp(root: HTMLElement) {
         // unreliable): 2+ paid = program fully paid; exactly 1 = installment 1 done, installment 2
         // still pending. Never call it "Fully Paid" on a single paid installment.
         if((o.instPaid||0)>0){
-          if((o.instPaid||0)>=2) return k+" Completed | Fully Paid";
-          return k+" – Installment 1 Completed";
+          // "Fully Paid" ONLY when BOTH installments are actually collected — i.e. no outstanding due.
+          // Counting paid ROWS (instPaid>=2) wrongly marked a DUPLICATED single installment as fully paid.
+          if((o.inst1Paid && o.inst2Paid) || !o.anyDue) return k+" Completed | Fully Paid";
+          return k+" – Installment 1 Completed";   // installment 1 paid, balance still due
         }
         if(o.anyPaid&&!o.anyDue) return k+" Completed";   // full/one-shot payment
         return "Enrolled – "+k;   // only a due request outstanding, nothing collected yet
@@ -5396,9 +5398,10 @@ export function initApp(root: HTMLElement) {
       const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
       const agg:Record<string,{paid:number;due:number;instPaid:number;full:boolean}>={};
       rows.forEach((r:any)=>{ const p=norm(r.program); const o=(agg[p]=agg[p]||{paid:0,due:0,instPaid:0,full:false}); if(r.status==="paid"){ o.paid++; if(r.payment_type==="installment") o.instPaid++; else o.full=true; } else if(r.status==="due") o.due++; });
-      // Count of PAID installment rows (installment_number tag is unreliable): 2+ = fully paid; 1 = inst 1 done.
+      // Fully paid ONLY when there is NO outstanding balance due — counting paid ROWS (instPaid>=2)
+      // wrongly treated a DUPLICATED single installment as fully paid. One paid + a due = installment 1 done.
       const progLabel=(k:string):string=>{ const o=agg[k]; if(!o) return "";
-        if(o.instPaid>0) return o.instPaid>=2?(k+" Completed"):(k+" – Installment 1 Completed");
+        if(o.instPaid>0) return (o.due===0)?(k+" Completed"):(k+" – Installment 1 Completed");
         if(o.full||(o.paid>0&&o.due===0)) return k+" Completed";
         // Only a PAID program counts as enrolled here. A due-only request is not enrollment, so it
         // returns "" and forProg() falls back to the coach's consStatus level (an explicit enroll).
