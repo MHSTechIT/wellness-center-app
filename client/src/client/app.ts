@@ -4112,14 +4112,21 @@ export function initApp(root: HTMLElement) {
         // with lead_id only and appointment_id = NULL, so they never match by appointment_id.
         // Aggregate per lead too, so the Reception row can still show the paid amount + invoice.
         const paysByLead:Record<string,{paid:number,due:number,anyPaid:boolean}>={};
-        (pr.data||[]).forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; const o=(paysByLead[k]=paysByLead[k]||{paid:0,due:0,anyPaid:false}); const amt=Number(p.amount)||0; if(p.status==="paid"){ o.paid+=amt; o.anyPaid=true; } else if(p.status==="due"){ o.due+=amt; } });
+        // A "due" row tagged collected_by="Health Coach" is the coach's own bookkeeping placeholder
+        // for a balance not yet formally requested (auto-tracked so Total/Balance survive a reopen —
+        // see _persistInstallments / sendToReception's installment-2 companion row). It must NOT count
+        // toward what Reception is asked to collect — only an explicit "Send collection request" (tagged
+        // Reception desk / POS Machine / Razorpay) should surface here. Paid amounts count regardless
+        // of who recorded them — that money is already real.
+        (pr.data||[]).forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; const o=(paysByLead[k]=paysByLead[k]||{paid:0,due:0,anyPaid:false}); const amt=Number(p.amount)||0; if(p.status==="paid"){ o.paid+=amt; o.anyPaid=true; } else if(p.status==="due"&&p.collected_by!=="Health Coach"){ o.due+=amt; } });
         // Per-lead, per-program payment progress — powers the detailed Enrolled label
         // ("L2 Completed | Installment 2 Pending", "L1 Completed", "Fully Paid", …).
         _progPayByLead=_buildProgPay(pr.data||[]);
         // The outstanding DUE per lead (oldest first — the one Reception collects next) → drives the
-        // Collect-queue payment-type label (L2 – 1st/2nd Installment, Full Payment, …).
+        // Collect-queue payment-type label (L2 – 1st/2nd Installment, Full Payment, …). Same rule as
+        // above: skip coach-tracked placeholders never explicitly sent to Reception.
         const dueByLead:Record<string,any>={};
-        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]={label:_recCollectLabel(p.program,p.payment_type,p.installment_number),amount:Number(p.amount)||0}; });
+        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due"||p.collected_by==="Health Coach") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]={label:_recCollectLabel(p.program,p.payment_type,p.installment_number),amount:Number(p.amount)||0}; });
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
@@ -4164,7 +4171,7 @@ export function initApp(root: HTMLElement) {
     }
     function applyRecDate(){
       const [from,to]=_recDateRange();
-      RX=_recAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      RX=_recAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       renderAll();
     }
     // Booking hook: Advisor "Appointment Fixed" → create/update an appointment row.
@@ -4508,8 +4515,10 @@ export function initApp(root: HTMLElement) {
     };
     w._svcF2 = (s:string) => { curSvc=s; curScFilter=null; renderFilters(); renderAll(); };
     w._svcF = (s:string) => { curSvc=s; curScFilter=null; renderFilters(); renderAll(); };
-    w._dtF = (d:string) => { curDate=d; const show=d==="cust"; ["dtFrom","dtTo","dtTo2"].forEach((id)=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); renderFilters(); applyRecDate(); };
-    ["dtFrom","dtTo"].forEach((id)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.onchange=()=>{ if(curDate==="cust") applyRecDate(); }; });
+    // "Between dates" (curDate==="cust") does NOT auto-filter as From/To are picked — the user must
+    // press Apply. Picking Today/Tomorrow/This week still filters immediately (no dates to pick).
+    w._dtF = (d:string) => { curDate=d; const show=d==="cust"; ["dtFrom","dtTo","dtTo2","dtApplyBtn"].forEach((id)=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?(id==="dtApplyBtn"?"inline-flex":"inline"):"none";}); renderFilters(); if(d!=="cust") applyRecDate(); };
+    w._dtApply = () => { if(curDate==="cust") applyRecDate(); };
     w._scClick = (k:string) => { curScFilter=curScFilter===k?null:k; renderSc(); renderAppt(); };
 
     function renderFilters() {
@@ -4838,7 +4847,12 @@ export function initApp(root: HTMLElement) {
           const num=_recCollect.installment;
           // Settle the OUTSTANDING due row for this installment (prefer status=due; a bare .limit(1)
           // could pick an already-paid row or the wrong program → a duplicate insert).
-          const {data:ex}=await supabase.from("payments").select("id,status").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num);
+          // The /db gateway never throws (it resolves {error}) — if this lookup fails, `ex` would be
+          // empty and `_tgt` undefined, falling through to the INSERT branch below and creating a
+          // duplicate row instead of updating the existing due one. Abort instead of guessing.
+          const _exRes:any=await supabase.from("payments").select("id,status").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num);
+          if(_exRes&&_exRes.error){ toastErr("Payment check failed: "+(_exRes.error.message||"database error")+" — collect aborted to avoid a duplicate row"); return; }
+          const ex=_exRes?.data;
           const _tgt=(ex||[]).find((r:any)=>r.status==="due")||(ex||[])[0];
           const vals:any={status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null};
           if(_tgt) await supabase.from("payments").update(vals).eq("id",_tgt.id);
@@ -4889,7 +4903,11 @@ export function initApp(root: HTMLElement) {
         // exists for this lead+program (e.g. the coach already recorded it), don't insert a parallel
         // Reception row — that was another duplicate source.
         const _fbProg=await _recLeadProgram(_recCollect.leadId);
-        let _fbPaid=false; try{ const {data:ex}=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("program",_fbProg).eq("status","paid").limit(1); _fbPaid=!!(ex&&ex.length); }catch(_){}
+        // Same failure mode as above: the gateway resolves {error} rather than throwing, so a bare
+        // try/catch here would read a failed lookup as "not paid yet" and insert a parallel duplicate.
+        const _fbRes:any=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("program",_fbProg).eq("status","paid").limit(1);
+        if(_fbRes&&_fbRes.error){ toastErr("Payment check failed: "+(_fbRes.error.message||"database error")+" — collect aborted to avoid a duplicate row"); return; }
+        const _fbPaid=!!(_fbRes?.data&&_fbRes.data.length);
         if(!_fbPaid) await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_fbProg});
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
@@ -5715,14 +5733,17 @@ export function initApp(root: HTMLElement) {
         if(!(await _dbOk(del,"Collection request update"))) return;
         if(!(await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null}),"Send to Reception"))) return;
         // 2-part plan, installment 1 request → ALSO track the remaining balance as installment 2
-        // (due), so the Total, Balance and "Installment 2 pending" are never lost once inst 1 is
-        // collected. Balance = plan Total − Installment 1. Due date = the auto +30d field.
+        // so the Total/Balance survive a reopen. This is bookkeeping only, NOT a Reception request —
+        // tag it "Health Coach" (like _persistInstallments' own placeholder), never the Reception-side
+        // `who`, or it wrongly surfaces in Reception's Collect queue before installment 2 has actually
+        // been sent (installment 2 must get its OWN explicit "Send collection request" click, which
+        // re-tags it via the `who`-tagged insert above once instNum resolves to 2).
         if(method==="i2" && instNum===1){
           const total=_payNum("#i2Total")||_payGetPrice()||0; const bal=(total>amt)?(total-amt):0;
           if(bal>0){
             const bdd=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; const dueIso=(bdd&&(bdd as any).dataset&&(bdd as any).dataset.iso)||null;
             if(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","installment").eq("program",prog).eq("installment_number",2),"Balance update"))
-              await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:who}),"Balance tracking");
+              await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:"Health Coach"}),"Balance tracking");
           }
         }
         addLog("Payment → Reception · ₹"+amt.toLocaleString("en-IN"));
@@ -5766,7 +5787,7 @@ export function initApp(root: HTMLElement) {
     }
     function _scApplyDateFilter(){
       const [from,to]=_scDateRange();
-      _scFiltered=_scAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      _scFiltered=_scAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _scRenderAll();
     }
     w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo","scApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
@@ -6696,17 +6717,33 @@ export function initApp(root: HTMLElement) {
         // reconcile, not re-insert (the delete below preserves Reception rows, so re-inserting a coach
         // copy of a Reception-paid installment is the root cause of the "two paid Inst-1" duplicate).
         // Check per-installment (1 AND 2), scoped to THIS program.
-        let recInst1Paid=false, recInst2Paid=false;
-        try{ const {data}=await supabase.from("payments").select("status,collected_by,installment_number,program").eq("lead_id",id).eq("payment_type","installment");
-          const recPaid=(n:number)=>(data||[]).some((r:any)=>Number(r.installment_number)===n&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||""))&&(String(r.program||"")===_prog||!r.program));
-          recInst1Paid=recPaid(1); recInst2Paid=recPaid(2);
-        }catch(_){}
+        // The /db gateway never throws (it resolves {error}), so a bare try/catch around this
+        // lookup can't detect a failed check — a failed request silently reads as "nothing paid
+        // yet" and re-inserts rows on top of Reception's, doubling every total. Check `.error`
+        // explicitly and ABORT (like the delete-failure guards below) rather than guess.
+        let recInst1Paid=false, recInst2Paid=false, recInst2Any=false;
+        const _recCheck:any=await supabase.from("payments").select("status,collected_by,installment_number,program").eq("lead_id",id).eq("payment_type","installment");
+        if(_recCheck&&_recCheck.error){ toastErr("Payment check failed: "+(_recCheck.error.message||"database error")+" — save aborted to avoid duplicate rows"); return; }
+        { const data=_recCheck?.data;
+          const recRows=(n:number)=>(data||[]).filter((r:any)=>Number(r.installment_number)===n&&/reception|pos/i.test(String(r.collected_by||""))&&(String(r.program||"")===_prog||!r.program));
+          recInst1Paid=recRows(1).some((r:any)=>r.status==="paid");
+          const r2=recRows(2);
+          recInst2Paid=r2.some((r:any)=>r.status==="paid");
+          recInst2Any=r2.length>0;   // Reception already has a row (paid OR due) for inst-2 — don't add a second placeholder
+        }
         if(!p1&&!p2&&balance<=0) return;
         const rows:any[]=[];
         if(p1&&!recInst1Paid) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2Inst1Proof")});
         if(p2&&!recInst2Paid) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2BalProof")});
         // Pending installment-2 → a "due" row so Reception can see the balance + due date + collect it.
-        else if(balance>0&&!recInst2Paid) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
+        else if(balance>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
+        // The coach can collect an installment Reception only STAGED as "due" (never actually
+        // collected) — that's legitimate, but Reception's due placeholder for that installment
+        // must then be cleared, or it lingers forever and the balance double-counts it (found
+        // across several leads during the Barath investigation, 2026-07-24). Only clear a placeholder
+        // for an installment number the coach is paying THIS save (p1/p2 truthy), not a blanket wipe.
+        if(p1&&!recInst1Paid){ if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).eq("installment_number",1).eq("status","due"),"Clearing stale due placeholder"))) return; }
+        if(p2&&!recInst2Paid){ if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).eq("installment_number",2).eq("status","due"),"Clearing stale due placeholder"))) return; }
         // Re-write only the coach-owned installment rows for THIS program (preserve Reception collections + the other program), then insert.
         // Abort the insert if the delete failed — otherwise the new rows pile on top of the old ones (duplicate installments).
         if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).neq("collected_by","Reception desk"),"Payment update"))) return;
@@ -7285,7 +7322,7 @@ export function initApp(root: HTMLElement) {
     }
     function _btApplyDateFilter(){
       const [from,to]=_btDateRange();
-      _btFiltered=_btAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      _btFiltered=_btAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _btRenderAll();
     }
     w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); _btApplyDateFilter(); };
@@ -7394,7 +7431,7 @@ export function initApp(root: HTMLElement) {
     }
     function _phApplyDateFilter(){
       const [from,to]=_phDateRange();
-      _phFiltered=_phAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(r._date+"T12:00:00"); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      _phFiltered=_phAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _phRenderAll();
     }
     w._phDateF=(d:string)=>{ _phDate=d; const show=d==="cust"; ["phFrom","phTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#phDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,wk:1,cust:2}[d]??0; root.querySelectorAll("#phDateFilt .pill")[idx]?.classList.add("on"); _phApplyDateFilter(); };

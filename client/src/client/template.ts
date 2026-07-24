@@ -841,6 +841,7 @@ export function getMainContent(): string {
       <input class="input mono" id="dtFrom" type="date" style="height:29px;width:125px;font-size:11.5px;display:none">
       <span id="dtTo2" style="display:none;color:var(--faint);font-size:12px">to</span>
       <input class="input mono" id="dtTo" type="date" style="height:29px;width:125px;font-size:11.5px;display:none">
+      <button class="btn bsm bp" id="dtApplyBtn" style="display:none" onclick="window._dtApply()">Apply</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
       <div id="scCards" class="metrics" style="margin:0;grid-template-columns:repeat(4,1fr)"></div>
