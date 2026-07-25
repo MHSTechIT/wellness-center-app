@@ -4043,6 +4043,9 @@ export function initApp(root: HTMLElement) {
     // ========== RECEPTION DATA (live: appointments + payments) ==========
     let RX: any[] = [];        // current date-filtered appointments (shape used by renderers)
     let _recAll: any[] = [];   // all loaded appointments
+    let _recPays: any[] = [];  // all loaded payment rows (raw) — revenue is computed from THESE, never
+                                // by summing a per-lead total stamped onto every appointment row (that
+                                // double-counts any lead with 2+ appointments — see renderRev).
     let _recInst: Record<string,any> = {};   // installment aggregation by lead_id (status/balance/history)
     let _drLeadId="";          // lead id currently shown in the Reception row drawer (for the call-log panel)
     // Per-lead, per-program payment progress (for the detailed Enrolled label in the Appointments
@@ -4143,6 +4146,7 @@ export function initApp(root: HTMLElement) {
           supabase.from("payments").select("*").order("created_at",{ascending:false}),
           supabase.from("call_recordings").select("contact_id").limit(5000)
         ]);
+        _recPays=pr.data||[];
         // Real call count per lead (drives the 🎤 column) — was hardcoded to 0 before.
         const callsByLead:Record<string,number>={}; (cr.data||[]).forEach((c:any)=>{ const k=String(c.contact_id||""); if(k) callsByLead[k]=(callsByLead[k]||0)+1; });
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(!pays[p.appointment_id]) pays[p.appointment_id]={status:p.status,amount:p.amount||0}; });
@@ -4256,20 +4260,35 @@ export function initApp(root: HTMLElement) {
     }
 
     function renderAll() { renderRev(); renderSc(); renderFlows(); renderAppt(); renderPay(); }
+    // Revenue is summed from `payments` rows directly, scoped to the SAME [from,to] window as the
+    // Appointments table (via _recDateRange, matching paid_at — every 'paid' row has one, verified).
+    // Never sum a per-lead total stamped onto appointment rows: a lead with 2+ appointments (any
+    // reschedule/cancel-and-rebook) would have their full payment counted once per appointment.
+    // Refunds (once wired — see the Refunds panel) subtract from the same total here.
     function renderRev() {
-      const f = curSvc === "all" ? RX : RX.filter((r) => r.svc === curSvc);
-      const tot = f.reduce((s: number, r: any) => s + Math.max(0, r.payAmt), 0);
+      const [from,to]=_recDateRange();
+      const paid=_recPays.filter((p:any)=>{
+        if(p.status!=="paid"||!p.paid_at) return false;
+        const d=new Date(p.paid_at); if(from&&d<from) return false; if(to&&d>to) return false;
+        if(curSvc!=="all"&&_recSvcCode(p.service||"")!==curSvc) return false;
+        return true;
+      });
+      const net=(p:any)=>Math.max(0,(Number(p.amount)||0)-(Number(p.refund_amount)||0));
+      const tot=paid.reduce((s:number,p:any)=>s+net(p),0);
       const el = root.querySelector("#revTotal"); if (el) el.textContent = "₹" + tot.toLocaleString("en-IN");
       const bySvc: Record<string,number> = { dia:0, bt:0, physio:0 };
-      f.forEach((r: any) => { if (r.payAmt > 0) bySvc[r.svc] = (bySvc[r.svc]||0) + r.payAmt; });
+      paid.forEach((p:any)=>{ const c=_recSvcCode(p.service||""); bySvc[c]=(bySvc[c]||0)+net(p); });
       const rs = root.querySelector("#revSvc");
       if (rs) rs.innerHTML = Object.entries(bySvc).map(([k,v]) => '<div><div style="font-size:9px;color:var(--faint);font-weight:600">'+(SVC_LABELS[k]||k).toUpperCase()+'</div><div class="mono" style="font-weight:700">₹'+v.toLocaleString("en-IN")+'</div></div>').join("");
     }
     function renderSc() {
       const f = curSvc === "all" ? RX : RX.filter((r) => r.svc === curSvc);
       const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0 };
-      f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)c.enrolled++; });
-      const cards = [{k:"expected",l:"Expected",v:f.length,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"noshow",l:"No show",v:c.noshow,c:"r"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"}];
+      const enrolledLeads=new Set<string>();   // Enrolled is a LEAD fact, not an appointment fact — a
+      // lead with 2+ appointments (any reschedule) must only count once, same root cause as renderRev.
+      f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)enrolledLeads.add(String(r.lead_id||r.id)); });
+      c.enrolled=enrolledLeads.size;
+      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"noshow",l:"No show",v:c.noshow,c:"r"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"}];
       const el = root.querySelector("#scCards");
       if (el) el.innerHTML = cards.map((x) => '<div class="metric '+x.c+'" style="cursor:pointer;'+(curScFilter===x.k?'outline:2.5px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._scClick(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
     }
@@ -4868,7 +4887,11 @@ export function initApp(root: HTMLElement) {
       if(_recBusy) return;   // a collect is already in flight — ignore the double-click (prevents duplicate rows)
       // Validate BEFORE hiding the panel, so failures keep the form open.
       const raw=((root.querySelector("#recWbAmt")as HTMLInputElement)?.value||"").trim();
-      const amt=Number(raw.replace(/[^0-9.]/g,""));
+      // Round to the nearest rupee — `payments.amount` is an INT column, so a decimal value (the
+      // field allows one) would otherwise be silently REJECTED by Postgres on write: the toast would
+      // still say "collected" while nothing was actually saved (see _payNum for the coach-side twin
+      // of this bug, which instead overstated the amount 100x).
+      const amt=Math.round(Number(raw.replace(/[^0-9.]/g,"")));
       const due=Number(_recCollect.amt)||0;
       if(!raw||isNaN(amt)||amt<=0){ toastErr("Enter a valid amount — numbers only"); return; }
       if(due>0&&amt>due){ toastErr("Received (₹"+amt.toLocaleString("en-IN")+") cannot exceed the due (₹"+due.toLocaleString("en-IN")+")"); return; }
@@ -4893,8 +4916,13 @@ export function initApp(root: HTMLElement) {
           const ex=_exRes?.data;
           const _tgt=(ex||[]).find((r:any)=>r.status==="due")||(ex||[])[0];
           const vals:any={status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null};
-          if(_tgt) await supabase.from("payments").update(vals).eq("id",_tgt.id);
-          else await supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:(await _recLeadProgram(_recCollect.leadId))},vals));
+          // Check the write result — the gateway resolves {error} rather than throwing, so an
+          // unchecked write can fail (e.g. a non-integer amount rejected by the INT column) while
+          // the toast below still claims success and cash has already changed hands.
+          const _wOk=_tgt
+            ? await _dbOk(supabase.from("payments").update(vals).eq("id",_tgt.id),"Installment collect")
+            : await _dbOk(supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:(await _recLeadProgram(_recCollect.leadId))},vals)),"Installment collect");
+          if(!_wOk) return;
           if(_recCollect.apptId) await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
           // Fully-paid check across all of this lead's installments.
           let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment"); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
@@ -4907,7 +4935,7 @@ export function initApp(root: HTMLElement) {
         //      balance): update that row to paid instead of inserting a duplicate. ----
         if(_recCollect.payId){
           const pid=_recCollect.payId;
-          await supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid);
+          if(!(await _dbOk(supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid),"Payment collect"))) return;
           // Move the linked appointment to the payment stage (look it up from the payment row
           // when we weren't handed one) and mark the lead Payment Done.
           let apptId=_recCollect.apptId;
@@ -4927,7 +4955,7 @@ export function initApp(root: HTMLElement) {
           try{ const {data:rq}=await supabase.from("payments").select("id,program,appointment_id").eq("lead_id",_recCollect.leadId).eq("status","due").in("collected_by",["Reception desk","POS Machine","Razorpay link (online)"]).order("created_at",{ascending:true}).limit(1); reqRow=rq&&rq[0]; }catch(_){}
           if(reqRow){
             const prog=reqRow.program||_curProgram();
-            await supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null}).eq("id",reqRow.id);
+            if(!(await _dbOk(supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Reception desk",txn_ref:txnRef||null,due_date:null}).eq("id",reqRow.id),"Payment collect"))) return;
             const apptId=_recCollect.apptId||reqRow.appointment_id;
             if(apptId) try{ await supabase.from("appointments").update({stage:"payment"}).eq("id",apptId); }catch(_){}
             try{ await _enrollLeadShared(String(_recCollect.leadId),"Reception collected",prog); }catch(_){}
@@ -4946,7 +4974,7 @@ export function initApp(root: HTMLElement) {
         const _fbRes:any=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("program",_fbProg).eq("status","paid").limit(1);
         if(_fbRes&&_fbRes.error){ toastErr("Payment check failed: "+(_fbRes.error.message||"database error")+" — collect aborted to avoid a duplicate row"); return; }
         const _fbPaid=!!(_fbRes?.data&&_fbRes.data.length);
-        if(!_fbPaid) await supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_fbProg});
+        if(!_fbPaid&&!(await _dbOk(supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_fbProg}),"Payment collect"))) return;
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
@@ -5554,9 +5582,15 @@ export function initApp(root: HTMLElement) {
     }
     w._syncProgramPricing=_syncProgramPricing;
 
+    // Money fields deliberately allow one decimal point (see w._payAmtRcvd / w._numOnly) — stripping
+    // non-digits INCLUDING the dot (the old parseInt-based version) turned "14999.50" into 1499950,
+    // a 100x overstatement. Parse as a float, then round to the nearest rupee: `payments.amount` is
+    // an INT column, and leaving a fractional value would make the write silently fail downstream
+    // instead of visibly rounding here.
     function _payNum(sel:string):number{
       const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
-      return parseInt(((el&&(el as any).value)||"").replace(/[^\d]/g,""))||0;
+      const v=((el&&(el as any).value)||"").replace(/[^0-9.]/g,"");
+      return Math.round(parseFloat(v))||0;
     }
     // Quote (auto from price master): a Special-offer amount overrides everything;
     // otherwise the price follows the suggested program (L1, L2, or L1+L2).
@@ -6773,8 +6807,13 @@ export function initApp(root: HTMLElement) {
         const rows:any[]=[];
         if(p1&&!recInst1Paid) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2Inst1Proof")});
         if(p2&&!recInst2Paid) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2BalProof")});
-        // Pending installment-2 → a "due" row so Reception can see the balance + due date + collect it.
-        else if(balance>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
+        // Any remaining balance → a "due" row so Reception can see it + collect it. This must be a
+        // SEPARATE condition, not an `else` of the paid-row push above: `balance` is ALREADY computed
+        // as totalI2-p1-p2 (i.e. it already accounts for a PARTIAL p2), so if the client pays only
+        // part of installment 2, the shortfall still needs its own due row. Wiring this as an `else`
+        // meant any partial payment on installment 2 silently wrote off the remainder — the plan's
+        // own summary would then read "Fully Paid" on less than the contracted total.
+        if(balance>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
         // The coach can collect an installment Reception only STAGED as "due" (never actually
         // collected) — that's legitimate, but Reception's due placeholder for that installment
         // must then be cleared, or it lingers forever and the balance double-counts it (found
