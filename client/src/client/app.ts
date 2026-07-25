@@ -318,6 +318,34 @@ export function initApp(root: HTMLElement) {
       }).join("");
     }
 
+    // Roles that actually receive lead assignments — mirrors the Assignees tab's own role
+    // dropdown (template.ts #asgRole). Users tab has extra login-only roles (Receptionist,
+    // Diagnostics, Physiotherapist, Accounts, ABM, Branch Manager, Super Admin, Screening) that
+    // never belong in an "Assigned to" dropdown, so those are never mirrored into `assignees`.
+    const ASSIGNEE_ROLES=["Advisor","Senior Advisor","Telecaller","Manager","Health Coach"];
+    // Keep the linked `assignees` row (matched by email — the same link `_advisorName()` already
+    // relies on for RBAC scoping) in sync with a Users-tab action. Best-effort: never blocks the
+    // app_users write, since Assignees is a convenience mirror, not the source of truth for login.
+    async function _asgSyncUser(email:string,name:string,role:string,active:boolean){
+      if(!email) return;
+      try{
+        const {data:existing}=await supabase.from("assignees").select("id").eq("email",email).limit(1);
+        if(existing&&existing.length){
+          if(ASSIGNEE_ROLES.includes(role)) await supabase.from("assignees").update({name:name||email,role,is_active:active}).eq("id",existing[0].id);
+          else await supabase.from("assignees").delete().eq("id",existing[0].id);   // role changed OUT of an assignable role
+        } else if(ASSIGNEE_ROLES.includes(role)&&active){
+          await supabase.from("assignees").insert({name:name||email,role,branch:"Chennai",email,is_active:true});
+        }
+        await loadAssignees();
+      }catch(_){}
+    }
+    async function _asgRemoveUser(email:string){
+      if(!email) return;
+      try{ const {data:existing}=await supabase.from("assignees").select("id").eq("email",email).limit(1);
+        if(existing&&existing.length){ await supabase.from("assignees").delete().eq("id",existing[0].id); await loadAssignees(); }
+      }catch(_){}
+    }
+
     w._usrCreate=async function(){
       const emailEl=root.querySelector("#usrEmail") as HTMLInputElement;
       const nameEl=root.querySelector("#usrName") as HTMLInputElement;
@@ -330,7 +358,10 @@ export function initApp(root: HTMLElement) {
       try{
         const {error}=await supabase.from("app_users").insert({email,name:name||null,role});
         if(error){ toastErr(error.message.includes("duplicate")?"This email already exists":error.message); return; }
-        toast("User added — they can set their password on the login screen");
+        // Auto-mirror into Assignees so this user is immediately selectable in "Assigned to"
+        // dropdowns — only for roles that actually receive leads (see ASSIGNEE_ROLES above).
+        await _asgSyncUser(email,name,role,true);
+        toast("User added — they can set their password on the login screen"+(ASSIGNEE_ROLES.includes(role)?" · added to Assignees":""));
         if(emailEl) emailEl.value="";
         if(nameEl) nameEl.value="";
         await loadUsers();
@@ -340,7 +371,10 @@ export function initApp(root: HTMLElement) {
     w._usrToggle=async function(id:any){
       const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
       if(!u) return;
-      await supabase.from("app_users").update({active:!u.active}).eq("id",id);
+      const next=!u.active;
+      await supabase.from("app_users").update({active:next}).eq("id",id);
+      // Deactivating/reactivating a user pulls them out of / back into "Assigned to" dropdowns too.
+      await _asgSyncUser(u.email,u.name,u.role,next);
       toast(u.active?"User deactivated":"User activated");
       await loadUsers();
     };
@@ -349,6 +383,10 @@ export function initApp(root: HTMLElement) {
       const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
       if(u&&u.role==="Super Admin"){ toastErr("Cannot remove Super Admin"); return; }
       await supabase.from("app_users").delete().eq("id",id);
+      // Remove the linked Assignee row too, so a removed user's name doesn't linger as a
+      // selectable "Assigned to" target. Only removes the row THIS user is linked to (by email) —
+      // pre-existing assignees with no matching user account are never touched.
+      if(u) await _asgRemoveUser(u.email);
       toast("User removed");
       await loadUsers();
     };
