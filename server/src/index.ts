@@ -15,6 +15,7 @@ const BUILD_VERSION = (() => {
 import { registerMetaRoutes, refreshExpiringTokens } from './routes/meta';
 import { registerCallRoutes } from './routes/calls';
 import { registerDataRoutes } from './routes/data';
+import { registerEventRoutes } from './routes/events';
 import { registerAuthRoutes } from './routes/auth';
 import { registerStorageRoutes } from './routes/storage';
 
@@ -61,6 +62,7 @@ registerCallRoutes(app);
 registerDataRoutes(app);   // Postgres data gateway (replaces Supabase PostgREST)
 registerAuthRoutes(app);   // login / set-password against app_users
 registerStorageRoutes(app); // file uploads (replaces Supabase Storage)
+registerEventRoutes(app);   // /events — SSE push so every role/page updates without a refresh
 
 // ---- Serve the built frontend (static export) on the SAME origin as the API ----
 // In production, `npm --prefix client run build` emits client/out; this server
@@ -75,7 +77,7 @@ if (CLIENT_DIST) {
   app.use(express.static(CLIENT_DIST));
   // SPA fallback: any non-API route serves index.html.
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/db') || req.path.startsWith('/auth') || req.path.startsWith('/storage') || req.path.startsWith('/api') || req.path === '/health') return next();
+    if (req.path.startsWith('/db') || req.path.startsWith('/auth') || req.path.startsWith('/storage') || req.path.startsWith('/api') || req.path === '/health' || req.path === '/events') return next();
     res.sendFile(path.join(CLIENT_DIST, 'index.html'));
   });
   console.log(`[wellness-api] serving frontend from ${CLIENT_DIST}`);

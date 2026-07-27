@@ -3053,13 +3053,23 @@ export function initApp(root: HTMLElement) {
     w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";};
     {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};}
     // Persist a call-status change for the currently-open lead (drives KPIs).
-    w._haSetCallStatus=(label:string)=>{
+    w._haSetCallStatus=async(label:string)=>{
       if(!_advLeadId){return;}
-      const l=haBook().find((x:any)=>String(x.id)===_advLeadId)||_metaLeads.find((x:any)=>String(x.id)===_advLeadId);
+      const id=String(_advLeadId);
+      const l=haBook().find((x:any)=>String(x.id)===id)||_metaLeads.find((x:any)=>String(x.id)===id);
       if(l) l.callStatus=label;
-      supabase.from("leads").update({call_status:label}).eq("meta_lead_id",_advLeadId).then(()=>{});
       renderHealthDashboard();
       try{ renderAssignedLeads(); }catch(_){}   // keep the Assigned-leads Call Status column live
+      // AWAIT the write, then refresh every view derived from call_status. The Zoom check-in queue
+      // (Reception + Advisor) is driven ENTIRELY by call_status === "Appointment Fixed – Zoom", so
+      // setting that status has to re-pull it — otherwise a lead only showed up after a manual page
+      // reload (loadZoomCheckins() runs on init and on the Coach nav click, nowhere else). The old
+      // fire-and-forget `.then(()=>{})` also meant any refresh could race the write and re-read the
+      // OLD status. A status change can move a lead OUT of the queue too, so this runs for every
+      // label, not just the Zoom one.
+      await supabase.from("leads").update({call_status:label}).eq("meta_lead_id",id);
+      try{ await loadZoomCheckins(); }catch(_){}
+      _broadcastLeadSync({leadId:id,callStatus:label});   // other open tabs (Reception/Coach) update live
     };
 
     // Checked pool-lead ids (by data-id, so it's correct even with the time-range filter on).
@@ -3417,6 +3427,12 @@ export function initApp(root: HTMLElement) {
     // changed, and only for the Advisor screen if it's the one currently open.
     let _assignPollSig="";
     _assignPollTimer=setInterval(async()=>{
+      // Zoom check-in queue: same cross-device problem as assignments — the Advisor who sets
+      // "Appointment Fixed – Zoom" is usually on a different machine from the Reception desk
+      // watching the queue, so a BroadcastChannel can't reach it. Only polled while a screen that
+      // actually shows the queue is open (it re-renders itself).
+      const _scr=_activeScreenId();
+      if(_scr==="reception"||_scr==="advisor"||_scr==="coach"){ try{ await loadZoomCheckins(); }catch(_){} }
       await loadAssignmentExtras();
       const sig=_assignedExtras.map((l:any)=>l.id+":"+l.assignedTo+":"+l.callStatus).join("|");
       if(sig===_assignPollSig) return;
@@ -3428,6 +3444,53 @@ export function initApp(root: HTMLElement) {
     setInterval(_checkFuReminders,60000);
     // Floor all future-scheduling date/time pickers so past dates/times can't be chosen.
     _wireFutureFields();
+
+    // ===== LIVE SYNC (server push, cross-device) =====================================
+    // The real fix for "Advisor changes something on one machine, Reception/Admin has to hit
+    // refresh on another". supabase.channel() is a no-op stub in this stack (no websocket), so
+    // until now the only cross-page mechanisms were a BroadcastChannel (SAME browser only) and a
+    // 30s poll — neither of which makes another DEVICE update immediately.
+    //
+    // The server now pushes a Server-Sent Event naming the table that changed (see
+    // server/src/routes/events.ts). It is emitted from the /db/query gateway, which every write
+    // from every page and role already goes through, so this covers the whole app at once rather
+    // than one screen at a time. The event carries NO row data — it just tells us to re-read.
+    const _liveRefresh=(table:string)=>{
+      const scr=_activeScreenId();
+      if(table==="leads"||table==="appointments"){
+        // The Zoom check-in queue is derived from leads.call_status + the appointment row, and is
+        // shown on Advisor, Reception and Coach — this is the case reported repeatedly.
+        if(scr==="advisor"||scr==="reception"||scr==="coach"){ try{ loadZoomCheckins(); }catch(_){} }
+      }
+      if(table==="leads"){
+        loadAssignmentExtras().then(()=>{ try{ rebuildPoolFromDB(); renderAssignedLeads(); renderHealthDashboard(); if(scr==="abm"){ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); } }catch(_){} });
+      }
+      if(scr==="reception"&&(table==="appointments"||table==="payments"||table==="leads")){ try{ loadReceptionData(); }catch(_){} }
+      if(scr==="coach"&&(table==="leads"||table==="payments")){ try{ loadCoachClients(); }catch(_){} }
+    };
+    let _sse:any=null; const _sseT:Record<string,any>={};
+    try{
+      if(typeof EventSource!=="undefined"){
+        // Close any stream from a previous initApp() before opening a new one. React StrictMode
+        // double-invokes effects in dev, and without this the first EventSource stays open forever
+        // (the cleanup only ever sees the LAST one) — a slow leak of server connections.
+        try{ if(w.__wosSse) w.__wosSse.close(); }catch(_){}
+        _sse=new EventSource(_api("/events"));
+        _sse.onmessage=(ev:any)=>{
+          let t=""; try{ t=String((JSON.parse(ev.data)||{}).t||""); }catch(_){ return; }
+          if(!t) return;
+          // Debounce PER TABLE: one user action often writes several rows in a burst (a coach save
+          // rewrites every installment row), and each write emits its own event. Without this the
+          // whole fleet would re-query once per row instead of once per action.
+          if(_sseT[t]) clearTimeout(_sseT[t]);
+          _sseT[t]=setTimeout(()=>{ delete _sseT[t]; try{ _liveRefresh(t); }catch(_){} },400);
+        };
+        // EventSource reconnects on its own (the server sends `retry:`), so an error is not fatal —
+        // and the 30s poll above still covers the gap while the stream is down.
+        _sse.onerror=()=>{};
+        w.__wosSse=_sse;   // kept for cleanup on unmount
+      }
+    }catch(_){ _sse=null; }
 
     // ===== REAL-TIME: Supabase pushes new/changed leads instantly (no refresh) =====
     function dbRowToLead(r:any){
@@ -5171,6 +5234,11 @@ export function initApp(root: HTMLElement) {
       try{ renderCoachOpenList(); }catch(_){}
       const _scr=_activeScreenId();
       if(_scr==="reception"){ try{ loadReceptionData(); }catch(_){} }   // keep a Reception tab's amount/queue/revenue + Enrolled card fresh
+      // The Zoom check-in queue is derived purely from leads.call_status, so ANY synced status
+      // change must re-pull it — the lead may have just entered the queue ("Appointment Fixed –
+      // Zoom") or left it (checked in / any other status). Rendered on both Advisor and Reception.
+      // `appointment` covers a slot booking, which changes the date/time that queue displays.
+      if(m.callStatus!=null||m.appointment){ try{ loadZoomCheckins(); }catch(_){} }
       // A newly-VISITED lead isn't in _coachClients yet (that list is loaded WHERE visited_at NOT NULL),
       // so an open Coach tab needs a reload to surface it — otherwise it only appears after a manual refresh.
       if(_scr==="coach"&&("visitedAt" in m)&&m.visitedAt&&!_coachClients.some((x:any)=>String(x.id)===id)){ try{ loadCoachClients(); }catch(_){} }
@@ -5473,6 +5541,10 @@ export function initApp(root: HTMLElement) {
       selSlot=null; resch=false;
       await renderSlots();
       loadReceptionData();
+      // Booking supplies the date/time the Zoom queue displays, so refresh it here too (the row
+      // itself is gated on call_status, which the Zoom status change sets) and push to other tabs.
+      try{ loadZoomCheckins(); }catch(_){}
+      _broadcastLeadSync({leadId:String(_advLeadId),appointment:true});
     }
     w.bookSlot = bookSlot;
     function startResch(){resch=true;const rb=root.querySelector("#reschBanner")as HTMLElement;if(rb)rb.style.display="flex";toast("Pick a new slot");}
@@ -8157,5 +8229,5 @@ export function initApp(root: HTMLElement) {
     _versionTimer=setInterval(checkVersion,60000);
     window.addEventListener("focus",checkVersion);
 
-    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); if(_assignPollTimer) clearInterval(_assignPollTimer); if(_versionTimer) clearInterval(_versionTimer); window.removeEventListener("focus",checkVersion); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
+    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); if(_assignPollTimer) clearInterval(_assignPollTimer); if(_versionTimer) clearInterval(_versionTimer); window.removeEventListener("focus",checkVersion); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} try{ if(w.__wosSse){ w.__wosSse.close(); w.__wosSse=null; } }catch(_){} };
 }
