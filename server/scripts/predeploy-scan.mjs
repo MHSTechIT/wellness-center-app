@@ -135,6 +135,27 @@ const CHECKS = [
           group by l.meta_lead_id, l.name
           order by earliest_paid_at`,
   },
+  {
+    id: 'AUTO_CREATED_RECEPTION_REQUEST',
+    title: 'Reception-visible installment-2 request created in the SAME click as installment 1',
+    why: 'A Reception collection request must ONLY exist after an explicit "Send collection request to Reception" '
+      + 'click. Before 2b546eb (2026-07-24) sendToReception tagged its installment-2 BOOKKEEPING companion row with '
+      + 'the Reception-side `who` instead of "Health Coach", so sending installment 1 silently published an '
+      + 'installment-2 request to Reception\'s Collect queue as well (9 leads affected: Latha, Karthi M, Reshma, '
+      + 'Iyyappan, Ramesh Kumar, Chandra, P.Jayanthi, Rosaiah David, jeyabalan). The <10s creation gap is the '
+      + 'signature: two rows from one click. Any hit here means that companion row is again being tagged as a '
+      + 'Reception channel — it must stay "Health Coach" (hidden) until installment 2 is explicitly sent.',
+    sql: `select d.id, l.name, d.lead_id, d.amount, d.due_date, d.created_at,
+                 round(extract(epoch from (d.created_at - i1.created_at)) * 1000) as gap_ms
+          from payments d
+          join payments i1 on i1.lead_id = d.lead_id and i1.payment_type = 'installment'
+            and i1.installment_number = 1 and coalesce(i1.program,'') = coalesce(d.program,'')
+          join leads l on l.meta_lead_id = d.lead_id
+          where d.status = 'due' and d.payment_type = 'installment' and d.installment_number = 2
+            and d.collected_by in ('Reception desk', 'POS Machine', 'Razorpay link (online)')
+            and abs(extract(epoch from (d.created_at - i1.created_at))) < 10
+          order by d.created_at`,
+  },
 ];
 
 async function main() {

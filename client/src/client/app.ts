@@ -5871,9 +5871,6 @@ export function initApp(root: HTMLElement) {
       el.style.color=c[1];
     },1000);
 
-    // Route legacy addLog() calls into the persistent per-lead activity log.
-    function addLog(txt:string){ if(_advLeadId) logActivity(_advLeadId,[{action:"Updated",field:txt}]); }
-
     function ach(em:string,title:string,sub:string){
       const a=root.querySelector("#ach")as HTMLElement;
       const achEm=root.querySelector("#achEm");if(achEm)achEm.textContent=em;
@@ -5993,7 +5990,12 @@ export function initApp(root: HTMLElement) {
               await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:"Health Coach"}),"Balance tracking");
           }
         }
-        addLog("Payment → Reception · ₹"+amt.toLocaleString("en-IN"));
+        // Log against the lead THIS request is actually for (id = _coachLeadId) — not whichever
+        // lead happens to be open on the Advisor screen. The old addLog() helper hardcoded
+        // _advLeadId, so a send from Coach silently dropped the audit entry (if no lead was open
+        // on Advisor) or attributed it to a DIFFERENT, unrelated lead — making genuine "Send
+        // collection request" clicks look like they never happened when checking a lead's history.
+        logActivity(id,[{action:"Updated",field:"Payment → Reception · ₹"+amt.toLocaleString("en-IN")}]);
         try{ await loadReceptionData(); }catch(_){}
         toast("Sent → Reception · ₹"+amt.toLocaleString("en-IN")+" to collect");
       }catch(e:any){ toastErr("Could not send to Reception: "+((e&&e.message)||"db error")); }
@@ -6978,7 +6980,6 @@ export function initApp(root: HTMLElement) {
         const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
         const totalI2=_payNum("#i2Total")||total;
         const balance=Math.max(0,totalI2-p1-p2);
-        const dueDate=((root.querySelector("#i2BalDueDate")as HTMLInputElement|null)?.dataset.iso)||null;   // auto = Inst-1 date + 30 days (ISO)
         // Don't duplicate an installment Reception has ALREADY collected — the coach save must
         // reconcile, not re-insert (the delete below preserves Reception rows, so re-inserting a coach
         // copy of a Reception-paid installment is the root cause of the "two paid Inst-1" duplicate).
@@ -7001,13 +7002,19 @@ export function initApp(root: HTMLElement) {
         const rows:any[]=[];
         if(p1&&!recInst1Paid) rows.push({lead_id:id,amount:p1,status:"paid",method:val("#i2Inst1Mode")||null,paid_at:iso(val("#i2Inst1Date")),payment_type:"installment",installment_number:1,total_installments:2,txn_ref:val("#i2Inst1Ref")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2Inst1Proof")});
         if(p2&&!recInst2Paid) rows.push({lead_id:id,amount:p2,status:"paid",method:val("#i2BalMode")||null,paid_at:iso(val("#i2BalDate")),payment_type:"installment",installment_number:2,total_installments:2,txn_ref:val("#i2BalRef")||null,service:"Diabetes",program:_prog,collected_by:"Health Coach",...proof("i2BalProof")});
-        // Any remaining balance → a "due" row so Reception can see it + collect it. This must be a
-        // SEPARATE condition, not an `else` of the paid-row push above: `balance` is ALREADY computed
-        // as totalI2-p1-p2 (i.e. it already accounts for a PARTIAL p2), so if the client pays only
-        // part of installment 2, the shortfall still needs its own due row. Wiring this as an `else`
-        // meant any partial payment on installment 2 silently wrote off the remainder — the plan's
-        // own summary would then read "Fully Paid" on less than the contracted total.
-        if(balance>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,due_date:dueDate,collected_by:"Health Coach"});
+        // Any remaining balance → a coach-side "due" row that keeps Total/Balance correct across a
+        // reopen. Tagged "Health Coach", so it is NOT a Reception request and never surfaces in the
+        // Collect queue (only an explicit "Send collection request" writes a Reception-visible row).
+        // This must be a SEPARATE condition, not an `else` of the paid-row push above: `balance` is
+        // ALREADY computed as totalI2-p1-p2 (i.e. it already accounts for a PARTIAL p2), so if the
+        // client pays only part of installment 2, the shortfall still needs its own due row. Wiring
+        // this as an `else` meant any partial payment on installment 2 silently wrote off the
+        // remainder — the plan's own summary would then read "Fully Paid" on less than the total.
+        // due_date is deliberately NOT written here: this row is created by the coach's SAVE, with no
+        // "Send collection request" click, so persisting the auto +30d balance due date would be a
+        // premature commitment (it also drives the Accounts reminders). The date is stamped only when
+        // the request is actually sent — see sendToReception's companion row.
+        if(balance>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,collected_by:"Health Coach"});
         // The coach can collect an installment Reception only STAGED as "due" (never actually
         // collected) — that's legitimate, but Reception's due placeholder for that installment
         // must then be cleared, or it lingers forever and the balance double-counts it (found
