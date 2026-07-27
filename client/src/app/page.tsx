@@ -56,7 +56,6 @@ export default function Home() {
             <h1 className="login-title">My Health School</h1>
             <div className="login-sub">Wellness Center</div>
             <p className="login-cap">Sign in to continue</p>
-            <div style={{fontSize:"10px",color:"var(--muted)",marginTop:"6px",letterSpacing:".02em"}}>Build {process.env.NEXT_PUBLIC_BUILD_VERSION || "dev"}</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
             <div><label className="lbl" htmlFor="loginEmail">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com" autoComplete="username"/></div>
@@ -94,7 +93,7 @@ export default function Home() {
             <div className="ng">Admin</div>
             <button data-s="admin"><svg className="icon"><use href="#i-cog"/></svg> Settings &amp; masters</button>
           </nav>
-          <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><span id="sfootVer" title="Deployed build" style={{fontSize:"9.5px",color:"#7C9488",whiteSpace:"nowrap",marginRight:"6px"}}>v{process.env.NEXT_PUBLIC_BUILD_VERSION || "dev"}</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
+          <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
         </aside>
         <main className="main" id="main" dangerouslySetInnerHTML={{__html: getMainContent()}}/>
       </div>
