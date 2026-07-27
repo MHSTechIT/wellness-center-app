@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { supabase } from '../shared/supabase';
+import { requireAuth } from '../shared/session';
 import {
   tataConfig,
   clickToCall,
@@ -92,9 +93,24 @@ async function initiate(req: Request, res: Response) {
 
 // ============================================================
 // POST /api/calls/webhook/recording — Smartflo posts when a call ends.
-// NO auth. Ack 200 immediately, then process in the background.
+// Called by Tata's servers, not a logged-in browser, so it can't use requireAuth (no session) —
+// it needs its own proof this really came from Tata instead. Smartflo doesn't sign requests, so
+// the standard fallback is a shared secret embedded in the webhook URL you register with them:
+// set TATA_WEBHOOK_SECRET and register .../webhook/recording?secret=<that value> as the callback
+// URL in the Smartflo dashboard. Until TATA_WEBHOOK_SECRET is set, this stays open (so the
+// integration doesn't silently stop working) but logs a loud warning on every call so the gap is
+// visible in the server logs rather than invisible.
 // ============================================================
+let _warnedWebhookOpen = false;
 async function webhook(req: Request, res: Response) {
+  const expected = process.env.TATA_WEBHOOK_SECRET;
+  if (expected) {
+    const got = typeof req.query.secret === 'string' ? req.query.secret : '';
+    if (got !== expected) { res.status(403).json({ ok: false }); return; }
+  } else if (!_warnedWebhookOpen) {
+    _warnedWebhookOpen = true;
+    console.warn('[wellness-api] TATA_WEBHOOK_SECRET is not set — /api/calls/webhook/recording is accepting unauthenticated requests. Set TATA_WEBHOOK_SECRET and add ?secret=<value> to the webhook URL configured in the Smartflo dashboard.');
+  }
   const payload: any = req.body && Object.keys(req.body).length ? req.body : {};
   res.json({ ok: true });
   // Fire-and-forget (Express has no next/after; the response is already sent).
@@ -274,10 +290,14 @@ function configStatus(req: Request, res: Response) {
 }
 
 export function registerCallRoutes(app: Express) {
-  app.post('/api/calls/initiate/:contactId', initiate);
+  // requireAuth on every staff-facing route — placing a call, reading recordings, and the config
+  // diagnostic were all previously reachable with no credentials. The webhook is deliberately NOT
+  // gated by requireAuth: it's called by the telephony provider, not a logged-in browser session —
+  // it gets its own signature/shared-secret verification instead (see webhook()).
+  app.post('/api/calls/initiate/:contactId', requireAuth, initiate);
   app.post('/api/calls/webhook/recording', webhook);
-  app.put('/api/calls/:contactId/latest-type', latestType);
-  app.get('/api/calls/:contactId/recordings', recordings);
-  app.get('/api/calls/:contactId/sync', syncProvider);
-  app.get('/api/calls/config-status', configStatus);   // telephony config diagnostic (no secrets)
+  app.put('/api/calls/:contactId/latest-type', requireAuth, latestType);
+  app.get('/api/calls/:contactId/recordings', requireAuth, recordings);
+  app.get('/api/calls/:contactId/sync', requireAuth, syncProvider);
+  app.get('/api/calls/config-status', requireAuth, configStatus);
 }

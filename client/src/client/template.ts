@@ -84,25 +84,25 @@ export function getMainContent(): string {
     <div class="a-p" data-p="sales">
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Basic info <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl">Name <span class="req">*</span></label><input class="input" id="advfName" value=""></div>
-          <div class="fld"><label class="lbl">Phone no <span class="req">*</span></label><input class="input mono" id="advfPhone" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
+          <div class="fld"><label class="lbl" for="advfName">Name <span class="req">*</span></label><input  class="input" id="advfName" value=""></div>
+          <div class="fld"><label class="lbl" for="advfPhone">Phone no <span class="req">*</span></label><input  class="input mono" id="advfPhone" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
           <div class="fld"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
-          <div class="fld"><label class="lbl">WhatsApp no</label><input class="input mono" id="advfWhats" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
-          <div class="fld"><label class="lbl">Email</label><input class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
-          <div class="fld"><label class="lbl">Gender <span class="req">*</span></label><select class="select" id="advfGender"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
-          <div class="fld"><label class="lbl">Age <span class="req">*</span></label><input class="input mono" id="advfAge" type="number" min="1" max="120" placeholder="e.g. 42"></div>
-          <div class="fld"><label class="lbl">Occupation <span class="req">*</span> <span class="nb">NEW</span></label><select class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
-          <div class="fld"><label class="lbl">Language <span class="req">*</span></label><select class="select" id="advfLang"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
+          <div class="fld"><label class="lbl" for="advfWhats">WhatsApp no</label><input  class="input mono" id="advfWhats" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
+          <div class="fld"><label class="lbl" for="advfEmail">Email</label><input  class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
+          <div class="fld"><label class="lbl" for="advfGender">Gender <span class="req">*</span></label><select  class="select" id="advfGender"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
+          <div class="fld"><label class="lbl" for="advfAge">Age <span class="req">*</span></label><input  class="input mono" id="advfAge" type="number" min="1" max="120" placeholder="e.g. 42"></div>
+          <div class="fld"><label class="lbl" for="advfOcc">Occupation <span class="req">*</span> <span class="nb">NEW</span></label><select  class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
+          <div class="fld"><label class="lbl" for="advfLang">Language <span class="req">*</span></label><select  class="select" id="advfLang"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
           <div class="fld"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
-          <div class="fld"><label class="lbl">Lead generated <span class="ab">AUTO</span></label><input class="input mono" id="haLeadGen" readonly></div>
-          <div class="fld"><label class="lbl">Batch code</label><input class="input mono" id="haBatch" placeholder="—"></div>
-          <div class="fld"><label class="lbl">Location <span class="req">*</span></label><select class="select" id="advfLoc"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
+          <div class="fld"><label class="lbl" for="haLeadGen">Lead generated <span class="ab">AUTO</span></label><input  class="input mono" id="haLeadGen" readonly></div>
+          <div class="fld"><label class="lbl" for="haBatch">Batch code</label><input  class="input mono" id="haBatch" placeholder="—"></div>
+          <div class="fld"><label class="lbl" for="advfLoc">Location <span class="req">*</span></label><select  class="select" id="advfLoc"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
           <div class="fld" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
         </div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl">Sugar level <span class="req">*</span></label><select class="select" id="advfSugar"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
+          <div class="fld"><label class="lbl" for="advfSugar">Sugar level <span class="req">*</span></label><select  class="select" id="advfSugar"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
           <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date"></div>
           <div class="fld"><label class="lbl">Fasting (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
           <div class="fld"><label class="lbl">Postprandial (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
@@ -127,9 +127,9 @@ export function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"/></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Salesperson</label><select class="select" id="salesSel"><option value="">— Select —</option></select></div>
-          <div class="fld"><label class="lbl">Sales team</label><select class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
-          <div class="fld"><label class="lbl">HC assigned <span class="nb">NEW</span></label><select class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
+          <div class="fld"><label class="lbl" for="salesSel">Salesperson</label><select  class="select" id="salesSel"><option value="">— Select —</option></select></div>
+          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team</label><select  class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
+          <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
           <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
           <div class="fld"><label class="lbl">Tags</label><input class="input" placeholder="e.g. hot-lead, follow-up"></div>
@@ -138,18 +138,18 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-phone"/></svg> Call status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g2">
-            <div class="fld"><label class="lbl">Call status — drives the flow</label>
-              <select class="select" id="callStatus" onchange="callStatusChange(this.value)">
+            <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
+              <select  class="select" id="callStatus" onchange="callStatusChange(this.value)">
                 <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="ni">Not Interested</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="payp">Payment Pending</option><option value="payc">Payment Completed</option><option value="int">Interested</option><option value="nr">Not Reachable</option><option value="cbr">Callback Requested</option>
               </select></div>
-            <div class="fld"><label class="lbl">Next follow-up date &amp; time</label><input class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
+            <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
           <div class="fld"><label class="lbl">Call notes <span class="nb">NEW</span></label><textarea class="area" rows="3" placeholder="What was discussed, objections, next step…"></textarea></div>
           <div class="banner plan hideblock" id="fuPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Follow-up plan — standard procedure</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--vio-ink)">Reason / intent</label><select class="select" style="height:36px"><option>Will decide this week</option><option>Family discussion needed</option><option>Budget / salary date</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Planned date &amp; time *</label><input class="input" style="height:36px" type="datetime-local" id="fuPlannedDt" data-future="1" onchange="window._fuPlannedSync()"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)" for="fuPlannedDt">Planned date &amp; time *</label><input  class="input" style="height:36px" type="datetime-local" id="fuPlannedDt" data-future="1" onchange="window._fuPlannedSync()"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Reminder before</label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Attempt # <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" readonly placeholder="—"></div>
             </div>
@@ -162,8 +162,8 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-msg"/></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g3">
-            <div class="fld"><label class="lbl">Template</label><select class="select" id="waTplSel" onchange="waTpl()"><option value="welcome" selected>Welcome &amp; intro</option><option value="appt">Appointment confirmation</option><option value="fu">Follow-up reminder</option><option value="pay">Payment link</option></select></div>
-            <div class="fld" style="grid-column:span 2"><label class="lbl">Preview</label><textarea class="area" id="waPrev" rows="3" placeholder="Template preview will appear here"></textarea></div>
+            <div class="fld"><label class="lbl" for="waTplSel">Template</label><select  class="select" id="waTplSel" onchange="waTpl()"><option value="welcome" selected>Welcome &amp; intro</option><option value="appt">Appointment confirmation</option><option value="fu">Follow-up reminder</option><option value="pay">Payment link</option></select></div>
+            <div class="fld" style="grid-column:span 2"><label class="lbl" for="waPrev">Preview</label><textarea  class="area" id="waPrev" rows="3" placeholder="Template preview will appear here"></textarea></div>
           </div>
           <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg class="icon" style="width:14px;height:14px"><use href="#i-msg"/></svg> Send via WATI</button></div>
         </div></div>
@@ -171,10 +171,10 @@ export function getMainContent(): string {
       <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"/></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
-            <div class="fld"><label class="lbl">Date</label><input class="input" type="date" id="slotDate" data-future="1" onchange="renderSlots()"></div>
-            <div class="fld"><label class="lbl">HC <span class="ab">FROM ASSIGNMENT</span></label><select class="select" id="apptHc" disabled title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"><option value="">— Select —</option></select></div>
-            <div class="fld"><label class="lbl">Capacity rule</label><input class="input mono" id="apptCapRule" value="Select an HC first" readonly></div>
-            <div class="fld"><label class="lbl">Appt request <span class="ab">AUTO</span></label><input class="input mono" id="apptReq" readonly placeholder="—"></div>
+            <div class="fld"><label class="lbl" for="slotDate">Date</label><input  class="input" type="date" id="slotDate" data-future="1" onchange="renderSlots()"></div>
+            <div class="fld"><label class="lbl" for="apptHc">HC <span class="ab">FROM ASSIGNMENT</span></label><select  class="select" id="apptHc" disabled title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"><option value="">— Select —</option></select></div>
+            <div class="fld"><label class="lbl" for="apptCapRule">Capacity rule</label><input  class="input mono" id="apptCapRule" value="Select an HC first" readonly></div>
+            <div class="fld"><label class="lbl" for="apptReq">Appt request <span class="ab">AUTO</span></label><input  class="input mono" id="apptReq" readonly placeholder="—"></div>
           </div>
           <div class="fld"><label class="lbl">Day view — slot occupancy</label><div class="slotgrid" id="slotGrid"></div></div>
           <div class="banner plan hideblock" id="reschBanner" style="display:none"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg> <span>Reschedule mode — pick new slot.</span></div>
@@ -184,13 +184,13 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Visited status <span class="ab">AUTO</span></label><div class="pills" id="visStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Visited</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the receptionist confirms check-in.</div></div>
-          <div class="fld"><label class="lbl">Visited date <span class="ab">AUTO</span></label><input class="input" id="visDt" readonly placeholder="— set on Visited"></div>
+          <div class="fld"><label class="lbl" for="visDt">Visited date <span class="ab">AUTO</span></label><input  class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO</span></label><div class="pills" id="enrStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Enrolled</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the health coach marks the client Enrolled.</div></div>
-          <div class="fld"><label class="lbl">Enrolled date &amp; time <span class="ab">AUTO</span></label><input class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
+          <div class="fld"><label class="lbl" for="enrDt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"/></svg> Sales caller self-audit <span class="arr">▾</span></div>
@@ -286,43 +286,43 @@ export function getMainContent(): string {
 
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl">Sugar level</label><input class="input" id="crSugar" readonly></div>
-          <div class="fld"><label class="lbl">Fasting / PP</label><input class="input mono" id="crFasting" readonly></div>
-          <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" id="crHba1c" readonly></div>
-          <div class="fld"><label class="lbl">Walk-in status</label><select class="select" id="crWalkIn"><option>Open</option><option selected>Visited</option><option>Not Visited</option><option>Rescheduled</option></select></div>
+          <div class="fld"><label class="lbl" for="crSugar">Sugar level</label><input  class="input" id="crSugar" readonly></div>
+          <div class="fld"><label class="lbl" for="crFasting">Fasting / PP</label><input  class="input mono" id="crFasting" readonly></div>
+          <div class="fld"><label class="lbl" for="crHba1c">HbA1c (%)</label><input  class="input mono" id="crHba1c" readonly></div>
+          <div class="fld"><label class="lbl" for="crWalkIn">Walk-in status</label><select  class="select" id="crWalkIn"><option>Open</option><option selected>Visited</option><option>Not Visited</option><option>Rescheduled</option></select></div>
           <div class="fld fw"><label class="lbl">Blood reports — from Health advisor <span class="ab">SYNCED</span></label>
             <div class="atts" id="coachAtts"></div></div>
-          <div class="fld fw"><label class="lbl">Remarks</label><textarea class="area" rows="2" id="crRemarks"></textarea></div>
+          <div class="fld fw"><label class="lbl" for="crRemarks">Remarks</label><textarea  class="area" rows="2" id="crRemarks"></textarea></div>
         </div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Screening results — clinic floor <span class="chipb warn" id="scrChip" style="margin-left:8px">Awaiting screening</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="stub" id="scrEmpty" style="margin-top:12px">Client is at reception / screening. The moment the screening desk saves the M0 baseline, the vitals appear here automatically — read-only, locked as baseline.</div>
           <div class="g4" id="scrData" style="display:none;margin-top:2px">
-            <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="cs_h" readonly></div>
-            <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="cs_w" readonly></div>
-            <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="cs_bmi" readonly></div>
-            <div class="fld"><label class="lbl">BP</label><input class="input mono" id="cs_bp" readonly></div>
-            <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="cs_pu" readonly></div>
-            <div class="fld"><label class="lbl">SpO2 (%)</label><input class="input mono" id="cs_sp" readonly></div>
-            <div class="fld"><label class="lbl">Waist (cm)</label><input class="input mono" id="cs_wa" readonly></div>
-            <div class="fld"><label class="lbl">Temp</label><input class="input mono" id="cs_te" readonly></div>
-            <div class="fld"><label class="lbl">Desk glucose (mg/dL)</label><input class="input mono" id="cs_gl" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_h">Height (cm)</label><input  class="input mono" id="cs_h" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_w">Weight (kg)</label><input  class="input mono" id="cs_w" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_bmi">BMI <span class="ab">AUTO</span></label><input  class="input mono" id="cs_bmi" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_bp">BP</label><input  class="input mono" id="cs_bp" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_pu">Pulse</label><input  class="input mono" id="cs_pu" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_sp">SpO2 (%)</label><input  class="input mono" id="cs_sp" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_wa">Waist (cm)</label><input  class="input mono" id="cs_wa" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_te">Temp</label><input  class="input mono" id="cs_te" readonly></div>
+            <div class="fld"><label class="lbl" for="cs_gl">Desk glucose (mg/dL)</label><input  class="input mono" id="cs_gl" readonly></div>
             <div class="fld" style="grid-column:span 3"><label class="lbl">Captured by</label><input class="input" value="Screening desk · M0 baseline · locked" readonly></div>
           </div>
         </div></div>
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="aud" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
-            <div class="fld fw"><label class="lbl">Chief complaint</label><input class="input" id="haChief"></div>
-            <div class="fld"><label class="lbl">Duration of diabetes <span class="req">*</span></label><select class="select" id="haDuration"><option value="">-- Select --</option><option>Newly Diagnosed</option><option>1–3 yrs</option><option>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
+            <div class="fld fw"><label class="lbl" for="haChief">Chief complaint</label><input  class="input" id="haChief"></div>
+            <div class="fld"><label class="lbl" for="haDuration">Duration of diabetes <span class="req">*</span></label><select  class="select" id="haDuration"><option value="">-- Select --</option><option>Newly Diagnosed</option><option>1–3 yrs</option><option>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
             <div class="fld"><label class="lbl">Family history</label><select class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
-            <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="haHeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
-            <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="haWeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
-            <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="haBmi" readonly></div>
-            <div class="fld"><label class="lbl">BP</label><input class="input mono" id="haBp"></div>
-            <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="haPulse" inputmode="numeric" oninput="window._numOnly(this)"></div>
-            <div class="fld"><label class="lbl">Temp</label><input class="input mono" id="haTemp" inputmode="decimal" oninput="window._numOnly(this)"></div></div></div>
+            <div class="fld"><label class="lbl" for="haHeight">Height (cm)</label><input  class="input mono" id="haHeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
+            <div class="fld"><label class="lbl" for="haWeight">Weight (kg)</label><input  class="input mono" id="haWeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
+            <div class="fld"><label class="lbl" for="haBmi">BMI <span class="ab">AUTO</span></label><input  class="input mono" id="haBmi" readonly></div>
+            <div class="fld"><label class="lbl" for="haBp">BP</label><input  class="input mono" id="haBp"></div>
+            <div class="fld"><label class="lbl" for="haPulse">Pulse</label><input  class="input mono" id="haPulse" inputmode="numeric" oninput="window._numOnly(this)"></div>
+            <div class="fld"><label class="lbl" for="haTemp">Temp</label><input  class="input mono" id="haTemp" inputmode="decimal" oninput="window._numOnly(this)"></div></div></div>
           <div class="aud" style="background:#fff"><div class="ahd">Lifestyle &amp; diet</div><div class="g4">
             <div class="fld"><label class="lbl">Diet type</label><select class="select"><option>Vegetarian</option><option selected>Non-Vegetarian</option><option>Vegan</option><option>Eggetarian</option></select></div>
             <div class="fld"><label class="lbl">Physical activity</label><select class="select"><option selected>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
@@ -333,16 +333,16 @@ export function getMainContent(): string {
           <div class="aud" style="background:#fff"><div class="ahd">Symptoms reported</div>
             <div class="chips" data-oth="syOth"><button class="chip-o">Frequent Urination</button><button class="chip-o">Excessive Thirst</button><button class="chip-o">Fatigue</button><button class="chip-o">Blurred Vision</button><button class="chip-o">Tingling/Numbness</button><button class="chip-o">Slow Healing Wounds</button><button class="chip-o">Weight Loss</button><button class="chip-o">Headache</button><button class="chip-o" data-others="1">Others</button></div>
             <input class="input hideblock" id="syOth" style="margin-top:8px;max-width:360px" placeholder="Enter details…"></div>
-          <div class="fld"><label class="lbl">Doctor / consultant notes</label><textarea class="area" id="haDocNotes"></textarea></div>
+          <div class="fld"><label class="lbl" for="haDocNotes">Doctor / consultant notes</label><textarea  class="area" id="haDocNotes"></textarea></div>
           <button class="btn bp" style="margin-top:12px" onclick="window._coachSaveRecord()">Save health assessment</button>
         </div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-stetho"/></svg> Consultation status &amp; program <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
-            <div class="fld"><label class="lbl">Attended by (HC)</label><input class="input" id="haAttendedBy" readonly></div>
-            <div class="fld"><label class="lbl">Consultation date</label><input class="input" type="date" id="haConsultDate"></div>
-            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl">Review date <span class="ab">for join / this-week / month plans</span></label><input class="input" type="date" id="haReviewDate" data-future="1"></div>
+            <div class="fld"><label class="lbl" for="haAttendedBy">Attended by (HC)</label><input  class="input" id="haAttendedBy" readonly></div>
+            <div class="fld"><label class="lbl" for="haConsultDate">Consultation date</label><input  class="input" type="date" id="haConsultDate"></div>
+            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="date" id="haReviewDate" data-future="1"></div>
             <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
           </div>
           <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
@@ -369,8 +369,8 @@ export function getMainContent(): string {
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
-              <div><label class="lbl" style="color:var(--vio-ink)">Commitment date *</label><input class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1"></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Owner</label><select class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
+              <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)" for="fuOwner">Owner</label><select  class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input class="input" style="height:36px" type="date" data-future="1"></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Reminder before <span class="nb">NEW</span></label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
@@ -384,26 +384,26 @@ export function getMainContent(): string {
           <div class="banner bad hideblock" id="refundPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-coin"/></svg><b>Refund request — routes through ABM → BM → Accounts (rule-enforced)</b></div>
             <div class="g4" style="gap:10px">
-              <div><label class="lbl" style="color:var(--alert-ink)">Reason *</label><select class="select" style="height:36px"><option>Medical — cannot continue</option><option>Relocation</option><option>Dissatisfied with program</option><option>Financial difficulty</option><option>Duplicate payment</option><option>Others</option></select></div>
-              <div><label class="lbl" style="color:var(--alert-ink)">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refPaid" readonly></div>
-              <div><label class="lbl" style="color:var(--alert-ink)">Days since payment <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refDays" readonly></div>
-              <div><label class="lbl" style="color:var(--alert-ink)">Eligible refund <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refEligible" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)" for="refReason">Reason *</label><select class="select" id="refReason" style="height:36px"><option value="">-- Select --</option><option>Medical — cannot continue</option><option>Relocation</option><option>Dissatisfied with program</option><option>Financial difficulty</option><option>Duplicate payment</option><option>Others</option></select></div>
+              <div><label class="lbl" style="color:var(--alert-ink)" for="refPaid">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refPaid" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)" for="refDays">Days since payment <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refDays" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)" for="refEligible">Eligible refund <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refEligible" readonly></div>
             </div>
-            <button class="btn bsm" style="background:#fff;align-self:flex-start" onclick="toast('Refund request submitted → ABM approval queue')">Submit refund request → ABM</button>
+            <button class="btn bsm" style="background:#fff;align-self:flex-start" onclick="window._submitRefund()">Submit refund request → ABM</button>
           </div>
           <div class="fld"><label class="lbl">Client expectations &amp; commitments</label><textarea class="area" placeholder="e.g. HbA1c 9.2 → below 7 in 3 months; morning walks; diet…"></textarea></div>
           <div class="g4" style="margin-top:3px">
-            <div class="fld"><label class="lbl">Program suggested</label><select class="select" id="haProgram" onchange="window._syncProgramPricing()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
-            <div class="fld"><label class="lbl">L1 price · full only</label><select class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
-            <div class="fld"><label class="lbl">Special offer amt (₹)</label><input class="input mono" id="haSpecialAmt" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this);window._payCalcAll()"></div>
-            <div class="fld"><label class="lbl">L2 price (₹)</label><input class="input mono" id="haL2Price" inputmode="decimal" oninput="window._numOnly(this);window._payCalcAll()"></div>
+            <div class="fld"><label class="lbl" for="haProgram">Program suggested</label><select  class="select" id="haProgram" onchange="window._syncProgramPricing()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
+            <div class="fld"><label class="lbl" for="haL1Price">L1 price · full only</label><select  class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
+            <div class="fld"><label class="lbl" for="haSpecialAmt">Special offer amt (₹)</label><input  class="input mono" id="haSpecialAmt" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this);window._payCalcAll()"></div>
+            <div class="fld"><label class="lbl" for="haL2Price">L2 price (₹)</label><input  class="input mono" id="haL2Price" inputmode="decimal" oninput="window._numOnly(this);window._payCalcAll()"></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code — special discount <span class="nb">NEW</span></label>
               <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
               <div id="couponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
             <div class="fld"><label class="lbl">Client category</label><select class="select"><option>-- Select --</option><option>VIP</option><option>Staff Relatives</option><option>Officers</option><option>Complicated</option></select></div>
             <div class="fld"><label class="lbl">Date of joining</label><input class="input" type="date" data-future="1"></div>
             <div class="fld"><label class="lbl">Access planned</label><input class="input" type="date" data-future="1"></div>
-            <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" id="haAttendedBy2" readonly></div>
+            <div class="fld"><label class="lbl" for="haAttendedBy2">Attended by <span class="ab">AUTO</span></label><input  class="input" id="haAttendedBy2" readonly></div>
           </div>
         </div></div>
 
@@ -413,9 +413,9 @@ export function getMainContent(): string {
           <div class="steps"><div class="step on"><span class="n">1</span> Quote (auto from price master)</div><div class="step on"><span class="n">2</span> Collect — Reception desk / Razorpay link / EMI provider</div><div class="step"><span class="n">3</span> Attach proof *</div><div class="step"><span class="n">4</span> Accounts verifies vs bank</div><div class="step"><span class="n">5</span> Auto receipt + GST invoice</div></div>
           <div class="banner good" style="margin-top:10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-check"/></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
           <div class="g3" style="margin-top:6px">
-            <div class="fld"><label class="lbl">Payment method</label>
-              <select class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2x)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
-            <div class="fld"><label class="lbl">Collected by</label><select class="select" id="collectedBy"><option selected>Reception desk</option><option>Razorpay link (online)</option><option>EMI provider</option><option>POS Machine</option></select></div>
+            <div class="fld"><label class="lbl" for="payMethod">Payment method</label>
+              <select  class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2x)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
+            <div class="fld"><label class="lbl" for="collectedBy">Collected by</label><select  class="select" id="collectedBy"><option selected>Reception desk</option><option>Razorpay link (online)</option><option>EMI provider</option><option>POS Machine</option></select></div>
             <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills" id="payVerify"><button class="pill p-warn on" onclick="window._payVerify('pending',this)">Pending</button><button class="pill p-ok" onclick="window._payVerify('verified',this)">Verified</button></div></div>
           </div>
           <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
@@ -425,31 +425,31 @@ export function getMainContent(): string {
 
           <div class="payblk on" id="pb-full"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Full payment</div>
             <div class="g4">
-              <div class="fld"><label class="lbl">Amount due <span class="ab">AUTO</span></label><input class="input mono" id="payAmtDue" readonly></div>
-              <div class="fld"><label class="lbl">Amount received (₹) <span class="req">*</span></label><input class="input mono" id="payFullRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#payAmtDue','#payFullRcvdErr');window._payCalcFull()"><div id="payFullRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
-              <div class="fld"><label class="lbl">Mode <span class="req">*</span></label><select class="select" id="payFullMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="payFullRef" placeholder="Mandatory"></div>
-              <div class="fld"><label class="lbl">Actual paid date</label><input class="input" type="date" id="payFullDate"></div>
+              <div class="fld"><label class="lbl" for="payAmtDue">Amount due <span class="ab">AUTO</span></label><input  class="input mono" id="payAmtDue" readonly></div>
+              <div class="fld"><label class="lbl" for="payFullRcvd">Amount received (₹) <span class="req">*</span></label><input  class="input mono" id="payFullRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#payAmtDue','#payFullRcvdErr');window._payCalcFull()"><div id="payFullRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="payFullMode">Mode <span class="req">*</span></label><select  class="select" id="payFullMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl" for="payFullRef">Txn ref / UTR *</label><input  class="input mono" id="payFullRef" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl" for="payFullDate">Actual paid date</label><input  class="input" type="date" id="payFullDate"></div>
               <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach screenshot / receipt</span></div></div>
               <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Payment Done</option><option selected>In Process</option><option>Pending</option></select><div class="pills" style="display:none"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
             </div></div>
 
           <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Total <span class="ab">AUTO</span></label><input class="input mono" id="i2Total" placeholder="Auto from L2 price" inputmode="decimal" readonly></div>
-              <div class="fld"><label class="lbl">Inst-1 received (₹) <span class="req">*</span></label><input class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
-              <div class="fld"><label class="lbl">Mode <span class="req">*</span></label><select class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Inst-1 date</label><input class="input" type="date" id="i2Inst1Date" onchange="window._syncI2BalDue()"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl" for="i2Total">Total <span class="ab">AUTO</span></label><input  class="input mono" id="i2Total" placeholder="Auto from L2 price" inputmode="decimal" readonly></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Mode">Mode <span class="req">*</span></label><select  class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Date">Inst-1 date</label><input  class="input" type="date" id="i2Inst1Date" onchange="window._syncI2BalDue()"></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR *</label><input  class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
               <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
-              <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="i2BalDue" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date <span class="ab">AUTO · +30d</span></label><input class="input mono" type="text" id="i2BalDueDate" readonly placeholder="30 days after Inst-1 date" title="Auto-calculated: Installment-1 date + 30 days"></div>
-              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="i2BalDate"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl" for="i2BalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="i2BalDue" readonly></div>
+              <div class="fld"><label class="lbl" for="i2BalDueDate">Balance due date <span class="ab">AUTO · +30d</span></label><input  class="input mono" type="text" id="i2BalDueDate" readonly placeholder="30 days after Inst-1 date" title="Auto-calculated: Installment-1 date + 30 days"></div>
+              <div class="fld"><label class="lbl" for="i2BalRcvd">Balance received (₹)</label><input  class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="i2BalMode">Mode</label><select  class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl" for="i2BalDate">Balance paid date</label><input  class="input" type="date" id="i2BalDate"></div>
+              <div class="fld"><label class="lbl" for="i2BalRef">Txn ref / UTR *</label><input  class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
               <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>1st Paid</option><option>2nd Paid</option><option>Both Paid</option><option>In Process</option><option selected>Pending</option></select><div class="pills" style="display:none"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
@@ -462,33 +462,33 @@ export function getMainContent(): string {
               <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code <span class="nb">NEW</span></label>
                 <div style="display:flex;gap:7px"><input class="input mono" id="emiCoupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCouponEmi()">Apply</button></div>
                 <div id="emiCouponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
-              <div class="fld"><label class="lbl">Program cost <span class="ab">AUTO</span></label><input class="input mono" id="emiCost" readonly></div>
-              <div class="fld"><label class="lbl">Down payment (₹) — drives calculator <span class="req">*</span></label><input class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
-              <div class="fld"><label class="lbl">Financed balance <span class="ab">AUTO</span></label><input class="input mono" id="emiRemain" readonly></div>
-              <div class="fld"><label class="lbl">Tenure (months) — drives calculator</label><select class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
-              <div class="fld"><label class="lbl">EMI / month <span class="ab">AUTO calculated</span></label><input class="input mono" id="emiPer" readonly></div>
+              <div class="fld"><label class="lbl" for="emiCost">Program cost <span class="ab">AUTO</span></label><input  class="input mono" id="emiCost" readonly></div>
+              <div class="fld"><label class="lbl" for="emiDown">Down payment (₹) — drives calculator <span class="req">*</span></label><input  class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
+              <div class="fld"><label class="lbl" for="emiRemain">Financed balance <span class="ab">AUTO</span></label><input  class="input mono" id="emiRemain" readonly></div>
+              <div class="fld"><label class="lbl" for="emiTenure">Tenure (months) — drives calculator</label><select  class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
+              <div class="fld"><label class="lbl" for="emiPer">EMI / month <span class="ab">AUTO calculated</span></label><input  class="input mono" id="emiPer" readonly></div>
               <div class="fld"><label class="lbl">Documentation date</label><input class="input" type="date"></div>
               <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date" data-future="1"></div>
-              <div class="fld"><label class="lbl">Net after subvention <span class="ab">AUTO</span></label><input class="input mono" id="emiNet" readonly></div>
+              <div class="fld"><label class="lbl" for="emiNet">Net after subvention <span class="ab">AUTO</span></label><input  class="input mono" id="emiNet" readonly></div>
               <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach credit proof</span></div></div>
               <div class="fld fw"><label class="lbl">EMI payment collection — status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option selected>Open</option><option>EMI Received</option><option>EMI Process</option></select><div class="pills" style="display:none"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
             </div></div>
 
           <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Advance booking — locks the price, starts the clock</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Advance (collected now)</div><div class="g4">
-              <div class="fld"><label class="lbl">Advance (₹2K–5K) <span class="req">*</span></label><input class="input mono" id="advAmt" placeholder="e.g. 2000" inputmode="numeric" maxlength="9" oninput="window._numOnly(this);window._payCalcAdv()"></div>
-              <div class="fld"><label class="lbl">Mode <span class="req">*</span></label><select class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Advance date</label><input class="input" type="date" id="advDate"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advRef" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl" for="advAmt">Advance (₹2K–5K) <span class="req">*</span></label><input  class="input mono" id="advAmt" placeholder="e.g. 2000" inputmode="numeric" maxlength="9" oninput="window._numOnly(this);window._payCalcAdv()"></div>
+              <div class="fld"><label class="lbl" for="advMode">Mode <span class="req">*</span></label><select  class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl" for="advDate">Advance date</label><input  class="input" type="date" id="advDate"></div>
+              <div class="fld"><label class="lbl" for="advRef">Txn ref / UTR *</label><input  class="input mono" id="advRef" placeholder="Mandatory"></div>
               <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
-              <div class="fld"><label class="lbl">Balance due <span class="ab">AUTO</span></label><input class="input mono" id="advBalDue" readonly></div>
-              <div class="fld"><label class="lbl">Balance due date *</label><input class="input" type="date" id="advBalDueDate" data-future="1"></div>
-              <div class="fld"><label class="lbl">Balance received (₹)</label><input class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
-              <div class="fld"><label class="lbl">Mode</label><select class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl">Balance paid date</label><input class="input" type="date" id="advBalDate"></div>
-              <div class="fld"><label class="lbl">Txn ref / UTR *</label><input class="input mono" id="advBalRef" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl" for="advBalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="advBalDue" readonly></div>
+              <div class="fld"><label class="lbl" for="advBalDueDate">Balance due date *</label><input  class="input" type="date" id="advBalDueDate" data-future="1"></div>
+              <div class="fld"><label class="lbl" for="advBalRcvd">Balance received (₹)</label><input  class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="advBalMode">Mode</label><select  class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl" for="advBalDate">Balance paid date</label><input  class="input" type="date" id="advBalDate"></div>
+              <div class="fld"><label class="lbl" for="advBalRef">Txn ref / UTR *</label><input  class="input mono" id="advBalRef" placeholder="Mandatory"></div>
               <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
             </div></div>
             <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Advance Paid</option><option selected>Balance Pending</option><option>Fully Paid</option><option>Cancelled</option></select><div class="pills" style="display:none"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
@@ -500,7 +500,7 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO — set from payment</span></label>
             <div><span id="payEnrollChip" class="chipb neu">Not enrolled</span></div>
             <div style="font-size:11px;color:var(--faint);margin-top:6px">Enrolled – L1 / L2 is set automatically when this method's status is marked done (Full → Payment Done · Installment → 1st Paid · EMI → EMI Received · Advance → Fully Paid) for the selected program.</div></div>
-          <div class="fld"><label class="lbl">Enrolled date &amp; time <span class="ab">AUTO</span></label><input class="input" id="payEnrollAt" readonly placeholder="— set on Enrolled"></div>
+          <div class="fld"><label class="lbl" for="payEnrollAt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="payEnrollAt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
       <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"/></svg> Feedback call <span class="arr">▾</span></div>
@@ -515,7 +515,7 @@ export function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-gift"/></svg> Welcome kit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Attended by <span class="ab">AUTO</span></label><input class="input" id="haAttendedBy3" readonly></div>
+          <div class="fld"><label class="lbl" for="haAttendedBy3">Attended by <span class="ab">AUTO</span></label><input  class="input" id="haAttendedBy3" readonly></div>
           <div class="fld" style="grid-column:span 2"><label class="lbl">Welcome kit status</label>
             <div class="pills"><button class="pill p-ok" onclick="toast('Kit issued · logged')">Given</button><button class="pill p-warn">Need to Ship</button><button class="pill p-vio on">Not Required</button></div></div>
         </div></div></div>
@@ -869,34 +869,34 @@ export function getMainContent(): string {
             <div class="nwStep" data-step="1">
               <div class="nwGrpHd">Personal details</div>
               <div class="g4" style="gap:10px 12px">
-                <div class="fld"><label class="lbl">Client ID</label><input class="input mono" style="height:38px" id="nwClientId" readonly placeholder="auto"></div>
-                <div class="fld"><label class="lbl">Name *</label><input class="input" style="height:38px" id="nwName"></div>
-                <div class="fld"><label class="lbl">Phone *</label><input class="input mono" style="height:38px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
-                <div class="fld"><label class="lbl">WhatsApp</label><input class="input mono" style="height:38px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
-                <div class="fld"><label class="lbl">Email</label><input class="input" style="height:38px" id="nwEmail" type="email" placeholder="email@example.com"></div>
-                <div class="fld"><label class="lbl">Gender</label><select class="select" style="height:38px" id="nwGender"><option>Male</option><option>Female</option><option>Other</option></select></div>
-                <div class="fld"><label class="lbl">Age</label><input class="input mono" style="height:38px" id="nwAge" type="number" min="1" max="120" placeholder="42"></div>
-                <div class="fld"><label class="lbl">Occupation</label><select class="select" style="height:38px" id="nwOccupation"><option>Business</option><option>Private Job</option><option>Govt</option><option>Homemaker</option><option>Others</option></select></div>
+                <div class="fld"><label class="lbl" for="nwClientId">Client ID</label><input  class="input mono" style="height:38px" id="nwClientId" readonly placeholder="auto"></div>
+                <div class="fld"><label class="lbl" for="nwName">Name *</label><input  class="input" style="height:38px" id="nwName"></div>
+                <div class="fld"><label class="lbl" for="nwPhone">Phone *</label><input  class="input mono" style="height:38px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
+                <div class="fld"><label class="lbl" for="nwWhats">WhatsApp</label><input  class="input mono" style="height:38px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
+                <div class="fld"><label class="lbl" for="nwEmail">Email</label><input  class="input" style="height:38px" id="nwEmail" type="email" placeholder="email@example.com"></div>
+                <div class="fld"><label class="lbl" for="nwGender">Gender</label><select  class="select" style="height:38px" id="nwGender"><option>Male</option><option>Female</option><option>Other</option></select></div>
+                <div class="fld"><label class="lbl" for="nwAge">Age</label><input  class="input mono" style="height:38px" id="nwAge" type="number" min="1" max="120" placeholder="42"></div>
+                <div class="fld"><label class="lbl" for="nwOccupation">Occupation</label><select  class="select" style="height:38px" id="nwOccupation"><option>Business</option><option>Private Job</option><option>Govt</option><option>Homemaker</option><option>Others</option></select></div>
               </div>
               <div class="nwGrpHd">Address &amp; source</div>
               <div class="g4" style="gap:10px 12px">
-                <div class="fld"><label class="lbl">Language</label><select class="select" style="height:38px" id="nwLang"><option>Tamil</option><option>Telugu</option><option>Hindi</option></select></div>
-                <div class="fld"><label class="lbl">Lead source</label><select class="select" style="height:38px" id="nwSource"><option selected>Direct Walk-in</option><option>Referral</option><option>Phone Enquiry</option></select></div>
-                <div class="fld"><label class="lbl">Location</label><select class="select" style="height:38px" id="nwLocation"><option>Poonamalle</option><option>Porur</option></select></div>
-                <div class="fld"><label class="lbl">Address</label><input class="input" style="height:38px" id="nwAddress" placeholder="Street, area, city, ZIP"></div>
+                <div class="fld"><label class="lbl" for="nwLang">Language</label><select  class="select" style="height:38px" id="nwLang"><option>Tamil</option><option>Telugu</option><option>Hindi</option></select></div>
+                <div class="fld"><label class="lbl" for="nwSource">Lead source</label><select  class="select" style="height:38px" id="nwSource"><option selected>Direct Walk-in</option><option>Referral</option><option>Phone Enquiry</option></select></div>
+                <div class="fld"><label class="lbl" for="nwLocation">Location</label><select  class="select" style="height:38px" id="nwLocation"><option>Poonamalle</option><option>Porur</option></select></div>
+                <div class="fld"><label class="lbl" for="nwAddress">Address</label><input  class="input" style="height:38px" id="nwAddress" placeholder="Street, area, city, ZIP"></div>
               </div>
               <div class="nwGrpHd">Service &amp; booking</div>
               <div class="fld"><label class="lbl">Service(s)</label><div class="chips" id="nwSvc"><button class="chip-o on" data-svc="dia">🩺 Diabetes</button><button class="chip-o" data-svc="bt">🩸 Blood test</button><button class="chip-o" data-svc="physio">💪 Physio</button></div></div>
               <div class="g4" style="gap:10px 12px;margin-top:10px">
-                <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:38px" id="nwDate"></div>
-                <div class="fld"><label class="lbl">Time</label><select class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
-                <div class="fld"><label class="lbl">Provider</label><select class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
+                <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
+                <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
+                <div class="fld"><label class="lbl" for="nwProv">Provider</label><select  class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
                 <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
               </div>
               <div id="nwSlotRes" style="margin-top:8px"></div>
               <div class="nwGrpHd">Payment</div>
               <div class="g3" style="gap:10px 12px">
-                <div class="fld"><label class="lbl">Cost <span class="ab">Settings</span></label><input class="input mono" style="height:38px" id="nwCost" value="₹0 (free)" readonly></div>
+                <div class="fld"><label class="lbl" for="nwCost">Cost <span class="ab">Settings</span></label><input  class="input mono" style="height:38px" id="nwCost" value="₹0 (free)" readonly></div>
                 <div class="fld"><label class="lbl">Coupon</label><div style="display:flex;gap:4px"><input class="input mono" style="height:38px" id="nwCoupon" placeholder="Code"><button class="btn bsm" style="height:38px" onclick="toast('Coupon applied · ₹200 off')">Apply</button></div></div>
                 <div class="fld"><label class="lbl">Net</label><input class="input mono" style="height:38px" value="₹0" readonly></div>
               </div>
@@ -948,9 +948,9 @@ export function getMainContent(): string {
               <div class="nwGrpHd">General declaration</div>
               <div style="font-size:12.5px;line-height:1.65;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px">I declare that all information provided above is true and accurate. I understand that withholding medical information may compromise my safety and the quality of services provided at Longer Life Wellness Centre.</div>
               <div class="g3" style="gap:10px 12px">
-                <div class="fld"><label class="lbl">Client signature</label><input class="input" style="height:38px" id="nwSign" placeholder="Client name / signature"></div>
-                <div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:38px" id="nwDeclDate"></div>
-                <div class="fld"><label class="lbl">Staff received by</label><input class="input" style="height:38px" id="nwStaffRecv" placeholder="Staff name"></div>
+                <div class="fld"><label class="lbl" for="nwSign">Client signature</label><input  class="input" style="height:38px" id="nwSign" placeholder="Client name / signature"></div>
+                <div class="fld"><label class="lbl" for="nwDeclDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDeclDate"></div>
+                <div class="fld"><label class="lbl" for="nwStaffRecv">Staff received by</label><input  class="input" style="height:38px" id="nwStaffRecv" placeholder="Staff name"></div>
               </div>
               <div style="background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 14px;margin-top:10px;font-size:11.5px;color:var(--muted)"><b style="color:var(--ink)">For office use only</b> &nbsp;·&nbsp; Client ID: <span class="mono" id="nwOfficeCid">—</span> &nbsp;·&nbsp; Registration date: <span class="mono" id="nwOfficeRegDate">—</span> &nbsp;·&nbsp; Assigned counsellor: <span class="mono" id="nwOfficeCouns">—</span></div>
               <div class="nwGrpHd">Service consent forms</div>
@@ -963,10 +963,10 @@ export function getMainContent(): string {
         <div class="sec" style="margin-top:0" id="checkinSec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Check-in <span id="ciName">—</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="g2" style="gap:8px">
-              <div class="fld"><label class="lbl">Search</label><input class="input" style="height:34px" id="ciSearch" placeholder="Client ID, name or phone" oninput="window._ciLookup()"></div>
-              <div class="fld"><label class="lbl">Dedup</label><input class="input" style="height:34px" id="ciDedup" readonly></div>
-              <div class="fld"><label class="lbl">Visited <span class="ab">AUTO</span></label><input class="input mono" style="height:34px" id="rcVis" readonly></div>
-              <div class="fld"><label class="lbl">Registered <span class="ab">AUTO</span></label><input class="input mono" style="height:34px" id="rcReg" readonly></div>
+              <div class="fld"><label class="lbl" for="ciSearch">Search</label><input  class="input" style="height:34px" id="ciSearch" placeholder="Client ID, name or phone" oninput="window._ciLookup()"></div>
+              <div class="fld"><label class="lbl" for="ciDedup">Dedup</label><input  class="input" style="height:34px" id="ciDedup" readonly></div>
+              <div class="fld"><label class="lbl" for="rcVis">Visited <span class="ab">AUTO</span></label><input  class="input mono" style="height:34px" id="rcVis" readonly></div>
+              <div class="fld"><label class="lbl" for="rcReg">Registered <span class="ab">AUTO</span></label><input  class="input mono" style="height:34px" id="rcReg" readonly></div>
             </div>
             <div class="consent" style="font-size:12px"><label><input type="checkbox" checked> DPDP data use</label><label><input type="checkbox" checked> Health data</label><label><input type="checkbox" checked> Recording</label><label><input type="checkbox"> WA follow-ups</label></div>
             <button class="btn bp bsm" style="margin-top:8px" onclick="recRegDone()">Confirm → screening</button>
@@ -979,7 +979,7 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
             <div id="recWb" class="hideblock" style="display:none;border:1.5px solid var(--brand-line);border-radius:11px;padding:11px 13px;margin-top:8px;background:linear-gradient(180deg,#F7FCFA,#fff)">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b id="recWbName" style="font-family:var(--disp);font-size:14px">—</b><span class="chipb info" id="recWbPlan">—</span></div>
-              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl">Due</label><input class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl">Received *</label><input class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0" oninput="window._payAmtRcvd(this,'#recWbDue','#recWbAmtErr')"><div id="recWbAmtErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div><div class="fld"><label class="lbl">Mode *</label><select class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl">Txn ref *</label><input class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
+              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl" for="recWbDue">Due</label><input  class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl" for="recWbAmt">Received *</label><input  class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0" oninput="window._payAmtRcvd(this,'#recWbDue','#recWbAmtErr')"><div id="recWbAmtErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div><div class="fld"><label class="lbl" for="recWbMode">Mode *</label><select  class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl" for="recWbTxn">Txn ref *</label><input  class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
               <div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" onclick="recConfirm()">Confirm → Accounts</button><button class="btn bsm" onclick="recBack()">↩ Back</button></div>
             </div>
           </div></div>
@@ -1004,22 +1004,22 @@ export function getMainContent(): string {
           <button class="btn bsm" style="margin-left:auto" onclick="window._scCloseAssess()">Close</button></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl">Height (cm)</label><input class="input mono" id="sc_h" inputmode="decimal" oninput="window._numOnly(this);window._scBmiCalc()"></div>
-              <div class="fld"><label class="lbl">Weight (kg)</label><input class="input mono" id="sc_w" inputmode="decimal" oninput="window._numOnly(this);window._scBmiCalc()"></div>
-              <div class="fld"><label class="lbl">BMI <span class="ab">AUTO</span></label><input class="input mono" id="sc_bmi" readonly></div>
-              <div class="fld"><label class="lbl">BP</label><input class="input mono" id="sc_bp"></div>
-              <div class="fld"><label class="lbl">Pulse</label><input class="input mono" id="sc_pu" inputmode="numeric" oninput="window._numOnly(this)"></div>
-              <div class="fld"><label class="lbl">SpO2 (%)</label><input class="input mono" id="sc_sp" inputmode="numeric" oninput="window._numOnly(this)"></div>
-              <div class="fld"><label class="lbl">Waist (cm)</label><input class="input mono" id="sc_wa" inputmode="decimal" oninput="window._numOnly(this)"></div>
-              <div class="fld"><label class="lbl">Temperature</label><input class="input mono" id="sc_te" inputmode="decimal" oninput="window._numOnly(this)"></div>
-              <div class="fld"><label class="lbl">Desk glucose (mg/dL)</label><input class="input mono" id="sc_gl" inputmode="decimal" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl" for="sc_h">Height (cm)</label><input  class="input mono" id="sc_h" inputmode="decimal" oninput="window._numOnly(this);window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl" for="sc_w">Weight (kg)</label><input  class="input mono" id="sc_w" inputmode="decimal" oninput="window._numOnly(this);window._scBmiCalc()"></div>
+              <div class="fld"><label class="lbl" for="sc_bmi">BMI <span class="ab">AUTO</span></label><input  class="input mono" id="sc_bmi" readonly></div>
+              <div class="fld"><label class="lbl" for="sc_bp">BP</label><input  class="input mono" id="sc_bp"></div>
+              <div class="fld"><label class="lbl" for="sc_pu">Pulse</label><input  class="input mono" id="sc_pu" inputmode="numeric" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl" for="sc_sp">SpO2 (%)</label><input  class="input mono" id="sc_sp" inputmode="numeric" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl" for="sc_wa">Waist (cm)</label><input  class="input mono" id="sc_wa" inputmode="decimal" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl" for="sc_te">Temperature</label><input  class="input mono" id="sc_te" inputmode="decimal" oninput="window._numOnly(this)"></div>
+              <div class="fld"><label class="lbl" for="sc_gl">Desk glucose (mg/dL)</label><input  class="input mono" id="sc_gl" inputmode="decimal" oninput="window._numOnly(this)"></div>
             </div>
             <div class="g3" style="margin-top:6px">
-              <div class="fld"><label class="lbl">Screened by <span class="ab">AUTO</span></label><input class="input" id="sc_by" readonly></div>
-              <div class="fld"><label class="lbl">Screen date &amp; time <span class="ab">AUTO</span></label><input class="input mono" id="sc_dt" readonly placeholder="— stamped on save"></div>
+              <div class="fld"><label class="lbl" for="sc_by">Screened by <span class="ab">AUTO</span></label><input  class="input" id="sc_by" readonly></div>
+              <div class="fld"><label class="lbl" for="sc_dt">Screen date &amp; time <span class="ab">AUTO</span></label><input  class="input mono" id="sc_dt" readonly placeholder="— stamped on save"></div>
               <div class="fld"><label class="lbl">Eligible?</label><div class="pills" id="scEligPills"><button class="pill p-ok" onclick="window._scElig('yes',this)">✓ Yes</button><button class="pill p-al" onclick="window._scElig('no',this)">✗ No</button></div></div>
             </div>
-            <div class="fld"><label class="lbl">Notes</label><textarea class="area" id="sc_notes"></textarea></div>
+            <div class="fld"><label class="lbl" for="sc_notes">Notes</label><textarea  class="area" id="sc_notes"></textarea></div>
             <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
               <button class="btn bsm bp" onclick="screeningDone()"><svg class="icon" style="width:14px;height:14px"><use href="#i-check"/></svg> Save &amp; send to HC</button>
               <button class="btn bsm" onclick="window._scPrint()">🖨 Print</button>
@@ -1065,12 +1065,12 @@ export function getMainContent(): string {
         <button class="btn bsm" style="margin-left:auto" onclick="window._btCloseDetail()">Close</button></div>
         <div class="sec-bd">
           <div class="g4">
-            <div class="fld"><label class="lbl">Panel / tests</label><input class="input" id="btdPanel" placeholder="e.g. HbA1c · FBS · Lipid"></div>
-            <div class="fld"><label class="lbl">Checkpoint</label><select class="select" id="btdCheckpoint"><option>M0</option><option>M2</option><option>M4</option><option>M6</option></select></div>
-            <div class="fld"><label class="lbl">Sample status</label><select class="select" id="btdSample"><option value="pending">Pending</option><option value="collected">Collected</option><option value="sent_to_lab">Sent to lab</option><option value="done">Done</option></select></div>
-            <div class="fld"><label class="lbl">Report status</label><select class="select" id="btdReport"><option value="pending">Pending</option><option value="ready">Ready</option><option value="shared">Shared to client</option></select></div>
-            <div class="fld"><label class="lbl">Thyrocare cost (₹)</label><input class="input mono" id="btdThyroCost" type="number" placeholder="e.g. 400"></div>
-            <div class="fld"><label class="lbl">Our price (₹)</label><input class="input mono" id="btdOurPrice" type="number" placeholder="e.g. 800"></div>
+            <div class="fld"><label class="lbl" for="btdPanel">Panel / tests</label><input  class="input" id="btdPanel" placeholder="e.g. HbA1c · FBS · Lipid"></div>
+            <div class="fld"><label class="lbl" for="btdCheckpoint">Checkpoint</label><select  class="select" id="btdCheckpoint"><option>M0</option><option>M2</option><option>M4</option><option>M6</option></select></div>
+            <div class="fld"><label class="lbl" for="btdSample">Sample status</label><select  class="select" id="btdSample"><option value="pending">Pending</option><option value="collected">Collected</option><option value="sent_to_lab">Sent to lab</option><option value="done">Done</option></select></div>
+            <div class="fld"><label class="lbl" for="btdReport">Report status</label><select  class="select" id="btdReport"><option value="pending">Pending</option><option value="ready">Ready</option><option value="shared">Shared to client</option></select></div>
+            <div class="fld"><label class="lbl" for="btdThyroCost">Thyrocare cost (₹)</label><input  class="input mono" id="btdThyroCost" type="number" placeholder="e.g. 400"></div>
+            <div class="fld"><label class="lbl" for="btdOurPrice">Our price (₹)</label><input  class="input mono" id="btdOurPrice" type="number" placeholder="e.g. 800"></div>
           </div>
           <div class="fld fw" style="margin-top:6px"><label class="lbl">Report attachment</label>
             <div id="btdAtts" style="display:flex;gap:8px;flex-wrap:wrap"><span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span></div></div>
@@ -1105,16 +1105,16 @@ export function getMainContent(): string {
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Session record — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g2">
-              <div class="fld"><label class="lbl">Subjective (patient says)</label><textarea class="area" id="phSoapS" placeholder="Pain level, better since last session…"></textarea></div>
-              <div class="fld"><label class="lbl">Objective (therapist observes)</label><textarea class="area" id="phSoapO" placeholder="ROM improved, swelling reduced…"></textarea></div>
-              <div class="fld"><label class="lbl">Assessment</label><textarea class="area" id="phSoapA" placeholder="Progressing well, add resistance…"></textarea></div>
-              <div class="fld"><label class="lbl">Plan (next session)</label><textarea class="area" id="phSoapP" placeholder="Increase reps, core stability…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phSoapS">Subjective (patient says)</label><textarea  class="area" id="phSoapS" placeholder="Pain level, better since last session…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phSoapO">Objective (therapist observes)</label><textarea  class="area" id="phSoapO" placeholder="ROM improved, swelling reduced…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phSoapA">Assessment</label><textarea  class="area" id="phSoapA" placeholder="Progressing well, add resistance…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phSoapP">Plan (next session)</label><textarea  class="area" id="phSoapP" placeholder="Increase reps, core stability…"></textarea></div>
             </div>
             <div class="g4" style="margin-top:6px">
-              <div class="fld"><label class="lbl">Pain (0–10)</label><input class="input mono" id="phPain" type="number" min="0" max="10" style="max-width:80px"></div>
-              <div class="fld"><label class="lbl">ROM improvement</label><input class="input" id="phRom" placeholder="e.g. +15°"></div>
-              <div class="fld"><label class="lbl">Exercises prescribed</label><input class="input" id="phExercises" placeholder="e.g. stretches, resistance band"></div>
-              <div class="fld"><label class="lbl">Next session</label><input class="input" type="date" id="phNextDate" data-future="1"></div>
+              <div class="fld"><label class="lbl" for="phPain">Pain (0–10)</label><input  class="input mono" id="phPain" type="number" min="0" max="10" style="max-width:80px"></div>
+              <div class="fld"><label class="lbl" for="phRom">ROM improvement</label><input  class="input" id="phRom" placeholder="e.g. +15°"></div>
+              <div class="fld"><label class="lbl" for="phExercises">Exercises prescribed</label><input  class="input" id="phExercises" placeholder="e.g. stretches, resistance band"></div>
+              <div class="fld"><label class="lbl" for="phNextDate">Next session</label><input  class="input" type="date" id="phNextDate" data-future="1"></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Save &amp; mark complete</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
           </div></div>
@@ -1122,12 +1122,12 @@ export function getMainContent(): string {
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Treatment plan — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl">Condition</label><input class="input" id="phCondition"></div>
-              <div class="fld"><label class="lbl">Sessions planned</label><input class="input mono" id="phPlanned" type="number"></div>
-              <div class="fld"><label class="lbl">Sessions completed</label><input class="input mono" id="phCompleted" readonly></div>
-              <div class="fld"><label class="lbl">Remaining</label><input class="input mono" id="phRemaining" readonly></div>
+              <div class="fld"><label class="lbl" for="phCondition">Condition</label><input  class="input" id="phCondition"></div>
+              <div class="fld"><label class="lbl" for="phPlanned">Sessions planned</label><input  class="input mono" id="phPlanned" type="number"></div>
+              <div class="fld"><label class="lbl" for="phCompleted">Sessions completed</label><input  class="input mono" id="phCompleted" readonly></div>
+              <div class="fld"><label class="lbl" for="phRemaining">Remaining</label><input  class="input mono" id="phRemaining" readonly></div>
               <div class="fld"><label class="lbl">Payment model</label><div class="pills" id="phPayModel"><button class="pill p-ok" onclick="window._phPayModel('pack')">Upfront pack</button><button class="pill" onclick="window._phPayModel('per_visit')">Per visit</button></div></div>
-              <div class="fld"><label class="lbl">Pack / session price (₹)</label><input class="input mono" id="phPackPrice" type="number"></div>
+              <div class="fld"><label class="lbl" for="phPackPrice">Pack / session price (₹)</label><input  class="input mono" id="phPackPrice" type="number"></div>
             </div>
             <div class="fld fw"><label class="lbl">Visit history</label>
               <div id="phVisitHistory"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">Open a patient to see visit history.</div></div></div>
@@ -1178,10 +1178,10 @@ export function getMainContent(): string {
     <span class="viewing"><span class="vd"></span> Viewing as <span id="repViewRole">Management</span></span>
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Filters</div>
       <div class="sec-bd"><div class="g4">
-        <div class="fld"><label class="lbl">Period</label><select class="select" id="repPeriod" onchange="window._repLoad()"><option value="today">Today</option><option value="month" selected>This month</option><option value="quarter">Quarter</option><option value="all">All time</option></select></div>
-        <div class="fld"><label class="lbl">Source</label><select class="select" id="repSource" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
-        <div class="fld"><label class="lbl">Language</label><select class="select" id="repLang" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
-        <div class="fld"><label class="lbl">Service</label><select class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All</option><option value="Diabetes">Diabetes Counselling</option><option value="Weight Loss">Weight Loss Counselling</option><option value="Sauna">Sauna Bath</option><option value="Physio">Physiotherapy</option><option value="Cold">Cold Plunge</option><option value="Blood">Blood Test</option><option value="HBOT">HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
+        <div class="fld"><label class="lbl" for="repPeriod">Period</label><select  class="select" id="repPeriod" onchange="window._repLoad()"><option value="today">Today</option><option value="month" selected>This month</option><option value="quarter">Quarter</option><option value="all">All time</option></select></div>
+        <div class="fld"><label class="lbl" for="repSource">Source</label><select  class="select" id="repSource" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
+        <div class="fld"><label class="lbl" for="repLang">Language</label><select  class="select" id="repLang" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
+        <div class="fld"><label class="lbl" for="repService">Service</label><select  class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All</option><option value="Diabetes">Diabetes Counselling</option><option value="Weight Loss">Weight Loss Counselling</option><option value="Sauna">Sauna Bath</option><option value="Physio">Physiotherapy</option><option value="Cold">Cold Plunge</option><option value="Blood">Blood Test</option><option value="HBOT">HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
       </div></div></div>
     <div class="rep-pick">
       <button class="rep on" onclick="window._repTab('lead')"><svg class="icon"><use href="#i-inbox"/></svg> Lead report</button>
@@ -1258,11 +1258,11 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assignees — single source of truth for everyone who can receive leads</div>
         <div class="sec-bd">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-            <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="asgName" placeholder="e.g. Priya K." style="height:34px;width:160px"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option><option>Health Coach</option></select></div>
-            <div class="fld" style="margin:0"><label class="lbl">Branch</label><select class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
-            <div class="fld" style="margin:0"><label class="lbl">Phone</label><input class="input mono" id="asgPhone" placeholder="optional · 10 digits" style="height:34px;width:140px" type="tel" inputmode="numeric" maxlength="10" oninput="window._digitsOnly(this)"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Login email</label><input class="input" id="asgEmail" placeholder="links their Advisor login" style="height:34px;width:200px" type="email" title="Match this advisor to their login account (app user email) so an Advisor sees only their own leads"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="asgName">Name</label><input  class="input" id="asgName" placeholder="e.g. Priya K." style="height:34px;width:160px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="asgRole">Role</label><select  class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option><option>Health Coach</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="asgBranch">Branch</label><select  class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="asgPhone">Phone</label><input  class="input mono" id="asgPhone" placeholder="optional · 10 digits" style="height:34px;width:140px" type="tel" inputmode="numeric" maxlength="10" oninput="window._digitsOnly(this)"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="asgEmail">Login email</label><input  class="input" id="asgEmail" placeholder="links their Advisor login" style="height:34px;width:200px" type="email" title="Match this advisor to their login account (app user email) so an Advisor sees only their own leads"></div>
             <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
             <button class="btn bsm" id="asgCancelBtn" onclick="window._asgCancelEdit()" style="height:34px;display:none">Cancel</button>
           </div>
@@ -1310,7 +1310,7 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Screen field configuration — add/remove/reorder fields per tab</div>
         <div class="sec-bd">
           <div class="g3">
-            <div class="fld"><label class="lbl">Select screen</label><select class="select" id="fldScreen"><option selected>Screening</option><option>Health advisor · Basic info</option><option>Health advisor · Sugar profile</option><option>Health coach · Assessment</option><option>Blood test · Worklist</option><option>Physio · Session record</option><option>Reception · Check-in</option></select></div>
+            <div class="fld"><label class="lbl" for="fldScreen">Select screen</label><select  class="select" id="fldScreen"><option selected>Screening</option><option>Health advisor · Basic info</option><option>Health advisor · Sugar profile</option><option>Health coach · Assessment</option><option>Blood test · Worklist</option><option>Physio · Session record</option><option>Reception · Check-in</option></select></div>
           </div>
           <div class="aud" style="background:#fff;margin-top:12px"><div class="ahd">Screening fields — drag to reorder, toggle to enable/disable</div>
             <table class="tbl"><thead><tr><th></th><th>Field</th><th>Type</th><th>Required</th><th>Enabled</th></tr></thead><tbody>
@@ -1332,9 +1332,9 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> User management — who can log in and what role they have</div>
         <div class="sec-bd">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-            <div class="fld" style="margin:0"><label class="lbl">Email</label><input class="input" id="usrEmail" placeholder="user@clinic.com" style="height:34px;width:220px"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Name</label><input class="input" id="usrName" placeholder="Display name" style="height:34px;width:160px"></div>
-            <div class="fld" style="margin:0"><label class="lbl">Role</label><select class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Manager</option><option>Branch Manager</option><option>Super Admin</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="usrEmail">Email</label><input  class="input" id="usrEmail" placeholder="user@clinic.com" style="height:34px;width:220px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="usrName">Name</label><input  class="input" id="usrName" placeholder="Display name" style="height:34px;width:160px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="usrRole">Role</label><select  class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Manager</option><option>Branch Manager</option><option>Super Admin</option></select></div>
             <button class="btn bp" id="usrAddBtn" onclick="window._usrCreate()" style="height:34px">+ Add user</button>
           </div>
           <div class="tscroll"><table class="tbl" style="min-width:700px"><thead><tr id="usrHead"><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>

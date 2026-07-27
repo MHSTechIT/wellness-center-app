@@ -59,9 +59,9 @@ export default function Home() {
             <div style={{fontSize:"10px",color:"var(--muted)",marginTop:"6px",letterSpacing:".02em"}}>Build {process.env.NEXT_PUBLIC_BUILD_VERSION || "dev"}</div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
-            <div><label className="lbl">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com"/></div>
-            <div><label className="lbl">Password</label><input className="input" id="loginPass" type="password" placeholder="••••••••"/></div>
-            <div id="loginConfirmWrap" style={{display:"none"}}><label className="lbl">Confirm password</label><input className="input" id="loginConfirm" type="password" placeholder="••••••••"/></div>
+            <div><label className="lbl" htmlFor="loginEmail">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com" autoComplete="username"/></div>
+            <div><label className="lbl" htmlFor="loginPass">Password</label><input className="input" id="loginPass" type="password" placeholder="••••••••" autoComplete="current-password"/></div>
+            <div id="loginConfirmWrap" style={{display:"none"}}><label className="lbl" htmlFor="loginConfirm">Confirm password</label><input className="input" id="loginConfirm" type="password" placeholder="••••••••" autoComplete="new-password"/></div>
             <button className="btn bp" id="loginBtn" style={{width:"100%",height:"42px",marginTop:"4px"}}>Sign in</button>
             <div style={{textAlign:"center"}}><button id="loginToggle" style={{background:"none",border:"none",color:"var(--brand)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",padding:"4px"}}>First time? Set your password</button></div>
             <div className="login-err" id="loginErr" style={{display:"none"}}></div>
@@ -99,8 +99,8 @@ export default function Home() {
         <main className="main" id="main" dangerouslySetInnerHTML={{__html: getMainContent()}}/>
       </div>
 
-      <div className="toast" id="toast"><svg className="icon"><use href="#i-check"/></svg><span id="toastMsg">Saved</span></div>
-      <div className="toast err" id="toastE" style={{background:"#7A2416"}}><svg className="icon"><use href="#i-x"/></svg><span id="toastEMsg">Error</span></div>
+      <div className="toast" id="toast" role="status" aria-live="polite"><svg className="icon" aria-hidden="true"><use href="#i-check"/></svg><span id="toastMsg">Saved</span></div>
+      <div className="toast err" id="toastE" style={{background:"#7A2416"}} role="alert" aria-live="assertive"><svg className="icon" aria-hidden="true"><use href="#i-x"/></svg><span id="toastEMsg">Error</span></div>
       <div className="ach" id="ach"><span className="em" id="achEm">🎉</span><div><b id="achT">Achievement</b><span id="achS">Nice work</span></div></div>
       {/* New-build prompt — revealed by checkVersion() in app.ts when the deployed SHA differs from this bundle's. */}
       <div id="updBar" style={{display:"none",position:"fixed",bottom:"18px",left:"50%",transform:"translateX(-50%)",zIndex:9999,alignItems:"center",gap:"12px",background:"#1f6f54",color:"#fff",padding:"10px 16px",borderRadius:"10px",boxShadow:"0 8px 28px rgba(0,0,0,.28)",fontSize:"13px",fontWeight:600}}>
@@ -108,13 +108,13 @@ export default function Home() {
         <button onClick={()=>{const f=(window as any)._updRefresh; if(typeof f==="function"){f();}else{window.location.reload();}}} style={{background:"#fff",color:"#1f6f54",border:"none",borderRadius:"7px",padding:"5px 12px",fontSize:"12.5px",fontWeight:700,cursor:"pointer"}}>Refresh</button>
       </div>
       <div className="doverlay" id="dOverlay" onClick={()=>(window as any).closeDrawer?.()}></div>
-      <div className="drawer" id="drawer">
+      <div className="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dName" inert={true}>
         <div className="dclose">
           <h2 id="dName">Client record</h2>
           <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
             <button className="btn bsm bp" onClick={()=>(window as any)._toast?.("Calling…")}>📞 Call</button>
             <button className="btn bsm" onClick={()=>(window as any)._toast?.("WA template sent")}>WA</button>
-            <button onClick={()=>(window as any).closeDrawer?.()}><svg className="icon" style={{width:14,height:14}}><use href="#i-x"/></svg></button>
+            <button aria-label="Close" id="dCloseBtn" onClick={()=>(window as any).closeDrawer?.()}><svg className="icon" aria-hidden="true" style={{width:14,height:14}}><use href="#i-x"/></svg></button>
           </div>
         </div>
         <div className="dbody">

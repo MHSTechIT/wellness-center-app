@@ -9,19 +9,44 @@
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
 const api = (p: string) => API_BASE + p;
 const SESSION_KEY = "wos_session";
+// Guards against a reload loop: if a stale/invalid token in localStorage keeps getting rejected
+// (e.g. after the signed-session-token migration, or a misconfigured SESSION_SECRET server-side),
+// every reload would re-send the same bad token, get another 401, and reload again — forever, with
+// the user unable to ever reach the login form. Reload at most once per tab; a repeat 401 just
+// shows "session expired" on the (now-blank) session instead of looping.
+const RELOAD_GUARD_KEY = "wos_401reload";
 
 function readSession(): any {
   if (typeof window === "undefined") return null;
   try { const s = window.localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
 }
-function saveSession(sess: any) { try { window.localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); } catch { /* ignore */ } }
+// A signed-in session always saves a fresh, presumed-valid token — clear the reload guard so a
+// LATER genuine 401 (the token actually expiring) is still allowed its one auto-reload.
+function saveSession(sess: any) { try { window.localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); window.sessionStorage.removeItem(RELOAD_GUARD_KEY); } catch { /* ignore */ } }
 function clearSession() { try { window.localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ } }
+
+// The session's access_token is now a real server-issued, HMAC-signed token (see server/src/shared
+// /session.ts) — not the old hardcoded "local" string nobody ever validated. Every backend call
+// attaches it; the server rejects anything unsigned, expired, or tampered with.
+export function authHeaders(): Record<string, string> {
+  const s = readSession();
+  const t = s?.access_token;
+  return t && t !== "local" ? { Authorization: "Bearer " + t } : {};
+}
 
 async function dbQuery(descriptor: any): Promise<{ data: any; error: any; count?: number }> {
   try {
     const r = await fetch(api("/db/query"), {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(descriptor),
+      method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(descriptor),
     });
+    if (r.status === 401) {
+      clearSession();
+      if (typeof window !== "undefined" && !window.sessionStorage.getItem(RELOAD_GUARD_KEY)) {
+        try { window.sessionStorage.setItem(RELOAD_GUARD_KEY, "1"); } catch { /* ignore */ }
+        window.location.reload();
+      }
+      return { data: null, error: { message: "Session expired — please sign in again." } };
+    }
     return await r.json();
   } catch (e: any) {
     return { data: null, error: { message: e?.message || "network error" } };
@@ -74,7 +99,7 @@ const auth = {
       const r = await fetch(api("/auth/login"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const j = await r.json();
       if (j.error) return { data: { session: null }, error: { message: j.error } };
-      const session = { user: { email: j.email }, access_token: "local" };
+      const session = { user: { email: j.email }, access_token: j.token };
       saveSession(session);
       return { data: { session }, error: null };
     } catch (e: any) { return { data: { session: null }, error: { message: e?.message || "network error" } }; }
@@ -84,6 +109,9 @@ const auth = {
       const r = await fetch(api("/auth/signup"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const j = await r.json();
       if (j.error) return { data: {}, error: { message: j.error } };
+      // /auth/signup also returns a session token (the same shape as login) so the new user is
+      // signed in immediately instead of needing to log in again right after setting a password.
+      if (j.token) saveSession({ user: { email: j.email }, access_token: j.token });
       return { data: { user: { email: j.email } }, error: null };
     } catch (e: any) { return { data: {}, error: { message: e?.message || "network error" } }; }
   },
@@ -99,13 +127,20 @@ function storageBucket(bucket: string) {
         const buf = new Uint8Array(await file.arrayBuffer());
         let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
         const dataB64 = btoa(bin);
-        const r = await fetch(api("/storage/upload"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: bucket + "/" + path, dataB64, contentType: file.type || "application/octet-stream" }) });
+        const r = await fetch(api("/storage/upload"), { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ path: bucket + "/" + path, dataB64, contentType: file.type || "application/octet-stream" }) });
         const j = await r.json();
         if (j.error) return { data: null, error: { message: j.error } };
         return { data: { path: j.path }, error: null };
       } catch (e: any) { return { data: null, error: { message: e?.message || "upload error" } }; }
     },
-    getPublicUrl(path: string) { return { data: { publicUrl: api("/storage/files/" + bucket + "/" + path) } }; },
+    // A plain <img src>/download link can't carry a header, so the file route also accepts the
+    // session token as a query param (see server/src/shared/session.ts) — this is what actually
+    // closes the "download any patient's file with no auth" hole, not just the upload side.
+    getPublicUrl(path: string) {
+      const s = readSession(); const t = s?.access_token;
+      const q = t && t !== "local" ? ("?token=" + encodeURIComponent(t)) : "";
+      return { data: { publicUrl: api("/storage/files/" + bucket + "/" + path) + q } };
+    },
     async remove(_paths: string[]) { return { data: null, error: null }; },
   };
 }

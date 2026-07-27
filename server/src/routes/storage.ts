@@ -2,6 +2,7 @@ import express from 'express';
 import type { Express, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { requireAuth } from '../shared/session';
 
 // Minimal file storage (replaces Supabase Storage). Files are written under
 // UPLOAD_DIR and served back from /storage/files/*. The client sends the file
@@ -30,8 +31,12 @@ async function upload(req: Request, res: Response) {
 export function registerStorageRoutes(app: Express) {
   // Bigger JSON limit for uploads (base64 audio/office recordings) — the global
   // parser in index.ts intentionally skips this path.
-  app.post('/storage/upload', express.json({ limit: '64mb' }), upload);
-  app.get('/storage/files/*', (req: Request, res: Response) => {
+  // requireAuth on both routes — previously anyone could upload arbitrary files or download any
+  // patient's payment proof / office-visit recording with no credentials at all. GET accepts the
+  // session token via ?token= too (see session.ts) since a plain <img src>/download link can't
+  // carry a header.
+  app.post('/storage/upload', express.json({ limit: '64mb' }), requireAuth, upload);
+  app.get('/storage/files/*', requireAuth, (req: Request, res: Response) => {
     const rel = safeRel(req.params[0] || '');
     const full = path.join(UPLOAD_DIR, rel);
     if (!full.startsWith(UPLOAD_DIR) || !fs.existsSync(full)) { res.status(404).end(); return; }

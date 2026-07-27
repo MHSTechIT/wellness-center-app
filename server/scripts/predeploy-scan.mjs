@@ -118,6 +118,23 @@ const CHECKS = [
           order by l.enrolled_at desc
           limit 50`,
   },
+  {
+    id: 'PAID_NO_ENROLLED_AT',
+    title: 'Lead has a real PAID payment but leads.enrolled_at is still NULL',
+    why: 'The exact "Advisor shows not-enrolled while Coach/Reception show enrolled" bug (Dinesh Iyer, 2026-07-27): '
+      + 'Coach/Reception derive "enrolled" LIVE from payment rows and always look right; Advisor trusts enrolled_at alone. '
+      + 'Every payment-collection path now calls _enrollLeadShared() directly at the point money is recorded (see '
+      + 'client/src/client/app.ts, _persistInstallments / _ensureEnrolledFromPayment + the Reception collect branches), '
+      + 'so this should always be empty — a hit here means a new/regressed payment path skipped that call. Excludes '
+      + 'amount=0 rows (dev/test placeholders, not real money). Fix with db/migration-backfill-enrolled-at.sql\'s query, '
+      + 'or find and patch the code path that inserted the paid row without enrolling.',
+    sql: `select l.meta_lead_id as lead_id, l.name, min(p.paid_at) as earliest_paid_at, sum(p.amount) as total_paid
+          from leads l
+          join payments p on p.lead_id = l.meta_lead_id and p.status = 'paid' and p.amount > 0
+          where l.enrolled_at is null
+          group by l.meta_lead_id, l.name
+          order by earliest_paid_at`,
+  },
 ];
 
 async function main() {

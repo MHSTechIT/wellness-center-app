@@ -20,13 +20,18 @@ import { registerStorageRoutes } from './routes/storage';
 
 const app = express();
 
-// CORS — allow the configured client origin(s). Comma-separated CORS_ORIGIN,
-// or reflect any origin in development when unset.
+// CORS — allow only the configured client origin(s) (comma-separated CORS_ORIGIN). This used to
+// reflect back ANY request origin whenever CORS_ORIGIN was left unset (`origin: true`) — meaning a
+// forgotten env var in a deployment silently let any website on the internet make authenticated-
+// looking cross-origin requests. Fail CLOSED instead: with nothing configured, only same-origin
+// requests work, which matches how this app actually runs in production anyway (this same server
+// serves the built frontend on the same origin — see the static-file block below — so a real
+// deployment never needs CORS at all; CORS_ORIGIN exists for the two-server local dev setup).
 const origins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
-app.use(cors({ origin: origins.length ? origins : true }));
+app.use(cors({ origin: origins.length ? origins : false }));
 
 // Default JSON body limit is small; office-visit audio uploads to /storage/upload
 // are base64-encoded and much larger, so that route gets its own bigger parser
@@ -78,9 +83,32 @@ if (CLIENT_DIST) {
   console.log(`[wellness-api] frontend build not found at ${CLIENT_DIST} (API-only mode). Run: npm --prefix client run build`);
 }
 
+// Global error handler — MUST be registered last (Express identifies it by the 4-arg signature).
+// Before this, there was no custom error handler at all, so a body-parser failure (malformed JSON,
+// an oversized upload) fell through to Express's default handler, which returns the raw error
+// stack — including absolute server file paths and dependency versions — straight to the caller.
+// This logs the real error server-side and returns a generic message to the client instead.
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(`[wellness-api] ${req.method} ${req.path} ->`, err?.message || err);
+  if (res.headersSent) return;
+  const status = err?.status || err?.statusCode || 500;
+  res.status(status).json({ error: status === 413 ? 'Upload too large.' : 'Something went wrong. Please try again.' });
+});
+
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {
   console.log(`[wellness-api] listening on :${port}`);
+});
+
+// A crash in a fire-and-forget async path (nothing awaits it, so nothing can .catch it) would
+// otherwise terminate the whole process with no log at all — every currently-open connection
+// dropped with zero diagnostic trail. Log it and keep running; individual route handlers already
+// catch their own expected failures, so anything reaching here is a genuine bug worth surviving.
+process.on('unhandledRejection', (reason) => {
+  console.error('[wellness-api] unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[wellness-api] uncaught exception:', err);
 });
 
 // Daily Meta token refresh — replaces the Vercel cron that hit /api/meta/token.

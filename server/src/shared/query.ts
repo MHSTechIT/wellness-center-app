@@ -13,6 +13,13 @@ const TABLES = new Set([
   'zoom_recordings',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
+// A caller with no limit at all (or an absurdly large one) could pull an entire table in one
+// request — confirmed live pre-auth as a 3.4MB unbounded `leads` dump. Now that every request
+// requires a session (see requireAuth), this is mainly resource protection rather than an
+// exfiltration vector, so the cap is generous: comfortably above every legitimate call site in the
+// app today (the largest, a client-ID-prefix scan, pulls a single narrow column) while still
+// refusing to hand back an unbounded result set.
+const MAX_SELECT_LIMIT = 5000;
 const OP_SQL: Record<string, string> = {
   eq: '=', neq: '<>', lt: '<', lte: '<=', gt: '>', gte: '>=', like: 'LIKE', ilike: 'ILIKE',
 };
@@ -30,7 +37,11 @@ function isLiteral(val: any): string {
   if (val === null || s === 'null') return 'NULL';
   if (val === true || s === 'true') return 'TRUE';
   if (val === false || s === 'false') return 'FALSE';
-  return 'NULL';
+  // .is() only ever means null/true/false (that's its whole contract) — silently falling back to
+  // NULL for anything else meant a typo'd or unexpected value quietly flipped a filter's meaning
+  // instead of failing loudly (confirmed live: {op:"is",val:"not null"} matched rows that WERE
+  // null, the opposite of what it reads as).
+  throw new Error(`invalid .is() value: ${JSON.stringify(val)} (must be null, true, or false)`);
 }
 function parseOr(expr: string, params: any[]): string {
   return expr.split(',').map((part) => {
@@ -79,7 +90,8 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
       let sql = `SELECT ${selectCols(d.select)} FROM ${q(table)}` + buildWhere(d.filters, params);
       if (Array.isArray(d.order) && d.order.length)
         sql += ' ORDER BY ' + d.order.map((o: any) => `${q(o.col)} ${o.asc ? 'ASC' : 'DESC'}`).join(', ');
-      if (d.limit != null) sql += ` LIMIT ${Number(d.limit)}`;
+      const effectiveLimit = d.limit != null ? Math.min(Number(d.limit), MAX_SELECT_LIMIT) : MAX_SELECT_LIMIT;
+      sql += ` LIMIT ${effectiveLimit}`;
       if (d.offset != null) sql += ` OFFSET ${Number(d.offset)}`;
       const r = await pool.query(sql, params);
       // Never leak the password hash to the client.

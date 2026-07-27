@@ -389,28 +389,53 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     // assignment pool is "worked", even after it is returned to the Live Incoming
     // Feed (in_pool=false) via the "Return to Pool" action — otherwise an out-of-crawl
     // returned lead would be deleted on the very next sync.
+    // Only prune when the crawl actually succeeded — an expired token, a Graph outage, a timeout,
+    // or a misconfigured/empty page-id list can all make `rows` come back empty or short with NO
+    // error surfaced by crawlPageFormLeads (e.g. an empty pageIds list "succeeds" at scanning zero
+    // forms). Any of those previously looked identical to "these leads are genuinely gone" and
+    // pruned every never-worked Meta lead in the table. /api/meta/sync is also reachable on demand
+    // (now behind requireAuth, but still callable by any signed-in session), so this crawl-health
+    // gate is what actually stops a bad run from being destructive, not just unlikely.
+    const crawlHealthy = formCrawl.formErrors === 0 && formCrawl.pageErrors.length === 0
+      && pageIds.length > 0 && formCrawl.formsScanned > 0;
     const keepIds = new Set(rows.map((r) => r.meta_lead_id));
     let existingFrom = 0;
+    let totalScanned = 0;
     const staleIds: string[] = [];
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data, error } = await supabase
-        .from('leads')
-        .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at')
-        .eq('source', 'Meta Ads')
-        .range(existingFrom, existingFrom + 999);
-      if (error) break;
-      if (!data || data.length === 0) break;
-      data.forEach((r: any) => {
-        if (!r.meta_lead_id || keepIds.has(r.meta_lead_id)) return;
-        const worked = r.is_assigned || (r.assigned_to && r.assigned_to !== '') || r.in_pool || (r.call_status && r.call_status !== '') || r.pool_added_at;
-        if (!worked) staleIds.push(r.meta_lead_id);
-      });
-      if (data.length < 1000) break;
-      existingFrom += 1000;
+    if (crawlHealthy) {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase
+          .from('leads')
+          .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at')
+          .eq('source', 'Meta Ads')
+          .range(existingFrom, existingFrom + 999);
+        if (error) break;
+        if (!data || data.length === 0) break;
+        totalScanned += data.length;
+        data.forEach((r: any) => {
+          if (!r.meta_lead_id || keepIds.has(r.meta_lead_id)) return;
+          const worked = r.is_assigned || (r.assigned_to && r.assigned_to !== '') || r.in_pool || (r.call_status && r.call_status !== '') || r.pool_added_at;
+          if (!worked) staleIds.push(r.meta_lead_id);
+        });
+        if (data.length < 1000) break;
+        existingFrom += 1000;
+      }
     }
-    for (let i = 0; i < staleIds.length; i += 200) {
-      await supabase.from('leads').delete().in('meta_lead_id', staleIds.slice(i, i + 200));
+    // Circuit breaker: even on a "clean" crawl, refuse to delete more than 20% of the never-worked
+    // Meta leads in one run. A legitimate prune (a form genuinely unpublished, a small stale tail)
+    // stays well under that; a bug or an unexpected upstream change hits it and gets logged instead
+    // of silently wiping the Live Incoming Feed.
+    const PRUNE_CAP_RATIO = 0.2;
+    const pruneCapped = crawlHealthy && totalScanned > 0 && staleIds.length > Math.max(50, totalScanned * PRUNE_CAP_RATIO);
+    if (crawlHealthy && !pruneCapped) {
+      for (let i = 0; i < staleIds.length; i += 200) {
+        await supabase.from('leads').delete().in('meta_lead_id', staleIds.slice(i, i + 200));
+      }
+    } else if (!crawlHealthy && staleIds.length === 0) {
+      // (nothing was computed — prune skipped entirely, nothing to log beyond the stats below)
+    } else if (pruneCapped) {
+      console.warn(`[wellness-api] Meta sync: prune SKIPPED — ${staleIds.length} of ${totalScanned} Meta leads looked stale, above the ${PRUNE_CAP_RATIO * 100}% safety cap. Review manually instead of auto-deleting.`);
     }
 
     let upserted = 0;
@@ -431,7 +456,9 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
       accessibleAccounts: adCrawl.accessibleAccounts,
       blockedAccounts: adCrawl.blockedAccounts,
       formErrors: formCrawl.formErrors,
-      pageErrors: formCrawl.pageErrors
+      pageErrors: formCrawl.pageErrors,
+      leadsPruned: crawlHealthy && !pruneCapped ? staleIds.length : 0,
+      prunedSkippedReason: !crawlHealthy ? 'crawl had errors or scanned nothing' : (pruneCapped ? 'stale count exceeded the safety cap — review manually' : null)
     };
 
     if (syncId != null) {

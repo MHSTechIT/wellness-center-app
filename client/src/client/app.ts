@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase } from "@/shared/supabase";
+import { supabase, authHeaders } from "@/shared/supabase";
 
 // All client-side UI logic, state and window.* handlers for the app shell.
 // Invoked once from the Home component after the container mounts; returns the
@@ -16,6 +16,19 @@ export function initApp(root: HTMLElement) {
     // Commit SHA baked into this bundle at build time (see next.config.ts). Compared against the
     // server's /version to detect when a newer build has been deployed while this tab is still open.
     const BUILD_VERSION=process.env.NEXT_PUBLIC_BUILD_VERSION||"";
+
+    // Every escape helper in this file only neutralises HTML syntax (< > " ' &) — none of them stop
+    // a value that IS a valid, executable URL scheme (javascript:, data:, vbscript:) from being
+    // placed as an href/src itself. Stored file URLs (attachments, recordings, proofs) go through
+    // this before ever reaching an href= — anything that isn't http(s) or a same-origin path (the
+    // normal case: /storage/files/...) falls back to "#", a safe no-op link.
+    function _safeHref(u:any):string{
+      const s=String(u==null?"":u).trim();
+      if(!s) return "#";
+      if(s.startsWith("/")) return s;
+      if(/^https?:\/\//i.test(s)) return s;
+      return "#";
+    }
 
     // Live numeric-only input guard (digits + one optional decimal). Wire via
     // oninput="window._numOnly(this)" on money/number fields so letters and
@@ -170,8 +183,9 @@ export function initApp(root: HTMLElement) {
         const confirm=confirmEl?.value||"";
         if(pass!==confirm){ showLoginErr("Passwords don't match"); return; }
         if(pass.length<6){ showLoginErr("Password must be at least 6 characters"); return; }
-        const {data:appUser}=await supabase.from("app_users").select("email").eq("email",email).single();
-        if(!appUser){ showLoginErr("This email is not authorized. Ask your admin to add you first."); return; }
+        // No pre-check via the /db gateway here — that call requires a signed-in session, and this
+        // runs BEFORE the user has one. /auth/signup already validates the email exists and is
+        // active server-side (and returns that exact error), so just call it directly.
         const {error}=await supabase.auth.signUp({email,password:pass});
         if(error){ showLoginErr(error.message); return; }
       } else {
@@ -201,6 +215,11 @@ export function initApp(root: HTMLElement) {
       if(loginBtn) loginBtn.addEventListener("click",()=>{ _signIn(); });
       const loginTog=root.querySelector("#loginToggle");
       if(loginTog) loginTog.addEventListener("click",()=>loginToggleMode());
+      // Enter submits from any login field — previously only wired on #loginPass/#loginConfirm, so
+      // pressing Enter right after typing the email did nothing (doSignIn already validates both
+      // fields are filled before doing anything, so it's safe to wire this unconditionally here too).
+      const emailEl=root.querySelector("#loginEmail");
+      if(emailEl) emailEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter") _signIn(); });
       const passEl=root.querySelector("#loginPass");
       if(passEl) passEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter"&&!_loginIsSignUp) _signIn(); });
       const confirmEl=root.querySelector("#loginConfirm");
@@ -305,14 +324,21 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#usrBody") as HTMLElement;
       if(!body) return;
       if(!_usrList.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:22px">No users yet. Add the first user above.</td></tr>'; return; }
+      // Full escape (&<>"') — this table renders email/name/role straight from app_users with no
+      // escaping at all before, and those fields are writable via the /db gateway (e.g. by anyone
+      // with a Manager+ session), so an unescaped value here was a real stored-XSS path into the
+      // Super Admin's own screen. Most of this file's local `e()` helpers only strip </>` — this one
+      // additionally covers quotes/ampersand since that's what was actually missing.
+      const esc=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const _uhd=root.querySelector("#usrHead"); if(_uhd)_uhd.innerHTML=gridHead("usr"); const _usrR=gridApply("usr",_usrList); body.innerHTML=_usrR.map((u:any)=>{
         const isSelf=_currentUser&&_currentUser.email===u.email;
-        return '<tr><td class="mono" style="font-size:12px">'+u.email+'</td><td>'+(u.name||"—")+'</td>'
-          +'<td><span class="chipb '+(u.role==="Super Admin"?"vio":u.role==="Branch Manager"?"info":"neu")+'">'+u.role+'</span></td>'
+        return '<tr><td class="mono" style="font-size:12px">'+esc(u.email)+'</td><td>'+esc(u.name||"—")+'</td>'
+          +'<td><span class="chipb '+(u.role==="Super Admin"?"vio":u.role==="Branch Manager"?"info":"neu")+'">'+esc(u.role)+'</span></td>'
           +'<td><span class="chipb '+(u.active?"ok":"al")+'">'+(u.active?"Active":"Inactive")+'</span></td>'
           +'<td class="mono" style="font-size:11px">'+_dIST(u.created_at)+'</td>'
           +'<td>'+(isSelf?'<span style="font-size:11px;color:var(--faint)">You</span>'
             :'<button class="btn bsm" onclick="window._usrToggle('+u.id+')">'+(u.active?"Deactivate":"Activate")+'</button>'
+            +' <button class="btn bsm" onclick="window._usrResetPassword('+u.id+')" title="Clear their password so they can set a new one via \'First time? Set your password\'">Reset password</button>'
             +(u.role!=="Super Admin"?' <button class="btn bsm" onclick="window._usrDel('+u.id+')" style="color:var(--alert-ink)">Remove</button>':""))
           +'</td></tr>';
       }).join("");
@@ -328,16 +354,19 @@ export function initApp(root: HTMLElement) {
     // app_users write, since Assignees is a convenience mirror, not the source of truth for login.
     async function _asgSyncUser(email:string,name:string,role:string,active:boolean){
       if(!email) return;
-      try{
-        const {data:existing}=await supabase.from("assignees").select("id").eq("email",email).limit(1);
-        if(existing&&existing.length){
-          if(ASSIGNEE_ROLES.includes(role)) await supabase.from("assignees").update({name:name||email,role,is_active:active}).eq("id",existing[0].id);
-          else await supabase.from("assignees").delete().eq("id",existing[0].id);   // role changed OUT of an assignable role
-        } else if(ASSIGNEE_ROLES.includes(role)&&active){
-          await supabase.from("assignees").insert({name:name||email,role,branch:"Chennai",email,is_active:true});
-        }
-        await loadAssignees();
-      }catch(_){}
+      // Same failure mode fixed elsewhere this session: the gateway resolves {error} rather than
+      // throwing, so a bare try/catch reads a failed lookup as "no existing assignee" and inserts a
+      // second row for the same person — duplicate names in every "Assigned to" dropdown.
+      const _exRes:any=await supabase.from("assignees").select("id").eq("email",email).limit(1);
+      if(_exRes&&_exRes.error) return;   // best-effort mirror — abort quietly rather than risk a duplicate
+      const existing=_exRes?.data;
+      if(existing&&existing.length){
+        if(ASSIGNEE_ROLES.includes(role)) await _dbOk(supabase.from("assignees").update({name:name||email,role,is_active:active}).eq("id",existing[0].id),"Assignee sync");
+        else await _dbOk(supabase.from("assignees").delete().eq("id",existing[0].id),"Assignee sync");   // role changed OUT of an assignable role
+      } else if(ASSIGNEE_ROLES.includes(role)&&active){
+        await _dbOk(supabase.from("assignees").insert({name:name||email,role,branch:"Chennai",email,is_active:true}),"Assignee sync");
+      }
+      try{ await loadAssignees(); }catch(_){}
     }
     async function _asgRemoveUser(email:string){
       if(!email) return;
@@ -372,7 +401,10 @@ export function initApp(root: HTMLElement) {
       const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
       if(!u) return;
       const next=!u.active;
-      await supabase.from("app_users").update({active:next}).eq("id",id);
+      // A deactivate/remove is a security-relevant action — an unchecked write here means the UI can
+      // confirm "User deactivated" while the account can still sign in, because the write silently
+      // failed and nothing said so.
+      if(!(await _dbOk(supabase.from("app_users").update({active:next}).eq("id",id),"User update"))) return;
       // Deactivating/reactivating a user pulls them out of / back into "Assigned to" dropdowns too.
       await _asgSyncUser(u.email,u.name,u.role,next);
       toast(u.active?"User deactivated":"User activated");
@@ -382,12 +414,26 @@ export function initApp(root: HTMLElement) {
     w._usrDel=async function(id:any){
       const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
       if(u&&u.role==="Super Admin"){ toastErr("Cannot remove Super Admin"); return; }
-      await supabase.from("app_users").delete().eq("id",id);
+      if(!(await _dbOk(supabase.from("app_users").delete().eq("id",id),"User removal"))) return;
       // Remove the linked Assignee row too, so a removed user's name doesn't linger as a
       // selectable "Assigned to" target. Only removes the row THIS user is linked to (by email) —
       // pre-existing assignees with no matching user account are never touched.
       if(u) await _asgRemoveUser(u.email);
       toast("User removed");
+      await loadUsers();
+    };
+
+    // /auth/signup now refuses to run once a password already exists (closes the account-takeover
+    // hole where anyone who knew an active email could silently overwrite that user's password —
+    // see server/src/routes/auth.ts). That means a forgotten password now needs an explicit admin
+    // action to clear it, or the account would be permanently locked out. Only reachable via the
+    // now-authenticated /db gateway, i.e. only by someone already signed in to this Settings screen.
+    w._usrResetPassword=async function(id:any){
+      const u=_usrList.find((x:any)=>String(x.id)===String(id));
+      if(!u) return;
+      if(!window.confirm("Clear "+u.email+"'s password? They'll need to set a new one via \"First time? Set your password\" on the login screen before they can sign in again.")) return;
+      if(!(await _dbOk(supabase.from("app_users").update({password_hash:null}).eq("id",id),"Password reset"))) return;
+      toast(u.email+"'s password cleared — they can set a new one at login");
       await loadUsers();
     };
 
@@ -456,7 +502,7 @@ export function initApp(root: HTMLElement) {
     function eligCheck() {
       const onChips = [...root.querySelectorAll("#eligChips .chip-o")].filter((c) => c.classList.contains("on"));
       const any = onChips.length > 0;
-      const e = (s:string) => (s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e = (s:string) => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const reasons = onChips.map((c) => (c.textContent||"").trim()).filter(Boolean).join(", ");
       const b = root.querySelector("#eligBanner") as HTMLElement;
       if (b) {
@@ -508,6 +554,7 @@ export function initApp(root: HTMLElement) {
     let _metaConn:"unknown"|"connected"|"disconnected"="unknown";
     let _metaAlertActive=false;          // true while the 30-min no-lead alert is showing
     let _metaMonitorTimer:any=null;
+    let _assignPollTimer:any=null;   // cross-device backstop for lead-assignment sync (see setup below)
     const CAMPAIGN_START_HOUR=9, CAMPAIGN_END_HOUR=21;   // active campaign window (IST)
     function istHour(){
       try{ return Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",hour:"2-digit",hour12:false}).format(new Date())); }catch(_){ return new Date().getHours(); }
@@ -1371,7 +1418,7 @@ export function initApp(root: HTMLElement) {
       const prevBtn=root.querySelector("#metaPrevBtn")as HTMLButtonElement;
       const nextBtn=root.querySelector("#metaNextBtn")as HTMLButtonElement;
       const head=root.querySelector("#liveFeedHead");
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       _dupColorMap=buildDupColorMap();
       let totalPages=1;
       // Leads that WERE in this feed (same date/source/service scope) but have since been
@@ -1574,7 +1621,7 @@ export function initApp(root: HTMLElement) {
       const pool=gridApply("pool",poolAll.filter(poolMatchesQuery));     // + search + column filters
       if(cnt) cnt.textContent=String(poolAll.length);
       if(!body) return;
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const activeNames=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
       body.innerHTML=pool.length?pool.map((p:any)=>{
         const isNew=String(p.id).indexOf("seed-")!==0;
@@ -1629,7 +1676,7 @@ export function initApp(root: HTMLElement) {
     function renderAssigneesTable(){
       const body=root.querySelector("#asgBody");
       if(!body) return;
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const _ahd=root.querySelector("#asgHead"); if(_ahd)_ahd.innerHTML=gridHead("asg"); const _asgR=gridApply("asg",_assignees); body.innerHTML=_asgR.length?_asgR.map((a:any)=>{
         const cnt=_asgActiveLeadCount(a.name);
         return '<tr style="'+(a.is_active?'':'opacity:0.55')+'">'
@@ -1643,7 +1690,7 @@ export function initApp(root: HTMLElement) {
     function renderAdvisorLoad(){
       const body=root.querySelector("#advisorLoadBody");
       if(!body) return;
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hd=root.querySelector("#advLoadHead"); if(hd)hd.innerHTML=gridHead("advLoad");
       const active=gridApply("advLoad",_assignees.filter((a:any)=>a.is_active));
       body.innerHTML=active.length?active.map((a:any)=>{
@@ -1733,7 +1780,7 @@ export function initApp(root: HTMLElement) {
     function _renderAdvLeadsMenu(){
       const lab=root.querySelector("#advLeadsAdvLabel"); if(lab)lab.textContent=_advLeadsBtnLabel();
       const menu=root.querySelector("#advLeadsAdvMenu"); if(!menu) return;
-      const esc=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const active=_assignees.filter((a:any)=>a.is_active);
       let html='<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;font-weight:700;cursor:pointer;border-bottom:1px solid var(--line)"><input type="checkbox" '+(_advLeadsAdv.size===0?"checked":"")+' onchange="window._advLeadsAdvAll()" style="accent-color:var(--brand)"> All Advisors</label>';
       html+=active.map((a:any)=>'<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;cursor:pointer"><input type="checkbox" class="advLeadsChk" data-adv="'+esc(a.name)+'" '+(_advLeadsAdv.has(a.name)?"checked":"")+' onchange="window._advLeadsAdvToggle(this.getAttribute(\'data-adv\'),this.checked)" style="accent-color:var(--brand)"> '+esc(a.name)+'</label>').join("");
@@ -1748,7 +1795,7 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#advLeadsBody"); if(!body) return;
       const who=root.querySelector("#advLeadsWho"); const cnt=root.querySelector("#advLeadsCount");
       const hd=root.querySelector("#advLeadsHead"); if(hd)hd.innerHTML=gridHead("advLeads");
-      const esc=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       _renderAdvLeadsMenu();
       const base=_advLeadsBaseRows();
       // One-shot: enrich the default (all-advisors) view with live DB details.
@@ -1804,7 +1851,7 @@ export function initApp(root: HTMLElement) {
     // Fill the lead-profile Salesperson + HC dropdowns from the live Assignees master.
     // Salesperson = active staff (any role except Health Coach); HC = active Health Coaches.
     function populateAdvisorDropdowns(){
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const active=_assignees.filter((a:any)=>a.is_active);
       const sales=root.querySelector("#salesSel")as HTMLSelectElement|null;
       const hc=root.querySelector("#hcSel")as HTMLSelectElement|null;
@@ -1896,9 +1943,7 @@ export function initApp(root: HTMLElement) {
       if(ld){ld.inPool=false;ld.isAssigned=true;ld.assignedTo=name;}
       logActivity(id,[{action:"Assigned",field:"Assigned to",new:name}]);
       logAssignment(id,name,"assigned");
-      await loadAssignmentExtras();   // refresh non-Meta (CSV) pooled/assigned leads
-      rebuildPoolFromDB();
-      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      await _afterAssign();   // refresh + broadcast to other open tabs (Advisor sees it live)
       toast("Lead assigned to "+name);
     };
 
@@ -2006,7 +2051,7 @@ export function initApp(root: HTMLElement) {
       const total=_alF.length;const pages=Math.max(1,Math.ceil(total/ASN_PER));
       if(_asnPage>pages)_asnPage=pages;if(_asnPage<1)_asnPage=1;
       const rows=_alF.slice((_asnPage-1)*ASN_PER,(_asnPage-1)*ASN_PER+ASN_PER);
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       body.innerHTML=rows.length?rows.map((l:any)=>{
         const elig=_eligMap[String(l.id)];   // exclusion reason → Not Eligible
         const tr=elig?'<tr style="background:var(--alert-bg);box-shadow:inset 3px 0 0 var(--alert)">':'<tr>';
@@ -2046,7 +2091,7 @@ export function initApp(root: HTMLElement) {
     // bucket (matches the dashboard KPI buckets). Layout only; opening a card and
     // returning to pool use the exact same handlers as the list rows.
     function _renderAssignedKanban(kb:HTMLElement,list:any[]){
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Columns are the call/lead statuses straight from HA_STATUSES (the same list
       // that fills the All Call/Lead Statuses dropdown), matched exactly against each
       // lead's effective status — so the board and the dropdown are always in sync.
@@ -2090,9 +2135,7 @@ export function initApp(root: HTMLElement) {
       if(ld){ld.isAssigned=false;ld.assignedTo="";ld.inPool=true;}
       logActivity(id,[{action:"Assigned",field:"Assigned to",old:prevAdv,new:"Unassigned (returned to pool)"}]);
       logAssignment(id,prevAdv,"unassigned");
-      await loadAssignmentExtras();
-      rebuildPoolFromDB();
-      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      await _afterAssign();   // refresh + broadcast to other open tabs
       toast("Lead returned to pool");
     };
     // ===== Assigned Leads History (immutable audit trail from lead_assignments) =====
@@ -2155,7 +2198,7 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#asnHistBody"); const cnt=root.querySelector("#asnHistCount");
       if(cnt)cnt.textContent=String(rows.length);
       if(!body) return;
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       body.innerHTML=rows.length?rows.map((r:any)=>{
         const st=r.status==="unassigned"
           ?'<span class="chipb al">Returned to pool</span>'
@@ -2225,10 +2268,8 @@ export function initApp(root: HTMLElement) {
       // Refresh every dataset the lead could belong to, then re-render.
       await loadOtherSourceLeads();
       await loadCsvData();
-      await loadAssignmentExtras();
-      rebuildPoolFromDB();
       rebuildIMP();
-      renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard();
+      await _afterAssign();   // refresh + broadcast to other open tabs
       toast(nm+(isCsv?" returned to the Bulk CSV Import Wizard":" returned to the Live Incoming Feed"));
     };
     w._assignedDownload=()=>{
@@ -2293,7 +2334,7 @@ export function initApp(root: HTMLElement) {
 
     // Populate the right-hand detail pane from a real lead record (no demo data).
     function fillAdvisorDetail(l:any){
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const name=l.name||l.phone||"Lead";
       const initials=(name.match(/[A-Za-z0-9]/g)||["L","D"]).slice(0,2).join("").toUpperCase();
       const srcLang=l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"));
@@ -2421,13 +2462,13 @@ export function initApp(root: HTMLElement) {
     // ---- Blood-report attachments + follow-up notes renderers ----
     function renderAdvAtts(){
       const ba=root.querySelector("#bloodAtts"); if(!ba) return;
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      ba.innerHTML=_advAttachments.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(a.url||"#")+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      ba.innerHTML=_advAttachments.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(a.url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
         +'<span class="att add" onclick="window._advAddBlood()"><svg class="icon"><use href="#i-clip"/></svg> Add report</span>';
     }
     function renderAdvFuNotes(){
       const el=root.querySelector("#fuNotesA"); if(!el) return;
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       el.innerHTML=_advFuNotes.length?_advFuNotes.map((n:any)=>'<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">'+e(n.at||"")+'</b> — '+e(n.text||"")+'</div>').join(""):'<div style="font-size:12px;color:var(--faint)">No follow-up notes yet.</div>';
     }
     const _advpKey=(id:any)=>"wos_advp_"+id;
@@ -2651,7 +2692,7 @@ export function initApp(root: HTMLElement) {
     }
     async function renderActivityLog(leadId:any){
       const els=Array.from(root.querySelectorAll(".js-actlog")); if(!els.length) return;
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Render into the SAME shared grid the Live Incoming Feed uses (.tscroll + .tbl): sticky
       // header, internal scroll (the page stays put), identical borders/hover/spacing/responsive.
       // The `.tscroll` wrapper lives in the template; here we (re)build the <table> inside it.
@@ -2692,7 +2733,7 @@ export function initApp(root: HTMLElement) {
       const _cntSel=targetSel==="#coachCallLog"?"#coachCallCount":targetSel==="#recCallLog"?"#recCallCount":"#advCallCount";
       const _cnt=root.querySelector(_cntSel)as HTMLElement|null;
       if(_cnt){ _cnt.textContent=String(rows.length); _cnt.style.display=rows.length?"":"none"; }
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const recCount=rows.filter((r:any)=>r.recording_url).length;
       if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div>'; return; }
       el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span></div>'
@@ -2702,7 +2743,7 @@ export function initApp(root: HTMLElement) {
           const dur=r.duration_seconds?((r.duration_seconds/60|0)+":"+String(r.duration_seconds%60).padStart(2,"0")):"—";
           const st=r.call_status||"—"; const stc=/complet|answer|connect/i.test(st)?"ok":/miss|fail|no.?answer|busy|reject|cancel/i.test(st)?"al":"warn";
           const rec=r.recording_url
-            ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px"><audio controls preload="none" style="height:34px;max-width:260px"><source src="'+e(r.recording_url)+'"></audio><a class="btn bsm" href="'+e(r.recording_url)+'" download target="_blank" rel="noopener">⬇ Download</a></div>'
+            ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px"><audio controls preload="none" style="height:34px;max-width:260px"><source src="'+e(_safeHref(r.recording_url))+'"></audio><a class="btn bsm" href="'+e(_safeHref(r.recording_url))+'" download target="_blank" rel="noopener">⬇ Download</a></div>'
             : '<div style="margin-top:6px;font-size:11px;color:var(--faint)">'+(/(initiat|ring)/i.test(st)?"Recording will appear once the call completes.":"No recording available.")+'</div>';
           return '<div style="border-bottom:1px solid var(--line);padding:11px 0">'
             +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
@@ -2732,7 +2773,7 @@ export function initApp(root: HTMLElement) {
       if(!el) return;
       if(_openLeads.length===0){ el.style.display="none"; return; }
       el.style.display="block";
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       el.innerHTML='<div style="font-weight:700;font-size:11px;color:var(--faint);margin-bottom:8px;letter-spacing:.05em">OPEN LEADS ('+_openLeads.length+')</div>'
         +_openLeads.map((o:any)=>{
           const l=o.lead;const active=String(o.id)===String(_advLeadId);
@@ -2974,7 +3015,7 @@ export function initApp(root: HTMLElement) {
       const card=HA_CARDS.find(c=>c.key===_haActiveBucket);
       wrap.style.display="";
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Follow-ups card → dedicated table: name, number, planned date & time, source, advisor, status.
       if(_haActiveBucket==="followup"){
         const hd=root.querySelector("#haResultsHead"); if(hd)hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Planned Follow-up Date &amp; Time</th><th>Source · Lang</th><th>Assigned Advisor</th><th>Follow-up Status</th>';
@@ -3026,6 +3067,11 @@ export function initApp(root: HTMLElement) {
       return Array.from(root.querySelectorAll(".poolChk:checked")).map((c:any)=>c.getAttribute("data-id")).filter(Boolean).map(String).filter((id:string)=>id.indexOf("seed-")!==0);
     }
     function _afterAssign(){
+      // Push to every OTHER open tab too — without this, a lead assigned from an Admin/ABM tab
+      // only ever appeared to an already-open Advisor tab after a manual reload (the reported
+      // bug: 4 leads assigned → Advisor still showed the old count until refreshed). Same-browser
+      // tabs pick this up instantly; a different device is caught by the poll timer below.
+      try{ _broadcastLeadSync({type:"assignment"}); }catch(_){}
       return loadAssignmentExtras().then(()=>{ rebuildPoolFromDB(); renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard(); });
     }
     // Assign a set of leads to ONE advisor (Assign selected). assigned_at is best-effort
@@ -3196,7 +3242,7 @@ export function initApp(root: HTMLElement) {
       const statusEl=root.querySelector("#metaFeedStatus");
       if(statusEl){ statusEl.textContent="Syncing from Meta…"; statusEl.classList.add("syncing"); }
       try{
-        const res=await fetch(_api("/api/meta/sync"),{method:"POST"});
+        const res=await fetch(_api("/api/meta/sync"),{method:"POST",headers:authHeaders()});
         const data=await res.json().catch(()=>({}));
         if(data&&data.ok){
           _autoSyncFails=0;
@@ -3240,7 +3286,7 @@ export function initApp(root: HTMLElement) {
       const countEl=root.querySelector("#metaFeedCount");
       const haveData=_metaLeads&&_metaLeads.length>0;
       try{
-        const res=await fetch(_api("/api/meta/leads"));
+        const res=await fetch(_api("/api/meta/leads"),{headers:authHeaders()});
         const data=await res.json();
         if(data.error){
           // Only a real schema problem is permanent; everything else (e.g. a
@@ -3328,7 +3374,7 @@ export function initApp(root: HTMLElement) {
       if(statusEl) statusEl.textContent="Syncing from Meta — crawling forms & filtering to your ad accounts…";
       toast("Meta sync started — this can take ~2 minutes");
       try{
-        const res=await fetch(_api("/api/meta/sync"),{method:"POST"});
+        const res=await fetch(_api("/api/meta/sync"),{method:"POST",headers:authHeaders()});
         const data=await res.json();
         if(data.error){
           toast("Sync failed: "+data.error);
@@ -3363,6 +3409,20 @@ export function initApp(root: HTMLElement) {
     // fires (and clears) on time even when no new leads arrive.
     updateMetaAlert();
     _metaMonitorTimer=setInterval(updateMetaAlert,60000);
+    // Assignment poll: BroadcastChannel (_afterAssign, above) only reaches OTHER TABS OF THE SAME
+    // BROWSER — the real-world case (an Admin assigning leads on one machine while an Advisor
+    // views a different device) can't receive it at all. This is the backstop: silently re-pull
+    // assigned/pooled leads every 30s so a newly-assigned lead appears without a manual refresh,
+    // regardless of device. Cheap (two SELECTs); only re-renders the DOM when the data actually
+    // changed, and only for the Advisor screen if it's the one currently open.
+    let _assignPollSig="";
+    _assignPollTimer=setInterval(async()=>{
+      await loadAssignmentExtras();
+      const sig=_assignedExtras.map((l:any)=>l.id+":"+l.assignedTo+":"+l.callStatus).join("|");
+      if(sig===_assignPollSig) return;
+      _assignPollSig=sig;
+      try{ rebuildPoolFromDB(); if(_activeScreenId()==="abm"){ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); } renderAssignedLeads(); renderHealthDashboard(); }catch(_){}
+    },30000);
     // Follow-up due/overdue reminders (checked on the same cadence).
     _checkFuReminders();
     setInterval(_checkFuReminders,60000);
@@ -3721,7 +3781,7 @@ export function initApp(root: HTMLElement) {
       const vc=root.querySelector("#csvValidCount"),dc=root.querySelector("#csvDupCount"),hc=root.querySelector("#csvHistCount");
       const info=root.querySelector("#csvPageInfo");
       const prev=root.querySelector("#csvPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvNextBtn")as HTMLButtonElement;
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hd=root.querySelector("#csvImportedHead"); if(hd)hd.innerHTML=gridHead("csvImported");
       const valid=gridApply("csvImported",_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r)));
       const dupN=_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)).length;
@@ -3762,7 +3822,7 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#csvDupBody");
       const info=root.querySelector("#csvDupPageInfo");
       const prev=root.querySelector("#csvDupPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvDupNextBtn")as HTMLButtonElement;
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       if(!body)return;
       const hd=root.querySelector("#csvDupHead"); if(hd)hd.innerHTML=gridHead("csvDup");
       const dups=gridApply("csvDup",_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)));
@@ -3796,7 +3856,7 @@ export function initApp(root: HTMLElement) {
     // ---- Render: import history (batches) ----
     function renderCsvHist(){
       const body=root.querySelector("#csvHistBody");
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       if(!body)return;
       const _chd=root.querySelector("#csvHistHead"); if(_chd)_chd.innerHTML=gridHead("csvHist"); const batches=gridApply("csvHist",_csvBatches.filter((b:any)=>inCsvRange(b.created_at)));
       body.innerHTML=batches.length?batches.map((b:any)=>{
@@ -3878,7 +3938,7 @@ export function initApp(root: HTMLElement) {
       const _rhd=root.querySelector("#rvHead"); if(_rhd)_rhd.innerHTML=gridHead("rv"); const _rvF=gridApply("rv",_rvData); const total=_rvF.length;const pages=Math.max(1,Math.ceil(total/RV_PER));
       if(_rvPage>pages)_rvPage=pages;if(_rvPage<1)_rvPage=1;
       const pageRows=_rvF.slice((_rvPage-1)*RV_PER,(_rvPage-1)*RV_PER+RV_PER);
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const fmt=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).format(d):"—";
       body.innerHTML=pageRows.length?pageRows.map((g:any)=>'<tr>'
         +'<td class="mono">'+e(g.phone)+'</td>'
@@ -3896,7 +3956,7 @@ export function initApp(root: HTMLElement) {
     w._rvHistory=(phone:string)=>{
       const g=_rvData.find((x:any)=>x.phone===phone);
       if(!g){toast("No history");return;}
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const fmt=(s:string)=>{const d=rvParseDate(s);return d?new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(d):(s||"—");};
       const recs=g.records.slice().sort((a:any,b:any)=>{const da=rvParseDate(a.dt),db=rvParseDate(b.dt);return (db?db.getTime():0)-(da?da.getTime():0);});
       const ov=document.createElement("div");
@@ -4097,7 +4157,11 @@ export function initApp(root: HTMLElement) {
         const byLead=(map[lid]=map[lid]||{});
         const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,instPaid:0,anyPaid:false,anyDue:false});
         if(p.payment_type) o.type=p.payment_type;
-        if(p.status==="paid"){ o.anyPaid=true; if(p.payment_type==="installment") o.instPaid++; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
+        // A fully-refunded row no longer counts as "paid" for enrollment/completion purposes — a
+        // client who got their money back is not still Enrolled just because the row's status column
+        // (a record of what HAPPENED) was never repurposed to mean "and it's still true today".
+        const fullyRefunded=Number(p.amount)>0&&Number(p.refund_amount||0)>=Number(p.amount);
+        if(p.status==="paid"&&!fullyRefunded){ o.anyPaid=true; if(p.payment_type==="installment") o.instPaid++; if(Number(p.installment_number)===1) o.inst1Paid=true; if(Number(p.installment_number)===2) o.inst2Paid=true; }
         else if(p.status==="due"){ o.anyDue=true; }
       });
       return map;
@@ -4585,10 +4649,18 @@ export function initApp(root: HTMLElement) {
     }
 
     // Drawer
+    let _drawerReturnFocus:HTMLElement|null=null;
     function openDrawer(r:any) {
       if(!r) return;
       const d=root.querySelector("#drawer")as HTMLElement; const o=root.querySelector("#dOverlay")as HTMLElement;
-      if(d) d.classList.add("open"); if(o) o.classList.add("open");
+      if(d){ d.classList.add("open"); d.removeAttribute("inert"); }
+      if(o) o.classList.add("open");
+      // Keyboard users previously had no way to close this (no Escape handler anywhere), and the
+      // panel stayed in the tab order even while visually closed (8 phantom tab stops reachable
+      // from anywhere in the app, including the login screen). `inert` fixes the latter; focus
+      // management + Escape (registered once, below) fix the former.
+      _drawerReturnFocus=(document.activeElement as HTMLElement)||null;
+      setTimeout(()=>{ try{ (root.querySelector("#dCloseBtn")as HTMLElement|null)?.focus(); }catch(_){} },0);
       const dn=root.querySelector("#dName"); if(dn) dn.textContent=r.name;
       root.querySelectorAll("#dTabs button").forEach((b,i)=>b.classList.toggle("on",i===0));
       root.querySelectorAll(".d-p").forEach((p,i)=>{(p as HTMLElement).style.display=i===0?"":"none";});
@@ -4624,8 +4696,21 @@ export function initApp(root: HTMLElement) {
       if(_drLeadId){ try{ renderCallLogs({id:_drLeadId,phone:r.ph},"#recCallLog",()=>_drLeadId); }catch(_){} }
     }
     w._openDrawer = (id:number) => { const r=_recAll.find((x:any)=>String(x.id)===String(id))||RX.find((x:any)=>String(x.id)===String(id)); if(r) openDrawer(r); };
-    function closeDrawer() { const d=root.querySelector("#drawer")as HTMLElement; const o=root.querySelector("#dOverlay")as HTMLElement; if(d)d.classList.remove("open"); if(o)o.classList.remove("open"); }
+    function closeDrawer() {
+      const d=root.querySelector("#drawer")as HTMLElement; const o=root.querySelector("#dOverlay")as HTMLElement;
+      if(d){ d.classList.remove("open"); d.setAttribute("inert",""); }
+      if(o) o.classList.remove("open");
+      try{ _drawerReturnFocus?.focus(); }catch(_){}
+      _drawerReturnFocus=null;
+    }
     w.closeDrawer = closeDrawer;
+    // Single Escape handler for the whole app: closes the drawer if it's open. (The grid-filter
+    // popup already has its own Escape handler; this doesn't interfere with it.)
+    document.addEventListener("keydown",(e:KeyboardEvent)=>{
+      if(e.key!=="Escape"&&e.key!=="Esc") return;
+      const d=root.querySelector("#drawer")as HTMLElement|null;
+      if(d&&d.classList.contains("open")) closeDrawer();
+    });
 
     // Cross-check — search ALL appointments, then fall back to the live leads DB.
     async function ccSearch() {
@@ -4787,7 +4872,7 @@ export function initApp(root: HTMLElement) {
     };
     function _nwRenderConsents(){
       const wrap=root.querySelector("#nwConsentForms"); if(!wrap) return;
-      const e=(s:any)=>String(s==null?"":s).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Office-use summary (Client ID + registration date + assigned counsellor).
       const setT=(id:string,v:string)=>{const el=root.querySelector("#"+id);if(el)el.textContent=v;};
       setT("nwOfficeCid",((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"—")||"—");
@@ -4860,7 +4945,7 @@ export function initApp(root: HTMLElement) {
     }
     w.nwBook = nwBook;
 
-    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any}|null=null;
+    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any,program?:string}|null=null;
     let _recBusy=false;   // guards recConfirm against double-submit (double-click) — prevents duplicate paid rows
     function recOpen(apptId:any,name:string,amt:any,leadId:string) {
       _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
@@ -4906,12 +4991,18 @@ export function initApp(root: HTMLElement) {
         // ---- Reception collecting a pending INSTALLMENT (updates that installment, not a new payment) ----
         if(_recCollect.installment){
           const num=_recCollect.installment;
+          // A lead on BOTH L1 and L2 can have an installment_number=2 row under EACH program — this
+          // lookup used to match on lead+installment_number alone, so it could settle (or duplicate-
+          // insert into) the WRONG program's row, over/under-stating one program's revenue and
+          // leaving the other's balance stuck. Resolve the specific program first — the same
+          // resolver already used elsewhere for this lead — and scope everything to it.
+          const _prog=_recCollect.program||await _recLeadProgram(_recCollect.leadId);
           // Settle the OUTSTANDING due row for this installment (prefer status=due; a bare .limit(1)
-          // could pick an already-paid row or the wrong program → a duplicate insert).
+          // could pick an already-paid row → a duplicate insert).
           // The /db gateway never throws (it resolves {error}) — if this lookup fails, `ex` would be
           // empty and `_tgt` undefined, falling through to the INSERT branch below and creating a
           // duplicate row instead of updating the existing due one. Abort instead of guessing.
-          const _exRes:any=await supabase.from("payments").select("id,status").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num);
+          const _exRes:any=await supabase.from("payments").select("id,status").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("installment_number",num).eq("program",_prog);
           if(_exRes&&_exRes.error){ toastErr("Payment check failed: "+(_exRes.error.message||"database error")+" — collect aborted to avoid a duplicate row"); return; }
           const ex=_exRes?.data;
           const _tgt=(ex||[]).find((r:any)=>r.status==="due")||(ex||[])[0];
@@ -4921,11 +5012,18 @@ export function initApp(root: HTMLElement) {
           // the toast below still claims success and cash has already changed hands.
           const _wOk=_tgt
             ? await _dbOk(supabase.from("payments").update(vals).eq("id",_tgt.id),"Installment collect")
-            : await _dbOk(supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:(await _recLeadProgram(_recCollect.leadId))},vals)),"Installment collect");
+            : await _dbOk(supabase.from("payments").insert(Object.assign({lead_id:_recCollect.leadId,payment_type:"installment",installment_number:num,total_installments:2,service:"Diabetes",program:_prog},vals)),"Installment collect");
           if(!_wOk) return;
           if(_recCollect.apptId) await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
-          // Fully-paid check across all of this lead's installments.
-          let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment"); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
+          // This is itself an enrolling payment (installment 1 or 2 reaching "paid") — stamp
+          // leads.enrolled_at via the shared writer. Idempotent (a re-collect of installment 2
+          // after installment 1 already enrolled is a harmless no-op). Without this, Reception's
+          // OWN "Enrolled" chip still reads correctly (it derives live from the payments rows
+          // below), but Advisor — which trusts leads.enrolled_at alone — silently goes stale.
+          try{ await _enrollLeadShared(String(_recCollect.leadId),"Reception installment collect",_prog); }catch(_){}
+          // Fully-paid check scoped to THIS program only — checking across all programs meant an
+          // L1 balance still outstanding could report "Fully Paid" as soon as L2 alone cleared.
+          let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("program",_prog); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
           if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
           toast("Installment "+num+" collected"+(fully?" — Fully Paid ✓":" · balance updated"));
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
@@ -4938,10 +5036,13 @@ export function initApp(root: HTMLElement) {
           if(!(await _dbOk(supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid),"Payment collect"))) return;
           // Move the linked appointment to the payment stage (look it up from the payment row
           // when we weren't handed one) and mark the lead Payment Done.
-          let apptId=_recCollect.apptId;
-          try{ if(!apptId){ const {data:pr}=await supabase.from("payments").select("appointment_id").eq("id",pid).limit(1); apptId=pr&&pr[0]&&pr[0].appointment_id; } }catch(_){}
+          let apptId=_recCollect.apptId, _payProg="L1";
+          try{ const {data:pr}=await supabase.from("payments").select("appointment_id,program").eq("id",pid).limit(1); const row=pr&&pr[0]; if(row){ if(!apptId) apptId=row.appointment_id; if(row.program) _payProg=row.program; } }catch(_){}
           if(apptId) try{ await supabase.from("appointments").update({stage:"payment"}).eq("id",apptId); }catch(_){}
           if(_recCollect.leadId){ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
+            // Settling an outstanding due row to "paid" is an enrolling event — same shared writer
+            // as every other collection path, so Advisor's enrolled_at never falls behind again.
+            try{ await _enrollLeadShared(String(_recCollect.leadId),"Accounts collect",_payProg); }catch(_){}
             if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} } }
           toast("₹"+amt.toLocaleString("en-IN")+" collected — balance cleared");
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
@@ -4978,6 +5079,9 @@ export function initApp(root: HTMLElement) {
         await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
+          // Same shared enrollment writer as every other collection path (see the two branches
+          // above) — a one-shot collect is just as much an enrolling payment as any other.
+          try{ await _enrollLeadShared(String(_recCollect.leadId),"Reception collect",_fbProg); }catch(_){}
           // If the Health Coach has this client open, refresh its payment history + locks live.
           if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
         }
@@ -5041,9 +5145,20 @@ export function initApp(root: HTMLElement) {
     // dashboards, exactly as if the change happened in that tab — no refresh, no manual action.
     let _syncBus:any=null;
     try{ if(typeof BroadcastChannel!=="undefined") _syncBus=new BroadcastChannel("wos-lead-sync"); }catch(_){ _syncBus=null; }
-    function _broadcastLeadSync(m:any){ try{ if(_syncBus&&m&&m.leadId) _syncBus.postMessage(m); }catch(_){} }
+    // Either a per-lead field update (leadId set — enroll/visit/etc.) or a general "the
+    // assignment pool changed" signal (type:"assignment", no leadId — a lead was assigned,
+    // unassigned, transferred or returned to pool/feed) — see _applyLeadSync.
+    function _broadcastLeadSync(m:any){ try{ if(_syncBus&&m&&(m.leadId||m.type)) _syncBus.postMessage(m); }catch(_){} }
     function _applyLeadSync(m:any){
-      if(!m||!m.leadId) return; const id=String(m.leadId);
+      if(!m) return;
+      if(m.type==="assignment"){
+        // Same-browser tabs: near-instant. A different device/browser (the normal case — an
+        // Admin assigning from one machine while an Advisor views another) can't receive a
+        // BroadcastChannel message at all, so this is backstopped by the poll below.
+        loadAssignmentExtras().then(()=>{ try{ rebuildPoolFromDB(); renderUnassignedPool(); renderMetaPage(); renderImport(); renderAdvisorLoad(); renderAssigneesTable(); renderAssignedLeads(); renderHealthDashboard(); }catch(_){} });
+        return;
+      }
+      if(!m.leadId) return; const id=String(m.leadId);
       const set=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ if(m.callStatus!=null)l.callStatus=m.callStatus; if("enrolledAt" in m)l.enrolledAt=m.enrolledAt; if("visitedAt" in m)l.visitedAt=m.visitedAt; } });
       try{ set(_metaLeads); set(_assignedExtras); }catch(_){}
       // Coach in-memory client: apply every synced field INCLUDING visitedAt (was omitted) so an
@@ -5155,7 +5270,7 @@ export function initApp(root: HTMLElement) {
       renderZoomCheckins();
     }
     function renderZoomCheckins(){
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const when=(a:any)=>(a.appt_date?fmtISTDate(a.appt_date):"")+(a.appt_time?(" · "+a.appt_time):"");
       const rowHtml=(a:any,withAction:boolean)=>'<tr>'
         +'<td style="font-weight:600">'+e(a.client_name||"Client")+'</td>'
@@ -5271,20 +5386,25 @@ export function initApp(root: HTMLElement) {
     // pipeline (the board's own HC dropdown is locked/read-only and only mirrors it).
     function _apptHcVal():string{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; if(h) return h; return (root.querySelector("#apptHc")as HTMLSelectElement|null)?.value||""; }
     // Load REAL slot occupancy for the chosen date AND the selected HC from the appointments table.
-    async function loadSlotsFromDB(){
+    // Returns false when the availability check itself failed — the caller (bookSlot) must NOT
+    // treat that as "every slot is free". Before this, a failed read here (the gateway resolves
+    // {error} rather than throwing — a bare try/catch can't distinguish "genuinely no bookings yet"
+    // from "the check failed") reset `slots` to empty and reported every slot open, defeating the
+    // double-booking guard right below it.
+    async function loadSlotsFromDB():Promise<boolean>{
       slots={}; TIMES.forEach(t=>slots[t]=[]);
       const date=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
       const hc=_apptHcVal();
-      if(!date||!hc) return;   // no HC selected → nothing loaded; renderSlots shows a prompt
-      try{
-        const {data}=await supabase.from("appointments").select("client_name,hc_pt,appt_time,status,lead_id").eq("appt_date",date).eq("hc_pt",hc).neq("status","cancelled");
-        (data||[]).forEach((a:any)=>{ const t=a.appt_time; if(t&&slots[t]) slots[t].push({name:a.client_name||"Client",hc:a.hc_pt||"—",leadId:String(a.lead_id||"")}); });
-      }catch(_){/* table not migrated yet → all slots free */}
+      if(!date||!hc) return true;   // no HC selected → nothing loaded; renderSlots shows a prompt
+      const _res:any=await supabase.from("appointments").select("client_name,hc_pt,appt_time,status,lead_id").eq("appt_date",date).eq("hc_pt",hc).neq("status","cancelled");
+      if(_res&&_res.error) return false;
+      (_res?.data||[]).forEach((a:any)=>{ const t=a.appt_time; if(t&&slots[t]) slots[t].push({name:a.client_name||"Client",hc:a.hc_pt||"—",leadId:String(a.lead_id||"")}); });
+      return true;
     }
     function seed(){ TIMES.forEach(t=>{ if(!slots[t]) slots[t]=[]; }); }   // no demo data — just ensure keys exist
     async function renderSlots() {
       const g=root.querySelector("#slotGrid"); if(!g) return;
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hc=_apptHcVal();
       // The board's HC dropdown is LOCKED: always mirror the assigned HC + keep it disabled so
       // it can't be changed here. Booking is only ever for the assigned Health Coach.
@@ -5318,7 +5438,9 @@ export function initApp(root: HTMLElement) {
     w._hcAssignedChange=()=>{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; const a=root.querySelector("#apptHc")as HTMLSelectElement|null; if(a) a.value=h; selSlot=null; renderSlots(); };
     w._apptHcChange=()=>{ selSlot=null; renderSlots(); };   // changing the board's HC reloads that coach's schedule
     // Book the CURRENTLY OPEN lead into the selected slot (real appointment row).
+    let _bookSlotBusy=false;
     async function bookSlot() {
+      if(_bookSlotBusy) return;
       if(!selSlot){toastErr("Select a slot first");return;}
       const date=(root.querySelector("#slotDate")as HTMLInputElement|null)?.value;
       if(!date){toastErr("Pick a date first");return;}
@@ -5328,15 +5450,21 @@ export function initApp(root: HTMLElement) {
       if(!hc){toastErr("Select a Health Coach (HC) first");return;}
       const lead=_advFindLead(String(_advLeadId));
       const name=lead?(lead.name||lead.phone||"Client"):"Client";
-      // Guard against double-booking: this HC's slot must be free (or already this lead's).
-      await loadSlotsFromDB();
-      const taken=slots[selSlot]||[];
-      if(taken.length>=HC_CAP && !taken.some(x=>String(x.leadId)===String(_advLeadId))){ toastErr(selSlot+" is already booked for "+hc); await renderSlots(); return; }
+      _bookSlotBusy=true;
       try{
-        const {data}=await supabase.from("appointments").select("id").eq("lead_id",_advLeadId).eq("appt_date",date).neq("status","cancelled").limit(1);
-        if(data&&data[0]) await supabase.from("appointments").update({appt_time:selSlot,hc_pt:hc,status:"expected"}).eq("id",data[0].id);
-        else await supabase.from("appointments").insert({lead_id:_advLeadId,client_name:name,phone:lead?(lead.phone||""):"",service:"Diabetes",hc_pt:hc,appt_date:date,appt_time:selSlot,status:"expected",source:"Advisor slot board",language:lead?(lead.lang||"Tamil"):"Tamil"});
-      }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
+        // Guard against double-booking: this HC's slot must be free (or already this lead's). Abort
+        // if the availability check itself failed — proceeding would book blind.
+        if(!(await loadSlotsFromDB())){ toastErr("Could not check slot availability — try again"); return; }
+        const taken=slots[selSlot]||[];
+        if(taken.length>=HC_CAP && !taken.some(x=>String(x.leadId)===String(_advLeadId))){ toastErr(selSlot+" is already booked for "+hc); await renderSlots(); return; }
+        const _exRes:any=await supabase.from("appointments").select("id").eq("lead_id",_advLeadId).eq("appt_date",date).neq("status","cancelled").limit(1);
+        if(_exRes&&_exRes.error){ toastErr("Booking failed: "+(_exRes.error.message||"database error")); return; }
+        const existing=_exRes?.data;
+        const _wOk=existing&&existing[0]
+          ? await _dbOk(supabase.from("appointments").update({appt_time:selSlot,hc_pt:hc,status:"expected"}).eq("id",existing[0].id),"Booking")
+          : await _dbOk(supabase.from("appointments").insert({lead_id:_advLeadId,client_name:name,phone:lead?(lead.phone||""):"",service:"Diabetes",hc_pt:hc,appt_date:date,appt_time:selSlot,status:"expected",source:"Advisor slot board",language:lead?(lead.lang||"Tamil"):"Tamil"}),"Booking");
+        if(!_wOk) return;
+      } finally { _bookSlotBusy=false; }
       booked=selSlot;
       logActivity(_advLeadId,[{action:"Status Changed",field:"Appointment",new:date+" · "+booked}]);
       const rb=root.querySelector("#reschBtn")as HTMLElement; if(rb)rb.style.display="inline-flex";
@@ -5378,11 +5506,11 @@ export function initApp(root: HTMLElement) {
     // ===== Click-to-call (Tata Tele / Smartflo) — server keeps the API key =====
     // role selects which page's Tata Tele extension/caller ID the server dials with
     // ("advisor" | "coach" | "reception") — see server tataConfig(role).
-    async function _callInitiate(id:string,role?:string){ try{ const url=_api("/api/calls/initiate/"+encodeURIComponent(id))+(role?("?role="+encodeURIComponent(role)):""); const r=await fetch(url,{method:"POST"}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
-    async function _callRecordings(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/recordings")); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
+    async function _callInitiate(id:string,role?:string){ try{ const url=_api("/api/calls/initiate/"+encodeURIComponent(id))+(role?("?role="+encodeURIComponent(role)):""); const r=await fetch(url,{method:"POST",headers:authHeaders()}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
+    async function _callRecordings(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/recordings"),{headers:authHeaders()}); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
     // Pull final call status + recordings from the provider's CDR into the DB (webhook-independent).
-    async function _callSync(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/sync")); return await r.json(); }catch(_){ return {ok:false,synced:0}; } }
-    async function _callTagLatest(id:string,t:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/latest-type"),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({callType:t})}); return await r.json(); }catch(_){ return {ok:false}; } }
+    async function _callSync(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/sync"),{headers:authHeaders()}); return await r.json(); }catch(_){ return {ok:false,synced:0}; } }
+    async function _callTagLatest(id:string,t:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/latest-type"),{method:"PUT",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({callType:t})}); return await r.json(); }catch(_){ return {ok:false}; } }
     // After a call, poll for the recording the webhook delivers, then auto-tag it.
     function _pollRecordings(id:string,callType:string){
       const delays=[3000,15000,45000,120000,300000]; let surfaced=false;
@@ -5458,7 +5586,7 @@ export function initApp(root: HTMLElement) {
       // This Week / End of Month / Next Month plans (all the 'fup' action) — hidden otherwise.
       const rdFld=root.querySelector("#reviewDateFld")as HTMLElement|null;
       if(rdFld) rdFld.style.display=(a==="join"||a==="fup")?"":"none";
-      if(a==="refund"){if(rf)rf.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Refund";cBadge.className="chipb al";}return;}
+      if(a==="refund"){if(rf)rf.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Refund";cBadge.className="chipb al";}try{_refreshRefundPanel();}catch(_){}return;}
       if(a==="join"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Joining";cBadge.className="chipb ok";}}
       if(a==="fup"){if(fu)fu.style.display="flex";if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Follow Up";cBadge.className="chipb warn";}}
       if(a==="enrol1"||a==="enrol2"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Enrolled";cBadge.className="chipb ok";}}   // no auto celebration popup — only updates the consultation status
@@ -5470,6 +5598,49 @@ export function initApp(root: HTMLElement) {
       if(pay&&pay.style.display==="block"){ try{ _syncProgramPricing(); }catch(_){} }
     }
     w.consAct = consAct;
+
+    // Refund panel: previously the "Submit" button only toasted a success message and never wrote
+    // anything — no revenue figure ever subtracted a refund, and a refunded client stayed "Enrolled"
+    // forever. This actually persists the request (payments.refund_*), which both feeds the existing
+    // Accounts → Refunds tab (already built, just never had data) and — via renderRev's net() and
+    // _buildProgPay's fullyRefunded check — flows through to revenue and enrollment status.
+    function _refreshRefundPanel(){
+      const id=_coachLeadId; if(!id) return;
+      const prog=_curProgram();
+      const rows=(_coachPayRows||[]).filter((r:any)=>r.status==="paid"&&String(r.program||"L1")===prog&&!r.refund_status);
+      const paid=rows.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
+      const lastPaidAt=rows.reduce((latest:string,r:any)=>(r.paid_at&&(!latest||r.paid_at>latest))?r.paid_at:latest,"");
+      const days=lastPaidAt?Math.max(0,Math.floor((Date.now()-new Date(lastPaidAt).getTime())/86400000)):0;
+      const pe=root.querySelector("#refPaid")as HTMLInputElement|null; if(pe) pe.value=paid?("₹"+paid.toLocaleString("en-IN")):"₹0";
+      const de=root.querySelector("#refDays")as HTMLInputElement|null; if(de) de.value=lastPaidAt?(days+" day"+(days===1?"":"s")):"—";
+      // No day-based eligibility SCHEDULE exists in this app's business rules — ABM/BM decide the
+      // approved amount when they review the request in Accounts. This shows the maximum refundable
+      // (what's been paid and has no refund already in flight), not a computed eligibility %.
+      const ee=root.querySelector("#refEligible")as HTMLInputElement|null; if(ee) ee.value=paid?("Up to ₹"+paid.toLocaleString("en-IN")):"₹0";
+    }
+    let _refundBusy=false;
+    w._submitRefund=async function(){
+      const id=_coachLeadId; if(!id){ toast("Open a client first"); return; }
+      if(_refundBusy) return;
+      const reasonEl=root.querySelector("#refReason")as HTMLSelectElement|null;
+      const reason=reasonEl?.value||"";
+      if(!reason){ toastErr("Select a refund reason"); return; }
+      const prog=_curProgram();
+      const rows=(_coachPayRows||[]).filter((r:any)=>r.status==="paid"&&String(r.program||"L1")===prog&&!r.refund_status);
+      if(!rows.length){ toastErr("Nothing paid for "+prog+" yet — no refund to request"); return; }
+      _refundBusy=true;
+      try{
+        let total=0;
+        for(const r of rows){
+          if(!(await _dbOk(supabase.from("payments").update({refund_status:"requested",refund_amount:Number(r.amount)||0,refund_reason:reason,refund_requested_at:new Date().toISOString()}).eq("id",r.id),"Refund request"))) return;
+          total+=Number(r.amount)||0;
+        }
+        logActivity(id,[{action:"Refund",field:"Requested",new:"₹"+total.toLocaleString("en-IN")+" · "+reason}]);
+        toast("Refund request submitted → ABM approval queue (₹"+total.toLocaleString("en-IN")+")");
+        try{ _renderCoachPayHistory(id); }catch(_){}
+        try{ _refreshRefundPanel(); }catch(_){}
+      } finally{ _refundBusy=false; }
+    };
 
     function payBlk(v:string){
       root.querySelectorAll(".payblk").forEach((p)=>p.classList.remove("on"));
@@ -5663,7 +5834,7 @@ export function initApp(root: HTMLElement) {
         if(file.size>15*1024*1024){ toast("File too large (max 15 MB)"); return; }
         const container=root.querySelector("#"+containerId);
         if(!container) return;
-        const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
         const tag=document.createElement("span");
         tag.className="att";tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+e(file.name)+' · uploading…';
         const addBtn=container.querySelector(".att.add");
@@ -5676,7 +5847,7 @@ export function initApp(root: HTMLElement) {
           const {data}=supabase.storage.from("payment-proofs").getPublicUrl(path);
           const url=(data&&data.publicUrl)||"";
           _payProofs[containerId]={url,name:file.name};
-          tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(url)+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(file.name)+'</a>';
+          tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(file.name)+'</a>';
           toast("Proof uploaded: "+file.name);
         }catch(err:any){ tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+e(file.name)+' · upload failed'; toastErr("Proof upload failed: "+(err&&err.message||"error")); }
       };
@@ -5778,8 +5949,12 @@ export function initApp(root: HTMLElement) {
       // second installment 1. The amount then comes from the Balance-received field, not Inst-1.
       let instNum:any=null;
       if(method==="i2"){
-        let inst1Done=false;
-        try{ const {data}=await supabase.from("payments").select("status").eq("lead_id",id).eq("program",prog).eq("payment_type","installment").eq("status","paid").limit(1); inst1Done=!!(data&&data.length); }catch(_){}
+        // The gateway resolves {error} rather than throwing — a bare try/catch here can't detect a
+        // failed check, so a failed read silently defaulted to "installment 1 not done", which
+        // breaks the "never send a second installment 1" guarantee the comment above promises.
+        const _i1Res:any=await supabase.from("payments").select("status").eq("lead_id",id).eq("program",prog).eq("payment_type","installment").eq("status","paid").limit(1);
+        if(_i1Res&&_i1Res.error){ toastErr("Payment check failed: "+(_i1Res.error.message||"database error")+" — send aborted"); return; }
+        const inst1Done=!!(_i1Res?.data&&_i1Res.data.length);
         instNum=inst1Done?2:1;
       }
       const _i2PlanTotal=_payNum("#i2Total")||_payGetPrice();   // full value of the 2-part plan
@@ -5865,7 +6040,7 @@ export function initApp(root: HTMLElement) {
     w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo","scApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
     w._scApplyDate=()=>{ if(_scDate==="cust") _scApplyDateFilter(); };
     function _scRenderAll(){
-      const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const screened=f.filter((r:any)=>r.stage==="screened"||r.stage==="done");
       const waiting=f.filter((r:any)=>r.stage==="screening"&&!r.screenedAt);
       const inProg=f.filter((r:any)=>r.stage==="screening"&&_scOpenAppt&&_scOpenAppt.id===r.id);
@@ -5970,7 +6145,7 @@ export function initApp(root: HTMLElement) {
           if(sv&&sv.screened_at) rows=[{id:"leads-sv",appt_date:(sv.screened_at||"").substring(0,10),screening_vitals_data:sv}];
         }
         if(!rows.length){ none("No previous screening records."); return; }
-        const e=(s:any)=>String(s??"—").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        const e=(s:any)=>String(s??"—").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
         wrap.innerHTML='<div class="tscroll" style="max-height:230px"><table class="tbl"><thead><tr><th>Date</th><th>Height</th><th>Weight</th><th>BMI</th><th>BP</th><th>Glucose</th><th>Eligible</th><th>Screened by</th></tr></thead><tbody>'
           +rows.map((a:any)=>{const sv=a.screening_vitals_data||{}; const dt=sv.screened_at||a.appt_date; const el=sv.eligible==="no"?'<span class="chipb al">Not eligible</span>':sv.eligible==="yes"?'<span class="chipb ok">Eligible</span>':"—"; return '<tr><td class="mono">'+(dt?new Date(dt).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}):"—")+'</td><td class="mono">'+e(sv.height)+'</td><td class="mono">'+e(sv.weight)+'</td><td class="mono">'+e(sv.bmi)+'</td><td class="mono">'+e(sv.bp)+'</td><td class="mono">'+e(sv.glucose)+'</td><td>'+el+'</td><td>'+e(sv.screened_by)+'</td></tr>';}).join("")
           +'</tbody></table></div><p style="font-size:11px;color:var(--faint);margin:6px 0 0">'+rows.length+' previous screening'+(rows.length===1?"":"s")+' for this client.</p>';
@@ -6082,8 +6257,8 @@ export function initApp(root: HTMLElement) {
     };
     function renderCoachAtts(){
       const ba=root.querySelector("#coachAtts"); if(!ba) return;
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      ba.innerHTML=_coachAttachments.length?_coachAttachments.map((a:any)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(a.url||"#")+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+(a.src==="advisor"?" · advisor":"")+'</a></span>').join(""):'<span style="font-size:12px;color:var(--faint)">No reports synced from the advisor yet.</span>';
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      ba.innerHTML=_coachAttachments.length?_coachAttachments.map((a:any)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(a.url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+(a.src==="advisor"?" · advisor":"")+'</a></span>').join(""):'<span style="font-size:12px;color:var(--faint)">No reports synced from the advisor yet.</span>';
     }
     const _coachpKey=(id:any)=>"wos_coachp_"+id;
     function readCoachLocal(id:any){ try{ const s=localStorage.getItem(_coachpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
@@ -6218,15 +6393,15 @@ export function initApp(root: HTMLElement) {
       let rows:any[]=[];
       try{ const {data}=await supabase.from("office_recordings").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(50); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const dur=(s:number)=>{ s=s||0; const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
       el.innerHTML=rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
         '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">'
         +'<span style="font-size:12px;font-weight:600">🎙 '+e(fmtIST(r.created_at))+'</span>'
         +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
         +(r.recorded_by?'<span style="font-size:10.5px;color:var(--muted)">'+e(r.recorded_by)+'</span>':'')
-        +'<audio controls preload="none" src="'+e(r.file_url||"")+'" style="height:32px;flex:1;min-width:180px"></audio>'
-        +'<a class="btn bsm" href="'+e(r.file_url||"#")+'" download style="text-decoration:none">⬇ Download</a>'
+        +'<audio controls preload="none" src="'+e(_safeHref(r.file_url))+'" style="height:32px;flex:1;min-width:180px"></audio>'
+        +'<a class="btn bsm" href="'+e(_safeHref(r.file_url))+'" download style="text-decoration:none">⬇ Download</a>'
         +'</div>'
       ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>';
     }
@@ -6295,7 +6470,7 @@ export function initApp(root: HTMLElement) {
       if(q) base=base.filter((r:any)=>[r._cust,r.meeting_url].some((v:any)=>String(v||"").toLowerCase().includes(q)));
       return _recDateFilter(base,_zoomApplied,(r:any)=>r.meeting_at||r.created_at);
     }
-    const _recE=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const _recE=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     const _recA=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
     function renderOvrTbl(){
       const head=root.querySelector("#ovrTblHead"); if(head)head.innerHTML=gridHead("ovrTbl");
@@ -6381,7 +6556,7 @@ export function initApp(root: HTMLElement) {
     function fillCoachDetail(lead:any){
       if(!lead) return;
       _coachLeadId=String(lead.id);
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const name=lead.name||lead.phone||"Client";
       const initials=(name.match(/[A-Za-z0-9]/g)||["C","L"]).slice(0,2).join("").toUpperCase();
       const setT=(sel:string,t:string)=>{const el=root.querySelector(sel);if(el)el.textContent=t;};
@@ -6456,7 +6631,7 @@ export function initApp(root: HTMLElement) {
       let appt:any=null;
       try{ const {data:ap}=await supabase.from("appointments").select("appt_date,appt_time").eq("lead_id",String(lead.id)).order("appt_date",{ascending:false}).limit(1); appt=ap&&ap[0]; }catch(_){}
       if(String(_coachLeadId)!==String(lead.id)) return;
-      const esc=(s:string)=>(s||"--").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"--").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const rb=root.querySelector("#roBasic"); if(rb&&adv){
         const named=adv.advisor_profile?_advNamed(adv.advisor_profile.f):null;
         const occ=(named&&named["Occupation"])||"--"; const loc=(named&&named["Location"])||"--";
@@ -6599,7 +6774,7 @@ export function initApp(root: HTMLElement) {
       fill("#coSource",_coachClients.map((c:any)=>c.source),"All sources");
       fill("#coService",_coachClients.map((c:any)=>c.service),"All services");
       const stEl=root.querySelector("#coStatus")as HTMLSelectElement|null;
-      if(stEl){ const cur=stEl.value; const eo=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); stEl.innerHTML='<option value="all">All statuses</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); if(Array.from(stEl.options).some(o=>o.value===cur)) stEl.value=cur; }
+      if(stEl){ const cur=stEl.value; const eo=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); stEl.innerHTML='<option value="all">All statuses</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); if(Array.from(stEl.options).some(o=>o.value===cur)) stEl.value=cur; }
     }
     // Apply the staged coach filters (date / coach / status / service) → refresh list + kanban.
     w._coachFilterApply=()=>{
@@ -6637,7 +6812,7 @@ export function initApp(root: HTMLElement) {
         if(/^Enrolled\s*[–-]\s*L/i.test(s)){ if(/l1/i.test(s)) counts["Enrolled – L1"]=(counts["Enrolled – L1"]||0)+1; if(/l2/i.test(s)) counts["Enrolled – L2"]=(counts["Enrolled – L2"]||0)+1; }
         else counts[s]=(counts[s]||0)+1;
       });
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       el.innerHTML=_coachStatusCards.map(l=>{
         const on=_coachDashSel===l;
         return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
@@ -6677,7 +6852,7 @@ export function initApp(root: HTMLElement) {
       const total=rows.length; const pages=Math.max(1,Math.ceil(total/COACH_CLI_PER));
       if(_coachCliPage>pages)_coachCliPage=pages; if(_coachCliPage<1)_coachCliPage=1;
       const pageRows=rows.slice((_coachCliPage-1)*COACH_CLI_PER,(_coachCliPage-1)*COACH_CLI_PER+COACH_CLI_PER);
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       body.innerHTML=pageRows.length?pageRows.map((c:any)=>{
         const active=String(c.id)===String(_coachLeadId);
         return '<tr'+(active?' style="background:var(--brand-tint)"':'')+'>'
@@ -6711,7 +6886,7 @@ export function initApp(root: HTMLElement) {
       const tog=root.querySelector("#coachViewToggle");
       if(tog) tog.innerHTML='<button class="pill'+(_coachView==="list"?" on":"")+'" onclick="window._coachToggleView(\'list\')">List View</button><button class="pill'+(_coachView==="kanban"?" on":"")+'" onclick="window._coachToggleView(\'kanban\')">Kanban View</button>';
       const csf=root.querySelector("#coachConsFilter")as HTMLSelectElement|null;
-      if(csf){ const eo=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); csf.innerHTML='<option value="">All Status</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); csf.value=_coachDashSel; }
+      if(csf){ const eo=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); csf.innerHTML='<option value="">All Status</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); csf.value=_coachDashSel; }
       const kb=root.querySelector("#coachKanban")as HTMLElement|null;
       const tw=root.querySelector("#coachCliTableWrap")as HTMLElement|null;
       if(_coachView==="kanban"){
@@ -6726,7 +6901,7 @@ export function initApp(root: HTMLElement) {
       }
     }
     function _renderCoachKanban(kb:HTMLElement,list:any[]){
-      const e=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Kanban columns mirror the consultation-status values (the same set the dashboard
       // cards, List view and All-Status dropdown use) so every view stays in sync.
       const stageColors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#0B6B4C","#E8A817","#0EA5A0","#D8442B","#A855F7","#EF4444","#64748B"];
@@ -6759,6 +6934,25 @@ export function initApp(root: HTMLElement) {
     async function _dbOk(p:Promise<any>,what:string):Promise<boolean>{
       try{ const r:any=await p; if(r&&r.error){ toastErr(what+" failed: "+(r.error.message||"database error")); return false; } return true; }
       catch(e:any){ toastErr(what+" failed: "+(e?.message||"network error")); return false; }
+    }
+    // A payment reaching "paid" is ITSELF the enrolling event — stamp leads.enrolled_at via the
+    // same shared writer Reception/Accounts use, right here at the actual save. Previously
+    // enrollment only fired from the payment-section Status DROPDOWN's onchange (_payStSel) —
+    // a secondary UI signal, not the save action itself. A dropdown's onchange never fires if its
+    // value doesn't actually change (e.g. it already reads "1st Paid" and the coach just types the
+    // amount and clicks Save, or the value was restored programmatically via _setPayStatus, which
+    // is explicitly documented as "without firing enrollment"). The payments row still gets
+    // written in that case, so Coach/Reception (which derive "enrolled" live from payment rows)
+    // keep showing it correctly — only Advisor (which trusts leads.enrolled_at alone) went stale.
+    // Root-caused against a real lead (Dinesh Iyer, 1073279318552471): installment-1 paid ₹15,000,
+    // but enrolled_at stayed null. _enrollLeadShared is idempotent (preserves an existing
+    // enrolled_at, no duplicate activity log), so calling it on every save is safe.
+    async function _ensureEnrolledFromPayment(id:string,prog:string):Promise<void>{
+      let level=(prog==="L1")?"L1":(prog==="L2"?"L2":"L1 + L2");
+      const cur=_coachConsStatus||""; const hasL1=/\bL1\b/.test(cur), hasL2=/\bL2\b/.test(cur);
+      if(level==="L2"&&hasL1) level="L1 + L2"; else if(level==="L1"&&hasL2) level="L1 + L2";
+      const iso=await _enrollLeadShared(id,"Payment saved",level);
+      if(iso!==null){ try{ _setPayEnrollDisplay(level,iso); _refreshPayEnrollChip(); }catch(_){} }
     }
     // Persist the coach's collected payment to the `payments` table so it shows in the
     // payment history + Accounts. Handles Full / 2× Installment / Advance (each re-written
@@ -6825,9 +7019,11 @@ export function initApp(root: HTMLElement) {
         // Abort the insert if the delete failed — otherwise the new rows pile on top of the old ones (duplicate installments).
         if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type","installment").eq("program",_prog).neq("collected_by","Reception desk"),"Payment update"))) return;
         if(rows.length){ if(!(await _dbOk(supabase.from("payments").insert(rows),"Payment save"))) return; logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+(totalI2?(" of ₹"+totalI2.toLocaleString("en-IN")+", balance ₹"+balance.toLocaleString("en-IN")):"")}]); if(String(_coachLeadId)===id) _renderCoachPayHistory(id); }
+        if(p1||p2) await _ensureEnrolledFromPayment(id,_prog);   // installment-1 alone already enrolls
       } else if(pm==="full"){
         const amt=_payNum("#payFullRcvd"); if(!amt) return;
         await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",program:_prog,...proof("payFullProof")}],"Full payment",amt);
+        await _ensureEnrolledFromPayment(id,_prog);
       } else if(pm==="adv"){
         const a1=_payNum("#advAmt"), a2=_payNum("#advBalRcvd");
         if(!a1&&!a2) return;
@@ -6835,6 +7031,9 @@ export function initApp(root: HTMLElement) {
         if(a1) rows.push({lead_id:id,amount:a1,status:"paid",method:val("#advMode")||null,paid_at:iso(val("#advDate")),payment_type:"advance",installment_number:1,total_installments:2,txn_ref:val("#advRef")||null,service:"Diabetes",program:_prog,...proof("advProof")});
         if(a2) rows.push({lead_id:id,amount:a2,status:"paid",method:val("#advBalMode")||null,paid_at:iso(val("#advBalDate")),payment_type:"advance",installment_number:2,total_installments:2,txn_ref:val("#advBalRef")||null,service:"Diabetes",program:_prog,...proof("advBalProof")});
         await commit("advance",rows,"Advance booking",a1+a2);
+        // Advance booking enrolls only once FULLY paid (both halves) — matches the original
+        // Status-dropdown trigger ("Fully Paid"), unlike installment which enrolls on the 1st payment.
+        if(a1&&a2) await _ensureEnrolledFromPayment(id,_prog);
       }
     }
     // Lock a set of input fields (paid stages can't be edited/re-collected).
@@ -6925,7 +7124,7 @@ export function initApp(root: HTMLElement) {
     function _renderPaymentSummary(id:string,rows:any[]){
       const el=root.querySelector("#coachPaySummary"); if(!el) return;
       if(String(_coachLeadId)!==String(id)){ el.innerHTML=""; return; }
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const prog=_curProgram();
       const mine=(rows||[]).filter((r:any)=>String(r.program||"L1")===prog);
       const paid=mine.filter((r:any)=>r.status==="paid"); const due=mine.filter((r:any)=>r.status==="due");
@@ -6988,7 +7187,7 @@ export function initApp(root: HTMLElement) {
       // consStatus label ("Enrolled – L2"). This unconditional refresh fixes that regardless of whether
       // the program dropdown changed (the sync-on-program-change refresh only fires when it does).
       try{ _refreshPayEnrollChip(); }catch(_){}
-      const e=(s:any)=>(s==null?"":String(s)).replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const money=(n:any)=>"₹"+(parseInt(n)||0).toLocaleString("en-IN");
       if(!rows.length){ el.innerHTML='<div class="stub">No payment records for this client yet.</div>'; return; }
       const paid=rows.reduce((s:number,r:any)=>s+(parseInt(r.amount)||0),0);
@@ -7037,7 +7236,9 @@ export function initApp(root: HTMLElement) {
         try{ await loadRecordings(); }catch(_){}   // reflect in the Zoom Recordings table
       }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
     };
+    let _coachSaveBusy=false;   // guards against a double-click duplicating payments via _persistInstallments
     w._coachSaveRecord=async()=>{
+      if(_coachSaveBusy) return;
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);
       const obj=collectCoachProfile();
@@ -7081,6 +7282,7 @@ export function initApp(root: HTMLElement) {
       }
       saveCoachLocal(id,obj);
       const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
+      _coachSaveBusy=true;
       try{
         const {error}=await supabase.from("leads").update({coach_profile:obj}).eq("meta_lead_id",id);
         if(error){
@@ -7098,8 +7300,15 @@ export function initApp(root: HTMLElement) {
           // Enrolled date/time is STABLE — read the DB's current enrolled_at (source of truth) and
           // preserve it if already set; only stamp 'now' the first time. Prevents re-stamping on
           // re-save and keeps Coach + Advisor identical regardless of in-memory state.
-          let existingEnr:string|null=null;
-          try{ const {data}=await supabase.from("leads").select("enrolled_at").eq("meta_lead_id",id).limit(1); if(data&&data[0]) existingEnr=data[0].enrolled_at||null; }catch(_){}
+          // The gateway resolves {error} rather than throwing, so a bare try/catch can't tell "this
+          // lead has never been enrolled" apart from "the read failed" — treating a failed read as
+          // the former re-stamps enrolled_at to right now, permanently overwriting the client's real
+          // (possibly weeks-old) enrollment date. Skip the re-stamp entirely on a failed check
+          // instead of guessing; the rest of the save still proceeds normally.
+          const _enrRes:any=await supabase.from("leads").select("enrolled_at").eq("meta_lead_id",id).limit(1);
+          if(_enrRes&&_enrRes.error){ toastErr("Could not verify existing enrollment date — enrollment timestamp left unchanged this save"); }
+          else{
+          const existingEnr:string|null=(_enrRes?.data&&_enrRes.data[0]&&_enrRes.data[0].enrolled_at)||null;
           const already=!!existingEnr;
           const enrIso=existingEnr||new Date().toISOString();
           try{ await supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",id); }catch(_){}
@@ -7113,11 +7322,13 @@ export function initApp(root: HTMLElement) {
           try{ await loadReceptionData(); }catch(_){}   // Reception's Enrolled card/table update immediately
           try{ if(String(_advLeadId)===id) _advApplyEnrolled("Enrolled",enrIso,(obj&&obj.consStatus)||""); }catch(_){}
           _broadcastLeadSync({leadId:id,callStatus:"Enrolled",enrolledAt:enrIso,consStatus:(obj&&obj.consStatus)||"Enrolled"});   // push to other open tabs
+          }
         }
         try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
         toast("Health record saved");
         logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
       }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
+      finally{ _coachSaveBusy=false; }
     };
     w._coachPrint=()=>{
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
@@ -7212,7 +7423,7 @@ export function initApp(root: HTMLElement) {
 
     // ---- Deviation "Assign to" controls (same behavior as the Unassigned Pool) ----
     function _populateDevAssignMenus(){
-      const esc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const names=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
       (["call","lead"] as const).forEach(wk=>{
         const menu=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(!menu) return;
@@ -7263,7 +7474,7 @@ export function initApp(root: HTMLElement) {
     };
     // Close a deviation assign-menu on outside click.
     document.addEventListener("click",(e:any)=>{ (["call","lead"] as const).forEach(wk=>{ const wrap=root.querySelector("#"+wk+"DevAssignWrap"); const m=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; }); });
-    const _devEsc=(s:string)=>(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const _devEsc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     const _devSrcLang=(r:any)=>(r.source==="Meta Ads"?"Meta":(r.source||"Meta"))+" · "+(r.language||"Tamil");
     const _callDevCols=[
       {key:"sel",label:"",filter:false,head:'<th style="width:34px"><input type="checkbox" id="callDevSelAll" style="accent-color:var(--brand)" onchange="window._devSelAll(\'call\',this.checked)"></th>'},
@@ -7369,7 +7580,7 @@ export function initApp(root: HTMLElement) {
 
     // ========== BLOOD TEST MODULE (live data) ==========
     let _btAll:any[]=[], _btFiltered:any[]=[], _btDate="today", _btOpenAppt:any=null, _btReportAtt:any=null;
-    const _btE=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const _btE=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     function _btDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_btDate==="today") return [sod(now),eod(now)];
@@ -7524,7 +7735,7 @@ export function initApp(root: HTMLElement) {
         {l:"Paid upfront",v:all.filter((r:any)=>r.payModel==="pack"&&r.payStatus==="paid").length,c:"g"},
         {l:"Per-session (need pay)",v:f.filter((r:any)=>r.payModel==="per_visit"&&r.payStatus!=="paid").length,c:"a"}];
       const me=el("phMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
-      const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       let tbl='<table class="tbl"><thead><tr><th>Time</th><th>Patient</th><th>Condition</th><th>Session</th><th>Payment</th><th>Status</th><th></th></tr></thead><tbody>';
       if(!f.length) tbl+='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No physiotherapy sessions for this period.</td></tr>';
       else f.forEach((r:any)=>{
@@ -7671,7 +7882,7 @@ export function initApp(root: HTMLElement) {
     regGrid("accOut",()=>_accOutCols,()=>_accRenderAll());
     regGrid("accRef",()=>_accRefCols,()=>_accRenderAll());
     function _accRenderAll(){
-      const pays=_accPays; const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const pays=_accPays; const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const todayStr=new Date().toISOString().substring(0,10);
       const todayPaid=pays.filter((p:any)=>p.status==="paid"&&(p.paid_at||p.created_at||"").startsWith(todayStr));
       const collectedToday=todayPaid.reduce((s:number,p:any)=>s+(p.amount||0),0);
@@ -7707,7 +7918,7 @@ export function initApp(root: HTMLElement) {
       if(!_verF.length) vH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">All payments verified ✓</td></tr>';
       else _verF.forEach((p:any)=>{
         vH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td>'+e(p.method||"—")+'</td><td class="mono">'+e(p.txn_ref||"—")+'</td>'
-          +'<td>'+(p.proof_url?'<a href="'+e(p.proof_url)+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
+          +'<td>'+(p.proof_url?'<a href="'+e(_safeHref(p.proof_url))+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button></td></tr>';
       });
       vH+='</tbody></table>';
@@ -7795,7 +8006,7 @@ export function initApp(root: HTMLElement) {
       });
     }
     function _repRender(){
-      const e=(s:any)=>String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const titleEl=root.querySelector("#repTitle"); const kpiEl=root.querySelector("#repKpis"); const tblEl=root.querySelector("#repTableWrap");
       // Populate source/language filter options from data
       const srcSel=root.querySelector("#repSource") as HTMLSelectElement;
@@ -7939,5 +8150,5 @@ export function initApp(root: HTMLElement) {
     _versionTimer=setInterval(checkVersion,60000);
     window.addEventListener("focus",checkVersion);
 
-    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); if(_versionTimer) clearInterval(_versionTimer); window.removeEventListener("focus",checkVersion); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
+    return () => { clearInterval(slaInterval); if(_callTimer) clearInterval(_callTimer); if(_metaFeedTimer) clearInterval(_metaFeedTimer); if(_csvSweepTimer) clearInterval(_csvSweepTimer); if(_metaMonitorTimer) clearInterval(_metaMonitorTimer); if(_assignPollTimer) clearInterval(_assignPollTimer); if(_versionTimer) clearInterval(_versionTimer); window.removeEventListener("focus",checkVersion); try{ if(w.__leadsChannel) supabase.removeChannel(w.__leadsChannel); }catch(_){} };
 }

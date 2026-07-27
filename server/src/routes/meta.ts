@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { supabase } from '../shared/supabase';
+import { requireAuth } from '../shared/session';
 import {
   syncMetaLeadsToSupabase,
   getMetaToken,
@@ -240,9 +241,13 @@ async function tokenPost(_req: Request, res: Response) {
 }
 
 export function registerMetaRoutes(app: Express) {
-  app.get('/api/meta/leads', getLeads);
-  app.get('/api/meta/sync', (_req, res) => runSync(res).catch((e) => res.status(500).json({ error: e.message })));
-  app.post('/api/meta/sync', (_req, res) => runSync(res).catch((e) => res.status(500).json({ error: e.message })));
-  app.get('/api/meta/token', tokenGet);
-  app.post('/api/meta/token', tokenPost);
+  // requireAuth on all of these — the daily token-refresh cron (index.ts) calls
+  // refreshExpiringTokens() as a direct in-process function call, never over HTTP, so nothing
+  // internal needs these routes open. Previously unauthenticated, /api/meta/sync in particular
+  // could be hammered by anyone to trigger the lead-prune path (see the crawl-failure guard fix).
+  app.get('/api/meta/leads', requireAuth, getLeads);
+  app.get('/api/meta/sync', requireAuth, (_req, res) => runSync(res).catch((e) => res.status(500).json({ error: e.message })));
+  app.post('/api/meta/sync', requireAuth, (_req, res) => runSync(res).catch((e) => res.status(500).json({ error: e.message })));
+  app.get('/api/meta/token', requireAuth, tokenGet);
+  app.post('/api/meta/token', requireAuth, tokenPost);
 }

@@ -191,15 +191,29 @@ export async function clickToCallSupport(opts: { destinationNumber: string; cust
 
 // Download the recording (follow redirects; add auth header unless URL self-auths
 // with ?token=) and re-host it in Supabase Storage. Returns the public URL + path.
+// Only ever attach the real Tata API key (or fetch at all, from the webhook path) to a URL on
+// Tata's own domain. Without this, the webhook — which has no signature verification and accepts
+// a recording_url from whoever posts to it — could be pointed at an attacker's server, which would
+// receive the live API key in the Authorization header plus whatever else is reachable via SSRF.
+function isTrustedRecordingHost(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return h === 'tatateleservices.com' || h.endsWith('.tatateleservices.com');
+  } catch { return false; }
+}
+
 export async function downloadRecordingToStorage(url: string, callId: string): Promise<{ publicUrl: string; path: string } | null> {
   if (!url || !callId) return null;
+  if (!isTrustedRecordingHost(url)) return null;
   const key = tataConfig().apiKey;
   const hasToken = /[?&]token=/i.test(url);
   const headers: Record<string, string> = {};
   if (!hasToken && key) headers['Authorization'] = key;
   let buf: Buffer;
   try {
-    const res = await fetch(url, { headers, redirect: 'follow' });   // fetch follows redirects
+    const res = await fetch(url, { headers, redirect: 'follow' });   // fetch follows redirects — the
+    // entry URL is host-checked above; a same-provider redirect (e.g. to a CDN subdomain) is the
+    // expected legitimate case and isn't independently re-checked per hop.
     if (!res.ok) return null;
     buf = Buffer.from(await res.arrayBuffer());
   } catch (_) { return null; }
