@@ -5792,13 +5792,28 @@ export function initApp(root: HTMLElement) {
         if(!(await loadSlotsFromDB())){ toastErr("Could not check slot availability — try again"); return; }
         const taken=slots[selSlot]||[];
         if(taken.length>=HC_CAP && !taken.some(x=>String(x.leadId)===String(_advLeadId))){ toastErr(selSlot+" is already booked for "+hc); await renderSlots(); return; }
-        const _exRes:any=await supabase.from("appointments").select("id").eq("lead_id",_advLeadId).eq("appt_date",date).neq("status","cancelled").limit(1);
+        // Find the lead's PENDING appointment to MOVE, across every date. This lookup used to be
+        // scoped with .eq("appt_date", date), which only ever matched an appointment already on the
+        // date being booked — so rescheduling to a DIFFERENT date matched nothing and INSERTED a
+        // second row. The old slot kept its booking and the board showed the lead twice (reported
+        // for Sumathi T: 28-Jul 5:00 PM and 29-Jul 5:00 PM both held). Rescheduling within the same
+        // date happened to work, which is why this survived.
+        // Only 'expected' rows move: a 'visited' appointment is history (the client actually came)
+        // and must never be dragged to a new date; cancelled/no-show are likewise closed.
+        const _exRes:any=await supabase.from("appointments").select("id").eq("lead_id",_advLeadId).eq("status","expected").order("appt_date",{ascending:true}).limit(50);
         if(_exRes&&_exRes.error){ toastErr("Booking failed: "+(_exRes.error.message||"database error")); return; }
-        const existing=_exRes?.data;
-        const _wOk=existing&&existing[0]
-          ? await _dbOk(supabase.from("appointments").update({appt_time:selSlot,hc_pt:hc,status:"expected"}).eq("id",existing[0].id),"Booking")
+        const existing=_exRes?.data||[];
+        const _wOk=existing[0]
+          ? await _dbOk(supabase.from("appointments").update({appt_date:date,appt_time:selSlot,hc_pt:hc,status:"expected"}).eq("id",existing[0].id),"Booking")
           : await _dbOk(supabase.from("appointments").insert({lead_id:_advLeadId,client_name:name,phone:lead?(lead.phone||""):"",service:"Diabetes",hc_pt:hc,appt_date:date,appt_time:selSlot,status:"expected",source:"Advisor slot board",language:lead?(lead.lang||"Tamil"):"Tamil"}),"Booking");
         if(!_wOk) return;
+        // A lead has ONE pending appointment. Any extra 'expected' rows are leftovers from the bug
+        // above — cancel them so their slots are released instead of blocking the board forever.
+        // Cancelled (not deleted) so the history stays auditable.
+        if(existing.length>1){
+          const stale=existing.slice(1).map((r:any)=>r.id);
+          await _dbOk(supabase.from("appointments").update({status:"cancelled"}).in("id",stale),"Releasing the previous slot");
+        }
       } finally { _bookSlotBusy=false; }
       booked=selSlot;
       logActivity(_advLeadId,[{action:"Status Changed",field:"Appointment",new:date+" · "+booked}]);
