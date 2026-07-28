@@ -129,8 +129,8 @@ export function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"/></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl" for="salesSel">Salesperson</label><select  class="select" id="salesSel"><option value="">— Select —</option></select></div>
-          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team</label><select  class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option></select></div>
+          <div class="fld"><label class="lbl" for="salesSel">Salesperson <span class="ab">AUTO</span></label><select  class="select auto" id="salesSel" tabindex="-1"><option value="">— Select —</option></select></div>
+          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option></select></div>
           <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
           <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>

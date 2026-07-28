@@ -2628,12 +2628,25 @@ export function initApp(root: HTMLElement) {
     // same name by hand was duplicate data entry — and an empty dropdown on a lead that clearly HAS
     // an owner reads like the assignment didn't stick. Only fills when the field is still empty, so
     // a deliberately different saved value always wins, and it runs AFTER the profile restore.
+    // Both fields are AUTO: the advisor never picks them, so they render locked (see .select.auto)
+    // rather than as dropdowns that imply a choice. To CHANGE the salesperson, reassign the lead in
+    // Assign & approve — that screen owns assignment, and this mirrors it. They stay <select>
+    // elements so the profile's positional field capture and save format are unchanged.
     function _advDefaultSalesperson(l:any){
       const sel=root.querySelector("#salesSel")as HTMLSelectElement|null;
-      if(!sel||sel.value) return;
-      const nm=String((l&&l.assignedTo)||"").trim();
-      if(!nm) return;
-      if(Array.from(sel.options).some((o:any)=>o.value===nm||o.text===nm)) sel.value=nm;
+      if(sel){
+        const nm=String((l&&l.assignedTo)||"").trim();
+        // Only fill a blank one, so a deliberately different saved value always wins.
+        if(!sel.value&&nm&&Array.from(sel.options).some((o:any)=>o.value===nm||o.text===nm)) sel.value=nm;
+        sel.classList.add("auto"); sel.tabIndex=-1;
+      }
+      // Sales team has exactly one real option — preselect it so the field shows the team instead
+      // of an empty "— Select —" the advisor would have to open a dropdown to set.
+      const team=root.querySelector("#salesTeamSel")as HTMLSelectElement|null;
+      if(team){
+        if(!team.value){ const only=Array.from(team.options).find((o:any)=>o.value||o.text!=="— Select —"); if(only) team.value=only.value||only.text; }
+        team.classList.add("auto"); team.tabIndex=-1;
+      }
     }
     async function loadAndApplyProfile(l:any){
       if(!l) return;
