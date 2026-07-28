@@ -707,16 +707,37 @@ export function initApp(root: HTMLElement) {
       return IMP.filter(r=>leadPasses(r.date,r.source,r.service));
     }
 
+    // ONE definition of what each Lead-import KPI means, shared by the cards and by the drill-down
+    // table below the CSV wizard — so a card's number and the rows it opens ALWAYS tie out.
+    // Previously the cards used arithmetic (unique = valid − duplicate, unassigned = unique −
+    // assigned). "Unassigned" was wrong: it subtracted ALL assigned leads from the unique bucket,
+    // including the 8 assigned leads that are duplicates/invalid and were therefore never in that
+    // bucket — so the card read 8 lower than the rows that actually qualify. Row predicates can't
+    // reproduce that off-by-N, and a card whose table disagrees with it is a bug report waiting to
+    // happen, so both now come from here. Only "unassigned" changes value; every other card is
+    // identical (verified against live data: unique 3659 = 3659 either way).
+    const _impPreds:Record<string,(r:any,td:Date)=>boolean>={
+      total:()=>true,
+      today:(r,td)=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate(),
+      valid:(r)=>!!r.isValid,
+      unique:(r)=>!!r.isValid&&!r.isDuplicate,
+      duplicate:(r)=>!!r.isDuplicate,
+      assigned:(r)=>!!r.isAssigned,
+      unassigned:(r)=>!!r.isValid&&!r.isDuplicate&&!r.isAssigned,
+    };
+    const IMP_KPI_LABELS:Record<string,string>={total:"Total Leads",today:"Today Leads",valid:"Valid Leads",unique:"Unique Leads",duplicate:"Duplicate Leads",assigned:"Assigned Leads",unassigned:"Unassigned Leads"};
+    function _impBy(rows:any[],k:string){ const td=new Date(); td.setHours(0,0,0,0); const p=_impPreds[k]||_impPreds.total; return rows.filter(r=>p(r,td)); }
+
     function renderImpKPIs(){
       const f=impFiltered();
-      const td=new Date();td.setHours(0,0,0,0);
-      const todayL=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
-      // Unique = Valid − Duplicate. Unassigned = Unique − Assigned.
-      const validN=f.filter(r=>r.isValid).length;
-      const dupN=f.filter(r=>r.isDuplicate).length;
-      const uniqueN=Math.max(0,validN-dupN);
-      const assignedN=f.filter(r=>r.isAssigned).length;
-      const unassignedN=Math.max(0,uniqueN-assignedN);
+      // Counts come from the SAME predicates the drill-down table uses (see _impPreds), so every
+      // card's number equals the number of rows clicking it opens.
+      const todayL=_impBy(f,"today").length;
+      const validN=_impBy(f,"valid").length;
+      const dupN=_impBy(f,"duplicate").length;
+      const uniqueN=_impBy(f,"unique").length;
+      const assignedN=_impBy(f,"assigned").length;
+      const unassignedN=_impBy(f,"unassigned").length;
       const cards=[
         {l:"Total Leads",v:f.length,c:"g",k:"total"},
         {l:"Today Leads",v:todayL,c:"g",k:"today"},
@@ -827,31 +848,97 @@ export function initApp(root: HTMLElement) {
       if(selAll) selAll.onchange=()=>{root.querySelectorAll(".srcChk").forEach((c:any)=>{c.checked=selAll.checked;});};
     }
 
-    function renderImport(){renderImpKPIs();renderSrcTable();}
+    // Keep an open drill-down in step with the dashboard filters / a data refresh — otherwise it
+    // would keep showing rows the KPI cards above it no longer count.
+    function renderImport(){renderImpKPIs();renderSrcTable();if(_impDrillKey)renderImpDrill();}
 
-    w._impDrill=(k:string)=>{
-      const f=impFiltered();
-      const td=new Date();td.setHours(0,0,0,0);
-      let count=0;const label=k.charAt(0).toUpperCase()+k.slice(1);
-      if(k==="total") count=f.length;
-      else if(k==="today") count=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
-      else if(k==="valid") count=f.filter(r=>r.isValid).length;
-      else if(k==="unique") count=Math.max(0,f.filter(r=>r.isValid).length-f.filter(r=>r.isDuplicate).length);
-      else if(k==="duplicate") count=f.filter(r=>r.isDuplicate).length;
-      else if(k==="assigned") count=f.filter(r=>r.isAssigned).length;
-      else if(k==="unassigned") count=Math.max(0,(f.filter(r=>r.isValid).length-f.filter(r=>r.isDuplicate).length)-f.filter(r=>r.isAssigned).length);
-      toast(label+" leads: "+count+" — drill-down view");
-    };
-    w._impDrillSrc=(src:string,k:string)=>{
-      const f=impFiltered().filter(r=>r.source===src);
-      let count=0;
-      if(k==="total") count=f.length;
-      else if(k==="valid") count=f.filter(r=>r.isValid).length;
-      else if(k==="unique") count=Math.max(0,f.filter(r=>r.isValid).length-f.filter(r=>r.isDuplicate).length);
-      else if(k==="duplicate") count=f.filter(r=>r.isDuplicate).length;
-      else if(k==="assigned") count=f.filter(r=>r.isAssigned).length;
-      else if(k==="unassigned") count=Math.max(0,(f.filter(r=>r.isValid).length-f.filter(r=>r.isDuplicate).length)-f.filter(r=>r.isAssigned).length);
-      toast(src+" — "+k+": "+count+" leads");
+    // ===== Lead-import KPI drill-down =====================================================
+    // Clicking any KPI card (or any number in Source Connections) opens the actual rows behind it
+    // in a table under the CSV wizard. Rows come from feedAll() rather than the thin IMP shape so
+    // the table can show phone/campaign/city and export them; both are built from the same query
+    // rows, so the counts still tie out with the cards.
+    let _impDrillKey=""; let _impDrillSrcName=""; let _impDrillPg=1; let _impDrillQ=""; let _impDrillT:any=null;
+    const IMP_DRILL_PER=15;
+    // Every lead the dashboard filters currently admit, in the rich feed shape (+ a `date` the
+    // shared predicates can read and a display source name).
+    function _impDrillAll(){
+      return feedAll()
+        .filter((l:any)=>leadPasses(new Date(l.createdAt),feedSrcName(l),l.service))
+        .map((l:any)=>Object.assign({},l,{date:new Date(l.createdAt),srcName:feedSrcName(l)}));
+    }
+    function _impDrillRows(){
+      let rows=_impBy(_impDrillAll(),_impDrillKey);
+      if(_impDrillSrcName) rows=rows.filter((r:any)=>r.srcName===_impDrillSrcName);
+      const q=_impDrillQ.trim().toLowerCase();
+      if(q) rows=rows.filter((r:any)=>[r.name,r.phone,r.campaign,r.adName,r.city,r.street,r.srcName,r.service,r.lang,r.assignedTo].some((v:any)=>String(v||"").toLowerCase().includes(q)));
+      rows.sort((a:any,b:any)=>b.date.getTime()-a.date.getTime());
+      return gridApply("impDrill",rows);
+    }
+    const _impDrillCols=()=>[
+      {key:"dt",label:"Date & Time",filter:true,text:(r:any)=>fmtIST(r.createdAt)},
+      {key:"name",label:"Lead Name",filter:true,text:(r:any)=>r.name||""},
+      {key:"phone",label:"Phone Number",filter:true,text:(r:any)=>r.phone||""},
+      {key:"srcName",label:"Source",filter:true,text:(r:any)=>r.srcName||""},
+      {key:"campaign",label:"Campaign",filter:true,text:(r:any)=>r.campaign||""},
+      {key:"adName",label:"Ad Name",filter:true,text:(r:any)=>r.adName||""},
+      {key:"service",label:"Service",filter:true,text:(r:any)=>r.service||""},
+      {key:"lang",label:"Language",filter:true,text:(r:any)=>r.lang||""},
+      {key:"city",label:"City",filter:true,text:(r:any)=>r.city||""},
+      {key:"status",label:"Status",filter:true,text:(r:any)=>(r.isDuplicate?"Duplicate":(r.isValid?"Valid":"Invalid"))},
+      {key:"assignedTo",label:"Assigned To",filter:true,text:(r:any)=>r.assignedTo||"Not Assigned"},
+      {key:"act",label:"Action",filter:false,text:()=>""},
+    ];
+    // NOTE: this table's regGrid(...) registration lives further down, with every other table's —
+    // it cannot run here because regGrid touches the `_grids` map, which is declared later in this
+    // scope (calling it this early throws "Cannot access '_grids' before initialization").
+    function renderImpDrill(){
+      const wrap=root.querySelector("#impDrillWrap")as HTMLElement|null; if(!wrap||!_impDrillKey) return;
+      const rows=_impDrillRows();
+      const pages=Math.max(1,Math.ceil(rows.length/IMP_DRILL_PER));
+      if(_impDrillPg>pages)_impDrillPg=pages; if(_impDrillPg<1)_impDrillPg=1;
+      const page=rows.slice((_impDrillPg-1)*IMP_DRILL_PER,_impDrillPg*IMP_DRILL_PER);
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const ttl=root.querySelector("#impDrillTitle"); if(ttl) ttl.textContent=(IMP_KPI_LABELS[_impDrillKey]||"Leads")+(_impDrillSrcName?(" · "+_impDrillSrcName):"");
+      const cnt=root.querySelector("#impDrillCount"); if(cnt) cnt.textContent=String(rows.length);
+      const hd=root.querySelector("#impDrillHead"); if(hd) hd.innerHTML=gridHead("impDrill");
+      const body=root.querySelector("#impDrillBody");
+      if(body) body.innerHTML=page.length?page.map((r:any)=>'<tr>'
+        +'<td class="mono" style="white-space:nowrap">'+e(fmtIST(r.createdAt))+'</td>'
+        +'<td style="font-weight:600">'+e(r.name||"—")+'</td>'
+        +'<td class="mono">'+e(r.phone||"—")+'</td>'
+        +'<td><span class="tag">'+e(r.srcName||"—")+'</span></td>'
+        +'<td>'+e(r.campaign||"—")+'</td>'
+        +'<td>'+e(r.adName||"—")+'</td>'
+        +'<td>'+e(r.service||"—")+'</td>'
+        +'<td>'+e(r.lang||"—")+'</td>'
+        +'<td>'+e(r.city||"—")+'</td>'
+        +'<td>'+(r.isDuplicate?'<span class="chipb warn">Duplicate</span>':(r.isValid?'<span class="chipb ok">Valid</span>':'<span class="chipb al">Invalid</span>'))+'</td>'
+        +'<td>'+(r.assignedTo?e(r.assignedTo):'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
+        +'<td><button class="btn bsm" onclick="window._openLeadProfile(\''+e(String(r.id))+'\')">Open</button></td>'
+        +'</tr>').join(""):'<tr><td colspan="12" style="text-align:center;color:var(--faint);padding:18px">No leads match this view</td></tr>';
+      const info=root.querySelector("#impDrillPageInfo"); if(info) info.textContent="Page "+_impDrillPg+" of "+pages;
+      const dis=(sel:string,off:boolean)=>{ const b=root.querySelector(sel)as HTMLButtonElement|null; if(b){ b.disabled=off; b.style.opacity=off?"0.5":""; } };
+      dis("#impDrillFirstBtn",_impDrillPg<=1); dis("#impDrillPrevBtn",_impDrillPg<=1);
+      dis("#impDrillNextBtn",_impDrillPg>=pages); dis("#impDrillLastBtn",_impDrillPg>=pages);
+    }
+    function _openImpDrill(k:string,srcName:string){
+      _impDrillKey=k; _impDrillSrcName=srcName; _impDrillPg=1;
+      const wrap=root.querySelector("#impDrillWrap")as HTMLElement|null; if(wrap) wrap.style.display="";
+      renderImpDrill();
+      // Scroll the table into view so the rows are visible straight after the click.
+      setTimeout(()=>{ try{ _scrollMainTo(root.querySelector("#impDrillWrap")as HTMLElement|null); }catch(_){} },60);
+    }
+    w._impDrill=(k:string)=>_openImpDrill(k,"");
+    w._impDrillSrc=(src:string,k:string)=>_openImpDrill(k,src);
+    w._impDrillClose=()=>{ _impDrillKey=""; const wrap=root.querySelector("#impDrillWrap")as HTMLElement|null; if(wrap) wrap.style.display="none"; };
+    w._impDrillPage=(dir:any)=>{ _impDrillPg=_pgApply(_impDrillPg,dir); renderImpDrill(); };
+    w._impDrillSearch=()=>{ if(_impDrillT)clearTimeout(_impDrillT); _impDrillT=setTimeout(()=>{ _impDrillQ=((root.querySelector("#impDrillSearch")as HTMLInputElement|null)?.value)||""; _impDrillPg=1; renderImpDrill(); },180); };
+    w._impDrillDownload=()=>{
+      const rows=_impDrillRows();
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Date & Time (IST)","Lead Name","Phone","Source","Campaign","Ad Name","Service","Language","City","Street","Status","Assigned To"]];
+      rows.forEach((r:any)=>out.push([fmtIST(r.createdAt),r.name||"",r.phone||"",r.srcName||"",r.campaign||"",r.adName||"",r.service||"",r.lang||"",r.city||"",r.street||"",(r.isDuplicate?"Duplicate":(r.isValid?"Valid":"Invalid")),r.assignedTo||""]));
+      _downloadCsv((IMP_KPI_LABELS[_impDrillKey]||"leads").replace(/\s+/g,"-").toLowerCase()+(_impDrillSrcName?("-"+_impDrillSrcName.replace(/[^a-z0-9]+/gi,"-").toLowerCase()):"")+".csv",out);
     };
 
     // ===== Source Connections: Export selected + Apply bulk action =====
@@ -1101,7 +1188,10 @@ export function initApp(root: HTMLElement) {
         if(t>=m.lastReceivedAt){ m.lastReceivedAt=t; m.lastReceived=l.createdAt; }        // latest = most recent repeat
         // Last assigned advisor = the assignment with the most recent assignment time
         // (assigned_at; falls back to the lead's created time). Reflects reassignments.
-        if(l.assignedTo){ const at=l.assignedAt?(new Date(l.assignedAt).getTime()||t):t; if(at>=m.lastAssignedAt){ m.lastAssignedAt=at; m.lastAssigned=l.assignedTo; } }
+        // Also keep the timestamp itself (for the "Last Assigned Date & Time" column) and WHICH
+        // occurrence holds that assignment — Reassign retargets that record, so the row's
+        // "last assigned" stays the one being changed rather than a different occurrence.
+        if(l.assignedTo){ const at=l.assignedAt?(new Date(l.assignedAt).getTime()||t):t; if(at>=m.lastAssignedAt){ m.lastAssignedAt=at; m.lastAssigned=l.assignedTo; m.lastAssignedIso=l.assignedAt||l.createdAt; m.lastAssignedId=l.id; } }
       });
       // Representative lead per duplicate phone (honors search + dashboard filters). Prefer
       // an active/unassigned occurrence (so "Send to assignment" targets an unpooled one);
@@ -1122,6 +1212,10 @@ export function initApp(root: HTMLElement) {
         firstReceived: meta[p]?meta[p].firstReceived:rep[p].createdAt,
         lastReceived: meta[p]?meta[p].lastReceived:rep[p].createdAt,
         lastAssigned: meta[p]?meta[p].lastAssigned:"",
+        lastAssignedAt: (meta[p]&&meta[p].lastAssignedIso)||"",
+        // Reassign target: the occurrence that currently holds the assignment, else the
+        // representative lead (an unassigned duplicate can still be assigned from this row).
+        lastAssignedId: (meta[p]&&meta[p].lastAssignedId)||rep[p].id,
       })).sort((a:any,b:any)=>new Date(b.lastReceived).getTime()-new Date(a.lastReceived).getTime());
     }
     // The selectable lead ids for the current view (Duplicates view selects each group's rep).
@@ -1129,6 +1223,35 @@ export function initApp(root: HTMLElement) {
       if(_feedView==="dup") return feedDupGroups().map((g:any)=>String(g.rep.id));
       return feedFiltered().filter((l:any)=>!_movedToPool.has(String(l.id))).map((l:any)=>String(l.id));
     }
+    // Per-row Reassign control for the Duplicates table. Reads _assignees, which is declared
+    // further down — safe because this only ever runs from renderMetaPage(), and every call site
+    // of that is a user action or post-load callback, never init-time.
+    function _dupReassignSelect(g:any){
+      const names=_assignees.filter((a:any)=>a.is_active).map((a:any)=>String(a.name||"")).filter(Boolean);
+      if(!names.length) return '<span style="color:var(--faint);font-size:11.5px">No active advisors</span>';
+      const id=String(g.lastAssignedId||(g.rep&&g.rep.id)||"");
+      // The current advisor is listed but disabled — reassigning to the same person would just
+      // add a no-op row to the audit trail.
+      const opts=names.map((n:string)=>'<option value="'+_attr(n)+'"'+(n===g.lastAssigned?' disabled':'')+'>'+_attr(n)+'</option>').join("");
+      return '<select class="select" data-id="'+_attr(id)+'" onchange="window._dupReassign(this)" title="Reassign this lead to another advisor" style="height:28px;font-size:11.5px;min-width:136px"><option value="">Reassign…</option>'+opts+'</select>';
+    }
+    // Reassign a duplicate's lead to a different advisor. History is APPEND-ONLY: _assignLead
+    // calls logAssignment(), which INSERTs a new lead_assignments row per action, so every prior
+    // assignment stays intact for audit — only the lead's current assigned_to/assigned_at move.
+    w._dupReassign=async(sel:any)=>{
+      const name=String((sel&&sel.value)||"");
+      const id=String((sel&&sel.getAttribute&&sel.getAttribute("data-id"))||"");
+      if(sel) sel.value="";                       // snap back to the "Reassign…" placeholder
+      if(!name) return;
+      if(!id){ toastErr("This duplicate has no assignable lead record"); return; }
+      await w._assignLead(id,name);
+      // _assignLead patches _metaLeads only, and _afterAssign doesn't reload _otherFeedLeads —
+      // so patch both here or a non-Meta duplicate's row keeps showing the OLD advisor until a
+      // manual reload. The DB write above is already done; this just mirrors it in memory.
+      const nowIso=new Date().toISOString();
+      [_metaLeads,_otherFeedLeads].forEach((arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ l.assignedTo=name; l.assignedAt=nowIso; l.isAssigned=true; l.inPool=false; } }));
+      renderMetaPage();
+    };
 
     // ===== Live-feed view (All / Duplicates / Valid / Invalid) + cross-page selection =====
     let _feedView:"all"|"dup"|"valid"|"invalid"="all";
@@ -1268,7 +1391,9 @@ export function initApp(root: HTMLElement) {
       {key:"source",label:"Source",filter:true,text:(g:any)=>(g.sources||[]).join(" ")},
       {key:"service",label:"Service",filter:true,text:(g:any)=>g.rep.service||""},
       {key:"lang",label:"Language",filter:true,text:(g:any)=>g.rep.lang||""},
+      {key:"lastAssignedAt",label:"Last Assigned Date & Time",filter:true,text:(g:any)=>g.lastAssignedAt?fmtIST(g.lastAssignedAt):"Not Assigned"},
       {key:"lastAssigned",label:"Last Assigned Advisor",filter:true,text:(g:any)=>g.lastAssigned||"Not Assigned"},
+      {key:"reassign",label:"Reassign",filter:false,text:(_g:any)=>""},
       {key:"dedup",label:"Dedup",filter:true,text:(_g:any)=>"Duplicate"},
     ];
     const _attr=(s:string)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -1402,6 +1527,9 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Call status",filter:true,text:(l:any)=>haEffStatus(l)},
     ];
     regGrid("haResults", ()=>_haResCols, ()=>renderHaResults());
+    // Lead-import KPI drill-down (defined far above, near the KPI cards it belongs to; registered
+    // here because regGrid needs the `_grids` map declared above this line).
+    regGrid("impDrill", _impDrillCols, ()=>renderImpDrill());
     // Shared pager-button state for all tables: First/Prev disabled on page 1,
     // Next/Last disabled on the last page. Button ids follow <prefix>{First,Prev,Next,Last}Btn.
     function _pgBtns(prefix:string,page:number,pages:number){
@@ -1456,10 +1584,12 @@ export function initApp(root: HTMLElement) {
               +'<td>'+(g.sources.map((s:string)=>'<span class="tag" style="margin:0 3px 3px 0;display:inline-block">'+esc(s)+'</span>').join("")||"—")+'</td>'
               +'<td>'+esc(ld.service)+'</td>'
               +'<td>'+esc(ld.lang)+'</td>'
+              +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+(g.lastAssignedAt?esc(fmtIST(g.lastAssignedAt)):'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
               +'<td>'+(g.lastAssigned?'<span class="chipb vio">'+esc(g.lastAssigned)+'</span>':'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
+              +'<td>'+_dupReassignSelect(g)+'</td>'
               +'<td><span class="chipb al">Duplicate</span></td>'
               +'</tr>';
-          }).join(""):'<tr><td colspan="16" style="text-align:center;color:var(--faint);padding:22px">No duplicate leads in this range</td></tr>';
+          }).join(""):'<tr><td colspan="18" style="text-align:center;color:var(--faint);padding:22px">No duplicate leads in this range</td></tr>';
         }
         if(pageInfo) pageInfo.textContent="Page "+_metaPageNum+" of "+totalPages+" · "+total+" duplicate lead"+(total===1?"":"s")+_routedNote;
       } else {
@@ -1960,6 +2090,9 @@ export function initApp(root: HTMLElement) {
     // falling back to pool-add / creation time when that column isn't populated.
     let _asnQuery=""; let _asnSearchT:any=null;
     function _asnDateVal(l:any){ const d=_advLeadsDet[String(l.id)]; return (d&&d.assigned_at)||l.assignedAt||l.poolAddedAt||l.createdAt||null; }
+    // When the lead was ORIGINALLY created/imported — paired with _asnDateVal (when it was
+    // assigned) so the gap between the two is visible in the table.
+    function _asnGenDateVal(l:any){ return l.createdAt||l.lead_date||null; }
     function _asnMatchesQuery(l:any){
       const q=_asnQuery.trim().toLowerCase(); if(!q) return true;
       return [l.name,l.phone,l.source,l.assignedTo,l.campaign,_asnCallStatus(l)].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
@@ -1989,7 +2122,10 @@ export function initApp(root: HTMLElement) {
       if(/follow up|call back|callback|rnr|line busy|not reachable|no sugar|pending|busy/.test(t)) return "warn";
       return "neu"; }
     const _asgnLeadCols=[
-      {key:"dt",label:"Date & Time",filter:true,text:(l:any)=>fmtIST(_asnDateVal(l))},
+      {key:"gen",label:"Lead Generated Date & Time",filter:true,text:(l:any)=>fmtIST(_asnGenDateVal(l))},
+      // Renamed from the ambiguous "Date & Time": this column has always shown assigned_at (see
+      // _asnDateVal), which only became confusing once the generated date sat next to it.
+      {key:"dt",label:"Assigned Date & Time",filter:true,text:(l:any)=>fmtIST(_asnDateVal(l))},
       {key:"lead",label:"Lead",filter:true,text:(l:any)=>l.name||""},
       {key:"src",label:"Source · Lang",filter:true,text:(l:any)=>l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"))},
       {key:"camp",label:"Campaign",filter:true,text:(l:any)=>l.campaign||"—"},
@@ -2059,6 +2195,7 @@ export function initApp(root: HTMLElement) {
           ? '<td><span class="chipb al" title="Exclusion tag present — '+e(elig)+'">Not Eligible</span></td>'
           : '<td><span class="chipb ok">Assigned</span></td>';
         return tr
+        +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(_asnGenDateVal(l))||"—")+'</td>'
         +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(_asnDateVal(l)))+'</td>'
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" title="Open lead profile →" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
         +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
@@ -2068,7 +2205,7 @@ export function initApp(root: HTMLElement) {
         +'<td><span class="chipb '+_callStatusCls(_asnCallStatus(l))+'">'+e(_asnCallStatus(l))+'</span></td>'
         +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>';
       }).join("")
-        :'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
+        :'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
       void prev; void next;
       _pgBtns("asn",_asnPage,pages);
@@ -2275,8 +2412,8 @@ export function initApp(root: HTMLElement) {
     w._assignedDownload=()=>{
       const list=gridApply("assignedLeads",assignedLeads());
       if(!list.length){toast("Nothing to download");return;}
-      const out:string[][]=[["Date & Time","Lead","Phone","Source","Language","Campaign","Assigned to","Status"]];
-      list.forEach((l:any)=>out.push([fmtIST(_asnDateVal(l)),l.name||"",l.phone||"",l.source||"",l.lang||"",l.campaign||"",l.assignedTo||"",_eligMap[String(l.id)]?"Not Eligible":"Assigned"]));
+      const out:string[][]=[["Lead Generated Date & Time","Assigned Date & Time","Lead","Phone","Source","Language","Campaign","Assigned to","Status"]];
+      list.forEach((l:any)=>out.push([fmtIST(_asnGenDateVal(l)),fmtIST(_asnDateVal(l)),l.name||"",l.phone||"",l.source||"",l.lang||"",l.campaign||"",l.assignedTo||"",_eligMap[String(l.id)]?"Not Eligible":"Assigned"]));
       _downloadCsv("wellnessos_assigned_leads.csv",out);
       toast("Downloaded "+list.length+" assigned leads");
     };
@@ -2850,6 +2987,37 @@ export function initApp(root: HTMLElement) {
 
     // ===== Health Advisor KPI dashboard (call-status driven) =====
     let _haActiveBucket="";
+    // ---- Call KPIs (Connected Calls + Total Call Duration) ----
+    // call_recordings rows are keyed by contact_id (= the lead's meta_lead_id), so the totals can be
+    // scoped to exactly the leads the dashboard is currently showing — i.e. they honour the advisor
+    // role scope and the date/source/service filters instead of reporting the whole clinic.
+    // Loaded once on first dashboard paint, then the dashboard repaints (same pattern as
+    // _loadEligibilities). The guard is set BEFORE the await so the repaint can't re-trigger a load.
+    let _advCallStats:Record<string,{connected:number;dur:number}>={}; let _advCallLoaded=false;
+    async function _loadAdvCallStats(){
+      try{
+        const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds").limit(5000);
+        const m:Record<string,{connected:number;dur:number}>={};
+        (data||[]).forEach((r:any)=>{
+          const k=String(r.contact_id||""); if(!k) return;
+          const o=(m[k]=m[k]||{connected:0,dur:0});
+          const secs=Number(r.duration_seconds)||0;
+          // "Connected" = the provider's normalised `answered` state, OR any call with real talk
+          // time (covers a row whose final status never arrived but which clearly connected).
+          // Every other disposition (no-answer / missed / initiated) carries 0 seconds.
+          if(String(r.call_status||"").toLowerCase()==="answered"||secs>0){ o.connected++; o.dur+=secs; }
+        });
+        _advCallStats=m;
+      }catch(_){ _advCallStats={}; }
+    }
+    // Compact talk-time for a KPI tile: "1h 32m" / "32m 08s" / "45s".
+    function _fmtCallDur(total:number){
+      const s=Math.max(0,Math.floor(Number(total)||0));
+      const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+      if(h) return h+"h "+String(m).padStart(2,"0")+"m";
+      if(m) return m+"m "+String(sec).padStart(2,"0")+"s";
+      return sec+"s";
+    }
     const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Not Interested","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Payment Pending","Payment Completed","Interested","Not Reachable","Callback Requested"];
     const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Open:"new"};
     const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested"};
@@ -2858,15 +3026,21 @@ export function initApp(root: HTMLElement) {
       if(/enrol/.test(s)) return "enrolled";
       if(/payment completed|converted/.test(s)) return "closed";
       if(/payment pending|already paid/.test(s)) return "payment";
-      if(/appointment/.test(s)) return "sales";
+      // Appointments split by TYPE into their own cards (the old single "Walk-in Sales Stage"
+      // lumped them together). Zoom is checked first; every other appointment status counts as
+      // Direct — including "Appointment Confirmed", which is selectable but currently unused
+      // (0 rows). Without that fallback it would silently drop into Open Leads.
+      if(/appointment/.test(s)) return /zoom/.test(s)?"apptZoom":"apptDirect";
       if(/visited/.test(s)) return "health";
       if(/follow up|call back|callback/.test(s)) return "followup";
       if(/not interested|no sugar|wrong number|dnd/.test(s)) return "closed";
       return "open"; // New/Open/RNR/Line Busy/Switched Off/Interested/etc.
     }
     const HA_CARDS=[
-      {key:"open",label:"Open Leads",c:"g"},{key:"sales",label:"Walk-in Sales Stage",c:""},
-      {key:"health",label:"Walk-in Health Stage",c:""},{key:"payment",label:"Payment Stage",c:"a"},
+      {key:"open",label:"Open Leads",c:"g"},
+      {key:"apptDirect",label:"Appointment Fixed – Direct",c:""},
+      {key:"apptZoom",label:"Appointment Fixed – Zoom",c:""},
+      {key:"health",label:"Visited",c:""},{key:"payment",label:"Payment Stage",c:"a"},
       {key:"enrolled",label:"Enrolled",c:"g"},{key:"followup",label:"Follow-up",c:""},
       {key:"closed",label:"Closed / Converted",c:"a"}
     ];
@@ -2946,13 +3120,22 @@ export function initApp(root: HTMLElement) {
       const filter=fsel?.value||"all";
       let book=haCommonFilter(haBook());
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
-      const counts:any={open:0,sales:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
+      const counts:any={open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
         const cards=HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer" onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div><div class="mv">'+counts[c.key]+'</div></div>');
         cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div><div class="mv">'+book.length+'</div></div>');
+        // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
+        // the advisor's own leads and the active filters rather than clinic-wide totals. Not
+        // clickable: a duration has no lead list to drill into, and pairing one clickable card with
+        // one dead one would be worse than neither.
+        const _callAgg=book.reduce((a:any,l:any)=>{ const st=_advCallStats[String(l.id)]; if(st){ a.n+=st.connected; a.d+=st.dur; } return a; },{n:0,d:0});
+        cards.push('<div class="metric" title="Calls that actually connected (answered, or with real talk time)"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
+        cards.push('<div class="metric" title="Cumulative talk time across connected calls"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
         kpiEl.innerHTML=cards.join("");
+        // First paint: pull the call rows once, then repaint so the two cards fill in.
+        if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
       }
       if(_haActiveBucket) renderHaResults();
     }

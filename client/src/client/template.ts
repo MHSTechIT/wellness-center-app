@@ -28,7 +28,7 @@ export function getMainContent(): string {
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <input class="input" id="assignedSearch" placeholder="Search lead / phone / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._assignedSearch()">
       </div>
-      <div id="assignedTableWrap" class="tscroll stick1"><table class="tbl" style="min-width:880px"><thead><tr id="assignedLeadsHead"><th>Date &amp; Time</th><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
+      <div id="assignedTableWrap" class="tscroll stick1"><table class="tbl" style="min-width:1060px"><thead><tr id="assignedLeadsHead"><th>Lead Generated Date &amp; Time</th><th>Assigned Date &amp; Time</th><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Call Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
       <div id="assignedKanban" style="display:none;overflow-x:auto"></div>
       <div id="asnPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
         <button class="btn bsm" id="asnFirstBtn" onclick="window._asnPage('first')">« First</button>
@@ -702,6 +702,30 @@ export function getMainContent(): string {
             </div>
           </div>
         </div></div></div>
+
+    <!-- KPI drill-down: the rows behind whichever Lead-import KPI card was clicked. Hidden until
+         a card is clicked (window._impDrill), then filled + scrolled into view. -->
+    <div class="sec" id="impDrillWrap" style="display:none;margin-bottom:14px">
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> <span id="impDrillTitle">Leads</span> <span class="chipb ok" id="impDrillCount" style="margin-left:8px">0</span>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <button class="btn bsm" onclick="window._impDrillDownload()">⬇ Download</button>
+          <button class="btn bsm" onclick="window._impDrillClose()">Close</button>
+        </span>
+      </div>
+      <div class="sec-bd">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input class="input" id="impDrillSearch" placeholder="Search lead / phone / campaign / city…" oninput="window._impDrillSearch()" style="height:31px;font-size:12px;max-width:320px">
+        </div>
+        <div class="tscroll stick1"><table class="tbl" style="min-width:1180px"><thead><tr id="impDrillHead"></tr></thead><tbody id="impDrillBody"></tbody></table></div>
+        <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <button class="btn bsm" id="impDrillFirstBtn" onclick="window._impDrillPage('first')">« First</button>
+          <button class="btn bsm" id="impDrillPrevBtn" onclick="window._impDrillPage(-1)">← Previous</button>
+          <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="impDrillPageInfo">Page 1 of 1</span>
+          <button class="btn bsm" id="impDrillNextBtn" onclick="window._impDrillPage(1)">Next →</button>
+          <button class="btn bsm" id="impDrillLastBtn" onclick="window._impDrillPage('last')">Last »</button>
+        </div>
+      </div>
+    </div>
   </div></section>
 
   <!-- ABM -->
