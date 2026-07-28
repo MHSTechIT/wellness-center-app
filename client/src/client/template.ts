@@ -53,9 +53,11 @@ export function getMainContent(): string {
         </div>
         <div class="tscroll stick1"><table class="tbl" style="min-width:940px"><thead><tr id="asnHistHead"></tr></thead><tbody id="asnHistBody"></tbody></table></div>
       </div></div>
-    <div style="display:flex;gap:14px;align-items:flex-start;margin-top:4px">
-    <div id="advOpenList" style="width:212px;flex-shrink:0;display:none"></div>
-    <div id="advDetailPane" style="flex:1;min-width:0">
+    <!-- Open leads sit ABOVE the detail pane as a horizontal strip (they used to be a narrow
+         212px column down the left, which squeezed the profile and stacked the cards vertically). -->
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
+    <div id="advOpenList" style="display:none"></div>
+    <div id="advDetailPane" style="min-width:0">
     <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"/></svg> <span id="advCtxText"></span></div>
     <div class="chead">
       <span class="cav" id="advAv"></span>
@@ -128,7 +130,7 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"/></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="salesSel">Salesperson</label><select  class="select" id="salesSel"><option value="">— Select —</option></select></div>
-          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team</label><select  class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option><option>BDM Team</option><option>Online Team</option></select></div>
+          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team</label><select  class="select" id="salesTeamSel"><option value="">— Select —</option><option>Walkin Callers Team</option></select></div>
           <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
           <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>

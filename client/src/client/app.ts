@@ -2623,6 +2623,18 @@ export function initApp(root: HTMLElement) {
       const vd=root.querySelector("#visDt")as HTMLInputElement|null;
       if(vd) vd.value=isV?fmtIST(visitedAt):"";
     }
+    // Salesperson defaults to the advisor the lead is ASSIGNED to. That assignment already happened
+    // in Assign & approve (the header shows "Assigned: <name>"), so making the advisor re-pick the
+    // same name by hand was duplicate data entry — and an empty dropdown on a lead that clearly HAS
+    // an owner reads like the assignment didn't stick. Only fills when the field is still empty, so
+    // a deliberately different saved value always wins, and it runs AFTER the profile restore.
+    function _advDefaultSalesperson(l:any){
+      const sel=root.querySelector("#salesSel")as HTMLSelectElement|null;
+      if(!sel||sel.value) return;
+      const nm=String((l&&l.assignedTo)||"").trim();
+      if(!nm) return;
+      if(Array.from(sel.options).some((o:any)=>o.value===nm||o.text===nm)) sel.value=nm;
+    }
     async function loadAndApplyProfile(l:any){
       if(!l) return;
       // 1) INSTANT apply. The device-local copy is the authoritative latest (every
@@ -2631,6 +2643,8 @@ export function initApp(root: HTMLElement) {
       if(prof==null) prof = (l.advisorProfile!=null ? l.advisorProfile : null);
       l.advisorProfile = prof || null;
       if(prof && String(_advLeadId)===String(l.id)) applyAdvisorProfile(prof);
+      // Runs AFTER the restore so a saved Salesperson always wins; only fills a blank one.
+      if(String(_advLeadId)===String(l.id)) _advDefaultSalesperson(l);
       // Enrolled status/date come from the SAME in-memory lead (callStatus + enrolledAt) the
       // Advisor dashboard counts. Apply it AFTER the profile restore (which would otherwise
       // reset the pills to the saved Open state) and BEFORE the gated DB read below, so the
@@ -2649,7 +2663,7 @@ export function initApp(root: HTMLElement) {
         }
         if(error) return;
         const row:any=data&&data[0]; if(!row) return;
-        if(row.advisor_profile){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)) applyAdvisorProfile(row.advisor_profile); }
+        if(row.advisor_profile){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)){ applyAdvisorProfile(row.advisor_profile); _advDefaultSalesperson(l); } }
         if(row.enrolled_at) l.enrolledAt=row.enrolled_at;   // cache for the enrolled table
         l.callStatus=row.call_status||l.callStatus;         // keep in-memory fresh (dashboard cards + re-opens)
         let enrLvl=_advEnrolLevel(row.coach_profile);     // consStatus level — may be a SUBSET of what's paid
@@ -2911,15 +2925,21 @@ export function initApp(root: HTMLElement) {
       if(_openLeads.length===0){ el.style.display="none"; return; }
       el.style.display="block";
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      // Horizontal strip: the cards run left-to-right above the profile instead of stacking down a
+      // narrow left column, so the detail pane gets the full width. The row scrolls sideways once
+      // there are more open leads than fit, rather than wrapping into a tall block that pushes the
+      // profile down the page.
       el.innerHTML='<div style="font-weight:700;font-size:11px;color:var(--faint);margin-bottom:8px;letter-spacing:.05em">OPEN LEADS ('+_openLeads.length+')</div>'
+        +'<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">'
         +_openLeads.map((o:any)=>{
           const l=o.lead;const active=String(o.id)===String(_advLeadId);
           const nm=l.name||l.phone||"Lead";
-          return '<div onclick="window._selectOpenLead(\''+e(String(o.id))+'\')" style="display:flex;align-items:center;gap:6px;padding:8px 9px;border-radius:9px;cursor:pointer;margin-bottom:6px;border:1px solid '+(active?'var(--brand)':'var(--line)')+';background:'+(active?'var(--brand-50,#e7f4ec)':'var(--surf,#fff)')+'">'
+          return '<div onclick="window._selectOpenLead(\''+e(String(o.id))+'\')" style="display:flex;align-items:center;gap:6px;padding:8px 9px;border-radius:9px;cursor:pointer;flex:0 0 auto;min-width:186px;max-width:230px;border:1px solid '+(active?'var(--brand)':'var(--line)')+';background:'+(active?'var(--brand-50,#e7f4ec)':'var(--surf,#fff)')+'">'
             +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(nm)+'</div><div class="mono" style="font-size:10px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e(l.phone||"")+'</div></div>'
             +'<span onclick="event.stopPropagation();window._closeOpenLead(\''+e(String(o.id))+'\')" title="Close" style="cursor:pointer;color:var(--faint);font-size:16px;line-height:1;padding:0 3px">×</span>'
           +'</div>';
-        }).join("");
+        }).join("")
+        +'</div>';
     }
 
     // Scroll the #main container so an element sits at the top. #main has CSS scroll-behavior:smooth,
