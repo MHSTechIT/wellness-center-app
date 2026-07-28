@@ -19,7 +19,10 @@ export function getMainContent(): string {
       <div class="sec-bd">
         <div class="metrics" id="haKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div>
         <div id="haResultsWrap" style="display:none;margin-top:14px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-weight:700;font-size:13px" id="haResultsTitle"></span><button class="btn bsm" style="margin-left:auto" onclick="window._haCloseResults()">Close</button></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><span style="font-weight:700;font-size:13px" id="haResultsTitle"></span>
+            <!-- Lives OUTSIDE the table so a re-render (which rewrites thead/tbody only) can't steal focus mid-typing. -->
+            <input class="input" id="haResultsSearch" placeholder="Search lead / phone / advisor / status…" oninput="window._haResultsSearch()" style="margin-left:auto;max-width:280px;height:32px;font-size:12.5px">
+            <button class="btn bsm" onclick="window._haCloseResults()">Close</button></div>
           <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>

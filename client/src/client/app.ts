@@ -3039,6 +3039,7 @@ export function initApp(root: HTMLElement) {
 
     // ===== Health Advisor KPI dashboard (call-status driven) =====
     let _haActiveBucket="";
+    let _haQuery=""; let _haSearchT:any=null;   // results-table search (see #haResultsSearch)
     // ---- Call KPIs (Connected Calls + Total Call Duration) ----
     // call_recordings rows are keyed by contact_id (= the lead's meta_lead_id), so the totals can be
     // scoped to exactly the leads the dashboard is currently showing — i.e. they honour the advisor
@@ -3089,6 +3090,10 @@ export function initApp(root: HTMLElement) {
       return "open"; // New/Open/RNR/Line Busy/Switched Off/Interested/etc.
     }
     const HA_CARDS=[
+      // "total" is not a status bucket — it's the advisor's whole book (the denominator every other
+      // card is a subset of), so renderHealthDashboard fills its count separately and
+      // renderHaResults drills into the book ignoring the status dropdown.
+      {key:"total",label:"Total Leads",c:"g"},
       {key:"open",label:"Open Leads",c:"g"},
       {key:"apptDirect",label:"Appointment Fixed – Direct",c:""},
       {key:"apptZoom",label:"Appointment Fixed – Zoom",c:""},
@@ -3170,9 +3175,14 @@ export function initApp(root: HTMLElement) {
         fsel.innerHTML='<option value="all">All call/lead statuses</option>'+HA_STATUSES.map(s=>'<option>'+s+'</option>').join("");
       }
       const filter=fsel?.value||"all";
-      let book=haCommonFilter(haBook());
+      // fullBook = every lead assigned to this advisor (still honouring the page's date/source/
+      // service filters). The status dropdown narrows `book` for the other cards, but NOT the
+      // Total Leads card — that one is the advisor's whole book, so it stays put while the rest
+      // change with the dropdown.
+      const fullBook=haCommonFilter(haBook());
+      let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
-      const counts:any={open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
+      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
@@ -3245,14 +3255,25 @@ export function initApp(root: HTMLElement) {
       if(!wrap||!body) return;
       const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
       const filter=fsel?.value||"all";
-      let book=haCommonFilter(haBook());
+      const fullBook=haCommonFilter(haBook());
+      let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
       // The two call cards aren't status buckets — they select leads by CALL ACTIVITY (at least one
       // connected call), so they can't go through haBucketOf like the others.
       const _isCallCard=_haActiveBucket==="calls"||_haActiveBucket==="callduration";
-      const list=_isCallCard
+      let list=_isCallCard
         ? book.filter((l:any)=>{ const st=_advCallStats[String(l.id)]; return !!st&&st.connected>0; })
-        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket));
+        // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
+        // (every other card is a subset of it).
+        : (_haActiveBucket==="total"?fullBook
+        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket)));
+      // Search box above the table — applies to EVERY card's table, matching the fields the tables
+      // actually show so what you type lines up with what you see.
+      if(_haQuery){
+        const q=_haQuery;
+        list=list.filter((l:any)=>[l.name,l.phone,l.assignedTo,l.source,l.lang,haEffStatus(l)]
+          .some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0));
+      }
       const card=HA_CARDS.find(c=>c.key===_haActiveBucket);
       wrap.style.display="";
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
@@ -3275,7 +3296,7 @@ export function initApp(root: HTMLElement) {
             +'<td>'+e(l.assignedTo||"—")+'</td>'
             +'<td class="mono" style="font-weight:700">'+s.connected+'</td>'
             +'<td class="mono">'+e(_fmtCallDur(s.dur))+'</td></tr>';
-        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No connected calls for these leads yet</td></tr>';
+        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No connected calls for these leads yet')+'</td></tr>';
         return;
       }
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
@@ -3291,7 +3312,7 @@ export function initApp(root: HTMLElement) {
             +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
             +'<td>'+e(l.assignedTo||"—")+'</td>'
             +'<td>'+(nf?(due?'<span class="chipb al">Overdue</span>':'<span class="chipb warn">Pending</span>'):'<span class="chipb neu">Pending</span>')+'</td></tr>';
-        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No pending follow-ups</td></tr>';
+        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No pending follow-ups')+'</td></tr>';
         return;
       }
       // The Enrolled rows below render the DETAILED payment stage from _advProgPay. That map is loaded
@@ -3310,14 +3331,24 @@ export function initApp(root: HTMLElement) {
         +'<td>'+(l.enrolledAt
             ?'<span class="chipb ok" style="white-space:normal;line-height:1.5">'+e(_enrollStatusLine(String(l.id),l.enrolledLevel||"",_advProgPay))+'</span>'
             :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td></tr>').join("")
-        :'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:16px">No leads in this status</td></tr>';
+        :'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads in this status')+'</td></tr>';
     }
     w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();if(key==="enrolled"){_advLoadEnrollProgress().then(()=>{if(_haActiveBucket==="enrolled")renderHaResults();});}
       // Call stats load lazily on first dashboard paint. If a card is clicked before that finished,
       // the table would render empty — pull them, then re-render.
       if((key==="calls"||key==="callduration")&&!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ if(_haActiveBucket==="calls"||_haActiveBucket==="callduration") renderHaResults(); }); }
       const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
-    w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";};
+    w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";
+      // Reset the search with the table, so reopening a card doesn't show a silently filtered list.
+      _haQuery=""; const sb=root.querySelector("#haResultsSearch")as HTMLInputElement|null; if(sb) sb.value="";};
+    // Debounced so a fast typist doesn't re-render the table on every keystroke.
+    w._haResultsSearch=()=>{
+      if(_haSearchT) clearTimeout(_haSearchT);
+      _haSearchT=setTimeout(()=>{
+        _haQuery=((root.querySelector("#haResultsSearch")as HTMLInputElement|null)?.value||"").trim().toLowerCase();
+        if(_haActiveBucket) renderHaResults();
+      },180);
+    };
     {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};}
     // Persist a call-status change for the currently-open lead (drives KPIs).
     w._haSetCallStatus=async(label:string)=>{
