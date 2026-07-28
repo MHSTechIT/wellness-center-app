@@ -2430,6 +2430,9 @@ export function initApp(root: HTMLElement) {
     const ADV_ACTOR="ABM / Admin";  // no auth yet → record the active role
     // Call-status codes that REQUIRE a "Next follow-up date & time".
     const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so","nr","cbr"];
+    // Statuses that assert an appointment exists — saving one requires a booked slot (see
+    // _advSaveRecord). afd = Appointment Fixed – Direct, afz = Appointment Fixed – Zoom.
+    const APPT_REQUIRED_CODES=["afd","afz"];
     const _OPEN_KEY="wos_open_leads";
     // Persist the open-leads workspace so it survives page refreshes / new sessions.
     function saveOpenLeads(){
@@ -2715,6 +2718,22 @@ export function initApp(root: HTMLElement) {
       // Block saving a follow-up scheduled in the past (covers the mirrored Planned date & time).
       { const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
         if(nf && nf.value){ const t=new Date(nf.value).getTime(); if(!isNaN(t) && t<Date.now()-60000){ toastErr("Next follow-up can't be in the past — choose a current or future time"); try{_setFutureMin(nf);nf.focus();}catch(_){} return; } } }
+      // "Appointment Fixed" (Direct / Zoom) claims a slot was agreed, but choosing the status books
+      // nothing on its own — the slot board is a separate action. Saving without one left a lead
+      // that reads "Appointment Fixed" with no appointment row, so it never reached Reception's
+      // queue and nobody was expecting the client. Require a real, non-cancelled appointment.
+      // Checked against the DB, not the in-memory `booked` flag: that is only set by a booking made
+      // in THIS session, so a lead whose slot was booked earlier (or on another device) would be
+      // wrongly blocked.
+      if(_csSel && APPT_REQUIRED_CODES.indexOf(_csSel.value)>=0){
+        const _apRes:any=await supabase.from("appointments").select("id").eq("lead_id",String(_advLeadId)).neq("status","cancelled").limit(1);
+        if(_apRes&&_apRes.error){ toastErr("Could not verify the appointment slot — check your connection and try again"); return; }
+        if(!(_apRes?.data&&_apRes.data.length)){
+          toastErr("Pick a slot in “Appointment — slot board” before saving “"+(HA_CODE2LABEL[_csSel.value]||_csSel.value)+"”");
+          try{ const sec=root.querySelector("#apptSec")as HTMLElement|null; if(sec){ sec.classList.remove("hideblock"); sec.style.display=""; _scrollMainTo(sec); } }catch(_){}
+          return;
+        }
+      }
       // Mandatory Basic-info fields — block save until ALL are filled. Highlight every missing
       // field at once (red border) and name them in a single notification, so the user sees
       // exactly what's still pending rather than one-at-a-time.
