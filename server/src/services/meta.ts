@@ -197,6 +197,10 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
     const collected: any[] = [];
     let formErrors = 0;
     const pageErrors: { pageId: string; reason: string }[] = [];
+    // Names of the forms this crawl actually READ successfully. The prune uses this to tell
+    // "this form is no longer targeted" (delete its leads) apart from "this form is still live,
+    // the lead just aged out of Meta's retention window" (keep it) — see the prune below.
+    const crawledFormNames: string[] = [];
     for (const fid of allowList) {
       // Find a token that can read this form, and its name.
       let workTok: string | null = null;
@@ -218,13 +222,14 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
         }
       );
       if (error) { formErrors++; pageErrors.push({ pageId: fid, reason: error }); continue; }
+      crawledFormNames.push(formName);   // read OK — this form is still live and targeted
       const within = items.filter((l: any) => new Date(l.created_time).getTime() >= windowCutoff);
       within.forEach((l: any) => collected.push(normalizeLead(l, formName, '')));
     }
     const seenD = new Set<string>();
     const leadsD = collected.filter((l) => { if (seenD.has(l.id)) return false; seenD.add(l.id); return true; });
     leadsD.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return { leads: leadsD, formsScanned: allowList.length, formErrors, pageErrors };
+    return { leads: leadsD, formsScanned: allowList.length, formErrors, pageErrors, crawledFormNames };
   }
 
   // ===== Page-enumeration mode (no allowlist): scan every form on every page =====
@@ -286,7 +291,9 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
     return true;
   });
   leads.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  return { leads, formsScanned: allForms.length, formErrors, pageErrors };
+  // Every form we enumerated is a form that still exists and is still targeted (the allowlist
+  // filter above already excluded any that aren't) — see crawledFormNames in the allowlist branch.
+  return { leads, formsScanned: allForms.length, formErrors, pageErrors, crawledFormNames: allForms.map((f) => f.formName) };
 }
 
 export async function fetchMetaLeads(adAccountIds: string[], _pageIds: string[], _token: string) {
@@ -429,15 +436,23 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     }
 
     const keepIds = new Set(rows.map((r) => r.meta_lead_id));
+    // Forms this crawl read successfully. A lead belonging to one of these forms is NOT stale just
+    // because the crawl didn't return it — Meta's Graph API only serves leads inside a retention /
+    // time window, so older leads legitimately stop coming back forever while the form is still
+    // live. Deleting those was permanent data loss and is what made Total Leads fall day after day
+    // (observed live: successive healthy crawls returned 3937 -> 3936 -> 3935 as the window rolled).
+    // The prune's actual purpose is narrower: drop leads whose form is no longer TARGETED at all.
+    const liveForms = new Set((formCrawl.crawledFormNames || []).filter(Boolean));
     let existingFrom = 0;
     let totalScanned = 0;
+    let keptAgedOut = 0;
     const staleIds: string[] = [];
     if (crawlHealthy) {
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data, error } = await supabase
           .from('leads')
-          .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at')
+          .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at,form_name')
           .eq('source', 'Meta Ads')
           .range(existingFrom, existingFrom + 999);
         if (error) break;
@@ -446,10 +461,16 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
         data.forEach((r: any) => {
           if (!r.meta_lead_id || keepIds.has(r.meta_lead_id)) return;
           const worked = r.is_assigned || (r.assigned_to && r.assigned_to !== '') || r.in_pool || (r.call_status && r.call_status !== '') || r.pool_added_at;
-          if (!worked) staleIds.push(r.meta_lead_id);
+          if (worked) return;
+          // Form still being crawled → the lead simply aged out of Meta's window. Keep it.
+          if (liveForms.size > 0 && r.form_name && liveForms.has(r.form_name)) { keptAgedOut++; return; }
+          staleIds.push(r.meta_lead_id);
         });
         if (data.length < 1000) break;
         existingFrom += 1000;
+      }
+      if (keptAgedOut > 0) {
+        console.log(`[wellness-api] Meta sync: kept ${keptAgedOut} never-worked lead(s) whose form is still live — aged out of Meta's window, not deleted.`);
       }
     }
     // Circuit breaker: even on a "clean" crawl, refuse to delete more than 20% of the never-worked
