@@ -2648,7 +2648,17 @@ export function initApp(root: HTMLElement) {
       if(sel){
         const nm=String((l&&l.assignedTo)||"").trim();
         // Only fill a blank one, so a deliberately different saved value always wins.
-        if(!sel.value&&nm&&Array.from(sel.options).some((o:any)=>o.value===nm||o.text===nm)) sel.value=nm;
+        if(!sel.value&&nm){
+          // The options list excludes Health Coaches (populateAdvisorDropdowns) — but a lead CAN be
+          // assigned to one (reported: Dinesh Ramu assigned to Gomathi, role Health Coach, so the
+          // AUTO field stayed empty). The field mirrors the assignment, whatever the assignee's
+          // role, so append the missing name rather than silently showing blank. Also covers an
+          // assignee that was later deactivated/removed from the master.
+          if(!Array.from(sel.options).some((o:any)=>o.value===nm||o.text===nm)){
+            const o=document.createElement("option"); o.value=nm; o.text=nm; sel.appendChild(o);
+          }
+          sel.value=nm;
+        }
         sel.classList.add("auto"); sel.tabIndex=-1;
       }
       // Sales team has exactly one real option — preselect it so the field shows the team instead
