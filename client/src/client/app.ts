@@ -124,6 +124,17 @@ export function initApp(root: HTMLElement) {
       (root.querySelector("#loginPass") as HTMLInputElement|null)&&((root.querySelector("#loginPass") as HTMLInputElement).value="");
     }
 
+    // ---- Startup splash: the dashboard used to paint 0 → partial counts → real numbers as each
+    // initial fetch landed. A full-screen loading screen (logo + spinner, #appLoading in page.tsx)
+    // now masks the app from sign-in until every initial load settles, so only final values are
+    // ever visible. _initDataReady resolves when the FIRST Meta-feed load reaches a terminal state
+    // (success / empty DB / schema error — see fetchMetaLiveFeed); transient-error retries are
+    // covered by the safety timeout below instead, so a flaky network can never trap the user on
+    // the splash forever.
+    let _initReadyResolve:((v?:any)=>void)|null=null;
+    const _initDataReady=new Promise((res)=>{ _initReadyResolve=res; });
+    function _markInitialDataReady(){ if(_initReadyResolve){ const r=_initReadyResolve; _initReadyResolve=null; r(); } }
+    let _appShownOnce=false;
     function showApp(){
       const overlay=root.querySelector("#loginOverlay") as HTMLElement;
       const appShell=root.querySelector("#appShell") as HTMLElement;
@@ -131,6 +142,22 @@ export function initApp(root: HTMLElement) {
       if(appShell) appShell.style.display="";
       const sfUser=root.querySelector("#sfootUser") as HTMLElement;
       if(sfUser&&_currentUser) sfUser.textContent=(_currentUser.name||_currentUser.email.split("@")[0])+" · "+_currentUser.role;
+      if(!_appShownOnce){
+        _appShownOnce=true;
+        const splash=root.querySelector("#appLoading")as HTMLElement|null;
+        if(splash){ splash.style.display="flex"; splash.classList.remove("done"); }
+        // Everything the advisor dashboard's first paint draws from: the Meta feed chain
+        // (_metaLeads + _assignedExtras + other sources), the call KPIs, and the assignees master
+        // (dropdowns / advisor filter). _advCallLoaded is set BEFORE renderAll so the dashboard's
+        // own lazy loader doesn't fire a duplicate fetch.
+        _advCallLoaded=true;
+        const ready=Promise.allSettled([_initDataReady,_loadAdvCallStats(),loadAssignees()]);
+        const timeout=new Promise((res)=>setTimeout(res,10000));   // safety: reveal after 10s max
+        Promise.race([ready,timeout]).then(()=>{
+          try{ renderAll(); renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
+          if(splash){ splash.classList.add("done"); setTimeout(()=>{ splash.style.display="none"; },400); }
+        });
+      }
       applyNavGating();
       renderFilters();
       renderAll();
@@ -3655,6 +3682,7 @@ export function initApp(root: HTMLElement) {
             if(!haveData){_metaLeads=[];IMP.length=0;renderImport();}
             if(statusEl) statusEl.textContent="⚠ Run the SQL migrations, then Sync";
             if(tbody&&!haveData) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--warn-ink);padding:24px">Database not ready: '+data.error+'</td></tr>';
+            _markInitialDataReady();   // terminal state — lift the startup splash
             return;
           }
           throw new Error(data.error||"fetch failed");   // transient → handled in catch (retry)
@@ -3665,6 +3693,7 @@ export function initApp(root: HTMLElement) {
           if(tbody) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">No synced leads yet. Pulling from Meta…</td></tr>';
           if(countEl) countEl.textContent="0 leads in database";
           maybeAutoSync(data.lastSync);   // empty DB → trigger an initial sync
+          _markInitialDataReady();   // terminal state (legitimately no leads) — lift the splash
           return;
         }
         _metaFetchRetries=0;   // success — reset retry counter
@@ -3697,6 +3726,7 @@ export function initApp(root: HTMLElement) {
         updateMetaAlert();
         // If the DB is stale, pull fresh leads from Meta in the background (captures today's leads).
         maybeAutoSync(data.lastSync);
+        _markInitialDataReady();   // full load complete — lift the startup splash
       }catch(e:any){
         // Transient failure (e.g. Supabase "fetch failed" on a cold start / network
         // blip). NEVER wipe already-loaded data — just retry with backoff so the
@@ -3713,6 +3743,7 @@ export function initApp(root: HTMLElement) {
         if(statusEl) statusEl.textContent="⚠ Could not reach the database — click ↻ Reload";
         if(tbody&&!haveData) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">Could not reach the database. Click ↻ Reload to retry.</td></tr>';
         setMetaConn("disconnected","database unreachable");   // leads aren't flowing → flag it
+        _markInitialDataReady();   // gave up — reveal the app (with its offline notice) rather than spin
         return;
       }finally{
         _metaFetchInFlight=false;

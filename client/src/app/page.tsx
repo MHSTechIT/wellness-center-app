@@ -98,6 +98,18 @@ export default function Home() {
         <main className="main" id="main" dangerouslySetInnerHTML={{__html: getMainContent()}}/>
       </div>
 
+      {/* Full-screen splash shown between sign-in and the first COMPLETE data load — the dashboard
+          used to paint 0, then partial counts, then the real numbers as each fetch landed. Shown /
+          hidden by showApp() in app.ts; the app shell stays hidden behind it until every initial
+          load settles (or the safety timeout fires), so no intermediate value is ever visible. */}
+      <div className="app-loading" id="appLoading" style={{display:"none"}} role="status" aria-live="polite">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/mhs-logo.png" alt="My Health School" style={{width:"112px",height:"auto"}}/>
+        <div className="ring" aria-hidden="true"></div>
+        <div style={{fontSize:"14px",fontWeight:700,color:"var(--ink)"}}>Loading Dashboard…</div>
+        <div style={{fontSize:"12px",color:"var(--muted)"}}>Please wait while we prepare your data</div>
+      </div>
+
       <div className="toast" id="toast" role="status" aria-live="polite"><svg className="icon" aria-hidden="true"><use href="#i-check"/></svg><span id="toastMsg">Saved</span></div>
       <div className="toast err" id="toastE" style={{background:"#7A2416"}} role="alert" aria-live="assertive"><svg className="icon" aria-hidden="true"><use href="#i-x"/></svg><span id="toastEMsg">Error</span></div>
       <div className="ach" id="ach"><span className="em" id="achEm">🎉</span><div><b id="achT">Achievement</b><span id="achS">Nice work</span></div></div>

@@ -479,6 +479,18 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes auroraFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(22px,20px) scale(1.12)}}
 
+/* ---------- App loading splash (post-login, pre-data) ---------- */
+/* z-index 98: above the app shell it masks, below the login overlay (100) so a 401→login flow
+   during startup still surfaces the sign-in form rather than an eternal spinner. */
+.app-loading{position:fixed;inset:0;z-index:98;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px;background:
+  radial-gradient(520px 380px at 78% -6%,rgba(150,60,230,.10),transparent 60%),
+  radial-gradient(560px 420px at 12% 110%,rgba(23,168,123,.10),transparent 60%),
+  var(--bg,#F5F7F4);opacity:1;transition:opacity .35s var(--ease)}
+.app-loading.done{opacity:0;pointer-events:none}
+.app-loading img{filter:drop-shadow(0 10px 22px rgba(139,47,224,.28));animation:appLoadPulse 1.6s var(--ease) infinite}
+.app-loading .ring{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes appLoadPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+
 /* ---------- Responsive ---------- */
 @media(max-width:980px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.slotgrid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:640px){.g2,.g3,.g4{grid-template-columns:1fr}.app{grid-template-columns:1fr}.side{display:none}.drawer{width:100vw;right:-100vw}}
