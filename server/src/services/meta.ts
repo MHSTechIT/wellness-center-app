@@ -396,8 +396,38 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     // pruned every never-worked Meta lead in the table. /api/meta/sync is also reachable on demand
     // (now behind requireAuth, but still callable by any signed-in session), so this crawl-health
     // gate is what actually stops a bad run from being destructive, not just unlikely.
-    const crawlHealthy = formCrawl.formErrors === 0 && formCrawl.pageErrors.length === 0
+    let crawlHealthy = formCrawl.formErrors === 0 && formCrawl.pageErrors.length === 0
       && pageIds.length > 0 && formCrawl.formsScanned > 0;
+
+    // COMPLETENESS GATE — the fix for "Total Leads keeps dropping".
+    // An error-free crawl is NOT the same as a complete one. Meta's Graph API legitimately returns
+    // fewer leads on some runs (pagination cursors, rate limiting, per-form time windows), and the
+    // sync state table shows this happening in production: three consecutive SUCCESSFUL crawls of
+    // the same 4 forms returned 3936, then 3644, then 3936 leads. On the short run, the ~292 leads
+    // that were merely missing got treated as "genuinely gone" and — being never-worked — were
+    // permanently DELETED, so the Total Leads card fell and then climbed back on the next full
+    // crawl. That oscillation is what users report as "Total Leads decreased".
+    //
+    // A crawl that returns FEWER leads than the best recent crawl is therefore treated as partial,
+    // and pruning is skipped for that run. A genuine form removal still prunes eventually: once the
+    // form is really gone, every crawl (and so the recent maximum too) settles at the new lower
+    // number, and the next crawl matching that maximum is allowed to prune.
+    let bestRecent = 0;
+    try {
+      const { data: recent } = await supabase
+        .from('meta_sync_state')
+        .select('leads_synced')
+        .eq('status', 'success')
+        .order('started_at', { ascending: false })
+        .limit(10);
+      bestRecent = Math.max(0, ...(recent || []).map((r: any) => Number(r.leads_synced) || 0));
+    } catch { /* no history yet — fall through; the cap + health gate below still apply */ }
+    const crawlComplete = rows.length >= bestRecent;
+    if (crawlHealthy && !crawlComplete) {
+      console.warn(`[wellness-api] Meta sync: prune SKIPPED — this crawl returned ${rows.length} leads but a recent crawl returned ${bestRecent}. Treating it as partial rather than deleting the difference.`);
+      crawlHealthy = false;   // gate the prune only; the upsert above already saved every lead found
+    }
+
     const keepIds = new Set(rows.map((r) => r.meta_lead_id));
     let existingFrom = 0;
     let totalScanned = 0;
@@ -458,7 +488,8 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
       formErrors: formCrawl.formErrors,
       pageErrors: formCrawl.pageErrors,
       leadsPruned: crawlHealthy && !pruneCapped ? staleIds.length : 0,
-      prunedSkippedReason: !crawlHealthy ? 'crawl had errors or scanned nothing' : (pruneCapped ? 'stale count exceeded the safety cap — review manually' : null)
+      prunedSkippedReason: !crawlComplete ? `partial crawl — returned ${rows.length} leads vs ${bestRecent} in a recent run, so nothing was deleted`
+        : (!crawlHealthy ? 'crawl had errors or scanned nothing' : (pruneCapped ? 'stale count exceeded the safety cap — review manually' : null))
     };
 
     if (syncId != null) {
