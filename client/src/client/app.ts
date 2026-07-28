@@ -2622,6 +2622,35 @@ export function initApp(root: HTMLElement) {
     const _advpKey=(id:any)=>"wos_advp_"+id;
     function readProfileLocal(id:any){ try{ const s=localStorage.getItem(_advpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
     function saveProfileLocal(id:any,obj:any){ try{ localStorage.setItem(_advpKey(id),JSON.stringify(obj)); }catch(_){/* storage full/unavailable */} }
+    // ---- Auto-save DRAFT: capture the form as the user types, so navigating away / refreshing /
+    // reopening the lead never loses unsaved entry (reported: a fully-filled form gone after a page
+    // switch). Uses the SAME capture + local store as the explicit save, so the existing restore
+    // path replays it with zero new format. _draftAt marks it as an UNSAVED draft — the DB
+    // reconcile in loadAndApplyProfile skips overwriting the form while one is pending, and an
+    // explicit save clears it (collectAdvisorProfile returns a fresh object without the stamp).
+    // 'change' captures synchronously (it fires on blur, i.e. BEFORE a click that switches lead or
+    // screen lands); 'input' debounces. The debounced timer re-checks the lead it was scheduled
+    // for, so a capture can never land on a different lead opened in the meantime.
+    let _advDraftT:any=null;
+    function _advDraftCapture(){
+      if(!_advLeadId||_advApplying) return;
+      const obj=collectAdvisorProfile(); if(!obj) return;
+      (obj as any)._draftAt=Date.now();
+      saveProfileLocal(String(_advLeadId),obj);
+      const l=_advFindLead(String(_advLeadId)); if(l) l.advisorProfile=obj;
+    }
+    {
+      const pane=root.querySelector("#advDetailPane");
+      if(pane){
+        pane.addEventListener("change",()=>{ if(_advDraftT){clearTimeout(_advDraftT);_advDraftT=null;} _advDraftCapture(); });
+        pane.addEventListener("input",()=>{
+          if(_advApplying||!_advLeadId) return;
+          const forId=String(_advLeadId);
+          if(_advDraftT) clearTimeout(_advDraftT);
+          _advDraftT=setTimeout(()=>{ _advDraftT=null; if(String(_advLeadId)===forId) _advDraftCapture(); },500);
+        });
+      }
+    }
     // Fetch (once) + apply the saved profile for a lead, if it's still the active one.
     // Prefers the DB; falls back to device-local storage (e.g. before the migration is run).
     // Visited status is READ-ONLY on the advisor page and driven ONLY by leads.visited_at,
@@ -2697,7 +2726,11 @@ export function initApp(root: HTMLElement) {
         }
         if(error) return;
         const row:any=data&&data[0]; if(!row) return;
-        if(row.advisor_profile){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)){ applyAdvisorProfile(row.advisor_profile); _advDefaultSalesperson(l); } }
+        // An UNSAVED local draft (auto-saved as the user typed — see _advDraftCapture) is newer than
+        // anything in the DB: skip re-applying the DB copy or the reopened form would snap back to
+        // the last explicit save, losing the draft this feature exists to preserve. The draft stamp
+        // clears on explicit save, after which the DB copy is authoritative again.
+        if(row.advisor_profile && !(prof&&prof._draftAt)){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)){ applyAdvisorProfile(row.advisor_profile); _advDefaultSalesperson(l); } }
         if(row.enrolled_at) l.enrolledAt=row.enrolled_at;   // cache for the enrolled table
         l.callStatus=row.call_status||l.callStatus;         // keep in-memory fresh (dashboard cards + re-opens)
         let enrLvl=_advEnrolLevel(row.coach_profile);     // consStatus level — may be a SUBSET of what's paid
