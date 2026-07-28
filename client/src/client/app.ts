@@ -3127,12 +3127,13 @@ export function initApp(root: HTMLElement) {
         const cards=HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer" onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div><div class="mv">'+counts[c.key]+'</div></div>');
         cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div><div class="mv">'+book.length+'</div></div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
-        // the advisor's own leads and the active filters rather than clinic-wide totals. Not
-        // clickable: a duration has no lead list to drill into, and pairing one clickable card with
-        // one dead one would be worse than neither.
+        // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
+        // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
+        // by call count, "Total Call Duration" by talk time — see the calls/callduration branch in
+        // renderHaResults.
         const _callAgg=book.reduce((a:any,l:any)=>{ const st=_advCallStats[String(l.id)]; if(st){ a.n+=st.connected; a.d+=st.dur; } return a; },{n:0,d:0});
-        cards.push('<div class="metric" title="Calls that actually connected (answered, or with real talk time)"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
-        cards.push('<div class="metric" title="Cumulative talk time across connected calls"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
+        cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time) — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
+        cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
         kpiEl.innerHTML=cards.join("");
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
@@ -3194,11 +3195,38 @@ export function initApp(root: HTMLElement) {
       const filter=fsel?.value||"all";
       let book=haCommonFilter(haBook());
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
-      const list=_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket);
+      // The two call cards aren't status buckets — they select leads by CALL ACTIVITY (at least one
+      // connected call), so they can't go through haBucketOf like the others.
+      const _isCallCard=_haActiveBucket==="calls"||_haActiveBucket==="callduration";
+      const list=_isCallCard
+        ? book.filter((l:any)=>{ const st=_advCallStats[String(l.id)]; return !!st&&st.connected>0; })
+        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket));
       const card=HA_CARDS.find(c=>c.key===_haActiveBucket);
       wrap.style.display="";
-      if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      if(_isCallCard){
+        // Both cards show the same leads; the ranking differs so each card leads with the number it
+        // reported. Totals in the title tie back to the card face.
+        const stOf=(l:any)=>_advCallStats[String(l.id)]||{connected:0,dur:0};
+        const rows=list.slice().sort((a:any,b:any)=>_haActiveBucket==="callduration"
+          ? (stOf(b).dur-stOf(a).dur) : (stOf(b).connected-stOf(a).connected));
+        const tot=rows.reduce((a:any,l:any)=>{ const s=stOf(l); a.n+=s.connected; a.d+=s.dur; return a; },{n:0,d:0});
+        if(title) title.textContent=(_haActiveBucket==="callduration"?"Total Call Duration":"Connected Calls")
+          +" — "+_fmtCallDur(tot.d)+" across "+tot.n+" call"+(tot.n===1?"":"s")+" · "+rows.length+" lead"+(rows.length===1?"":"s");
+        const hd=root.querySelector("#haResultsHead");
+        if(hd) hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned Advisor</th><th>Connected Calls</th><th>Talk Time</th>';
+        body.innerHTML=rows.length?rows.map((l:any)=>{ const s=stOf(l);
+          return '<tr>'
+            +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
+            +'<td class="mono">'+e(l.phone||"—")+'</td>'
+            +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
+            +'<td>'+e(l.assignedTo||"—")+'</td>'
+            +'<td class="mono" style="font-weight:700">'+s.connected+'</td>'
+            +'<td class="mono">'+e(_fmtCallDur(s.dur))+'</td></tr>';
+        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No connected calls for these leads yet</td></tr>';
+        return;
+      }
+      if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
       // Follow-ups card → dedicated table: name, number, planned date & time, source, advisor, status.
       if(_haActiveBucket==="followup"){
         const hd=root.querySelector("#haResultsHead"); if(hd)hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Planned Follow-up Date &amp; Time</th><th>Source · Lang</th><th>Assigned Advisor</th><th>Follow-up Status</th>';
@@ -3232,7 +3260,11 @@ export function initApp(root: HTMLElement) {
             :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td></tr>').join("")
         :'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:16px">No leads in this status</td></tr>';
     }
-    w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();if(key==="enrolled"){_advLoadEnrollProgress().then(()=>{if(_haActiveBucket==="enrolled")renderHaResults();});}const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
+    w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();if(key==="enrolled"){_advLoadEnrollProgress().then(()=>{if(_haActiveBucket==="enrolled")renderHaResults();});}
+      // Call stats load lazily on first dashboard paint. If a card is clicked before that finished,
+      // the table would render empty — pull them, then re-render.
+      if((key==="calls"||key==="callduration")&&!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ if(_haActiveBucket==="calls"||_haActiveBucket==="callduration") renderHaResults(); }); }
+      const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
     w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";};
     {const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;if(fsel)fsel.onchange=()=>{_asnPage=1;renderAssignedLeads();renderHealthDashboard();};}
     // Persist a call-status change for the currently-open lead (drives KPIs).
