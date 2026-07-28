@@ -1858,7 +1858,12 @@ export function initApp(root: HTMLElement) {
     const _advLeadAsgd=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return fmtIST((d&&d.assigned_at)||l.poolAddedAt||l.createdAt); };
     const _advLeadNextFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return d&&d.next_followup?_dIST(d.next_followup):"—"; };
     const _advLeadLastFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.last_fu)||"—"; };
+    // When the lead was originally captured. Meta leads carry the form-submission time; manual /
+    // CSV leads fall back through the same chain the profile's "Lead generated" field uses, so the
+    // two never disagree. Distinct from "Assigned Date & Time", which is when an advisor got it.
+    const _advLeadGenAt=(l:any)=>fmtIST(l.createdAt||l.leadDate||l.created_at||l.lead_date);
     const _advLeadsCols=[
+      {key:"gen",label:"Lead Generated Date & Time",filter:true,text:(l:any)=>_advLeadGenAt(l)},
       {key:"num",label:"Lead Number",filter:true,text:(l:any)=>String(l.id||"—")},
       {key:"name",label:"Lead Name",filter:true,text:(l:any)=>l.name||"—"},
       {key:"phone",label:"Phone Number",filter:true,text:(l:any)=>l.phone||"—"},
@@ -1938,6 +1943,9 @@ export function initApp(root: HTMLElement) {
       if(_advLeadsPageN>pages)_advLeadsPageN=pages; if(_advLeadsPageN<1)_advLeadsPageN=1;
       const rows=rowsAll.slice((_advLeadsPageN-1)*ADVL_PER,(_advLeadsPageN-1)*ADVL_PER+ADVL_PER);
       body.innerHTML=rows.length?rows.map((l:any)=>'<tr>'
+        // Cell order here must track _advLeadsCols — the header comes from gridHead("advLeads")
+        // but these <td>s are written by hand, so a column added there needs its cell added here.
+        +'<td class="mono" style="font-size:11.5px">'+esc(_advLeadGenAt(l))+'</td>'
         +'<td class="mono">'+esc(String(l.id||"—"))+'</td>'
         +'<td style="font-weight:600">'+esc(l.name||"—")+'</td>'
         +'<td class="mono">'+esc(l.phone||"—")+'</td>'
@@ -1949,7 +1957,7 @@ export function initApp(root: HTMLElement) {
         +'<td class="mono" style="font-size:11.5px">'+esc(_advLeadLastFu(l))+'</td>'
         +'<td class="mono" style="font-size:11.5px">'+esc(_advLeadNextFu(l))+'</td>'
         +'<td style="font-weight:600">'+esc(l.assignedTo||"—")+'</td></tr>').join("")
-        :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">'+(base.length?"No leads match the current search / filters.":"No leads assigned for this selection.")+'</td></tr>';
+        :'<tr><td colspan="'+_advLeadsCols.length+'" style="text-align:center;color:var(--faint);padding:18px">'+(base.length?"No leads match the current search / filters.":"No leads assigned for this selection.")+'</td></tr>';
       _setAdvLeadsPager(_advLeadsPageN,pages);
     }
     // Refresh details for the current selection, then repaint. Shared by every selection change.
@@ -1963,8 +1971,8 @@ export function initApp(root: HTMLElement) {
     w._advLeadsDownload=()=>{
       const rowsAll=_advLeadsFiltered();
       if(!rowsAll.length){ toast("Nothing to download"); return; }
-      const out:string[][]=[["Lead Number","Lead Name","Phone Number","Source","Service","Stage","Status","Assigned Date & Time","Last Follow-up Date & Time","Next Follow-up Date","Assigned Advisor"]];
-      rowsAll.forEach((l:any)=>out.push([String(l.id||""),l.name||"",l.phone||"",l.source||"",_advLeadSvc(l),_haBucketLabel(haEffStatus(l)),haEffStatus(l),_advLeadAsgd(l),_advLeadLastFu(l),_advLeadNextFu(l),l.assignedTo||""]));
+      const out:string[][]=[["Lead Generated Date & Time","Lead Number","Lead Name","Phone Number","Source","Service","Stage","Status","Assigned Date & Time","Last Follow-up Date & Time","Next Follow-up Date","Assigned Advisor"]];
+      rowsAll.forEach((l:any)=>out.push([_advLeadGenAt(l),String(l.id||""),l.name||"",l.phone||"",l.source||"",_advLeadSvc(l),_haBucketLabel(haEffStatus(l)),haEffStatus(l),_advLeadAsgd(l),_advLeadLastFu(l),_advLeadNextFu(l),l.assignedTo||""]));
       const tag=_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0].replace(/[^a-z0-9]+/gi,"_").toLowerCase():(_advLeadsAdv.size===0?"all_advisors":_advLeadsAdv.size+"_advisors");
       _downloadCsv("advisor_"+tag+"_leads.csv",out); toast("Exported "+rowsAll.length+" lead"+(rowsAll.length===1?"":"s"));
     };
