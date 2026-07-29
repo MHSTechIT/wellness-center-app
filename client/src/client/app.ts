@@ -8063,7 +8063,246 @@ export function initApp(root: HTMLElement) {
       if(_btDate==="cust"){ const f=(root.querySelector("#btFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#btTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
       return [null,null];
     }
+    // ===== Blood Test — Stage 1 (Reception intake → payment → order → sample) =================
+    // Spec: WellnessOS Blood Test Service, FROZEN v2.0. Writes bt_orders; the legacy
+    // appointments.blood_test_data path is left untouched so the existing screen still works.
+    let _btTests:any[]=[], _btPartners:any[]=[], _btMastersLoaded=false;
+    let _btSel=new Set<string>();                 // selected test ids
+    let _btCoupon:any=null;                       // validated coupon row
+    let _btMatch:any=null;                        // matched lead from the phone lookup
+    const _btMoney=(n:any)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
+    // NFR-1: phones masked in list views; the full number shows on the opened record only.
+    const _btMask=(p:any)=>{ const s=String(p||"").replace(/\D/g,""); return s.length<4?(p||"—"):("******"+s.slice(-4)); };
+    async function _btLoadMasters(){
+      if(_btMastersLoaded) return;
+      try{
+        const [t,p]:any[]=await Promise.all([
+          supabase.from("bt_tests").select("*").eq("active",true).order("name"),
+          supabase.from("bt_lab_partners").select("*").eq("active",true).order("name"),
+        ]);
+        // The /db gateway RESOLVES {error} instead of throwing, so a failed read looks like an
+        // empty result to a bare try/catch. Caching that would leave the intake permanently
+        // testless with no error shown — check .error explicitly and stay un-cached so the next
+        // open retries (this is exactly how the first run silently rendered zero test chips).
+        if((t&&t.error)||(p&&p.error)){
+          toastErr("Couldn't load the blood-test masters — "+(((t&&t.error)||(p&&p.error)).message||"try again"));
+          return;
+        }
+        _btTests=t.data||[]; _btPartners=p.data||[]; _btMastersLoaded=true;
+      }catch(_){ /* transient — leave un-cached so the next open retries */ }
+    }
+    function _btRenderTests(){
+      const box=root.querySelector("#btiTests"); if(!box) return;
+      box.innerHTML=_btTests.length?_btTests.map((t:any)=>{
+        const on=_btSel.has(String(t.id));
+        return '<span class="chip-o'+(on?" on":"")+'" onclick="window._btToggleTest(\''+_btE(String(t.id))+'\')" style="cursor:pointer">'+_btE(t.name)+' · '+_btMoney(t.price)+'</span>';
+      }).join(""):'<span style="font-size:12px;color:var(--faint)">No tests configured — run db/migration-bloodtest-module.sql</span>';
+      const sel=root.querySelector("#btiPartner")as HTMLSelectElement|null;
+      if(sel&&!sel.options.length) sel.innerHTML=_btPartners.map((p:any)=>'<option'+(p.is_default?" selected":"")+'>'+_btE(p.name)+'</option>').join("");
+      _btRecalc();
+    }
+    // FR-1.5: price is always derived from the master, never typed.
+    function _btRecalc(){
+      const gross=_btTests.filter((t:any)=>_btSel.has(String(t.id))).reduce((s:number,t:any)=>s+(Number(t.price)||0),0);
+      let disc=0;
+      if(_btCoupon) disc=_btCoupon.discount_type==="percent"?Math.round(gross*(Number(_btCoupon.discount_value)||0)/100):(Number(_btCoupon.discount_value)||0);
+      disc=Math.min(disc,gross);
+      const net=Math.max(0,gross-disc);
+      const c=root.querySelector("#btiCalc")as HTMLInputElement|null;
+      if(c) c.value=_btMoney(net)+(disc?("  (−"+_btMoney(disc)+")"):"");
+      const amt=root.querySelector("#btiAmount")as HTMLInputElement|null;
+      if(amt&&!amt.dataset.touched) amt.value=String(net);   // prefill; reception can override (FR-1.8)
+      return {gross,disc,net};
+    }
+    w._btToggleTest=(id:string)=>{ if(_btSel.has(id))_btSel.delete(id); else _btSel.add(id); _btRenderTests(); };
+    w._btIntakeOpen=async()=>{
+      await _btLoadMasters();
+      _btSel=new Set(); _btCoupon=null; _btMatch=null;
+      ["btiPhone","btiName","btiWa","btiEmail","btiCoupon","btiAmount"].forEach(id=>{const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e){e.value=""; delete e.dataset.touched;}});
+      const m=root.querySelector("#btiMatch"); if(m) m.innerHTML="";
+      const cm=root.querySelector("#btiCouponMsg"); if(cm) cm.innerHTML="";
+      const f=root.querySelector("#btiForm")as HTMLElement|null; if(f) f.style.display="none";
+      const s=root.querySelector("#btIntakeSec")as HTMLElement|null; if(s){ s.style.display=""; _scrollMainTo(s); }
+      _btRenderTests();
+      const amt=root.querySelector("#btiAmount")as HTMLInputElement|null; if(amt) amt.addEventListener("input",()=>{amt.dataset.touched="1";},{once:true});
+    };
+    w._btIntakeClose=()=>{ const s=root.querySelector("#btIntakeSec")as HTMLElement|null; if(s) s.style.display="none"; };
+    // FR-1.1 / FR-1.2 / FR-1.3 — existing-record check by phone.
+    w._btLookup=async()=>{
+      const ph=((root.querySelector("#btiPhone")as HTMLInputElement|null)?.value||"").replace(/\D/g,"");
+      const box=root.querySelector("#btiMatch");
+      if(ph.length<10){ if(box) box.innerHTML='<span style="color:var(--alert-ink)">Enter a 10-digit number</span>'; return; }
+      const last10=ph.slice(-10);
+      let hit:any=null;
+      try{ const r:any=await supabase.from("leads").select("meta_lead_id,name,phone,email,call_status,enrolled_at").ilike("phone","%"+last10).limit(1);
+        if(r&&r.error) throw new Error(r.error.message); hit=r?.data&&r.data[0];
+      }catch(e:any){ if(box) box.innerHTML='<span style="color:var(--alert-ink)">Lookup failed — '+_btE(e.message||"try again")+'</span>'; return; }
+      const f=root.querySelector("#btiForm")as HTMLElement|null; if(f) f.style.display="";
+      const setv=(id:string,v:string)=>{const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=v||"";};
+      if(hit){
+        _btMatch=hit;
+        // FR-1.2: known person → prefill and go straight on; no re-entry of personal details.
+        setv("btiName",hit.name||""); setv("btiEmail",hit.email||""); setv("btiWa",last10);
+        if(box) box.innerHTML='<span class="chipb ok">Existing record found</span> <b>'+_btE(hit.name||"Client")+'</b>'+(hit.enrolled_at?' <span class="chipb info">Member</span>':'');
+        const ct=root.querySelector("#btiClientType")as HTMLSelectElement|null; if(ct&&hit.enrolled_at) ct.value="membership";
+      }else{
+        _btMatch=null; setv("btiWa",last10);
+        if(box) box.innerHTML='<span class="chipb warn">New client</span> <span style="color:var(--muted)">enter name to create a record</span>';
+      }
+    };
+    // FR-1.6 — optional coupon; invalid/expired/exhausted each get their own reason.
+    w._btApplyCoupon=async()=>{
+      const el=root.querySelector("#btiCoupon")as HTMLInputElement|null;
+      const msg=root.querySelector("#btiCouponMsg");
+      const code=((el?.value)||"").trim().toUpperCase();
+      _btCoupon=null;
+      if(!code){ if(msg) msg.innerHTML=""; _btRecalc(); return; }
+      try{
+        const r:any=await supabase.from("bt_coupons").select("*").eq("code",code).limit(1);
+        if(r&&r.error) throw new Error(r.error.message);
+        const c=r?.data&&r.data[0];
+        const today=_todayLocal();
+        let bad="";
+        if(!c) bad="Invalid code";
+        else if(!c.active) bad="This code is no longer active";
+        else if(c.valid_from&&today<String(c.valid_from).slice(0,10)) bad="This code isn't valid yet";
+        else if(c.valid_to&&today>String(c.valid_to).slice(0,10)) bad="This code has expired";
+        else if(c.max_uses!=null&&Number(c.used_count||0)>=Number(c.max_uses)) bad="This code has reached its usage limit";
+        if(bad){ if(msg) msg.innerHTML='<span style="color:var(--alert-ink)">'+_btE(bad)+'</span>'; _btRecalc(); return; }
+        _btCoupon=c;
+        const {disc}=_btRecalc();
+        if(msg) msg.innerHTML='<span style="color:var(--ok-ink)">Applied — '+_btMoney(disc)+' off</span>';
+      }catch(e:any){ if(msg) msg.innerHTML='<span style="color:var(--alert-ink)">Could not check the code</span>'; _btRecalc(); }
+    };
+    // FR-1.7 → FR-1.11 — contact gate, then order generation.
+    w._btCreateOrder=async()=>{
+      const val=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|HTMLSelectElement|null)?.value||"").trim();
+      const phone=val("btiPhone").replace(/\D/g,""), name=val("btiName"), wa=val("btiWa").replace(/\D/g,""), email=val("btiEmail");
+      if(phone.length<10){ toastErr("Enter a valid phone number"); return; }
+      if(!name){ toastErr("Name is required"); return; }
+      if(!_btSel.size){ toastErr("Select at least one test"); return; }
+      // FR-1.7: WhatsApp is mandatory (it drives report delivery + all reminders); email optional.
+      if(wa.length<10){ toastErr("WhatsApp number is required — it's what report delivery and reminders use"); return; }
+      const mode=val("btiMode"); if(!mode){ toastErr("Select a payment mode"); return; }
+      const amount=Math.round(Number(val("btiAmount"))||0);
+      if(amount<=0){ toastErr("Enter the amount collected"); return; }
+      const {gross,disc}=_btRecalc();
+      const tests=_btTests.filter((t:any)=>_btSel.has(String(t.id))).map((t:any)=>({id:t.id,code:t.code,name:t.name,price:t.price}));
+      // FR-1.16 / Section 4 "Visit number" — count prior visits for this phone, never overwrite.
+      let visitNo=1;
+      try{ const pr:any=await supabase.from("bt_orders").select("id").eq("phone",phone);
+        if(!(pr&&pr.error)) visitNo=((pr?.data)||[]).length+1; }catch(_){}
+      const clientType=val("btiClientType")||"one-time";
+      // FR-5A.1: next re-test date uses the PANEL-specific cadence — shortest among the selected
+      // panels wins, and panels with no cadence contribute nothing (no auto reminder at all).
+      const cadences=_btTests.filter((t:any)=>_btSel.has(String(t.id))).map((t:any)=>Number(t.retest_months)||0).filter((n:number)=>n>0);
+      let nextDue:string|null=null;
+      if(cadences.length){ const d=new Date(); d.setMonth(d.getMonth()+Math.min(...cadences)); nextDue=d.toISOString().slice(0,10); }
+      const row:any={ lead_id:_btMatch?String(_btMatch.meta_lead_id):null, client_name:name, phone, email:email||null, whatsapp:wa,
+        visit_no:visitNo, tests, lab_partner:val("btiPartner")||null, calc_price:gross, coupon_code:_btCoupon?_btCoupon.code:null,
+        discount:disc, amount_collected:amount, payment_mode:mode, payment_verified:false,
+        client_type:clientType, next_due_date:nextDue, created_by:(_currentUser&&(_currentUser.name||_currentUser.email))||"Reception" };
+      if(!(await _dbOk(supabase.from("bt_orders").insert(row),"Order"))) return;
+      // Bump coupon usage so max_uses actually caps (best-effort; the order already stands).
+      if(_btCoupon) try{ await supabase.from("bt_coupons").update({used_count:Number(_btCoupon.used_count||0)+1}).eq("id",_btCoupon.id); }catch(_){}
+      // FR-1.3: a brand-new walk-in also becomes a master client record, so downstream modules
+      // (Reception, Advisor, Reports) see the person like any other lead.
+      if(!_btMatch){
+        const newId="bt-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
+        try{ await supabase.from("leads").insert({meta_lead_id:newId,name,phone:"+91"+phone.slice(-10),email:email||null,source:"Walk-in / Referral / Telecalling",service:"Blood Test",language:"Tamil",is_valid:true,created_at:new Date().toISOString()}); }catch(_){}
+      }
+      // NFR-2: immutable, timestamped entry on the client's activity timeline.
+      if(_btMatch) logActivity(String(_btMatch.meta_lead_id),[{action:"Payment",field:"Blood test order (visit "+visitNo+")",new:_btMoney(amount)+" · "+mode}]);
+      toast("Order generated — "+_btMoney(amount)+" · Pending Accounts Verification");
+      w._btIntakeClose();
+      await loadBloodTestData();
+      // FR-1.11 / FR-1.12: two distinct printables off the same payment record.
+      _btLastOrder={...row,visit_no:visitNo};
+      _btPrint("order");
+    };
+    let _btLastOrder:any=null;
+    // FR-1.11 Order slip (internal) and FR-1.12 Receipt (client-facing, carried to the phlebotomist).
+    function _btPrint(kind:"order"|"receipt",o?:any){
+      const d=o||_btLastOrder; if(!d){ toast("Nothing to print"); return; }
+      const rows=(d.tests||[]).map((t:any)=>'<tr><td>'+_btE(t.name)+'</td><td style="text-align:right">'+_btMoney(t.price)+'</td></tr>').join("");
+      const title=kind==="order"?"BLOOD TEST — ORDER SLIP":"PAYMENT RECEIPT";
+      const html='<html><head><title>'+title+'</title><style>body{font-family:system-ui,Arial;padding:26px;color:#111}'
+        +'h2{margin:0 0 2px;font-size:17px}.mut{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px}'
+        +'td,th{padding:6px 4px;border-bottom:1px solid #ddd;text-align:left}.tot td{font-weight:700;border-top:2px solid #333;border-bottom:none}'
+        +'.box{border:1px solid #ddd;border-radius:8px;padding:12px;margin-top:14px;font-size:12.5px}</style></head><body>'
+        +'<h2>My Health School — Wellness Center</h2><div class="mut">Chennai · HQ</div>'
+        +'<h3 style="margin:16px 0 0;font-size:14px">'+title+'</h3>'
+        +'<div class="mut">'+new Date().toLocaleString("en-IN")+' · Visit #'+_btE(String(d.visit_no||1))+'</div>'
+        +'<div class="box"><b>'+_btE(d.client_name||"")+'</b><br>'+_btE(d.phone||"")+(d.lab_partner?('<br>Lab: '+_btE(d.lab_partner)):'')+'</div>'
+        +'<table><thead><tr><th>Test / panel</th><th style="text-align:right">Price</th></tr></thead><tbody>'+rows
+        +'<tr><td>Calculated total</td><td style="text-align:right">'+_btMoney(d.calc_price)+'</td></tr>'
+        +(d.discount?('<tr><td>Discount'+(d.coupon_code?(" ("+_btE(d.coupon_code)+")"):"")+'</td><td style="text-align:right">−'+_btMoney(d.discount)+'</td></tr>'):'')
+        +'<tr class="tot"><td>Amount '+(kind==="receipt"?"received":"collected")+'</td><td style="text-align:right">'+_btMoney(d.amount_collected)+'</td></tr>'
+        +'</tbody></table>'
+        +'<div class="box">Payment mode: <b>'+_btE(d.payment_mode||"—")+'</b><br>Status: Pending Accounts Verification</div>'
+        +(kind==="receipt"?'<div class="box">Please present this receipt to the phlebotomist before your blood draw.</div>':'')
+        +'</body></html>';
+      try{ const win=window.open("","_blank","width=560,height=760"); if(!win){ toastErr("Allow pop-ups to print"); return; }
+        win.document.write(html); win.document.close(); win.focus(); setTimeout(()=>{ try{win.print();}catch(_){} },250);
+      }catch(_){ toastErr("Could not open the print view"); }
+    }
+    w._btPrintOrder=(id:any)=>{ const o=_btOrders.find((x:any)=>String(x.id)===String(id)); _btPrint("order",o); };
+    w._btPrintReceipt=(id:any)=>{ const o=_btOrders.find((x:any)=>String(x.id)===String(id)); _btPrint("receipt",o); };
+    // FR-1.13 / FR-1.14 — sample collection ID captured at the draw, then used to chase the lab.
+    w._btSetSample=async(id:any)=>{
+      const o=_btOrders.find((x:any)=>String(x.id)===String(id)); if(!o) return;
+      const sid=window.prompt("Sample Collection ID / barcode for "+(o.client_name||"client")+":",o.sample_id||"");
+      if(sid==null) return;
+      const v=String(sid).trim(); if(!v){ toastErr("Sample ID can't be empty"); return; }
+      if(!(await _dbOk(supabase.from("bt_orders").update({sample_id:v,sample_status:"collected"}).eq("id",o.id),"Sample collection"))) return;
+      if(o.lead_id) logActivity(String(o.lead_id),[{action:"Updated",field:"Blood test sample collected",new:v}]);
+      toast("Sample marked collected · "+v);
+      await loadBloodTestData();
+    };
+    let _btOrders:any[]=[];
+    async function _btLoadOrders(){
+      try{ const r:any=await supabase.from("bt_orders").select("*").order("created_at",{ascending:false}).limit(500);
+        _btOrders=(r&&r.error)?[]:((r?.data)||[]);
+      }catch(_){ _btOrders=[]; }
+    }
+    // FR-1.15 — one worklist row carrying every status the desk needs at a glance.
+    function _btRenderOrders(){
+      const el=root.querySelector("#btOrdersWrap"); if(!el) return;
+      const [from,to]=_btDateRange();
+      const rows=_btOrders.filter((o:any)=>{ if(!o.created_at) return true; const d=new Date(o.created_at); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      const pay=(o:any)=>o.payment_verified?'<span class="chipb ok">'+_btMoney(o.amount_collected)+' ✓</span>':'<span class="chipb warn">'+_btMoney(o.amount_collected)+' · pending</span>';
+      const smap:any={pending:{l:"Pending",c:"warn"},collected:{l:"Collected",c:"info"},done:{l:"Done",c:"ok"}};
+      let h='<table class="tbl" style="min-width:1080px"><thead><tr><th>Date</th><th>Client</th><th>Phone</th><th>Visit</th><th>Panel(s)</th><th>Lab</th><th>Sample ID</th><th>Sample</th><th>Payment</th><th>Report</th><th>Shared</th><th>Actions</th></tr></thead><tbody>';
+      if(!rows.length) h+='<tr><td colspan="12" style="text-align:center;color:var(--faint);padding:20px">No blood-test orders for this period. Use “+ New walk-in” to start one.</td></tr>';
+      else rows.forEach((o:any)=>{
+        const ss=smap[o.sample_status]||{l:o.sample_status,c:"neu"};
+        h+='<tr><td class="mono" style="font-size:11.5px;white-space:nowrap">'+_btE(fmtIST(o.created_at))+'</td>'
+          +'<td style="font-weight:600">'+_btE(o.client_name||"—")+'</td>'
+          +'<td class="mono">'+_btE(_btMask(o.phone))+'</td>'
+          +'<td class="mono">#'+_btE(String(o.visit_no||1))+'</td>'
+          +'<td style="max-width:210px;white-space:normal">'+_btE(((o.tests||[]).map((t:any)=>t.name).join(", "))||"—")+'</td>'
+          +'<td>'+_btE(o.lab_partner||"—")+'</td>'
+          +'<td class="mono">'+_btE(o.sample_id||"—")+'</td>'
+          +'<td><span class="chipb '+ss.c+'">'+_btE(ss.l)+'</span></td>'
+          +'<td>'+pay(o)+'</td>'
+          +'<td><span class="chipb '+(o.report_status==="ready"?"ok":"warn")+'">'+(o.report_status==="ready"?"Ready":"Pending")+'</span></td>'
+          +'<td>'+(o.shared_status?'<span class="chipb ok">'+_btE(String(o.shared_status).toUpperCase())+' ✓</span>':"—")+'</td>'
+          +'<td><div style="display:flex;gap:4px;flex-wrap:wrap">'
+            +'<button class="btn bsm" title="Print internal order slip" onclick="window._btPrintOrder(\''+_btE(String(o.id))+'\')">Order</button>'
+            +'<button class="btn bsm" title="Print client receipt" onclick="window._btPrintReceipt(\''+_btE(String(o.id))+'\')">Receipt</button>'
+            +(o.sample_status==="pending"?'<button class="btn bsm bp" onclick="window._btSetSample(\''+_btE(String(o.id))+'\')">Sample ID</button>':'')
+          +'</div></td></tr>';
+      });
+      h+='</tbody></table>';
+      el.innerHTML=h;
+    }
     async function loadBloodTestData(){
+      await _btLoadMasters();
+      await _btLoadOrders();
+      _btRenderOrders();
+      return _btLoadLegacy();
+    }
+    async function _btLoadLegacy(){
       try{
         const [ar,pr]=await Promise.all([
           supabase.from("appointments").select("*").ilike("service","%blood%").order("appt_date",{ascending:false}).limit(500),
@@ -8086,6 +8325,7 @@ export function initApp(root: HTMLElement) {
       const [from,to]=_btDateRange();
       _btFiltered=_btAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _btRenderAll();
+      try{ _btRenderOrders(); }catch(_){}   // the new bt_orders worklist shares this date filter
     }
     w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); _btApplyDateFilter(); };
     w._btApplyDate=()=>{ if(_btDate==="cust") _btApplyDateFilter(); };

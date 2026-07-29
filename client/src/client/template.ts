@@ -1083,7 +1083,53 @@ export function getMainContent(): string {
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:16px"><div><div style="font-size:9px;color:var(--faint);font-weight:600">THYROCARE COST</div><div class="mono" style="font-weight:700;color:var(--alert-ink)" id="btThyroCost">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">OUR MARGIN</div><div class="mono" style="font-weight:700;color:var(--ok-ink)" id="btMargin">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">PAID TO THYROCARE</div><div class="mono" style="font-weight:700" id="btPaidThyro">₹0</div></div></div>
     </div>
     <div class="metrics" style="margin:6px 0" id="btMetrics"></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Worklist <span class="arr">▾</span></div>
+
+    <!-- ===== Stage 1 — Reception: intake → tests → coupon → contact → payment → order → sample.
+         Collapsed until "New walk-in" is clicked so the worklist stays the default view. ===== -->
+    <div class="sec" id="btIntakeSec" style="display:none">
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> New blood-test walk-in
+        <button class="btn bsm" style="margin-left:auto" onclick="window._btIntakeClose()">Cancel</button></div>
+      <div class="sec-bd">
+        <!-- FR-1.1 / FR-1.2: phone lookup first; an existing lead/client skips re-entry. -->
+        <div class="g3">
+          <div class="fld"><label class="lbl" for="btiPhone">Phone number <span class="req">*</span></label>
+            <input class="input mono" id="btiPhone" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
+          <div class="fld" style="align-self:end"><button class="btn bp" style="height:39px" onclick="window._btLookup()">Check record</button></div>
+          <div class="fld"><div id="btiMatch" style="font-size:12.5px;padding-top:22px"></div></div>
+        </div>
+        <div id="btiForm" style="display:none">
+          <div class="g3" style="margin-top:4px">
+            <div class="fld"><label class="lbl" for="btiName">Name <span class="req">*</span></label><input class="input" id="btiName"></div>
+            <div class="fld"><label class="lbl" for="btiWa">WhatsApp number <span class="req">*</span></label><input class="input mono" id="btiWa" placeholder="Drives report delivery" oninput="window._digitsOnly(this)"></div>
+            <div class="fld"><label class="lbl" for="btiEmail">Email</label><input class="input" id="btiEmail" type="email" placeholder="optional"></div>
+          </div>
+          <!-- FR-1.4 / FR-1.5: multi-select from the master; price recalculates live. -->
+          <div class="fld fw" style="margin-top:6px"><label class="lbl">Tests / panels <span class="req">*</span></label>
+            <div id="btiTests" style="display:flex;flex-wrap:wrap;gap:7px"></div></div>
+          <div class="g4" style="margin-top:6px">
+            <div class="fld"><label class="lbl" for="btiPartner">Lab partner</label><select class="select" id="btiPartner"></select></div>
+            <div class="fld"><label class="lbl" for="btiCoupon">Coupon code</label>
+              <div style="display:flex;gap:6px"><input class="input" id="btiCoupon" placeholder="optional" style="text-transform:uppercase"><button class="btn bsm" style="height:39px" onclick="window._btApplyCoupon()">Apply</button></div>
+              <div id="btiCouponMsg" style="font-size:11.5px;margin-top:4px"></div></div>
+            <div class="fld"><label class="lbl" for="btiClientType">Client type</label><select class="select" id="btiClientType"><option value="one-time">One-time</option><option value="membership">Membership</option></select></div>
+            <div class="fld"><label class="lbl">Calculated price <span class="ab">AUTO</span></label><input class="input mono select auto" id="btiCalc" readonly value="₹0"></div>
+          </div>
+          <!-- FR-1.8 / FR-1.9: actual amount may differ from calculated; both are stored. -->
+          <div class="g4" style="margin-top:6px">
+            <div class="fld"><label class="lbl" for="btiAmount">Amount collected <span class="req">*</span></label><input class="input mono" id="btiAmount" oninput="window._numOnly(this)"></div>
+            <div class="fld"><label class="lbl" for="btiMode">Payment mode <span class="req">*</span></label><select class="select" id="btiMode"><option value="">— Select —</option><option>Cash</option><option>Card</option><option>UPI</option><option>Bank Transfer</option><option>Wallet</option></select></div>
+            <div class="fld"><label class="lbl">Verification <span class="ab">AUTO</span></label><input class="input select auto" id="btiVerif" readonly value="Pending Accounts Verification"></div>
+            <div class="fld" style="align-self:end"><button class="btn bp" style="height:39px;width:100%" onclick="window._btCreateOrder()">Generate order</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Worklist
+      <button class="btn bsm bp" style="margin-left:auto" onclick="event.stopPropagation();window._btIntakeOpen()">+ New walk-in</button> <span class="arr">▾</span></div>
+      <div class="sec-bd"><div class="tscroll" id="btOrdersWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test orders…</div></div></div></div>
+    <!-- Legacy appointment-driven view kept intact so the pre-existing flow is unaffected. -->
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"/></svg> Appointment-linked records <span class="arr">▾</span></div>
       <div class="sec-bd" id="btWorklistWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test data…</div></div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bell"/></svg> Outcome reminders <span class="arr">▾</span></div>
       <div class="sec-bd" id="btRemindersWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div>

@@ -11,6 +11,10 @@ const TABLES = new Set([
   'call_recordings', 'lead_activity', 'app_users', 'app_settings', 'meta_tokens',
   'meta_sync_state', 'source_connections', 'lead_assignments', 'office_recordings',
   'zoom_recordings',
+  // Blood Test module (db/migration-bloodtest-module.sql). This allowlist is a real access
+  // control, not a formality — the gateway reaches any table named here — so new tables must be
+  // added deliberately. These four are module-owned and carry no credentials.
+  'bt_tests', 'bt_lab_partners', 'bt_coupons', 'bt_orders',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 // A caller with no limit at all (or an absurdly large one) could pull an entire table in one
