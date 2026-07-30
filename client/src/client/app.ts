@@ -3124,42 +3124,60 @@ export function initApp(root: HTMLElement) {
     // role scope and the date/source/service filters instead of reporting the whole clinic.
     // Loaded once on first dashboard paint, then the dashboard repaints (same pattern as
     // _loadEligibilities). The guard is set BEFORE the await so the repaint can't re-trigger a load.
-    let _advCallStats:Record<string,{connected:number;dur:number}>={}; let _advCallLoaded=false;
+    // Raw rows (never pre-aggregated by person) — WHO the numbers should be scoped to can change
+    // after load, purely client-side: a locked Advisor sees their own name always, but a full-access
+    // viewer (Manager/Super Admin/Branch Manager) can pick any ONE advisor via the top "Advisor"
+    // filter and click Apply — see haCommonFilter's `adv` / _asnApplied.advisor. Pre-aggregating at
+    // load time (the first version of this fix) only checked the VIEWER's own role, so a manager
+    // filtering the top dropdown to "Deepak" fell through to zero filtering and showed every call
+    // ever logged against Deepak's leads again — the exact bug this exists to prevent, just reached
+    // through a second door. Aggregating fresh on every render, scoped to whichever single advisor
+    // the dashboard is CURRENTLY showing (role-lock OR top filter, resolved in _advCallScoped
+    // below), closes both doors with one source of truth.
+    let _advCallRows:any[]=[]; let _advCallLoaded=false;
     async function _loadAdvCallStats(){
       try{
         // initiated_by_email = who was actually LOGGED IN when Call was clicked (captured
-        // server-side from the authenticated session — see /api/calls/initiate). Only fetched for
-        // an Advisor login, which is the case that needs the per-person filter below.
-        const cols="contact_id,call_status,duration_seconds"+(_isAdvisorRole()?",initiated_by_email":"");
-        const {data}=await supabase.from("call_recordings").select(cols).limit(5000);
-        const myEmail=String((_currentUser&&_currentUser.email)||"").trim().toLowerCase();
-        const m:Record<string,{connected:number;dur:number}>={};
-        (data||[]).forEach((r:any)=>{
-          const k=String(r.contact_id||""); if(!k) return;
-          // An individual Advisor's "Connected Calls" / "Total Call Duration" must be THEIR OWN
-          // calls, not every call ever logged against a lead currently assigned to them — that was
-          // the reported bug (Vasanthan: 2 calls placed by someone else, counted against Deepak
-          // purely because the lead is assigned to him today). Tata's extension/caller ID can't
-          // disambiguate individuals here — all advisors share one configured extension, and
-          // Smartflo's own CDR agent_number doesn't match any advisor's phone on file — so this
-          // checks who was actually logged in at call time instead. Rows logged before this fix
-          // have no initiated_by_email and are excluded rather than guessed at. Full-access roles
-          // (Manager/Super Admin/Branch Manager) aren't one individual's login, so they keep the
-          // existing team-wide per-lead aggregate — this filter only applies to an Advisor's own
-          // locked, personal view.
-          if(_isAdvisorRole()){
-            const who=String(r.initiated_by_email||"").trim().toLowerCase();
-            if(!who||who!==myEmail) return;
-          }
-          const o=(m[k]=m[k]||{connected:0,dur:0});
-          const secs=Number(r.duration_seconds)||0;
-          // "Connected" = the provider's normalised `answered` state, OR any call with real talk
-          // time (covers a row whose final status never arrived but which clearly connected).
-          // Every other disposition (no-answer / missed / initiated) carries 0 seconds.
-          if(String(r.call_status||"").toLowerCase()==="answered"||secs>0){ o.connected++; o.dur+=secs; }
-        });
-        _advCallStats=m;
-      }catch(_){ _advCallStats={}; }
+        // server-side from the authenticated session — see /api/calls/initiate). Always fetched:
+        // even a full-access viewer needs it the moment they filter the dashboard to one advisor.
+        const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds,initiated_by_email").limit(5000);
+        _advCallRows=data||[];
+      }catch(_){ _advCallRows=[]; }
+    }
+    // Resolve the SINGLE advisor name this dashboard view currently represents, if any — a locked
+    // Advisor role always has one (their own); a full-access viewer only has one when the top
+    // "Advisor" filter is set to something other than "All advisors". Empty = no single-person
+    // scope (team-wide), which is the ONLY case that keeps the pre-fix aggregate (nothing to
+    // attribute personally when the view already spans multiple people).
+    function _advCallScopeName():string{
+      const locked=_advisorScope(); if(locked) return locked;
+      const top=_asnApplied.advisor; return (top&&top!=="all") ? top : "";
+    }
+    // Build the per-lead {connected,dur} map for the CURRENT scope. Recomputed on every call
+    // (cheap — a few thousand rows, no DOM/network work) so it always reflects the live top-filter
+    // selection without needing a re-fetch.
+    function _advCallScopedStats():Record<string,{connected:number;dur:number}>{
+      const scopeName=_advCallScopeName();
+      // Name → login email, so a call can be matched to the PERSON the dashboard names, not just
+      // whoever happens to be logged in. Case-insensitive; unresolvable name (no assignee email on
+      // file) deliberately matches NOTHING rather than falling back to "show everyone's calls" —
+      // that fallback is exactly how a wrong call got attributed to Deepak in the first place.
+      const scopeEmail=scopeName?String((_assignees.find((a:any)=>String(a.name||"").trim().toLowerCase()===scopeName.trim().toLowerCase())||{}).email||"").trim().toLowerCase():"";
+      const m:Record<string,{connected:number;dur:number}>={};
+      _advCallRows.forEach((r:any)=>{
+        const k=String(r.contact_id||""); if(!k) return;
+        if(scopeName){
+          const who=String(r.initiated_by_email||"").trim().toLowerCase();
+          if(!who||!scopeEmail||who!==scopeEmail) return;
+        }
+        const o=(m[k]=m[k]||{connected:0,dur:0});
+        const secs=Number(r.duration_seconds)||0;
+        // "Connected" = the provider's normalised `answered` state, OR any call with real talk
+        // time (covers a row whose final status never arrived but which clearly connected).
+        // Every other disposition (no-answer / missed / initiated) carries 0 seconds.
+        if(String(r.call_status||"").toLowerCase()==="answered"||secs>0){ o.connected++; o.dur+=secs; }
+      });
+      return m;
     }
     // Compact talk-time for a KPI tile: "1h 32m" / "32m 08s" / "45s".
     function _fmtCallDur(total:number){
@@ -3291,12 +3309,15 @@ export function initApp(root: HTMLElement) {
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
         // by call count, "Total Call Duration" by talk time — see the calls/callduration branch in
         // renderHaResults.
-        const _callAgg=book.reduce((a:any,l:any)=>{ const st=_advCallStats[String(l.id)]; if(st){ a.n+=st.connected; a.d+=st.dur; } return a; },{n:0,d:0});
-        // For a locked Advisor login these two cards are personal — only calls THIS account placed
-        // (see _loadAdvCallStats) — so the tooltip says so; a call logged before this fix, or made
-        // by someone else on a shared lead, correctly won't appear here even though it still shows
-        // on the lead's own Call History.
-        const _callScopeNote=_isAdvisorRole()?" · your calls only":"";
+        const _scopedCallStats=_advCallScopedStats();
+        const _callAgg=book.reduce((a:any,l:any)=>{ const st=_scopedCallStats[String(l.id)]; if(st){ a.n+=st.connected; a.d+=st.dur; } return a; },{n:0,d:0});
+        // These two cards are personal whenever the dashboard represents ONE advisor — a locked
+        // Advisor login (their own calls) OR a full-access viewer who has filtered the top
+        // "Advisor" dropdown to one name (that advisor's calls, not the viewer's). A call logged
+        // before this fix, or made by someone else on a shared lead, correctly won't appear here
+        // even though it still shows on the lead's own Call History.
+        const _callScopeName=_advCallScopeName();
+        const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):"";
         cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
         cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
         kpiEl.innerHTML=cards.join("");
@@ -3364,8 +3385,9 @@ export function initApp(root: HTMLElement) {
       // The two call cards aren't status buckets — they select leads by CALL ACTIVITY (at least one
       // connected call), so they can't go through haBucketOf like the others.
       const _isCallCard=_haActiveBucket==="calls"||_haActiveBucket==="callduration";
+      const _scopedCallStats=_isCallCard?_advCallScopedStats():{};
       let list=_isCallCard
-        ? book.filter((l:any)=>{ const st=_advCallStats[String(l.id)]; return !!st&&st.connected>0; })
+        ? book.filter((l:any)=>{ const st=_scopedCallStats[String(l.id)]; return !!st&&st.connected>0; })
         // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
         // (every other card is a subset of it).
         : (_haActiveBucket==="total"?fullBook
@@ -3383,7 +3405,7 @@ export function initApp(root: HTMLElement) {
       if(_isCallCard){
         // Both cards show the same leads; the ranking differs so each card leads with the number it
         // reported. Totals in the title tie back to the card face.
-        const stOf=(l:any)=>_advCallStats[String(l.id)]||{connected:0,dur:0};
+        const stOf=(l:any)=>_scopedCallStats[String(l.id)]||{connected:0,dur:0};
         const rows=list.slice().sort((a:any,b:any)=>_haActiveBucket==="callduration"
           ? (stOf(b).dur-stOf(a).dur) : (stOf(b).connected-stOf(a).connected));
         const tot=rows.reduce((a:any,l:any)=>{ const s=stOf(l); a.n+=s.connected; a.d+=s.dur; return a; },{n:0,d:0});
