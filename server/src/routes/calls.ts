@@ -129,7 +129,11 @@ async function processRecording(p: any) {
   const callId = pickAlias(p, ['call_id', 'callId', 'uuid', 'id']);
   if (!callId) return;
   const recUrl = pickAlias(p, ['recording_url', 'recordingUrl', 'recording', 'file']);
-  const duration = Number(pickAlias(p, ['call_duration', 'duration', 'billsec']) || 0) || 0;
+  // Prefer actual TALK time over ring/setup time — see the matching fix + full explanation in
+  // syncProvider below. pickAlias (unlike `||`) already treats a real 0 correctly (it only skips a
+  // key that is null/undefined/''), so listing 'answered_seconds' first is enough here; unlike
+  // syncProvider there was no `||` chain bug to fix, just a missing alias.
+  const duration = Number(pickAlias(p, ['answered_seconds', 'call_duration', 'duration', 'billsec']) || 0) || 0;
   const fromNum = pickAlias(p, ['caller_number', 'from', 'caller_id']);
   const toNum = pickAlias(p, ['destination_number', 'to', 'callee']);
   const direction = pickAlias(p, ['direction', 'call_type']);
@@ -251,30 +255,93 @@ async function syncProvider(req: Request, res: Response) {
     const to = new Date(); const from = new Date(to.getTime() - 30 * 24 * 3600 * 1000);
     const fmt = (d: Date) => d.toISOString().substring(0, 10);
     const recs = await fetchCallRecords(fmt(from) + ' 00:00:00', fmt(to) + ' 23:59:59', 2000);
+    // This matches Smartflo's CDR to a lead PURELY by the customer's phone number — the whole
+    // Tata account's call history to that number, from ANY agent/extension/softphone, not just
+    // calls placed through this app's Call button. Reported: Vasanthan's Call History showed 3
+    // calls from "Gayathri-Extension" that no one placed from our CRM — this endpoint had
+    // unconditionally inserted every CDR match as if it were our own call activity.
+    //
+    // The fix: only ever CREATE a new call_recordings row when it corresponds to a placeholder
+    // OUR /api/calls/initiate already wrote (the 'init-...' row, stamped with initiated_by_email
+    // at the moment Call was clicked — see initiate()). A CDR record with no such placeholder to
+    // match is a call this app never triggered and is skipped entirely — it will not appear in
+    // Call History or count toward any KPI. A CDR record whose call_id we ALREADY have (already
+    // synced, or a rare case where Tata's click-to-call response gave us the real id up front)
+    // still just updates that existing row as before.
     const mine = recs.filter((r: any) => digits10(r.client_number || r.destination_number || r.to || r.caller_id_num || '') === phone10);
 
-    let synced = 0;
+    const { data: existingRows } = await supabase.from('call_recordings').select('id,call_id,created_at,initiated_by_email,initiated_by_name').eq('contact_id', contactId);
+    const knownCallIds = new Set((existingRows || []).filter((x: any) => !String(x.call_id || '').startsWith('init-')).map((x: any) => String(x.call_id)));
+    const placeholders = (existingRows || [])
+      .filter((x: any) => String(x.call_id || '').startsWith('init-'))
+      .map((x: any) => ({ ...x, used: false, t: new Date(x.created_at).getTime() }));
+    // A placeholder and its real CDR row are the SAME dial, so they should be very close in time —
+    // the placeholder is written the instant Call is clicked; Smartflo's own timestamp for that
+    // dial can't be far off. 10 minutes generously covers clock skew and a slow-to-connect call
+    // without being wide enough to misattribute a genuinely different, later call to the number.
+    const MATCH_WINDOW_MS = 10 * 60 * 1000;
+    const consumedPlaceholderIds: string[] = [];
+
+    let synced = 0, skippedExternal = 0;
     for (const r of mine) {
-      const dur = Number(r.answered_seconds || r.total_call_duration || r.call_duration || 0) || 0;
+      // answered_seconds is the actual TALK time (0 when the call was never picked up);
+      // total_call_duration / call_duration include ring/setup time and are non-zero even for a
+      // pure miss. `||` treats a genuine 0 as "missing" and falls through to those ring-time
+      // fields, which is exactly backwards — confirmed against live data: every one of Vasanthan's
+      // 3 calls (and 54 of 89 "answered" rows clinic-wide) has raw status "missed" / "Call missed
+      // by customer" and answered_seconds=0, but a non-zero call_duration (1-46s of ringing before
+      // hangup) made this line compute a fake talk time, which then made normalizeCallStatus's
+      // "duration>0 → answered" shortcut override the correct "missed" classification. Use ?? so a
+      // real 0 stays 0, and only an ABSENT field (undefined/null — a provider response that omits
+      // answered_seconds entirely) falls back to the ring-time fields as a last resort.
+      const dur = Number(r.answered_seconds ?? r.total_call_duration ?? r.call_duration ?? 0) || 0;
       const norm = normalizeCallStatus(r.status || r.description, dur, r.direction);
       let createdAt = new Date().toISOString();
       if (r.date && r.time) { const d = new Date(String(r.date) + 'T' + String(r.time) + '+05:30'); if (!isNaN(d.getTime())) createdAt = d.toISOString(); }
+      const callId = String(r.call_id || r.uuid || r.id);
+
+      let initiatedByEmail: string | null = null, initiatedByName: string | null = null;
+      if (!knownCallIds.has(callId)) {
+        // Brand-new call_id — find the closest UNUSED placeholder for this lead within the match
+        // window and treat this as the call it placed. No match = this app never triggered this
+        // call; skip it rather than let an external call appear in this lead's history.
+        const t = new Date(createdAt).getTime();
+        let best: any = null, bestDiff = Infinity;
+        for (const p of placeholders) {
+          if (p.used) continue;
+          const diff = Math.abs(p.t - t);
+          if (diff <= MATCH_WINDOW_MS && diff < bestDiff) { best = p; bestDiff = diff; }
+        }
+        if (!best) { skippedExternal++; continue; }
+        best.used = true;
+        consumedPlaceholderIds.push(best.id);
+        initiatedByEmail = best.initiated_by_email || null;
+        initiatedByName = best.initiated_by_name || null;
+      }
+
       // Smartflo recording URLs self-authenticate via a ?token= param and stream audio/mp3, so
       // the browser plays/downloads them directly — no re-hosting or proxy needed.
       const recUrl: string | null = r.recording_url || null;
       const row: any = {
-        call_id: String(r.call_id || r.uuid || r.id), contact_id: contactId,
+        call_id: callId, contact_id: contactId,
         recording_url: recUrl, duration_seconds: dur,
         from_number: r.agent_number || null, to_number: r.client_number || null,
         agent_number: r.agent_number || null, direction: r.direction || 'outbound',
         call_status: norm, raw_payload: r, created_at: createdAt,
+        // Only set on a genuinely new row (a matched placeholder) — omitted for an update to an
+        // already-known row, so the generic upsert's dynamic SET clause (built from the row's own
+        // keys) never touches an existing initiated_by_* value it wasn't given.
+        ...(initiatedByEmail || initiatedByName ? { initiated_by_email: initiatedByEmail, initiated_by_name: initiatedByName } : {}),
       };
       try { await supabase.from('call_recordings').upsert(row, { onConflict: 'call_id' }); synced++; } catch (_) {}
     }
-    // Drop the transient "initiated" placeholder rows (fallback ids) now that the real CDR rows exist.
-    if (synced > 0) { try { await supabase.from('call_recordings').delete().eq('contact_id', contactId).ilike('call_id', 'init-%'); } catch (_) {} }
+    // Remove exactly the placeholders that were matched and replaced above — never a blanket
+    // "every init-% row for this contact", so an unmatched placeholder (its CDR record hasn't
+    // appeared yet, or Smartflo simply never reports the call) survives for a later sync attempt
+    // instead of silently vanishing.
+    if (consumedPlaceholderIds.length) { try { await supabase.from('call_recordings').delete().in('id', consumedPlaceholderIds); } catch (_) {} }
 
-    res.json({ ok: true, synced, matched: mine.length, scanned: recs.length });
+    res.json({ ok: true, synced, matched: mine.length, scanned: recs.length, skippedExternal });
   } catch (e: any) {
     res.json({ ok: false, error: e?.message || 'server error', synced: 0 });
   }
