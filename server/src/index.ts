@@ -32,7 +32,24 @@ const origins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
-app.use(cors({ origin: origins.length ? origins : false }));
+// The dev client's port is NOT fixed: .claude/launch.json runs it with autoPort, so when 3000 is
+// already taken (another project on the same machine) it moves to a random high port. CORS_ORIGIN
+// pins http://localhost:3000, so every such run failed every request with "Failed to fetch" —
+// the response came back 200 but carried no Access-Control-Allow-Origin, so the browser binned it.
+// Any loopback origin is this same developer's machine, so accept it on ANY port instead of
+// chasing the port in .env. Safe to leave on in production too: auth is a Bearer token in a
+// header (never a cookie), so there is no ambient-credential/CSRF surface for a cross-origin page
+// to abuse — it would still need a token it has no way to read. Non-loopback origins remain
+// restricted to the explicit CORS_ORIGIN allowlist, and still fail CLOSED when it is unset.
+const isLoopbackOrigin = (o: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
+app.use(cors({
+  origin(origin, cb) {
+    // No Origin header = same-origin, curl, or server-to-server — nothing to police.
+    if (!origin) return cb(null, true);
+    if (isLoopbackOrigin(origin)) return cb(null, true);
+    return cb(null, origins.includes(origin));
+  },
+}));
 
 // Default JSON body limit is small; office-visit audio uploads to /storage/upload
 // are base64-encoded and much larger, so that route gets its own bigger parser
