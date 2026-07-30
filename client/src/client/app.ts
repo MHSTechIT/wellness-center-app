@@ -3127,10 +3127,30 @@ export function initApp(root: HTMLElement) {
     let _advCallStats:Record<string,{connected:number;dur:number}>={}; let _advCallLoaded=false;
     async function _loadAdvCallStats(){
       try{
-        const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds").limit(5000);
+        // initiated_by_email = who was actually LOGGED IN when Call was clicked (captured
+        // server-side from the authenticated session — see /api/calls/initiate). Only fetched for
+        // an Advisor login, which is the case that needs the per-person filter below.
+        const cols="contact_id,call_status,duration_seconds"+(_isAdvisorRole()?",initiated_by_email":"");
+        const {data}=await supabase.from("call_recordings").select(cols).limit(5000);
+        const myEmail=String((_currentUser&&_currentUser.email)||"").trim().toLowerCase();
         const m:Record<string,{connected:number;dur:number}>={};
         (data||[]).forEach((r:any)=>{
           const k=String(r.contact_id||""); if(!k) return;
+          // An individual Advisor's "Connected Calls" / "Total Call Duration" must be THEIR OWN
+          // calls, not every call ever logged against a lead currently assigned to them — that was
+          // the reported bug (Vasanthan: 2 calls placed by someone else, counted against Deepak
+          // purely because the lead is assigned to him today). Tata's extension/caller ID can't
+          // disambiguate individuals here — all advisors share one configured extension, and
+          // Smartflo's own CDR agent_number doesn't match any advisor's phone on file — so this
+          // checks who was actually logged in at call time instead. Rows logged before this fix
+          // have no initiated_by_email and are excluded rather than guessed at. Full-access roles
+          // (Manager/Super Admin/Branch Manager) aren't one individual's login, so they keep the
+          // existing team-wide per-lead aggregate — this filter only applies to an Advisor's own
+          // locked, personal view.
+          if(_isAdvisorRole()){
+            const who=String(r.initiated_by_email||"").trim().toLowerCase();
+            if(!who||who!==myEmail) return;
+          }
           const o=(m[k]=m[k]||{connected:0,dur:0});
           const secs=Number(r.duration_seconds)||0;
           // "Connected" = the provider's normalised `answered` state, OR any call with real talk
@@ -3272,8 +3292,13 @@ export function initApp(root: HTMLElement) {
         // by call count, "Total Call Duration" by talk time — see the calls/callduration branch in
         // renderHaResults.
         const _callAgg=book.reduce((a:any,l:any)=>{ const st=_advCallStats[String(l.id)]; if(st){ a.n+=st.connected; a.d+=st.dur; } return a; },{n:0,d:0});
-        cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time) — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
-        cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
+        // For a locked Advisor login these two cards are personal — only calls THIS account placed
+        // (see _loadAdvCallStats) — so the tooltip says so; a call logged before this fix, or made
+        // by someone else on a shared lead, correctly won't appear here even though it still shows
+        // on the lead's own Call History.
+        const _callScopeNote=_isAdvisorRole()?" · your calls only":"";
+        cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
+        cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
         kpiEl.innerHTML=cards.join("");
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }

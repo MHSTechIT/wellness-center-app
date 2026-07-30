@@ -82,6 +82,14 @@ async function initiate(req: Request, res: Response) {
       const { error } = await supabase.from('call_recordings').upsert({
         call_id: logId, contact_id: contactId, from_number: agent, to_number: destination,
         agent_number: agent, direction: 'outbound', call_status: 'initiated', raw_payload: r.raw || {},
+        // WHO clicked Call — requireAuth already decoded this from the session token, so it costs
+        // nothing to capture. It is the only reliable per-individual identity available: the Tata
+        // extension/caller ID are configured per ROLE (all advisors share one), and Smartflo's own
+        // CDR agent_number doesn't map to any advisor's phone on file either. This is what lets the
+        // Advisor dashboard show "MY calls", not "calls to leads assigned to me" (see app.ts
+        // _loadAdvCallStats — the bug this closes: a call someone else placed was being counted
+        // against whichever advisor the lead happens to be assigned to today).
+        initiated_by_email: req.user?.email || null, initiated_by_name: req.user?.name || null,
       }, { onConflict: 'call_id' });
       if (error) logged = false;
     } catch (_) { logged = false; }
