@@ -14,6 +14,8 @@ import {
   callStatusLabel,
   formatDuration,
   fetchCallRecords,
+  configuredCallerNumbers,
+  isOwnCallRecord,
 } from '../services/tata';
 
 // ============================================================
@@ -281,6 +283,7 @@ async function syncProvider(req: Request, res: Response) {
     // without being wide enough to misattribute a genuinely different, later call to the number.
     const MATCH_WINDOW_MS = 10 * 60 * 1000;
     const consumedPlaceholderIds: string[] = [];
+    const ownNumbers = configuredCallerNumbers();
 
     let synced = 0, skippedExternal = 0;
     for (const r of mine) {
@@ -302,9 +305,18 @@ async function syncProvider(req: Request, res: Response) {
 
       let initiatedByEmail: string | null = null, initiatedByName: string | null = null;
       if (!knownCallIds.has(callId)) {
-        // Brand-new call_id — find the closest UNUSED placeholder for this lead within the match
-        // window and treat this as the call it placed. No match = this app never triggered this
-        // call; skip it rather than let an external call appear in this lead's history.
+        // Brand-new call_id — two INDEPENDENT ways to recognise this as a call this app placed:
+        // (a) it correlates with a placeholder /api/calls/initiate wrote for this lead within the
+        //     match window — the strongest signal, since it also tells us WHICH advisor's login
+        //     triggered it (inherited below for the personal Connected-Calls KPI).
+        // (b) its extension_c2c / caller_id_num / did_number matches one of this clinic's
+        //     configured Tata extensions/caller IDs (isOwnCallRecord) — proven reliable against
+        //     real data: a confirmed-genuine call matched exactly, three confirmed-external calls
+        //     ("Gayathri-Extension") matched neither field on any of them. This doesn't identify
+        //     WHICH advisor (several share one role's extension), only that the call came from a
+        //     line this clinic controls, so it's accepted for visibility without attribution.
+        // Neither signal firing means this app never triggered the call — skip it entirely rather
+        // than let it appear in this lead's history.
         const t = new Date(createdAt).getTime();
         let best: any = null, bestDiff = Infinity;
         for (const p of placeholders) {
@@ -312,11 +324,14 @@ async function syncProvider(req: Request, res: Response) {
           const diff = Math.abs(p.t - t);
           if (diff <= MATCH_WINDOW_MS && diff < bestDiff) { best = p; bestDiff = diff; }
         }
-        if (!best) { skippedExternal++; continue; }
-        best.used = true;
-        consumedPlaceholderIds.push(best.id);
-        initiatedByEmail = best.initiated_by_email || null;
-        initiatedByName = best.initiated_by_name || null;
+        if (best) {
+          best.used = true;
+          consumedPlaceholderIds.push(best.id);
+          initiatedByEmail = best.initiated_by_email || null;
+          initiatedByName = best.initiated_by_name || null;
+        } else if (!isOwnCallRecord(r, ownNumbers)) {
+          skippedExternal++; continue;
+        }
       }
 
       // Smartflo recording URLs self-authenticate via a ?token= param and stream audio/mp3, so

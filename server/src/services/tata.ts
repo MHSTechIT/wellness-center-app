@@ -68,6 +68,49 @@ export function tataConfig(role?: string) {
 // spaces or dashes. Keeps "919240254219" as-is and turns "+919240223973" into "919240223973".
 export function normalizeCallerId(raw: string): string { return (raw || '').replace(/\D/g, ''); }
 
+// Every extension + caller ID configured for this clinic, across every role (advisor, coach,
+// reception, plus the unsuffixed base). Used to recognise a Smartflo CDR record as GENUINELY
+// placed through this app's click-to-call — see isOwnCallRecord below for which raw fields to
+// compare this against and why. Digits-only, deduped, empty strings dropped.
+export function configuredCallerNumbers(): Set<string> {
+  const out = new Set<string>();
+  const add = (v: string) => { const d = (v || '').replace(/\D/g, ''); if (d) out.add(d); };
+  for (const role of [undefined, 'advisor', 'coach', 'reception']) {
+    const cfg = tataConfig(role);
+    add(cfg.extension);
+    add(cfg.callerId);
+  }
+  return out;
+}
+
+// Does this Smartflo CDR record match one of OUR configured extensions/caller IDs — i.e. was it
+// genuinely dialled through this app's click-to-call, not some other line entirely?
+//
+// The field that looks obvious, agent_number (and from_number, which mirrors it), is the WRONG
+// one to check: it reports whichever physical device/mobile actually rang for that extension,
+// which varies by device and never matches the extension/caller-ID strings in .env — confirmed
+// against a call we know for certain was genuine (agent_number +918940850291, matching neither
+// tata_tele_default_extension_number_advisor=0606089050073 nor
+// tata_tele_caller_id_advisor=919240223973). Checking it would hide real calls, not just external
+// ones.
+//
+// extension_c2c and caller_id_num/did_number are the numbers WE told Tata to dial from and show
+// to the customer — Smartflo reports these back exactly as configured. Verified on the same two
+// calls: the genuine one has extension_c2c=0606089050073 and caller_id_num=+919240223973 (an
+// EXACT match to the advisor config); three confirmed-external calls to a different lead (from
+// "Gayathri-Extension", never triggered from this app) have extension_c2c=0606089050013 and
+// caller_id_num=+919240284585 — matching nothing we configure, on every one of them.
+export function isOwnCallRecord(raw: any, known: Set<string>): boolean {
+  const cand = [raw?.extension_c2c, raw?.caller_id_num, raw?.did_number];
+  for (const c of cand) {
+    const d = String(c || '').replace(/\D/g, ''); if (!d) continue;
+    if (known.has(d)) return true;
+    const last10 = d.slice(-10);
+    for (const k of known) { if (k === last10 || k.slice(-10) === last10) return true; }
+  }
+  return false;
+}
+
 // Phone normalisation: strip non-digits, take last 10, prefix +91.
 export function normalizePhone(raw: string): string {
   const last10 = (raw || '').replace(/\D/g, '').slice(-10);
