@@ -374,7 +374,7 @@ export function getMainContent(): string {
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
-              <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1" onchange="window._fuCommitSync()" oninput="window._fuCommitSync()"></div>
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuOwner">Owner</label><select  class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input class="input" style="height:36px" type="date" data-future="1"></div>
@@ -879,7 +879,7 @@ export function getMainContent(): string {
     <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-cal"/></svg> Appointments <span class="chipb info" style="margin-left:6px" id="apptCount">0</span> <span style="margin-left:auto;font-size:11px;color:var(--faint)">Click row → full record</span> <input class="input" id="apptSearch" placeholder="Search lead number…" onclick="event.stopPropagation()" oninput="window._apptSearch(this.value)" style="height:32px;max-width:220px;margin-left:12px;font-size:12px"> <span class="arr">▾</span></div>
       <div class="ftable-wrap" id="apptWrap" style="max-height:380px"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:10px;align-items:start">
       <div>
         <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-user"/></svg> Client cross-check <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div style="display:flex;gap:7px"><input class="input" id="ccQ" style="height:35px" placeholder="Try: 98412 or 99999 or Prasad"><button class="btn bsm bp" onclick="ccSearch()">Search</button></div><div id="ccRes" style="margin-top:8px"></div></div></div>

@@ -4756,10 +4756,17 @@ export function initApp(root: HTMLElement) {
           // to their own appointments.stage text (e.g. "Blood Test Completed" — see recConfirm's
           // _svcDoneStage), or a stale Diabetes enrollment would mislabel every one-shot service too.
           const enrollLine=(_isEnrolled&&_recSvcCode(a.service)==="dia")?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
+          // Service-aware Stage chip for the Appointments table. Blood Test / Physiotherapy are
+          // STANDALONE services → they show their OWN completed stage and NEVER a Diabetes stage
+          // (enrolled / L1 / L2), even if a Diabetes enrollment previously stamped this row.
+          const _svcCode=_recSvcCode(a.service); let stageChip:{t:string;c:string};
+          if(_svcCode==="bt"){ const done=payStatus==="paid"||/complet/i.test(a.stage||"")||a.stage==="billed"||a.stage==="report"; stageChip=done?{t:"Blood Test Completed",c:"ok"}:(a.stage==="sample"?{t:"Sample collected",c:"info"}:{t:"Blood test",c:"info"}); }
+          else if(_svcCode==="physio"){ const done=payStatus==="paid"||a.stage==="done"||/complet/i.test(a.stage||""); stageChip=done?{t:"Physiotherapy Completed",c:"ok"}:(/ession/i.test(a.stage||"")?{t:String(a.stage),c:"info"}:{t:"Physiotherapy",c:"info"}); }
+          else{ stageChip=enrollLine?{t:enrollLine,c:"ok"}:(a.stage?{t:String(a.stage),c:"info"}:{t:"",c:"neu"}); }
           return {
-          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session), serviceRaw:a.service||"",
+          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
-          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
+          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
@@ -4902,7 +4909,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any,i:number) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.enrollLine?'<span class="chipb ok" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.enrollLine+'</span>':(r.stage?'<span class="chipb info">'+r.stage+'</span>':"—"))+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       body.innerHTML = rows || '<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
@@ -5662,7 +5669,13 @@ export function initApp(root: HTMLElement) {
       try{
         const {error}=await supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",leadId);
         if(error) throw error;
-        await supabase.from("appointments").update({stage:"enrolled"}).eq("lead_id",leadId).neq("status","cancelled");
+        // Stamp the "enrolled" stage ONLY on this lead's Diabetes appointments — never on Blood Test
+        // or Physiotherapy rows (standalone services keep their own service stage). Filter in JS so a
+        // NULL/blank service (this clinic's Diabetes default) is still stamped.
+        try{ const {data:_appts}=await supabase.from("appointments").select("id,service").eq("lead_id",leadId).neq("status","cancelled");
+          const _diaIds=(_appts||[]).filter((a:any)=>!/(blood|phys)/i.test(String(a.service||""))).map((a:any)=>a.id);
+          if(_diaIds.length) await supabase.from("appointments").update({stage:"enrolled"}).in("id",_diaIds);
+        }catch(_){}
       }catch(e:any){ toastErr("Enroll sync failed: "+(e.message||"db error")); return null; }
       // Advisor in-memory leads → Enrolled (drives the Advisor dashboard + Call Status column).
       const setEnrolled=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===String(leadId)){ l.callStatus="Enrolled"; l.enrolledAt=enrIso; } });
@@ -5779,9 +5792,9 @@ export function initApp(root: HTMLElement) {
       return '<tr data-ci-id="'+r.id+'" data-ci-key="'+_esc(key)+'" onclick="window._ciSelect('+r.id+')" style="cursor:pointer">'
         +'<td style="font-weight:600">'+_esc(r.name||"—")+' <span class="ci-selchip chipb ok" style="font-size:9px;margin-left:4px;display:none">Selected</span></td>'
         +'<td class="mono">'+_esc(r.ph||"—")+'</td>'
-        +'<td>'+_esc(r.email||"—")+'</td>'
+        +'<td class="ci-email">'+_esc(r.email||"—")+'</td>'
         +'<td>'+_ciSvcDropdown(r)+'</td>'
-        +'<td class="mono">'+_esc(dt)+'</td>'
+        +'<td class="mono ci-dt">'+_esc(dt)+'</td>'
         +'<td><span class="chipb '+cs.c+'">'+cs.l+'</span></td></tr>';
     }
     function _ciSetDedup(pick:any){
@@ -5790,34 +5803,37 @@ export function initApp(root: HTMLElement) {
       const ph=(pick.ph||"").replace(/\D/g,""); const same=ph?_recAll.filter((r:any)=>(r.ph||"").replace(/\D/g,"")===ph):[pick];
       dd.value=same.length>1?("Repeat · "+same.length+" appts"):"Unique · new client";
     }
-    // Always-visible Check-in table: renders EVERY loaded appointment (newest first, not-yet-checked-in
-    // on top). The search box only filters which rows show (see _ciApplyFilter) — it never creates or
-    // destroys the table.
+    // Recency of an appointment (newest first) — created_at when present, else the appointment's
+    // date+time. Drives the default "2 most recent leads" view.
+    function _ci12to24(t:string):number[]{ const m=String(t||"").match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i); if(!m) return [0,0]; let h=parseInt(m[1],10); const mm=parseInt(m[2],10); const ap=(m[3]||"").toUpperCase(); if(ap==="PM"&&h<12)h+=12; if(ap==="AM"&&h===12)h=0; return [h,mm]; }
+    function _ciRecency(r:any):number{
+      if(r.createdAt){ const t=new Date(r.createdAt).getTime(); if(!isNaN(t)) return t; }
+      if(r._date){ const d=new Date(/T/.test(r._date)?r._date:(r._date+"T00:00:00")); if(!isNaN(d.getTime())){ const hm=_ci12to24(r.time||""); d.setHours(hm[0],hm[1],0,0); return d.getTime(); } }
+      return 0;
+    }
+    // Rows to display: with NO search term → the 2 MOST RECENT leads only (keeps the panel light and
+    // fast). With a search term → every appointment matching phone / name / Client-ID, most-recent first.
+    function _ciVisibleRows(q:string):any[]{
+      if(!q){ return _recAll.slice().sort((a:any,b:any)=>_ciRecency(b)-_ciRecency(a)).slice(0,2); }
+      const ql=q.toLowerCase(); const digits=q.replace(/\D/g,"");
+      return _recAll.filter((r:any)=>{ const key=((r.ph||"")+" "+(r.name||"")+" "+(r.clientId||"")).toLowerCase();
+        return (ql!==""&&key.indexOf(ql)>=0) || (digits!==""&&key.replace(/\D/g,"").indexOf(digits)>=0);
+      }).sort((a:any,b:any)=>_ciRecency(b)-_ciRecency(a));
+    }
+    // Check-in table: DEFAULT shows only the 2 most recent leads; typing in Search re-renders the rows
+    // with the matching records (cleared search reverts to the 2 most recent). Re-derives from _recAll,
+    // so no extra data is loaded.
     function _ciRenderTable(){
       const box=root.querySelector("#ciResults"); if(!box) return;
       if(_ciMatch){ const fresh=_recAll.find((x:any)=>String(x.id)===String(_ciMatch.id)); if(fresh) _ciMatch=fresh; }   // re-point selection at the freshly-loaded row
-      const list=_recAll.slice().sort((a:any,b:any)=>{ const av=a.status==="visited"?1:0,bv=b.status==="visited"?1:0; if(av!==bv)return av-bv; return String(b._date||"").localeCompare(String(a._date||"")); });
-      const body=(list.length?list.map(_ciRowHtml).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No appointments loaded.</td></tr>')
-        +'<tr id="ciNoMatchRow" style="display:none"><td colspan="6" style="text-align:center;color:var(--faint);padding:12px;font-size:12px">No matching appointment.</td></tr>';
-      box.innerHTML='<div class="tscroll"><table class="tbl" style="min-width:620px"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Selected Service</th><th>Appointment Date &amp; Time</th><th>Appointment Status</th></tr></thead><tbody>'+body+'</tbody></table></div>';
-      _ciApplyFilter();
-    }
-    // Filter the ALREADY-rendered rows to the search term (phone / name / client-ID) by show/hide —
-    // no re-render, so an open dropdown survives typing. Auto-selects the top visible match so
-    // "Confirm → screening" still works after a search.
-    function _ciApplyFilter(){
-      const box=root.querySelector("#ciResults"); if(!box) return;
       const q=((root.querySelector("#ciSearch")as HTMLInputElement)?.value||"").trim();
-      const ql=q.toLowerCase(); const digits=q.replace(/\D/g,"");
-      const trs=Array.from(box.querySelectorAll("tr[data-ci-id]")) as HTMLElement[];
-      let firstVisible:any=null; let anyVisible=false;
-      trs.forEach(tr=>{ const key=tr.getAttribute("data-ci-key")||"";
-        const show=!q || (digits.length>=4 && key.replace(/\D/g,"").indexOf(digits)>=0) || (ql!==""&&key.indexOf(ql)>=0);
-        tr.style.display=show?"":"none";
-        if(show){ anyVisible=true; if(!firstVisible){ firstVisible=_recAll.find((x:any)=>String(x.id)===String(tr.getAttribute("data-ci-id")))||null; } }
-      });
-      const noMatch=box.querySelector("#ciNoMatchRow")as HTMLElement|null; if(noMatch) noMatch.style.display=(q&&!anyVisible)?"":"none";
-      if(q){ const selShown=_ciMatch&&trs.some(t=>String(t.getAttribute("data-ci-id"))===String(_ciMatch.id)&&t.style.display!=="none"); if(!selShown) _ciMatch=firstVisible; }
+      const list=_ciVisibleRows(q);
+      const body=list.length?list.map(_ciRowHtml).join("")
+        :(q?'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No matching appointment.</td></tr>'
+           :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No appointments yet.</td></tr>');
+      box.innerHTML='<div class="tscroll"><table class="tbl" style="min-width:620px"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Selected Service</th><th>Appointment Date &amp; Time</th><th>Appointment Status</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+      // When searching, keep a valid Check-in target: auto-select the top match if the current one is off-list.
+      if(q){ const selShown=_ciMatch&&list.some((r:any)=>String(r.id)===String(_ciMatch.id)); if(!selShown) _ciMatch=list[0]||null; }
       const nameEl=root.querySelector("#ciName"); if(nameEl) nameEl.textContent=_ciMatch?_ciMatch.name:(q?"No match":"—");
       const dd=root.querySelector("#ciDedup")as HTMLInputElement|null; if(!q){ if(dd) dd.value=""; } else { _ciSetDedup(_ciMatch); }
       _ciHighlight();
@@ -5830,7 +5846,8 @@ export function initApp(root: HTMLElement) {
         const chip=tr.querySelector(".ci-selchip")as HTMLElement|null; if(chip) chip.style.display=isSel?"":"none";
       });
     }
-    w._ciLookup=_ciApplyFilter;
+    // Search input → re-render rows for the current term (dynamic filter as the user types).
+    w._ciLookup=_ciRenderTable;
     // Click a row to make that appointment the Check-in target (dropdown clicks are excluded above).
     w._ciSelect=(id:any)=>{ const r=_recAll.find((x:any)=>String(x.id)===String(id)); if(!r) return; _ciMatch=r; const nameEl=root.querySelector("#ciName"); if(nameEl)nameEl.textContent=r.name||"—"; _ciSetDedup(r); _ciHighlight(); };
     // Multi-select change on a row → update the tags shown AND persist to the appointment's `service`
@@ -5845,7 +5862,7 @@ export function initApp(root: HTMLElement) {
     };
     // Confirm → screening: mark the appointment visited, advance to screening stage, persist.
     async function recRegDone(){
-      if(!_ciMatch) _ciApplyFilter();   // keep an explicit row-click selection; only re-derive from the search box if nothing is chosen
+      if(!_ciMatch) _ciRenderTable();   // keep an explicit row-click selection; only re-derive from the current view if nothing is chosen
       if(!_ciMatch){ toastErr("Search a client by phone or name first"); return; }
       const nowIso=new Date().toISOString();
       const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
@@ -6227,6 +6244,32 @@ export function initApp(root: HTMLElement) {
     // Coach consultation
     const cBadge=root.querySelector("#coachBadge");
     let _coachConsStatus="Open";   // the open client's consultation status (persisted in coach_profile)
+    // Each follow-up status keeps its OWN Commitment + Review date. The three share one set of
+    // input fields, so switching tabs must stash the outgoing status's dates and load the
+    // incoming one's (empty until that status has its own value) — no carry-over between them.
+    const _FU_STATUSES=["This Week","End of Month","Next Month"];
+    let _fuDates:Record<string,{commit:string;review:string}>={};
+    let _fuActiveKey="";   // the follow-up status whose values currently occupy the fields
+    function _fuSwapDates(label:string){
+      const fc=root.querySelector("#fuCommitDate")as HTMLInputElement|null;
+      const rv=root.querySelector("#haReviewDate")as HTMLInputElement|null;
+      const targetIsFu=_FU_STATUSES.indexOf(label)>=0;
+      if(_coachApplying){
+        // Profile restore: the fields already hold the saved value — seed this status's slot
+        // from them instead of overwriting, so the restored date survives.
+        if(targetIsFu){ _fuActiveKey=label; _fuDates[label]={commit:(fc&&fc.value)||"",review:(rv&&rv.value)||""}; }
+        else _fuActiveKey="";
+        return;
+      }
+      if(_fuActiveKey===label) return;                       // no status change → nothing to swap
+      if(_fuActiveKey){ _fuDates[_fuActiveKey]={commit:(fc&&fc.value)||"",review:(rv&&rv.value)||""}; }  // stash outgoing
+      if(targetIsFu){                                        // load incoming status's own dates (or blank)
+        const s=_fuDates[label]||{commit:"",review:""};
+        if(fc) fc.value=s.commit;
+        if(rv){ rv.value=s.review; rv.classList.remove("err"); }
+      }
+      _fuActiveKey=targetIsFu?label:"";
+    }
     function consAct(a:string,el:HTMLElement){
       const pay=root.querySelector("#paySec")as HTMLElement;
       const fu=root.querySelector("#coachFu")as HTMLElement;
@@ -6234,6 +6277,7 @@ export function initApp(root: HTMLElement) {
       // Record the chosen consultation status (the pill's label) so the dashboard/table
       // can categorize this client. Runs for user clicks AND profile restores.
       if(el&&el.textContent) _coachConsStatus=el.textContent.trim();
+      _fuSwapDates(_coachConsStatus);   // keep each follow-up status's dates independent
       if(fu)fu.style.display="none"; if(rf)rf.style.display="none";
       // Review date is only relevant for "Will Join Immediately" (join) and the
       // This Week / End of Month / Next Month plans (all the 'fup' action) — hidden otherwise.
@@ -6251,6 +6295,18 @@ export function initApp(root: HTMLElement) {
       if(pay&&pay.style.display==="block"){ try{ _syncProgramPricing(); }catch(_){} }
     }
     w.consAct = consAct;
+    // Auto-sync: for the follow-up statuses (This Week / End of Month / Next Month) the
+    // Commitment date and the Review date are always the same day, so copy the Commitment
+    // date straight into the Review date whenever it changes — no double entry. Only runs
+    // while the follow-up panel is active, so it never touches the "Will Join Immediately"
+    // or any other flow. Existing validations still apply on save.
+    w._fuCommitSync=()=>{
+      const fu=root.querySelector("#coachFu")as HTMLElement|null;
+      if(!fu||fu.style.display==="none") return;   // guard: only the follow-up flow syncs
+      const commit=(root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value||"";
+      const rev=root.querySelector("#haReviewDate")as HTMLInputElement|null;
+      if(rev){ rev.value=commit; rev.classList.remove("err"); }
+    };
 
     // Refund panel: previously the "Submit" button only toasted a success message and never wrote
     // anything — no revenue figure ever subtracted a refund, and a refunded client stayed "Enrolled"
@@ -6842,7 +6898,6 @@ export function initApp(root: HTMLElement) {
       const e2=root.querySelector("#scrEmpty")as HTMLElement;if(e2)e2.style.display="none";
       const d2=root.querySelector("#scrData")as HTMLElement;if(d2)d2.style.display="grid";
       const ch=root.querySelector("#scrChip")as HTMLElement;if(ch){ch.textContent="Completed · M0 locked";ch.className="chipb ok";}
-      toast("Screening confirmed → proceed to Payment Collection");
       await loadScreeningData();
       await loadReceptionData();
     }
@@ -7254,6 +7309,7 @@ export function initApp(root: HTMLElement) {
       _coachAttachments=[]; renderCoachAtts();
       Object.keys(_payProofs).forEach(k=>delete _payProofs[k]);   // clear per-client payment proofs
       _coachConsStatus="Open";   // reset; a restored profile re-sets it via consAct
+      _fuDates={}; _fuActiveKey="";   // clear per-status follow-up dates so a new client starts fresh
       const crS=root.querySelector("#crSugar")as HTMLInputElement|null; if(crS&&lead.sugar) crS.value=lead.sugar;
       setV("haConsultDate",new Date().toISOString().slice(0,10));
       const fuNotes=root.querySelector("#fuNotes"); if(fuNotes) fuNotes.innerHTML="";
@@ -7341,6 +7397,18 @@ export function initApp(root: HTMLElement) {
           +'<tr><td style="color:var(--muted)">Last call note</td><td colspan="5">'+esc(note)+'</td></tr>';
       }
     }
+    // Whether a visited lead belongs in the Health Coach (Diabetes) queue. Diabetes / Diabetes
+    // Counselling → yes. An already-enrolled coach client → yes (kept regardless of service, so an
+    // enrolled diabetes client is never dropped). An explicit NON-diabetes modality — Blood Test,
+    // Physiotherapy, Weight Loss, Sauna Bath, Cold Plunge, HBOT — → no (each has its own module).
+    // A combined service that INCLUDES Diabetes still qualifies. Blank/unrecognised → yes (this is a
+    // diabetes clinic, so an un-tagged prospect should still reach the coach).
+    function _coachQualifies(c:any):boolean{
+      const s=String(c.service||"").toLowerCase();
+      if(/diabet/.test(s)) return true;
+      if(/enrol/i.test(String(c.consStatus||""))||!!c.enrolledAt||/l[12]/i.test(String(c.enrolledLevel||""))) return true;
+      return !/(blood|phys|weight|sauna|cold|hbot|hyperbaric)/.test(s);
+    }
     async function loadCoachClients(){
       try{
         let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status,enrolled_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
@@ -7356,7 +7424,13 @@ export function initApp(root: HTMLElement) {
         // enrollment via Reception/Accounts), so we derive from paid programs and fall back to
         // consStatus's "Enrolled – Lx" when present. Independent of the Suggested-Program dropdown.
         const _paidProg:Record<string,Set<string>>={};
-        try{ const _ids=(data||[]).map((r:any)=>String(r.meta_lead_id)).filter(Boolean); if(_ids.length){ const {data:_pays}=await supabase.from("payments").select("lead_id,program,status").in("lead_id",_ids); (_pays||[]).forEach((p:any)=>{ if(p.status==="paid"&&p.program){ const k=String(p.lead_id); (_paidProg[k]=_paidProg[k]||new Set()).add(String(p.program).toUpperCase()); } }); } }catch(_){}
+        // L1/L2 is a DIABETES-only enrollment concept. Count a program-tagged paid payment toward
+        // the coaching level ONLY when it is a Diabetes payment — otherwise a Blood Test / Physio
+        // payment historically mis-tagged with a program would falsely read the client as
+        // "Enrolled – L2". The payment's own service decides it; when the payment carries no
+        // service, fall back to the LEAD's service.
+        const _diaLead=new Set((data||[]).filter((r:any)=>_recSvcCode(r.service||"")==="dia").map((r:any)=>String(r.meta_lead_id)));
+        try{ const _ids=(data||[]).map((r:any)=>String(r.meta_lead_id)).filter(Boolean); if(_ids.length){ const {data:_pays}=await supabase.from("payments").select("lead_id,program,status,service").in("lead_id",_ids); (_pays||[]).forEach((p:any)=>{ if(p.status!=="paid"||!p.program) return; const k=String(p.lead_id); const isDiaPay=(p.service&&String(p.service).trim())?_recSvcCode(p.service)==="dia":_diaLead.has(k); if(!isDiaPay) return; (_paidProg[k]=_paidProg[k]||new Set()).add(String(p.program).toUpperCase()); }); } }catch(_){}
         const _enrLevelFor=(id:any,cons:string):string=>{ const set=_paidProg[String(id)]; return _levelUnion(cons, set?[...set]:[]); };   // UNION of consStatus level + paid programs
         _coachClients=(data||[]).map((r:any)=>{
           const cp=r.coach_profile; const sv=r.screening_vitals||null; const apptStage=apptStages[r.meta_lead_id]||"";
@@ -7369,6 +7443,10 @@ export function initApp(root: HTMLElement) {
           else if(sv&&sv.screened_at) stage="assessment";
           return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,(cp&&cp.consStatus)||"")};
         });
+        // Health Coach queue = Diabetes only: drop leads whose service is a non-diabetes modality
+        // (Blood Test / Physiotherapy / etc.) so they no longer clutter the queue. Applied at the
+        // source, so the dashboard cards, Visited-clients table, Kanban and CSV export all agree.
+        _coachClients=_coachClients.filter(_coachQualifies);
         // Reconcile historical enrollments: a client marked Enrolled on the coach side whose
         // lead.call_status hasn't caught up → sync it (DB + memory) so the Advisor dashboard,
         // Enrolled card and Enrolled-clients table reflect it without needing a re-save.
@@ -8640,7 +8718,7 @@ export function initApp(root: HTMLElement) {
       const n=_btRowSel.size;
       if(!n){ bar.style.display="none"; bar.innerHTML=""; return; }
       const grp=(label:string,field:string,opts:[string,string][])=>'<span style="display:inline-flex;align-items:center;gap:4px"><b style="font-weight:600;color:var(--muted)">'+label+':</b>'
-        +opts.map(([v,l])=>'<button class="btn bsm" onclick="window._btBulk(\''+field+'\',\''+v+'\')">'+l+'</button>').join("")+'</span>';
+        +opts.map(([v,l])=>'<button class="btn bsm" onclick="window._btBulkConfirm(\''+field+'\',\''+v+'\')">'+l+'</button>').join("")+'</span>';
       bar.style.display="flex";
       bar.innerHTML='<b>'+n+' selected</b>'
         +grp("Sample","sample_status",[["collected","Collected"],["yet_to_collect","Yet to Collect"]])
@@ -8664,9 +8742,16 @@ export function initApp(root: HTMLElement) {
       const s=root.querySelector("#btSearch")as HTMLInputElement|null; if(s)s.value="";
       _btRenderAll();
     };
-    // FR §6 — apply one status to every selected record, persisting to blood_test_data.
-    w._btBulk=async(field:string,value:string)=>{
-      const ids=[..._btRowSel]; if(!ids.length){ toast("Select rows first"); return; }
+    // The four bulk-updatable statuses share ONE confirmation modal (same UI/UX for all).
+    const BT_STATUS_FIELDS:Record<string,{label:string;opts:[string,string][]}>={
+      sample_status:{label:"Sample status",opts:[["collected","Collected"],["yet_to_collect","Yet to Collect"]]},
+      lab_status:{label:"Lab status",opts:[["sent","Sent"],["yet_to_send","Yet to Send"]]},
+      lab_report_status:{label:"Lab report status",opts:[["received","Received"],["yet_to_receive","Yet to Receive"]]},
+      client_report_status:{label:"Client report status",opts:[["shared","Shared"],["yet_to_share","Yet to Share"]]},
+    };
+    // FR §6 — apply one status to the given records, persisting to blood_test_data (unchanged API).
+    async function _btApplyBulk(ids:string[],field:string,value:string){
+      if(!ids.length){ toast("Select at least one record"); return; }
       const ups=ids.map(async id=>{
         const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
         const bt={...(r.btData||{})}; bt[field]=value;
@@ -8677,6 +8762,54 @@ export function initApp(root: HTMLElement) {
       toast(ids.length+" record"+(ids.length===1?"":"s")+" updated");
       _btRowSel.clear();
       await loadBloodTestData();
+    }
+    w._btBulk=(field:string,value:string)=>_btApplyBulk([..._btRowSel],field,value);   // kept for compatibility
+    // Confirmation popup: review + adjust the selected leads, pick the status, then confirm.
+    w._btBulkConfirm=(field:string,value:string)=>{
+      const meta=BT_STATUS_FIELDS[field]; if(!meta) return;
+      const ids=[..._btRowSel]; if(!ids.length){ toast("Select at least one record first"); return; }
+      let chosen=value;                              // the status value to apply (switchable in the popup)
+      const sel=new Set(ids.map(String));            // popup-local selection, seeded from the table
+      const ov=document.createElement("div");
+      ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+      const box=document.createElement("div");
+      box.style.cssText="background:var(--surface,#fff);border-radius:14px;padding:20px;max-width:720px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
+      ov.appendChild(box); document.body.appendChild(ov);
+      const close=()=>{ if(ov.parentNode) document.body.removeChild(ov); };
+      ov.onclick=(ev:any)=>{ if(ev.target===ov) close(); };
+      const rowsFor=()=>ids.map(id=>_btAll.find((x:any)=>String(x.id)===String(id))).filter(Boolean);
+      function render(){
+        const rows=rowsFor();
+        const optBtns=meta.opts.map(([v,l])=>'<button class="btn bsm'+(v===chosen?" bp":"")+'" onclick="window._btBulkPick(\''+_btE(v)+'\')">'+_btE(l)+'</button>').join("");
+        const body=rows.map((r:any)=>{
+          const on=sel.has(String(r.id));
+          return '<tr'+(on?' style="background:var(--brand-tint)"':'')+'>'
+            +'<td><input type="checkbox" '+(on?"checked":"")+' onclick="window._btBulkTog(\''+_btE(String(r.id))+'\',this.checked)"></td>'
+            +'<td style="font-weight:600">'+_btE(r.name||"—")+'</td>'
+            +'<td class="mono">'+_btE(r.ph||"—")+'</td>'
+            +'<td>'+_btE(r.panelText||(r.raw&&r.raw.service)||"—")+'</td>'
+            +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+_btE(r.date)+(r.time?' · '+_btE(r.time):'')+'</td></tr>';
+        }).join("");
+        const nSel=sel.size;
+        box.innerHTML='<div style="font-weight:700;font-size:16px;margin-bottom:2px;color:var(--ink)">Confirm bulk update — '+_btE(meta.label)+'</div>'
+          +'<div style="font-size:12px;color:var(--faint);margin-bottom:14px">Review the records, adjust the selection, choose the status, then confirm. Only the ticked records are updated.</div>'
+          +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px"><b style="font-size:12.5px;color:var(--muted)">Set '+_btE(meta.label)+' to:</b>'+optBtns+'</div>'
+          +'<div class="tscroll" style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:10px"><table class="tbl"><thead><tr><th style="width:28px"></th><th>Name</th><th>Phone</th><th>Service / panel</th><th>Visit date &amp; time</th></tr></thead><tbody>'+(body||'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:16px">No records.</td></tr>')+'</tbody></table></div>'
+          +'<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;margin-top:14px">'
+          +'<span style="font-size:12px;color:var(--muted)"><b>'+nSel+'</b> of '+rows.length+' selected</span>'
+          +'<div style="display:flex;gap:10px"><button class="btn bsm" id="btBulkCancel">Cancel</button><button class="btn bsm bp" id="btBulkGo"'+(nSel?"":" disabled")+'>Update Selected Records</button></div></div>';
+        (box.querySelector("#btBulkCancel")as HTMLElement).onclick=close;
+        const go=box.querySelector("#btBulkGo")as HTMLButtonElement;
+        go.onclick=async()=>{
+          const applyIds=[...sel]; if(!applyIds.length){ toast("Select at least one record"); return; }
+          go.disabled=true; go.textContent="Updating…";
+          await _btApplyBulk(applyIds,field,chosen);
+          close();
+        };
+      }
+      w._btBulkPick=(v:string)=>{ chosen=v; render(); };
+      w._btBulkTog=(id:string,on:boolean)=>{ if(on)sel.add(String(id)); else sel.delete(String(id)); render(); };
+      render();
     };
     w._btOpenDetail=(id:any)=>{
       const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;}   // id is BIGSERIAL → gateway returns a string
