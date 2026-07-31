@@ -2997,8 +2997,12 @@ export function initApp(root: HTMLElement) {
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const recCount=rows.filter((r:any)=>r.recording_url).length;
       if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div>'; return; }
+      // Keep the panel clean: show only the 2 MOST RECENT calls (rows are already sorted latest-first).
+      // The chips below still report the true totals, and any older calls are noted — a "View All"
+      // can surface the full history later without cluttering the default view.
+      const shown=rows.slice(0,2);
       el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span></div>'
-        +rows.map((r:any)=>{
+        +shown.map((r:any)=>{
           const out=/out/i.test(r.direction||"outbound");
           const dir=out?'<span class="chipb vio">Outgoing</span>':'<span class="chipb info">Incoming</span>';
           const dur=r.duration_seconds?((r.duration_seconds/60|0)+":"+String(r.duration_seconds%60).padStart(2,"0")):"—";
@@ -3014,7 +3018,8 @@ export function initApp(root: HTMLElement) {
             +'<span style="font-size:11.5px;color:var(--muted)">Agent '+e(r.agent_number||r.from_number||"—")+'</span>'
             +'<span style="font-size:11.5px;color:var(--muted)">→ '+e(r.to_number||"—")+'</span></div>'
             +rec+'</div>';
-        }).join("");
+        }).join("")
+        +(rows.length>shown.length?'<div style="text-align:center;color:var(--faint);font-size:11.5px;padding:9px 0 2px">Showing the 2 most recent · '+(rows.length-shown.length)+' older call'+(rows.length-shown.length===1?"":"s")+' hidden</div>':"");
     }
     w.addFuNoteA=()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
@@ -4731,8 +4736,8 @@ export function initApp(root: HTMLElement) {
         // Enrichment: pull each lead's latest call_status so the Health Coach's Enrolled status
         // is reflected in Reception (Coach → Reception sync via the SAME leads record).
         const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
-        const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={}; const _consById:Record<string,string>={};
-        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at,coach_profile").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; _consById[String(r.meta_lead_id)]=(r.coach_profile&&r.coach_profile.consStatus)||""; }); }catch(_){} }
+        const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={}; const _consById:Record<string,string>={}; const _emailById:Record<string,string>={};
+        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at,coach_profile,email").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; _consById[String(r.meta_lead_id)]=(r.coach_profile&&r.coach_profile.consStatus)||""; _emailById[String(r.meta_lead_id)]=r.email||""; }); }catch(_){} }
         _recAll=(ar.data||[]).map((a:any)=>{
           const _cs=_csById[String(a.lead_id)]||"";
           const _def=a.status==="cancelled"?"refunded":((a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free");
@@ -4745,10 +4750,15 @@ export function initApp(root: HTMLElement) {
           const payAmt=collected;
           const payStatus = collected>0 ? (toCollect>0?"due":"paid") : (toCollect>0?"due":_def);
           const _isEnrolled=/enrol/i.test(_cs)||a.stage==="enrolled"||!!_enrAtById[String(a.lead_id)];   // canonical enrolled_at drives it too
-          const enrollLine=_isEnrolled?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
+          // enrolled_at/call_status live on the LEAD, not this appointment — a lead who enrolled in
+          // Diabetes still has separate Blood Test/Physio appointment rows for the same person. Only
+          // show the L1/L2 enrollment line on the Diabetes appointment; other services must fall back
+          // to their own appointments.stage text (e.g. "Blood Test Completed" — see recConfirm's
+          // _svcDoneStage), or a stale Diabetes enrollment would mislabel every one-shot service too.
+          const enrollLine=(_isEnrolled&&_recSvcCode(a.service)==="dia")?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
           return {
-          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session),
-          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"",
+          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session), serviceRaw:a.service||"",
+          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
@@ -4813,7 +4823,7 @@ export function initApp(root: HTMLElement) {
       return d;
     }
 
-    function renderAll() { renderRev(); renderSc(); renderFlows(); renderAppt(); renderPay(); }
+    function renderAll() { renderRev(); renderSc(); renderFlows(); renderAppt(); renderPay(); try{ _ciRenderTable(); }catch(_){} }
     // Revenue is summed from `payments` rows directly, scoped to the SAME [from,to] window as the
     // Appointments table (via _recDateRange, matching paid_at — every 'paid' row has one, verified).
     // Never sum a per-lead total stamped onto appointment rows: a lead with 2+ appointments (any
@@ -4907,7 +4917,7 @@ export function initApp(root: HTMLElement) {
         const due=RX.filter((r:any)=>r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"));
         el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||0;   // next installment / due amount (not the aggregate)
           const typeChip=r.collectLabel?' <span class="chipb info" style="font-size:10px">'+r.collectLabel+'</span>':'';
-          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\')">Collect</button></div>';
+          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\',\''+(r.svc||"dia")+'\')">Collect</button></div>';
         }).join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
@@ -5238,10 +5248,12 @@ export function initApp(root: HTMLElement) {
       if(p.style.display!=="block") return;
       p.scrollIntoView({behavior:"smooth"});
       const dt=root.querySelector("#nwDate")as HTMLInputElement; if(dt&&!dt.value) dt.value=_todayLocal();   // LOCAL date (UTC would read yesterday in early-morning IST)
-      // Resume a saved draft (survives refresh/reopen) from its last step; else start fresh.
+      // Single-page form: resume a saved draft (survives refresh/reopen), else start fresh.
+      _nwStep(1);
       let draft:any=null; try{ const s=localStorage.getItem(_NW_DRAFT_KEY); draft=s?JSON.parse(s):null; }catch(_){}
-      if(draft){ _nwRestoreDraft(draft); _nwStep(Math.min(4,Math.max(1,Number(draft._step)||1))); if(!((root.querySelector("#nwClientId")as HTMLInputElement)?.value)) _nwFillClientId(); toast("Draft restored — resuming step "+(Number(draft._step)||1)); }
-      else{ _nwStep(1); _nwFillClientId(); }
+      if(draft){ _nwRestoreDraft(draft); if(!((root.querySelector("#nwClientId")as HTMLInputElement)?.value)) _nwFillClientId(); toast("Draft restored"); }
+      else{ _nwFillClientId(); }
+      _nwUpdateProvVis();
     }
     // Show/hide keeps every field mounted, so switching steps never loses entered data.
     function _nwStep(n:number){
@@ -5249,10 +5261,6 @@ export function initApp(root: HTMLElement) {
       const panel=root.querySelector("#nwPanel"); if(!panel) return;
       panel.querySelectorAll(".nwStep").forEach((s:any)=>{ s.style.display=(String(s.getAttribute("data-step"))===String(n))?"":"none"; });
       panel.querySelectorAll("#nwStepNav button").forEach((b:any)=>{ b.classList.toggle("on",String(b.getAttribute("data-step"))===String(n)); });
-      const bar=root.querySelector("#nwProgressBar")as HTMLElement|null; if(bar) bar.style.width=(n*25)+"%";
-      const lbl=root.querySelector("#nwProgressLbl"); if(lbl) lbl.textContent="Step "+n+" of 4";
-      const pb=root.querySelector("#nwPrimaryBtn"); if(pb) pb.textContent=(n<4)?"Save & Next Page":"✓ Complete Registration";
-      if(n===4){ try{ _nwRenderConsents(); }catch(_){} }   // build consent forms for the services picked in step 2
     }
     w._nwStep=(n:number)=>_nwStep(n);
     // ---- Draft persistence: entered data survives refresh / reopen, resumes at last step ----
@@ -5283,105 +5291,30 @@ export function initApp(root: HTMLElement) {
     }
     function _nwClearDraft(){ if(_nwSaveT)clearTimeout(_nwSaveT); try{ localStorage.removeItem(_NW_DRAFT_KEY); }catch(_){} }
     w._nwClearDraft=_nwClearDraft;
-    // Primary button: Save & Next (steps 1-3) → Complete Registration (step 4 = create/book/check-in).
-    w._nwPrimary=()=>{ if(_nwStepN<4){ _nwStep(_nwStepN+1); _nwSaveDraft(); } else { nwBook(); } };
-    // Silent auto-save on any change while the form is open, so a refresh mid-step keeps data.
+    // Which services are ticked on the single-page intake grid (long labels, e.g. "Blood Test").
+    function _nwSelectedSvcs():string[]{ const panel=root.querySelector("#nwPanel"); if(!panel) return []; return Array.from(panel.querySelectorAll("input[data-svc2]:checked")).map((i:any)=>String(i.getAttribute("data-svc2")||"")); }
+    // Blood-Test-only visit: drives BOTH the Provider field visibility and the "Save & Proceed"
+    // routing. Blood Test is a one-shot diagnostic with no provider/counsellor and its own payment
+    // page; if any OTHER service is also ticked, it needs a provider and follows the normal flow.
+    function _nwBloodTestOnly():boolean{ const s=_nwSelectedSvcs(); return s.indexOf("Blood Test")>=0 && !s.some(x=>x!=="Blood Test"); }
+    function _nwHasBloodTest():boolean{ return _nwSelectedSvcs().indexOf("Blood Test")>=0; }
+    // Provider field hides only when Blood Test is the ONLY service (a one-shot diagnostic needs no
+    // provider). If any other service is also ticked, that service needs a provider → keep it shown.
+    function _nwUpdateProvVis(){ const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=_nwBloodTestOnly()?"none":""; }
+    // Primary button "Save & Proceed": if Blood Test is selected (alone OR with other services) →
+    // dedicated Collect Payment page for the blood-test payment FIRST; the remaining services are
+    // registered into the normal screening/Health-Coach flow so they continue automatically after.
+    // No Blood Test → the existing create + book + screening flow, unchanged (nwBook).
+    w._nwPrimary=()=>{ _nwSaveDraft(true); if(_nwHasBloodTest()) _nwBloodTestProceed(); else nwBook(); };
+    // Silent auto-save on any change while the form is open, so a refresh keeps entered data.
+    // Provider visibility re-evaluates on every change (service checkboxes toggle it).
     { const panel=root.querySelector("#nwPanel");
       const auto=()=>{ const p=root.querySelector("#nwPanel")as HTMLElement|null; if(!p||p.style.display==="none")return; if(_nwSaveT)clearTimeout(_nwSaveT); _nwSaveT=setTimeout(()=>_nwSaveDraft(true),500); };
-      if(panel){ panel.addEventListener("input",auto); panel.addEventListener("change",auto); }
+      if(panel){ panel.addEventListener("input",auto); panel.addEventListener("change",()=>{ auto(); _nwUpdateProvVis(); }); }
     }
-    // Service → consent-form map. General Declaration (step 4) renders the matching
-    // form(s) for whatever services are ticked on step 2 (Service Selected). Content for
-    // Physio / Blood Test / HBOT is pending — shown as a placeholder until provided.
-    const _NW_CONSENTS:Record<string,any>={
-      "Diabetes Counselling":{n:1,title:"Diabetes Counselling",items:[
-        "This is a nutritional and lifestyle counselling service by a qualified Nutritionist/Dietitian — NOT a medical consultation or prescription.",
-        "I will continue all medications under my physician's supervision and will NOT alter doses without my doctor's advice.",
-        "I understand that lifestyle-based diabetes reversal outcomes vary individually and no specific result is guaranteed.",
-        "I understand this session may include a recommendation to join the My Health School online program.",
-        "I am under no obligation to enrol in any program and my data will not be shared without my consent.",
-        "I understand that dietary and lifestyle changes may affect my blood glucose levels and I will monitor and report changes to my physician."]},
-      "Weight Loss Counselling":{n:2,title:"Weight Loss Counselling",items:[
-        "This is a nutritional and lifestyle counselling service by a qualified Nutritionist/Dietitian — NOT a medical consultation or prescription.",
-        "Evidence-based weight loss is 0.5–1 kg per week. I understand that rapid results are neither safe nor sustainable.",
-        "Outcomes depend on individual compliance, metabolism, and lifestyle factors — no specific result is guaranteed.",
-        "I understand this session may include a recommendation to join the My Health School online program.",
-        "I do not have any active eating disorder that would contraindicate nutritional counselling.",
-        "I will continue all medications under my physician's supervision and will NOT alter doses without my doctor's advice.",
-        "My data will not be shared with any third party without my written consent."]},
-      "Sauna Bath":{n:3,title:"Sauna Bath",meta:["Sauna Temperature (°C)","Session Duration (min)","Wellness Attendant"],items:[
-        "I understand that sauna use elevates core body temperature and places additional stress on the cardiovascular system.",
-        "I confirm I do not have uncontrolled hypertension, recent cardiac event, pregnancy, epilepsy, or severe neuropathy.",
-        "I confirm I do not have a pacemaker or implanted cardiac device.",
-        "I have not consumed alcohol in the last 12 hours and have consumed at least 200ml water before this session.",
-        "I understand that certain medications (antihypertensives, diuretics, insulin) may increase sauna risk — I have disclosed all medications to staff.",
-        "If I have diabetes, I understand that sauna may cause post-session blood glucose fluctuations and I will monitor accordingly.",
-        "I will exit immediately if I feel dizzy, nauseous, or experience chest discomfort.",
-        "I understand a wellness attendant is stationed outside and I must check in and out with them at every session.",
-        "Maximum session duration is 20 minutes. I agree to follow all safety protocols as briefed."]},
-      "Cold Plunge":{n:4,title:"Cold Plunge",meta:["Water Temperature (°C)","Session Duration (min)","Wellness Attendant"],items:[
-        "I understand cold water immersion triggers a cold shock response including gasping and rapid heart rate elevation and can pose serious cardiovascular risk.",
-        "I confirm I do not have cardiac arrhythmia, uncontrolled hypertension, Raynaud's disease, cold urticaria, peripheral vascular disease, or open wounds.",
-        "I confirm I do not have a history of cardiac events and I am not pregnant.",
-        "I have not had surgery in the last 3 months.",
-        "I understand that if I have diabetes with peripheral neuropathy, my cold sensation may be reduced — I will inform staff.",
-        "If transitioning from sauna, I confirm I have rested for a minimum of 5 minutes before entering the cold plunge.",
-        "I will begin with a maximum of 1–2 minutes for my first session and follow the progressive duration protocol as guided by staff.",
-        "I will breathe slowly upon entering — no breath-holding. I will NOT submerge my head unless cleared by staff.",
-        "A wellness attendant is present outside at all times. I will not use the cold plunge unsupervised."]},
-      "Physiotherapy":{n:5,title:"Physiotherapy",meta:["Physiotherapist Name","Registration No."],items:[
-        "Physiotherapy is delivered by a registered, qualified physiotherapist. All treatments are evidence-based and individualised.",
-        "Treatment may include manual therapy, therapeutic exercises, electrotherapy (TENS, IFT, ultrasound), and heat/cold application.",
-        "I confirm I do not have metallic implants or surgical hardware in my body (absolute contraindication for electrotherapy).",
-        "I confirm I do not have a pacemaker or implanted cardiac device.",
-        "I confirm I do not have active cancer currently under treatment.",
-        "Some discomfort (DOMS) may occur after initial sessions — this is a normal physiological response.",
-        "I will inform the physiotherapist of any worsening symptoms between sessions.",
-        "I have the right to stop treatment at any time without obligation.",
-        "I confirm I have disclosed all relevant medical history, imaging reports, and medications to the physiotherapist."]},
-      "Blood Test":{n:6,title:"Blood Test",options:[{label:"Fasting Status",choices:["Fasting (8–10 hrs)","Non-fasting","Not required for tests ordered"]}],meta:["Tests Requested","Phlebotomist Name"],items:[
-        "Blood collection is performed by a trained phlebotomist / healthcare professional using sterile, single-use equipment.",
-        "I understand minor discomfort, bruising, or lightheadedness may occur following blood collection.",
-        "I confirm I have disclosed all current medications and any bleeding disorders to the centre staff.",
-        "I am not on anticoagulant therapy (blood thinners) unless I have informed staff prior to collection.",
-        "Results will be shared with me and may be used by the counselling team to personalise my wellness program.",
-        "I have followed the required fasting instructions (if applicable) as communicated by the centre.",
-        "I understand that blood test results will NOT be interpreted as a medical diagnosis — I will be referred to my physician for clinical decisions."]},
-      "HBOT (Hyperbaric Oxygen Therapy)":{n:7,title:"HBOT — Hyperbaric Oxygen Therapy",options:[{label:"Chamber Type",choices:["Soft","Hard"]}],meta:["Chamber Pressure (ATA)","Session Duration (min)","Session Number","HBOT Operator","Operator Certification"],items:[
-        "I understand that HBOT involves breathing enriched oxygen in a pressurised chamber at greater than atmospheric pressure.",
-        "I understand this is a wellness-grade HBOT session and is NOT a substitute for medical treatment or therapeutic HBOT.",
-        "I confirm I do not have untreated pneumothorax (collapsed lung), active ear/sinus infection, fever, or implanted electronic devices.",
-        "I confirm I do not have uncontrolled hypertension, severe COPD, epilepsy, or any contraindicated implants.",
-        "I confirm I am not pregnant and am not currently on chemotherapy with bleomycin or cisplatin.",
-        "I understand common side effects include ear pressure (barotrauma) and I have been trained on the Valsalva manoeuvre for ear equalisation.",
-        "I agree not to bring any flammable materials, electronic devices, or petroleum-based products into the chamber.",
-        "I will wear the cotton gown or cotton clothing provided — no synthetic fabrics.",
-        "I have been verbally briefed on oxygen fire risk and chamber emergency exit protocol.",
-        "I will notify staff immediately if I feel claustrophobic, experience ear pain, or any unusual symptom during the session.",
-        "This session is conducted under the supervision of trained HBOT staff and is not a substitute for medical treatment."]}
-    };
-    function _nwRenderConsents(){
-      const wrap=root.querySelector("#nwConsentForms"); if(!wrap) return;
-      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      // Office-use summary (Client ID + registration date + assigned counsellor).
-      const setT=(id:string,v:string)=>{const el=root.querySelector("#"+id);if(el)el.textContent=v;};
-      setT("nwOfficeCid",((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"—")||"—");
-      setT("nwOfficeRegDate",fmtISTDate(new Date().toISOString()));
-      setT("nwOfficeCouns",((root.querySelector("#nwProv")as HTMLSelectElement)?.value||"—")||"—");
-      const sel=Array.from(root.querySelectorAll('#nwPanel .nwStep[data-step="2"] input[data-svc2]:checked')).map((i:any)=>i.getAttribute("data-svc2"));
-      if(!sel.length){ wrap.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:12.5px;border:1px dashed var(--line);border-radius:10px">Select one or more services on the “Service Selected” step to load the matching consent form(s).</div>'; return; }
-      const sig='<div class="nwSignRow"><div class="fld"><label class="lbl">Client signature</label><input class="input" style="height:34px"></div><div class="fld"><label class="lbl">Date</label><input class="input" type="date" style="height:34px"></div><div class="fld"><label class="lbl">Staff witness</label><input class="input" style="height:34px"></div></div>';
-      wrap.innerHTML=sel.map((svc:string)=>{ const c=_NW_CONSENTS[svc]; if(!c) return "";
-        let body='';
-        if(c.todo){ body='<div style="color:var(--faint);font-size:12.5px;padding:4px 2px">Consent content for this service will be added shortly.</div>'; }
-        else{
-          body=c.items.map((t:string)=>'<label class="nwConsentItem"><input type="checkbox"><span>'+e(t)+'</span></label>').join("");
-          if(c.options&&c.options.length){ body+=c.options.map((o:any)=>'<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:8px"><span style="font-weight:600;font-size:12.5px">'+e(o.label)+'</span>'+o.choices.map((ch:string)=>'<label class="nwChk" style="padding:6px 12px"><input type="checkbox">'+e(ch)+'</label>').join("")+'</div>').join(""); }
-          if(c.meta&&c.meta.length){ body+='<table class="nwConsentMeta"><tbody>'+c.meta.map((m:string)=>'<tr><td>'+e(m)+'</td><td><input class="input" style="height:30px"></td></tr>').join("")+'</tbody></table>'; }
-        }
-        return '<div class="nwConsentCard"><div class="nwConsentHd">CONSENT '+c.n+' — '+e(c.title)+'</div><div class="nwConsentBody">'+body+sig+'</div></div>';
-      }).join("");
-    }
+    // (The per-service consent forms / Data-Privacy / General-Declaration steps were removed from the
+    //  Reception intake — it is now a single Client-Details page. If consent capture is reintroduced,
+    //  restore the _NW_CONSENTS map + _nwRenderConsents renderer here.)
     // Next Client ID: WC + 2-digit year + 4-digit running number (per year), e.g. WC260001.
     async function _genClientId():Promise<string>{
       const yy=String(new Date().getFullYear()).slice(-2); const prefix="WC"+yy;
@@ -5420,7 +5353,7 @@ export function initApp(root: HTMLElement) {
       let clientId=((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"").trim();
       if(!/^WC\d{6}$/.test(clientId) || !(await _cidFree(clientId))){ clientId=await _genClientId(); let g=0; while(!(await _cidFree(clientId))&&g++<5) clientId=await _genClientId(); }
       const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
-      const svcChips=root.querySelectorAll("#nwSvc .chip-o.on"); const svcParts:string[]=[]; svcChips.forEach((c:any)=>{ const s=c.getAttribute("data-svc"); if(s==="dia")svcParts.push("Diabetes"); else if(s==="bt")svcParts.push("Blood test"); else if(s==="physio")svcParts.push("Physio"); }); const svcStr=svcParts.join(" + ")||"Diabetes";
+      const svcStr=_nwSelectedSvcs().join(" + ")||"Diabetes";   // service(s) from the single-page selection grid
       const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";   // read the Language field by id (robust to layout changes)
       try{
         await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
@@ -5435,10 +5368,121 @@ export function initApp(root: HTMLElement) {
     }
     w.nwBook = nwBook;
 
-    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any,program?:string}|null=null;
+    // Toggle which .screen is visible. Used for screens not wired to a sidebar nav button
+    // (the dedicated Collect Payment page). Sidebar screens still switch via the nav onclick.
+    function _showScreen(name:string){ root.querySelectorAll(".screen").forEach((x:any)=>x.classList.toggle("active",x.id==="s-"+name)); const m=root.querySelector("#main")as HTMLElement|null; if(m) m.scrollTop=0; }
+
+    // ---- Blood-Test walk-in (Blood Test alone OR combined with other services): create the client,
+    //      register the NON-blood-test services into the normal screening/Health-Coach flow (so they
+    //      continue automatically), create the Blood Test appointment, then open the dedicated Collect
+    //      Payment page for the blood-test payment FIRST. Mirrors nwBook's create logic. ----
+    let _cpCtx:{apptId:any,leadId:string,name:string}|null=null;
+    async function _nwBloodTestProceed(){
+      const name=((root.querySelector("#nwName")as HTMLInputElement)?.value||"").trim();
+      const ph=((root.querySelector("#nwPhone")as HTMLInputElement)?.value||"").trim();
+      const email=((root.querySelector("#nwEmail")as HTMLInputElement)?.value||"").trim();
+      const addr=((root.querySelector("#nwAddress")as HTMLInputElement)?.value||"").trim();
+      const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value||"";
+      const prov=(root.querySelector("#nwProv")as HTMLSelectElement)?.value||"";
+      if(!name||!ph){ toastErr("Enter name and phone"); return; }
+      if(!/^\d{10}$/.test(ph)){ toastErr("Enter a valid 10-digit mobile number"); return; }
+      if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); return; }
+      const sel=_nwSelectedSvcs();                      // every ticked service (incl. Blood Test)
+      const nonBT=sel.filter(s=>s!=="Blood Test");       // the "remaining services" that follow the normal flow
+      const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
+      const apptDate=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||today;
+      const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";
+      const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
+      let clientId=((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"").trim();
+      if(!/^WC\d{6}$/.test(clientId) || !(await _cidFree(clientId))){ clientId=await _genClientId(); let g=0; while(!(await _cidFree(clientId))&&g++<5) clientId=await _genClientId(); }
+      const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
+      const leadSvc=sel.join(" + ")||"Blood test";       // lead reflects every service the person came for
+      try{
+        await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:leadSvc,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
+      }catch(_){ /* lead insert best-effort */ }
+      // The remaining (non-blood-test) services → a normal appointment that flows to screening → HC,
+      // exactly like nwBook. This is what "continues the existing workflow after the payment".
+      if(nonBT.length){
+        try{
+          const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:nonBT.join(" + "),hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception (blood test collected separately)"});
+          if(ins&&ins.error){ toastErr(/appointment|relation|exist|schema/i.test(ins.error.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(ins.error.message||"db error")); return; }
+        }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
+      }
+      // The Blood Test appointment (kept out of the screening queue — it goes through Collect Payment).
+      try{
+        const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:"Blood test",appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:"blood_test",source:"Direct Walk-in",language:langVal,notes:"Blood-test walk-in registered at reception"});
+        if(ins&&ins.error){ toastErr(/appointment|relation|exist|schema/i.test(ins.error.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(ins.error.message||"db error")); return; }
+      }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
+      // Fetch the Blood Test appointment's id so the payment attaches to it (scoped to service so a
+      // combined-service walk-in's OTHER appointment is never picked by mistake).
+      let apptId:any=null; try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).eq("service","Blood test").order("id",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
+      _nwClearDraft(); nwToggle(); try{ await loadReceptionData(); }catch(_){}
+      _cpOpen({apptId,leadId,name,phone:ph,email,addr,service:leadSvc});
+      toast(nonBT.length?("Registered · "+nonBT.join(", ")+" → screening. Collect blood-test payment first"):"Client registered — collect blood-test payment");
+    }
+
+    // ---- Collect Payment page ----
+    function _cpOpen(c:{apptId:any,leadId:string,name:string,phone:string,email:string,addr:string,service:string}){
+      _cpCtx={apptId:c.apptId,leadId:c.leadId,name:c.name};
+      const setV=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
+      setV("cpName",c.name||""); setV("cpPhone",c.phone||""); setV("cpEmail",c.email||"—"); setV("cpAddr",c.addr||"—"); setV("cpSvc",c.service||"Blood test");
+      root.querySelectorAll('#cpTestsWrap input[type="checkbox"]').forEach((i:any)=>{ i.checked=false; });
+      setV("cpAmt",""); setV("cpTxn",""); const md=root.querySelector("#cpMode")as HTMLSelectElement|null; if(md) md.selectedIndex=0;
+      (w as any)._cpRecalc();
+      const ts=root.querySelector("#cpTestsSec")as HTMLElement|null; if(ts) ts.style.display=(_recSvcCode(c.service)==="bt")?"":"none";   // tests dropdown only for Blood Test
+      _showScreen("collectpay");
+    }
+    function _cpSelectedTests():{name:string,price:number}[]{ return Array.from(root.querySelectorAll('#cpTestsWrap input[type="checkbox"]:checked')).map((i:any)=>({name:String(i.getAttribute("data-test")||""),price:Number(i.getAttribute("data-price"))||0})); }
+    function _cpTotalAmt():number{ return _cpSelectedTests().reduce((s,t)=>s+t.price,0); }
+    w._cpRecalc=()=>{ const t=_cpTotalAmt(); const tt=root.querySelector("#cpTotal")as HTMLInputElement|null; if(tt) tt.value="₹"+t.toLocaleString("en-IN"); const amt=root.querySelector("#cpAmt")as HTMLInputElement|null; if(amt) amt.value=t?String(t):""; };
+    w._cpBack=()=>{ _cpCtx=null; try{ const nav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null; if(nav){ nav.click(); return; } }catch(_){} _showScreen("reception"); };
+    let _cpBusy=false;   // guards against a double-click creating two paid rows
+    w._cpCollect=async ()=>{
+      if(!_cpCtx){ toastErr("No client loaded"); return; }
+      if(_cpBusy) return;
+      const tests=_cpSelectedTests();
+      if(!tests.length){ toastErr("Select at least one test / panel"); return; }
+      const total=_cpTotalAmt();
+      const raw=((root.querySelector("#cpAmt")as HTMLInputElement)?.value||"").trim();
+      const amt=Math.round(Number(raw.replace(/[^0-9.]/g,"")));   // payments.amount is INT — round so Postgres doesn't reject a decimal
+      if(!raw||isNaN(amt)||amt<=0){ toastErr("Enter a valid amount — numbers only"); return; }
+      if(amt>total){ toastErr("Received (₹"+amt.toLocaleString("en-IN")+") cannot exceed the total (₹"+total.toLocaleString("en-IN")+")"); return; }
+      const method=((root.querySelector("#cpMode")as HTMLSelectElement)?.value||"UPI").toLowerCase();
+      const txnRef=((root.querySelector("#cpTxn")as HTMLInputElement)?.value||"").trim();
+      if(method!=="cash"&&!txnRef){ toastErr("Enter the transaction reference for "+method.toUpperCase()+" payments"); return; }
+      _cpBusy=true; const btn=root.querySelector("#cpCollectBtn")as HTMLButtonElement|null; if(btn) btn.disabled=true;
+      const ctx=_cpCtx;
+      try{
+        const nowIso=new Date().toISOString();
+        // Blood Test is a one-shot service (no L1/L2 program). Mirror recConfirm's one-shot insert
+        // (tagged service "Blood test") so revenue buckets correctly and Accounts can verify. The
+        // /db gateway resolves {error} rather than throwing — check it via _dbOk, never assume success.
+        if(!(await _dbOk(supabase.from("payments").insert({appointment_id:ctx.apptId||null,lead_id:ctx.leadId,amount:amt,status:"paid",method,paid_at:nowIso,collected_by:"Reception desk",service:"Blood test",txn_ref:txnRef||null}),"Blood test payment"))) return;
+        if(ctx.apptId){ try{ await supabase.from("appointments").update({stage:"Blood Test Completed"}).eq("id",ctx.apptId); }catch(_){} }
+        if(ctx.leadId){ try{ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",ctx.leadId); }catch(_){} }
+        toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
+        try{ ach("🩸","Blood test payment collected",ctx.name+" · ₹"+amt.toLocaleString("en-IN")); }catch(_){}
+        _cpCtx=null;
+        try{ await loadReceptionData(); }catch(_){} try{ loadAccountsData(); }catch(_){}
+        (w as any)._cpBack();
+      }catch(e:any){ toastErr("Collect failed: "+(e.message||"db error")); }
+      finally{ _cpBusy=false; if(btn) btn.disabled=false; }
+    };
+
+    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any,program?:string,svc?:string}|null=null;
     let _recBusy=false;   // guards recConfirm against double-submit (double-click) — prevents duplicate paid rows
-    function recOpen(apptId:any,name:string,amt:any,leadId:string) {
-      _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0};
+    // Diabetes alone has an L1/L2 "program"/enrollment concept (_enrollLeadShared, _recLeadProgram).
+    // Blood Test and Physio are one-shot services with no such concept — a payment for either is
+    // simply DONE once collected. _svcPayLabel tags the payments row with the right service (so
+    // renderRev's revenue-by-service buckets it correctly — see _recSvcCode); _svcDoneStage is the
+    // Stage label shown on the Appointments table once that payment lands (matches _recSvcLabel's
+    // naming). Root cause this exists for: recConfirm used to always assume Diabetes — tagging no
+    // service at all (silently bucketed as Diabetes revenue) and always calling _enrollLeadShared
+    // (producing a nonsensical "L2 Completed" stage on a Blood Test lead that never touched L1/L2).
+    const _svcPayLabel:Record<string,string>={dia:"Diabetes",bt:"Blood test",physio:"Physio"};
+    const _svcDoneStage:Record<string,string>={bt:"Blood Test Completed",physio:"Physio Completed"};
+    function recOpen(apptId:any,name:string,amt:any,leadId:string,svc?:string) {
+      _recCollect={apptId,leadId:leadId||"",amt:Number(amt)||0,svc:svc||"dia"};
       // The collection panel lives on the Reception screen — when triggered from Blood test /
       // Physio / Accounts, switch to Reception so the form is actually visible.
       try{ const nav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null; if(nav) nav.click(); }catch(_){}
@@ -5526,13 +5570,14 @@ export function initApp(root: HTMLElement) {
           if(!(await _dbOk(supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid),"Payment collect"))) return;
           // Move the linked appointment to the payment stage (look it up from the payment row
           // when we weren't handed one) and mark the lead Payment Done.
-          let apptId=_recCollect.apptId, _payProg="L1";
-          try{ const {data:pr}=await supabase.from("payments").select("appointment_id,program").eq("id",pid).limit(1); const row=pr&&pr[0]; if(row){ if(!apptId) apptId=row.appointment_id; if(row.program) _payProg=row.program; } }catch(_){}
-          if(apptId) try{ await supabase.from("appointments").update({stage:"payment"}).eq("id",apptId); }catch(_){}
+          let apptId=_recCollect.apptId, _payProg="L1", _rowSvc="dia";
+          try{ const {data:pr}=await supabase.from("payments").select("appointment_id,program,service").eq("id",pid).limit(1); const row=pr&&pr[0]; if(row){ if(!apptId) apptId=row.appointment_id; if(row.program) _payProg=row.program; _rowSvc=_recSvcCode(row.service||""); } }catch(_){}
+          if(apptId) try{ await supabase.from("appointments").update({stage:_rowSvc==="dia"?"payment":(_svcDoneStage[_rowSvc]||"payment")}).eq("id",apptId); }catch(_){}
           if(_recCollect.leadId){ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
-            // Settling an outstanding due row to "paid" is an enrolling event — same shared writer
-            // as every other collection path, so Advisor's enrolled_at never falls behind again.
-            try{ await _enrollLeadShared(String(_recCollect.leadId),"Accounts collect",_payProg); }catch(_){}
+            // Settling an outstanding due row to "paid" is an enrolling event ONLY for Diabetes (the
+            // one service with an L1/L2 enrollment concept) — a Blood Test/Physio due row settled
+            // here must not call the Diabetes enrollment writer (see _svcPayLabel/_svcDoneStage above).
+            if(_rowSvc==="dia"){ try{ await _enrollLeadShared(String(_recCollect.leadId),"Accounts collect",_payProg); }catch(_){} }
             if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} } }
           toast("₹"+amt.toLocaleString("en-IN")+" collected — balance cleared");
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
@@ -5558,20 +5603,27 @@ export function initApp(root: HTMLElement) {
         }
         // No due row / installment to settle → a one-shot collect. Reconcile: if a paid row already
         // exists for this lead+program (e.g. the coach already recorded it), don't insert a parallel
-        // Reception row — that was another duplicate source.
-        const _fbProg=await _recLeadProgram(_recCollect.leadId);
-        // Same failure mode as above: the gateway resolves {error} rather than throwing, so a bare
-        // try/catch here would read a failed lookup as "not paid yet" and insert a parallel duplicate.
-        const _fbRes:any=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("program",_fbProg).eq("status","paid").limit(1);
-        if(_fbRes&&_fbRes.error){ toastErr("Payment check failed: "+(_fbRes.error.message||"database error")+" — collect aborted to avoid a duplicate row"); return; }
-        const _fbPaid=!!(_fbRes?.data&&_fbRes.data.length);
-        if(!_fbPaid&&!(await _dbOk(supabase.from("payments").insert({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",program:_fbProg}),"Payment collect"))) return;
-        await supabase.from("appointments").update({stage:"payment"}).eq("id",_recCollect.apptId);
+        // Reception row — that was another duplicate source. Only Diabetes has a "program" (L1/L2)
+        // to dedupe against; Blood Test/Physio are one-shot with no such concept, so skip straight
+        // to inserting (still guarded against a double-click by _recBusy above).
+        const _svc=_recCollect.svc||"dia", _isDia=_svc==="dia";
+        const _fbProg=_isDia?await _recLeadProgram(_recCollect.leadId):"";
+        let _fbPaid=false;
+        if(_isDia){
+          // Same failure mode as above: the gateway resolves {error} rather than throwing, so a bare
+          // try/catch here would read a failed lookup as "not paid yet" and insert a parallel duplicate.
+          const _fbRes:any=await supabase.from("payments").select("id").eq("lead_id",_recCollect.leadId).eq("program",_fbProg).eq("status","paid").limit(1);
+          if(_fbRes&&_fbRes.error){ toastErr("Payment check failed: "+(_fbRes.error.message||"database error")+" — collect aborted to avoid a duplicate row"); return; }
+          _fbPaid=!!(_fbRes?.data&&_fbRes.data.length);
+        }
+        if(!_fbPaid&&!(await _dbOk(supabase.from("payments").insert(Object.assign({appointment_id:_recCollect.apptId,lead_id:_recCollect.leadId,amount:amt,status:"paid",method,paid_at:new Date().toISOString(),collected_by:"Reception desk",service:_svcPayLabel[_svc]||"Diabetes"},_isDia?{program:_fbProg}:{})),"Payment collect"))) return;
+        await supabase.from("appointments").update({stage:_isDia?"payment":(_svcDoneStage[_svc]||"payment")}).eq("id",_recCollect.apptId);
         if(_recCollect.leadId){
           await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",_recCollect.leadId);
-          // Same shared enrollment writer as every other collection path (see the two branches
-          // above) — a one-shot collect is just as much an enrolling payment as any other.
-          try{ await _enrollLeadShared(String(_recCollect.leadId),"Reception collect",_fbProg); }catch(_){}
+          // Only Diabetes has an L1/L2 enrollment concept — this used to unconditionally call the
+          // shared enrollment writer here, which is exactly what produced a nonsensical "L2
+          // Completed" stage on a Blood Test lead that never touched the Diabetes program.
+          if(_isDia){ try{ await _enrollLeadShared(String(_recCollect.leadId),"Reception collect",_fbProg); }catch(_){} }
           // If the Health Coach has this client open, refresh its payment history + locks live.
           if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
         }
@@ -5687,26 +5739,113 @@ export function initApp(root: HTMLElement) {
     };
     function recBack() { const wb=root.querySelector("#recWb")as HTMLElement; if(wb)wb.style.display="none"; toast("↩ Moved back"); }
     w.recBack = recBack;
-    // Check-in: match the typed phone/name to a loaded appointment; fill Dedup + name.
+    // Check-in: match the typed phone/name to a loaded appointment; fill Dedup + name, and render a
+    // results table (Name · Phone · Email · Service · Appt Date & Time · Status) mirroring the
+    // Today's-Appointments table styling. Search is in-memory over _recAll → instant per keystroke.
     let _ciMatch:any=null;
-    function _ciLookup(){
-      const q=((root.querySelector("#ciSearch")as HTMLInputElement)?.value||"").trim();
-      const nameEl=root.querySelector("#ciName"); const dd=root.querySelector("#ciDedup")as HTMLInputElement|null;
-      if(!q){ _ciMatch=null; if(nameEl)nameEl.textContent="—"; if(dd)dd.value=""; return; }
-      const ql=q.toLowerCase(); const digits=q.replace(/\D/g,"");
-      const matches=_recAll.filter((r:any)=>{ const ph=(r.ph||"").replace(/\D/g,""); const cid=(r.clientId||"").toLowerCase(); return (digits.length>=4 && ph.indexOf(digits)>=0) || (r.name||"").toLowerCase().indexOf(ql)>=0 || (cid!==""&&cid.indexOf(ql)>=0); });
-      const pick=matches.find((r:any)=>r.status!=="visited")||matches[0]||null;
-      _ciMatch=pick;
-      if(nameEl) nameEl.textContent=pick?pick.name:"No match";
-      if(dd){
-        if(!pick){ dd.value="No match found"; }
-        else{ const ph=(pick.ph||"").replace(/\D/g,""); const same=ph?_recAll.filter((r:any)=>(r.ph||"").replace(/\D/g,"")===ph):[pick]; dd.value=same.length>1?("Repeat · "+same.length+" appts"):"Unique · new client"; }
-      }
+    const _esc=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    // Friendly appointment-status label + chip colour, derived from the underlying appointment state.
+    function _ciStatus(r:any):{l:string,c:string}{
+      const st=(r.status||"").toLowerCase(); const stage=(r.stage||"").toLowerCase();
+      if(st==="cancelled") return {l:"Cancelled",c:"al"};
+      if(st==="noshow") return {l:"No Show",c:"al"};
+      if(st==="rescheduled") return {l:"Rescheduled",c:"warn"};
+      if(st==="visited"){ if(stage==="done"||stage==="enrolled"||/complet/.test(stage)) return {l:"Completed",c:"ok"}; return {l:"Checked In",c:"ok"}; }
+      return {l:"Scheduled",c:"info"};
     }
-    w._ciLookup=_ciLookup;
+    // The 7 bookable services — options in the Check-in "Selected Service" multi-select dropdown.
+    const _CI_SERVICES=["Diabetes Counselling","Weight Loss Counselling","Sauna Bath","Cold Plunge","Physiotherapy","Blood Test","HBOT (Hyperbaric Oxygen Therapy)"];
+    // Distinctive token per service → pre-selects the right option(s) from an appointment's saved
+    // service string, including legacy values ("Diabetes", "Blood test", "Physio").
+    const _CI_SVC_TOKEN:Record<string,string>={"Diabetes Counselling":"diabet","Weight Loss Counselling":"weight","Sauna Bath":"sauna","Cold Plunge":"cold","Physiotherapy":"phys","Blood Test":"blood","HBOT (Hyperbaric Oxygen Therapy)":"hbot"};
+    function _ciSelectedServices(r:any):string[]{
+      const raw=String(r.serviceRaw||"").toLowerCase(); if(!raw.trim()) return [];
+      return _CI_SERVICES.filter(opt=>{ const tok=_CI_SVC_TOKEN[opt]; return raw.indexOf(opt.toLowerCase())>=0 || (tok&&raw.indexOf(tok)>=0) || (opt.indexOf("HBOT")===0&&raw.indexOf("hyperbaric")>=0); });
+    }
+    function _ciTagsHtml(sel:string[]):string{
+      if(!sel.length) return '<span class="ci-dd-ph">Select services</span>';
+      return sel.map((s:string)=>'<span class="tag" style="display:inline-block;margin:1px 2px">'+_esc(s)+'</span>').join("");
+    }
+    // Per-row multi-select dropdown (native <details>): stops click-propagation so interacting with
+    // it never triggers the row's check-in selection.
+    function _ciSvcDropdown(r:any):string{
+      const sel=_ciSelectedServices(r);
+      const opts=_CI_SERVICES.map(opt=>'<label><input type="checkbox" data-svc="'+_esc(opt)+'"'+(sel.indexOf(opt)>=0?' checked':'')+' onchange="window._ciSvcChange('+r.id+')"> '+_esc(opt)+'</label>').join("");
+      return '<details class="ci-dd" data-id="'+r.id+'" onclick="event.stopPropagation()"><summary><span class="ci-dd-tags">'+_ciTagsHtml(sel)+'</span><span class="ci-dd-arr">▾</span></summary><div class="ci-dd-menu">'+opts+'</div></details>';
+    }
+    function _ciRowHtml(r:any):string{
+      const cs=_ciStatus(r); const dt=(r.date||"—")+(r.time?(", "+r.time):"");
+      const key=((r.ph||"")+" "+(r.name||"")+" "+(r.clientId||"")).toLowerCase();
+      return '<tr data-ci-id="'+r.id+'" data-ci-key="'+_esc(key)+'" onclick="window._ciSelect('+r.id+')" style="cursor:pointer">'
+        +'<td style="font-weight:600">'+_esc(r.name||"—")+' <span class="ci-selchip chipb ok" style="font-size:9px;margin-left:4px;display:none">Selected</span></td>'
+        +'<td class="mono">'+_esc(r.ph||"—")+'</td>'
+        +'<td>'+_esc(r.email||"—")+'</td>'
+        +'<td>'+_ciSvcDropdown(r)+'</td>'
+        +'<td class="mono">'+_esc(dt)+'</td>'
+        +'<td><span class="chipb '+cs.c+'">'+cs.l+'</span></td></tr>';
+    }
+    function _ciSetDedup(pick:any){
+      const dd=root.querySelector("#ciDedup")as HTMLInputElement|null; if(!dd) return;
+      if(!pick){ dd.value=""; return; }
+      const ph=(pick.ph||"").replace(/\D/g,""); const same=ph?_recAll.filter((r:any)=>(r.ph||"").replace(/\D/g,"")===ph):[pick];
+      dd.value=same.length>1?("Repeat · "+same.length+" appts"):"Unique · new client";
+    }
+    // Always-visible Check-in table: renders EVERY loaded appointment (newest first, not-yet-checked-in
+    // on top). The search box only filters which rows show (see _ciApplyFilter) — it never creates or
+    // destroys the table.
+    function _ciRenderTable(){
+      const box=root.querySelector("#ciResults"); if(!box) return;
+      if(_ciMatch){ const fresh=_recAll.find((x:any)=>String(x.id)===String(_ciMatch.id)); if(fresh) _ciMatch=fresh; }   // re-point selection at the freshly-loaded row
+      const list=_recAll.slice().sort((a:any,b:any)=>{ const av=a.status==="visited"?1:0,bv=b.status==="visited"?1:0; if(av!==bv)return av-bv; return String(b._date||"").localeCompare(String(a._date||"")); });
+      const body=(list.length?list.map(_ciRowHtml).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No appointments loaded.</td></tr>')
+        +'<tr id="ciNoMatchRow" style="display:none"><td colspan="6" style="text-align:center;color:var(--faint);padding:12px;font-size:12px">No matching appointment.</td></tr>';
+      box.innerHTML='<div class="tscroll"><table class="tbl" style="min-width:620px"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Selected Service</th><th>Appointment Date &amp; Time</th><th>Appointment Status</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+      _ciApplyFilter();
+    }
+    // Filter the ALREADY-rendered rows to the search term (phone / name / client-ID) by show/hide —
+    // no re-render, so an open dropdown survives typing. Auto-selects the top visible match so
+    // "Confirm → screening" still works after a search.
+    function _ciApplyFilter(){
+      const box=root.querySelector("#ciResults"); if(!box) return;
+      const q=((root.querySelector("#ciSearch")as HTMLInputElement)?.value||"").trim();
+      const ql=q.toLowerCase(); const digits=q.replace(/\D/g,"");
+      const trs=Array.from(box.querySelectorAll("tr[data-ci-id]")) as HTMLElement[];
+      let firstVisible:any=null; let anyVisible=false;
+      trs.forEach(tr=>{ const key=tr.getAttribute("data-ci-key")||"";
+        const show=!q || (digits.length>=4 && key.replace(/\D/g,"").indexOf(digits)>=0) || (ql!==""&&key.indexOf(ql)>=0);
+        tr.style.display=show?"":"none";
+        if(show){ anyVisible=true; if(!firstVisible){ firstVisible=_recAll.find((x:any)=>String(x.id)===String(tr.getAttribute("data-ci-id")))||null; } }
+      });
+      const noMatch=box.querySelector("#ciNoMatchRow")as HTMLElement|null; if(noMatch) noMatch.style.display=(q&&!anyVisible)?"":"none";
+      if(q){ const selShown=_ciMatch&&trs.some(t=>String(t.getAttribute("data-ci-id"))===String(_ciMatch.id)&&t.style.display!=="none"); if(!selShown) _ciMatch=firstVisible; }
+      const nameEl=root.querySelector("#ciName"); if(nameEl) nameEl.textContent=_ciMatch?_ciMatch.name:(q?"No match":"—");
+      const dd=root.querySelector("#ciDedup")as HTMLInputElement|null; if(!q){ if(dd) dd.value=""; } else { _ciSetDedup(_ciMatch); }
+      _ciHighlight();
+    }
+    function _ciHighlight(){
+      const box=root.querySelector("#ciResults"); if(!box) return;
+      Array.from(box.querySelectorAll("tr[data-ci-id]")).forEach((tr:any)=>{
+        const isSel=_ciMatch&&String(tr.getAttribute("data-ci-id"))===String(_ciMatch.id);
+        tr.style.background=isSel?"rgba(18,148,104,.09)":"";
+        const chip=tr.querySelector(".ci-selchip")as HTMLElement|null; if(chip) chip.style.display=isSel?"":"none";
+      });
+    }
+    w._ciLookup=_ciApplyFilter;
+    // Click a row to make that appointment the Check-in target (dropdown clicks are excluded above).
+    w._ciSelect=(id:any)=>{ const r=_recAll.find((x:any)=>String(x.id)===String(id)); if(!r) return; _ciMatch=r; const nameEl=root.querySelector("#ciName"); if(nameEl)nameEl.textContent=r.name||"—"; _ciSetDedup(r); _ciHighlight(); };
+    // Multi-select change on a row → update the tags shown AND persist to the appointment's `service`
+    // field through the EXISTING appointments update (no new API; the same field every other view reads).
+    w._ciSvcChange=async (id:any)=>{
+      const dd=root.querySelector('.ci-dd[data-id="'+id+'"]')as HTMLElement|null; if(!dd) return;
+      const sel=Array.from(dd.querySelectorAll('input[type="checkbox"]:checked')).map((i:any)=>i.getAttribute("data-svc")).filter(Boolean) as string[];
+      const tagsEl=dd.querySelector(".ci-dd-tags"); if(tagsEl) tagsEl.innerHTML=_ciTagsHtml(sel);
+      const joined=sel.join(" + ");
+      const row=_recAll.find((x:any)=>String(x.id)===String(id)); if(row){ row.serviceRaw=joined; row.svc=_recSvcCode(joined); row.svcLabel=_recSvcLabel(joined,row.session); }
+      if(id!=null&&String(id)!==""){ await _dbOk(supabase.from("appointments").update({service:joined}).eq("id",id),"Update services"); }
+    };
     // Confirm → screening: mark the appointment visited, advance to screening stage, persist.
     async function recRegDone(){
-      _ciLookup();
+      if(!_ciMatch) _ciApplyFilter();   // keep an explicit row-click selection; only re-derive from the search box if nothing is chosen
       if(!_ciMatch){ toastErr("Search a client by phone or name first"); return; }
       const nowIso=new Date().toISOString();
       const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
@@ -6538,7 +6677,9 @@ export function initApp(root: HTMLElement) {
     async function loadScreeningData(){
       try{
         const {data}=await supabase.from("appointments").select("*").in("stage",["screening","screened","done"]).order("appt_date",{ascending:false}).limit(500);
-        _scAll=(data||[]).map((a:any)=>{
+        // Blood-test records live only in the Blood Test workflow — they must never surface in
+        // the Screening queue even though reception check-in stamps stage="screening" on them.
+        _scAll=(data||[]).filter((a:any)=>!/blood/i.test(a.service||"")).map((a:any)=>{
           const sv=a.screening_vitals_data||{};
           return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
             status:a.status||"expected", stage:a.stage||"", service:a.service||"Diabetes",
@@ -6737,7 +6878,7 @@ export function initApp(root: HTMLElement) {
       const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
       const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
-      return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||""};
+      return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
     }
     function applyCoachProfile(obj:any){
       const p=_coachPanelEl(); if(!p||!obj) return;
@@ -6851,6 +6992,21 @@ export function initApp(root: HTMLElement) {
     }
     // ===== Office-visit audio recording (MediaRecorder → /storage → office_recordings) =====
     let _ovrRec:any=null; let _ovrChunks:any[]=[]; let _ovrStartMs=0; let _ovrTimer:any=null; let _ovrLeadId="";
+    // Recording-status pills (Open / Done / Not Done). Kept in sync with the actual recording
+    // state: stopping a recording flips it to "Done" instantly, and on profile open it is derived
+    // from the office_recordings backend rows so it always reflects the latest saved state.
+    function _recStatusApply(key:"open"|"done"|"notdone"){
+      const box=root.querySelector("#recStatusPills"); if(!box) return;
+      const idx=({open:0,done:1,notdone:2} as any)[key]??0;
+      const pills=Array.from(box.querySelectorAll(".pill"));
+      pills.forEach((p:any,i:number)=>p.classList.toggle("on",i===idx));
+    }
+    w._recStatusSet=(key:"open"|"done"|"notdone")=>{ _recStatusApply(key); };   // manual override (saved with the coach profile on next Save)
+    function _recStatusCurrent():"open"|"done"|"notdone"{
+      const box=root.querySelector("#recStatusPills"); if(!box) return "open";
+      const pills=Array.from(box.querySelectorAll(".pill")); const i=pills.findIndex((p:any)=>p.classList.contains("on"));
+      return (["open","done","notdone"] as const)[i>=0?i:0];
+    }
     function _ovrSetUi(recording:boolean){
       const mb=root.querySelector("#micBtn")as HTMLElement|null; const txt=root.querySelector("#micTxt"); const stop=root.querySelector("#ovrStopBtn")as HTMLElement|null; const start=root.querySelector("#ovrStartBtn")as HTMLElement|null; const st=root.querySelector("#ovrStatus");
       if(mb) mb.classList.toggle("rec",recording);
@@ -6901,7 +7057,9 @@ export function initApp(root: HTMLElement) {
         const url=(data&&data.publicUrl)||"";
         await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_recBy(),created_at:new Date().toISOString()});
         toast("✓ Recording saved to profile");
-        if(String(_coachLeadId)===id) _ovrRenderList(id);
+        // Recording is now persisted in office_recordings (backend) → flip the status to "Done"
+        // immediately, no refresh or manual click needed. Runs only if this lead is still open.
+        if(String(_coachLeadId)===id){ _recStatusApply("done"); _ovrRenderList(id); }
       }catch(e:any){ toastErr("Recording save failed: "+(e.message||"upload error")); }
     }
     async function _ovrRenderList(id:string){
@@ -6909,6 +7067,9 @@ export function initApp(root: HTMLElement) {
       let rows:any[]=[];
       try{ const {data}=await supabase.from("office_recordings").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(50); rows=data||[]; }catch(_){ rows=[]; }
       if(String(_coachLeadId)!==String(id)) return;
+      // Derive the recording status from the backend on every (re)load: a saved recording means
+      // "Done". Only auto-promote — never downgrade a manual "Not Done" when a recording exists.
+      if(rows.length && _recStatusCurrent()!=="notdone") _recStatusApply("done");
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const dur=(s:number)=>{ s=s||0; const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
       el.innerHTML=rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
@@ -7100,8 +7261,11 @@ export function initApp(root: HTMLElement) {
       _scAuto={attendance:0,followup:0};
       ["#scAttendanceV","#scFollowupV","#scOverallV"].forEach(s=>{const el=root.querySelector(s);if(el)el.textContent="—";});
       const rdFld=root.querySelector("#reviewDateFld")as HTMLElement|null; if(rdFld) rdFld.style.display="none";
+      try{ _recStatusApply("open"); }catch(_){}   // default until the backend-derived state loads
       renderCoachOpenList();
-      loadAndApplyCoach(lead).then(()=>{ try{ _renderScoreCard(String(lead.id)); }catch(_){} });
+      // Re-derive the recording status AFTER the saved profile restores its pills, so a backend
+      // recording always wins (office_recordings is the source of truth) without a manual click.
+      loadAndApplyCoach(lead).then(()=>{ try{ _renderScoreCard(String(lead.id)); }catch(_){} try{ _ovrRenderList(String(lead.id)); }catch(_){} });
       _coachSyncAdvisorReports(lead);
       _coachSyncScreeningVitals(lead);
       _coachRenderRecordings(_coachLeadId);
@@ -7769,6 +7933,14 @@ export function initApp(root: HTMLElement) {
       const _revStatuses=["Will Join Immediately","This Week","End of Month","Next Month"];
       if(_revStatuses.indexOf((obj&&obj.consStatus)||"")>=0){
         const rd=root.querySelector("#haReviewDate")as HTMLInputElement|null;
+        if(rd) rd.classList.remove("err");
+        // MANDATORY: "Will Join Immediately" cannot proceed without a review date (spec).
+        if(((obj&&obj.consStatus)||"")==="Will Join Immediately" && !((rd&&rd.value)||"").trim()){
+          if(rd) rd.classList.add("err");
+          toastErr('Review date is required when "Will Join Immediately" is selected');
+          try{ if(rd){ _setFutureMin(rd); rd.focus(); } }catch(_){}
+          return;
+        }
         if(rd && rd.value && rd.value<_todayLocal()){ toastErr("Review date can't be in the past — choose today or a future date"); try{_setFutureMin(rd);rd.focus();}catch(_){} return; }
       }
       // Highlight-clearing helper for the coach form (mirrors the missing-field style used elsewhere).
@@ -8101,6 +8273,30 @@ export function initApp(root: HTMLElement) {
 
     // ========== BLOOD TEST MODULE (live data) ==========
     let _btAll:any[]=[], _btFiltered:any[]=[], _btDate="today", _btOpenAppt:any=null, _btReportAtt:any=null;
+    // Spec-fixed tests / panels catalogue used by the record detail multi-select.
+    const BT_PANELS:{code:string;name:string;price:number}[]=[
+      {code:"CBC",name:"Complete Blood Count (CBC)",price:400},
+      {code:"FBS",name:"Fasting Blood Sugar (FBS)",price:150},
+      {code:"FBHP",name:"Full Body Health Panel",price:2500},
+      {code:"HBA1C",name:"HbA1c",price:600},
+      {code:"KFT",name:"Kidney Function Test (KFT)",price:800},
+      {code:"LIPID",name:"Lipid Profile",price:900},
+      {code:"LFT",name:"Liver Function Test (LFT)",price:800},
+      {code:"PPBS",name:"Postprandial Sugar (PPBS)",price:150},
+      {code:"THYROID",name:"Thyroid Profile (T3/T4/TSH)",price:800},
+      {code:"B12",name:"Vitamin B12",price:1200},
+      {code:"VITD",name:"Vitamin D",price:1500},
+    ];
+    const _btPanelName=(code:string)=>{ const p=BT_PANELS.find(x=>x.code===code); return p?p.name:code; };
+    let _btdPanels=new Set<string>();          // selected panel codes for the open record
+    let _btRowSel=new Set<string>();           // selected appointment ids for bulk actions
+    let _btSearch="";                          // name/phone search term
+    let _btFilt={sample:"",lab:"",labReport:"",clientReport:""};
+    // Simplified two-state labels (spec §4).
+    const _btSampleL:any={collected:{l:"Collected",c:"ok"},yet_to_collect:{l:"Yet to Collect",c:"warn"}};
+    const _btLabL:any={sent:{l:"Sent",c:"ok"},yet_to_send:{l:"Yet to Send",c:"warn"}};
+    const _btLabRepL:any={received:{l:"Received",c:"ok"},yet_to_receive:{l:"Yet to Receive",c:"warn"}};
+    const _btCliRepL:any={shared:{l:"Shared",c:"ok"},yet_to_share:{l:"Yet to Share",c:"warn"}};
     const _btE=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     function _btDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
@@ -8358,10 +8554,19 @@ export function initApp(root: HTMLElement) {
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(p.appointment_id&&!pays[p.appointment_id]) pays[p.appointment_id]=p; });
         _btAll=(ar.data||[]).map((a:any)=>{
           const pay=pays[a.id]; const bt=a.blood_test_data||{};
+          // Normalize legacy sample_status (pending/collected/sent_to_lab/done) onto the new
+          // two-state model; only an explicit "collected" counts as collected.
+          const sampleStatus=(bt.sample_status==="collected"||bt.sample_status==="done")?"collected":(bt.sample_status==="yet_to_collect"?"yet_to_collect":"yet_to_collect");
+          const labStatus=(bt.lab_status==="sent"||bt.sample_status==="sent_to_lab"||bt.sample_status==="done")?"sent":"yet_to_send";
+          const labReportStatus=(bt.lab_report_status==="received"||bt.report_status==="ready"||bt.report_status==="shared")?"received":"yet_to_receive";
+          const clientReportStatus=(bt.client_report_status==="shared"||bt.shared||bt.report_status==="shared")?"shared":"yet_to_share";
+          // panels: prefer the new array; fall back to the legacy free-text panel string.
+          const panels:string[]=Array.isArray(bt.panels)?bt.panels:[];
           return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
-            status:a.status||"expected", stage:a.stage||"", session:a.session||"", panel:bt.panel||"HbA1c", checkpoint:bt.checkpoint||"M0",
-            sampleStatus:bt.sample_status||"pending", reportStatus:bt.report_status||"pending", reportUrl:bt.report_url||"",
-            shared:bt.shared||false, thyroCost:bt.thyrocare_cost||0, ourPrice:bt.our_price||0,
+            status:a.status||"expected", stage:a.stage||"", session:a.session||"",
+            panels, panelText:panels.length?panels.map(_btPanelName).join(", "):(bt.panel||""),
+            sampleStatus, labStatus, labReportStatus, clientReportStatus, reportUrl:bt.report_url||"",
+            shared:clientReportStatus==="shared", thyroCost:bt.thyrocare_cost||0, ourPrice:bt.our_price||0,
             payStatus:pay?pay.status:"due", payAmt:pay?pay.amount:0, payMethod:pay?pay.method:"", payVerified:pay?pay.verified:false,
             btData:bt, raw:a };
         });
@@ -8376,6 +8581,18 @@ export function initApp(root: HTMLElement) {
     }
     w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); _btApplyDateFilter(); };
     w._btApplyDate=()=>{ if(_btDate==="cust") _btApplyDateFilter(); };
+    // Rows visible after the search + status filters are applied on top of the date filter.
+    function _btVisibleRows(){
+      const q=_btSearch.trim().toLowerCase();
+      return _btFiltered.filter((r:any)=>{
+        if(q&&!((r.name||"").toLowerCase().includes(q)||String(r.ph||"").toLowerCase().includes(q))) return false;
+        if(_btFilt.sample&&r.sampleStatus!==_btFilt.sample) return false;
+        if(_btFilt.lab&&r.labStatus!==_btFilt.lab) return false;
+        if(_btFilt.labReport&&r.labReportStatus!==_btFilt.labReport) return false;
+        if(_btFilt.clientReport&&r.clientReportStatus!==_btFilt.clientReport) return false;
+        return true;
+      });
+    }
     function _btRenderAll(){
       const f=_btFiltered;
       const totalBilled=f.reduce((s:number,r:any)=>s+Math.max(0,r.ourPrice),0);
@@ -8384,44 +8601,121 @@ export function initApp(root: HTMLElement) {
       if(el("btTotalBilled")) (el("btTotalBilled") as HTMLElement).textContent="₹"+totalBilled.toLocaleString("en-IN");
       if(el("btThyroCost")) (el("btThyroCost") as HTMLElement).textContent="₹"+totalCost.toLocaleString("en-IN");
       if(el("btMargin")) (el("btMargin") as HTMLElement).textContent="₹"+(totalBilled-totalCost).toLocaleString("en-IN");
-      if(el("btPaidThyro")) (el("btPaidThyro") as HTMLElement).textContent="₹"+f.filter((r:any)=>r.sampleStatus==="done").reduce((s:number,r:any)=>s+r.thyroCost,0).toLocaleString("en-IN");
+      if(el("btPaidThyro")) (el("btPaidThyro") as HTMLElement).textContent="₹"+f.filter((r:any)=>r.labReportStatus==="received").reduce((s:number,r:any)=>s+r.thyroCost,0).toLocaleString("en-IN");
       const cnt=(fn:(r:any)=>boolean)=>f.filter(fn).length;
-      const metrics=[{l:"Expected",v:f.length,c:""},{l:"Visited",v:cnt((r:any)=>r.status==="visited"),c:"g"},{l:"Sample collected",v:cnt((r:any)=>["collected","sent_to_lab","done"].includes(r.sampleStatus)),c:"g"},
-        {l:"Waiting",v:cnt((r:any)=>r.sampleStatus==="pending"&&r.status==="visited"),c:"a"},{l:"Payment collected",v:cnt((r:any)=>r.payStatus==="paid"),c:"g"},{l:"Not paid",v:cnt((r:any)=>r.payStatus!=="paid"&&r.payStatus!=="free"),c:"r"},
-        {l:"Report received",v:cnt((r:any)=>["ready","shared"].includes(r.reportStatus)),c:"g"},{l:"Shared",v:cnt((r:any)=>r.shared),c:"g"}];
+      const metrics=[{l:"Expected",v:f.length,c:""},{l:"Visited",v:cnt((r:any)=>r.status==="visited"),c:"g"},{l:"Sample collected",v:cnt((r:any)=>r.sampleStatus==="collected"),c:"g"},
+        {l:"Sent to lab",v:cnt((r:any)=>r.labStatus==="sent"),c:"g"},{l:"Payment collected",v:cnt((r:any)=>r.payStatus==="paid"),c:"g"},{l:"Not paid",v:cnt((r:any)=>r.payStatus!=="paid"&&r.payStatus!=="free"),c:"r"},
+        {l:"Report received",v:cnt((r:any)=>r.labReportStatus==="received"),c:"g"},{l:"Shared",v:cnt((r:any)=>r.clientReportStatus==="shared"),c:"g"}];
       const me=el("btMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
-      const sMap:{[k:string]:{l:string;c:string}}={pending:{l:"Pending",c:"warn"},collected:{l:"Collected",c:"info"},sent_to_lab:{l:"Sent to lab",c:"info"},done:{l:"Done",c:"ok"}};
-      const rMap:{[k:string]:{l:string;c:string}}={pending:{l:"Pending",c:"warn"},ready:{l:"Ready",c:"ok"},shared:{l:"Shared",c:"ok"}};
-      let wl='<table class="tbl"><thead><tr><th>Client</th><th>Phone</th><th>Panel</th><th>Checkpoint</th><th>Sample</th><th>Payment</th><th>Report</th><th>Shared</th><th>Actions</th></tr></thead><tbody>';
-      if(!f.length) wl+='<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">No blood test appointments for this period.</td></tr>';
-      else f.forEach((r:any)=>{
-        const ss=sMap[r.sampleStatus]||{l:r.sampleStatus,c:"neu"}; const rs=rMap[r.reportStatus]||{l:r.reportStatus,c:"neu"};
-        wl+='<tr style="cursor:pointer" onclick="window._btOpenDetail('+r.id+')"><td style="font-weight:600">'+_btE(r.name)+'</td><td class="mono">'+_btE(r.ph)+'</td><td>'+_btE(r.panel)+'</td><td><span class="chipb info">'+_btE(r.checkpoint)+'</span></td>'
-          +'<td><span class="chipb '+ss.c+'">'+ss.l+'</span></td>'
-          +'<td>'+(r.payStatus==="paid"?'<span class="chipb ok">₹'+r.payAmt.toLocaleString("en-IN")+' ✓</span>':'<span class="chipb warn">'+(r.ourPrice?'₹'+r.ourPrice.toLocaleString("en-IN")+' due':'Due')+'</span>')+'</td>'
-          +'<td><span class="chipb '+rs.c+'">'+rs.l+'</span></td>'
-          +'<td>'+(r.shared?'<span class="chipb ok">WA ✓</span>':'—')+'</td>'
-          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="event.stopPropagation();window._btOpenDetail('+r.id+')">Open</button></div></td></tr>';
+      // Drop selections that are no longer visible so the bulk bar stays honest.
+      const vis=_btVisibleRows(); const visIds=new Set(vis.map((r:any)=>String(r.id)));
+      _btRowSel.forEach(id=>{ if(!visIds.has(id)) _btRowSel.delete(id); });
+      const chip=(m:any,v:string)=>{ const o=m[v]||{l:v||"—",c:"neu"}; return '<span class="chipb '+o.c+'">'+_btE(o.l)+'</span>'; };
+      const allOn=vis.length>0&&vis.every((r:any)=>_btRowSel.has(String(r.id)));
+      let wl='<table class="tbl" style="min-width:1040px"><thead><tr>'
+        +'<th style="width:28px"><input type="checkbox" '+(allOn?"checked":"")+' onclick="window._btToggleAll(this.checked)" title="Select all"></th>'
+        +'<th>Visit date &amp; time</th><th>Client</th><th>Phone</th><th>Panel(s)</th><th>Sample</th><th>Lab</th><th>Lab report</th><th>Client report</th><th>Actions</th></tr></thead><tbody>';
+      if(!vis.length) wl+='<tr><td colspan="10" style="text-align:center;color:var(--faint);padding:20px">No blood test records match.</td></tr>';
+      else vis.forEach((r:any)=>{
+        const on=_btRowSel.has(String(r.id));
+        wl+='<tr'+(on?' style="background:var(--brand-tint)"':'')+'>'
+          +'<td><input type="checkbox" '+(on?"checked":"")+' onclick="window._btToggleRow(\''+_btE(String(r.id))+'\',this.checked)"></td>'
+          +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+_btE(r.date)+(r.time?' · '+_btE(r.time):'')+'</td>'
+          +'<td style="font-weight:600">'+_btE(r.name)+'</td><td class="mono">'+_btE(r.ph)+'</td>'
+          +'<td style="max-width:220px;white-space:normal">'+_btE(r.panelText||"—")+'</td>'
+          +'<td>'+chip(_btSampleL,r.sampleStatus)+'</td>'
+          +'<td>'+chip(_btLabL,r.labStatus)+'</td>'
+          +'<td>'+chip(_btLabRepL,r.labReportStatus)+'</td>'
+          +'<td>'+chip(_btCliRepL,r.clientReportStatus)+'</td>'
+          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="window._btOpenDetail(\''+_btE(String(r.id))+'\')">Open</button></div></td></tr>';
       });
       wl+='</tbody></table>';
       const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
+      _btRenderBulkBar();
       const rw=el("btRemindersWrap"); if(rw)(rw as HTMLElement).innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">Outcome reminders are auto-generated from appointment milestones.</div>';
     }
+    // Bulk-action toolbar: one-click set of any status across every selected record (spec §6).
+    function _btRenderBulkBar(){
+      const bar=root.querySelector("#btBulkBar") as HTMLElement|null; if(!bar) return;
+      const n=_btRowSel.size;
+      if(!n){ bar.style.display="none"; bar.innerHTML=""; return; }
+      const grp=(label:string,field:string,opts:[string,string][])=>'<span style="display:inline-flex;align-items:center;gap:4px"><b style="font-weight:600;color:var(--muted)">'+label+':</b>'
+        +opts.map(([v,l])=>'<button class="btn bsm" onclick="window._btBulk(\''+field+'\',\''+v+'\')">'+l+'</button>').join("")+'</span>';
+      bar.style.display="flex";
+      bar.innerHTML='<b>'+n+' selected</b>'
+        +grp("Sample","sample_status",[["collected","Collected"],["yet_to_collect","Yet to Collect"]])
+        +grp("Lab","lab_status",[["sent","Sent"],["yet_to_send","Yet to Send"]])
+        +grp("Lab report","lab_report_status",[["received","Received"],["yet_to_receive","Yet to Receive"]])
+        +grp("Client report","client_report_status",[["shared","Shared"],["yet_to_share","Yet to Share"]])
+        +'<button class="btn bsm" style="margin-left:auto" onclick="window._btClearSel()">Clear selection</button>';
+    }
+    w._btToggleRow=(id:string,on:boolean)=>{ if(on)_btRowSel.add(String(id)); else _btRowSel.delete(String(id)); _btRenderAll(); };
+    w._btToggleAll=(on:boolean)=>{ const vis=_btVisibleRows(); if(on) vis.forEach((r:any)=>_btRowSel.add(String(r.id))); else vis.forEach((r:any)=>_btRowSel.delete(String(r.id))); _btRenderAll(); };
+    w._btClearSel=()=>{ _btRowSel.clear(); _btRenderAll(); };
+    w._btSearchRows=(v:string)=>{ _btSearch=v||""; _btRenderAll(); };
+    w._btFilterChange=()=>{
+      const g=(id:string)=>((root.querySelector("#"+id)as HTMLSelectElement|null)?.value)||"";
+      _btFilt={sample:g("btFiltSample"),lab:g("btFiltLab"),labReport:g("btFiltLabRep"),clientReport:g("btFiltCliRep")};
+      _btRenderAll();
+    };
+    w._btClearFilters=()=>{
+      _btFilt={sample:"",lab:"",labReport:"",clientReport:""}; _btSearch="";
+      ["btFiltSample","btFiltLab","btFiltLabRep","btFiltCliRep"].forEach(id=>{const e=root.querySelector("#"+id)as HTMLSelectElement|null; if(e)e.value="";});
+      const s=root.querySelector("#btSearch")as HTMLInputElement|null; if(s)s.value="";
+      _btRenderAll();
+    };
+    // FR §6 — apply one status to every selected record, persisting to blood_test_data.
+    w._btBulk=async(field:string,value:string)=>{
+      const ids=[..._btRowSel]; if(!ids.length){ toast("Select rows first"); return; }
+      const ups=ids.map(async id=>{
+        const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
+        const bt={...(r.btData||{})}; bt[field]=value;
+        if(field==="client_report_status") bt.shared=(value==="shared");
+        return supabase.from("appointments").update({blood_test_data:bt}).eq("id",r.id);
+      });
+      await Promise.all(ups);
+      toast(ids.length+" record"+(ids.length===1?"":"s")+" updated");
+      _btRowSel.clear();
+      await loadBloodTestData();
+    };
     w._btOpenDetail=(id:any)=>{
       const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;}   // id is BIGSERIAL → gateway returns a string
       _btOpenAppt=r; _btReportAtt=r.btData.report_url?{name:"Report",url:r.btData.report_url}:null;
       const el=(s:string)=>root.querySelector("#"+s) as HTMLInputElement|HTMLSelectElement|null;
       if(el("btDetailName"))(el("btDetailName") as HTMLElement).textContent=r.name+" · "+r.date;
-      if(el("btdPanel")) (el("btdPanel") as HTMLInputElement).value=r.panel;
-      if(el("btdCheckpoint")) (el("btdCheckpoint") as HTMLSelectElement).value=r.checkpoint;
+      _btdPanels=new Set<string>((r.panels||[]).filter((c:string)=>BT_PANELS.some(p=>p.code===c)));
+      _btdClosePanelDD(); _btdRenderPanelBtn();
       if(el("btdSample")) (el("btdSample") as HTMLSelectElement).value=r.sampleStatus;
-      if(el("btdReport")) (el("btdReport") as HTMLSelectElement).value=r.reportStatus;
+      if(el("btdLab")) (el("btdLab") as HTMLSelectElement).value=r.labStatus;
+      if(el("btdLabReport")) (el("btdLabReport") as HTMLSelectElement).value=r.labReportStatus;
+      if(el("btdClientReport")) (el("btdClientReport") as HTMLSelectElement).value=r.clientReportStatus;
       if(el("btdThyroCost")) (el("btdThyroCost") as HTMLInputElement).value=String(r.thyroCost||"");
       if(el("btdOurPrice")) (el("btdOurPrice") as HTMLInputElement).value=String(r.ourPrice||"");
       _btRenderAtts();
       const dp=root.querySelector("#btDetailPanel") as HTMLElement; if(dp) dp.style.display="block";
       dp?.scrollIntoView({behavior:"smooth"});
     };
+    // Tests / panels multi-select dropdown (spec §3).
+    function _btdRenderPanelBtn(){
+      const btn=root.querySelector("#btdPanelBtn"); if(!btn) return;
+      if(!_btdPanels.size){ btn.innerHTML='<span style="color:var(--faint)">Select tests / panels…</span>'; return; }
+      btn.innerHTML=BT_PANELS.filter(p=>_btdPanels.has(p.code)).map(p=>
+        '<span class="chipb info" style="display:inline-flex;align-items:center;gap:4px">'+_btE(p.name)
+        +' <span onclick="event.stopPropagation();window._btdTogglePanel(\''+p.code+'\')" style="cursor:pointer;font-weight:700">×</span></span>'
+      ).join("");
+    }
+    function _btdRenderPanelDD(){
+      const dd=root.querySelector("#btdPanelDD"); if(!dd) return;
+      dd.innerHTML=BT_PANELS.map(p=>{ const on=_btdPanels.has(p.code);
+        return '<div onclick="window._btdTogglePanel(\''+p.code+'\')" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12.5px"'
+          +' onmouseover="this.style.background=\'var(--brand-tint)\'" onmouseout="this.style.background=\'transparent\'">'
+          +'<input type="checkbox" '+(on?"checked":"")+' style="pointer-events:none">'
+          +'<span style="flex:1">'+_btE(p.name)+'</span><span class="mono" style="color:var(--muted)">'+_btMoney(p.price)+'</span></div>';
+      }).join("");
+    }
+    function _btdClosePanelDD(){ const dd=root.querySelector("#btdPanelDD") as HTMLElement|null; if(dd) dd.style.display="none"; }
+    w._btdTogglePanelDD=()=>{ const dd=root.querySelector("#btdPanelDD") as HTMLElement|null; if(!dd) return; const show=dd.style.display==="none"||!dd.style.display; if(show){ _btdRenderPanelDD(); dd.style.display="block"; } else dd.style.display="none"; };
+    w._btdTogglePanel=(code:string)=>{ if(_btdPanels.has(code))_btdPanels.delete(code); else _btdPanels.add(code); _btdRenderPanelBtn(); _btdRenderPanelDD(); };
     function _btRenderAtts(){ const el=root.querySelector("#btdAtts"); if(!el)return; if(_btReportAtt&&_btReportAtt.url){ el.innerHTML='<a href="'+_btE(_btReportAtt.url)+'" target="_blank" class="att"><svg class="icon"><use href="#i-clip"/></svg> '+_btE(_btReportAtt.name||"Report")+'</a> <button class="btn bsm" onclick="window._btAddReport()">Replace</button>'; } else { el.innerHTML='<span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span>'; } }
     w._btCloseDetail=()=>{ const dp=root.querySelector("#btDetailPanel") as HTMLElement; if(dp) dp.style.display="none"; _btOpenAppt=null; };
     w._btAddReport=()=>{
@@ -8436,19 +8730,26 @@ export function initApp(root: HTMLElement) {
     w._btSaveDetail=async()=>{
       if(!_btOpenAppt){toast("Open a record first");return;}
       const v=(id:string)=>(root.querySelector("#"+id)as HTMLInputElement|HTMLSelectElement)?.value||"";
-      const btData={panel:v("btdPanel"),checkpoint:v("btdCheckpoint"),sample_status:v("btdSample"),report_status:v("btdReport"),
-        thyrocare_cost:Number(v("btdThyroCost"))||0,our_price:Number(v("btdOurPrice"))||0,
-        report_url:_btReportAtt?.url||"",shared:v("btdReport")==="shared",sample_at:v("btdSample")!=="pending"?new Date().toISOString():""};
+      const panels=[..._btdPanels]; const clientReport=v("btdClientReport");
+      // Preserve any unrelated keys already on the record; overwrite the fields we own.
+      const btData={...(_btOpenAppt.btData||{}),
+        panels, panel:panels.map(_btPanelName).join(", "),
+        sample_status:v("btdSample"), lab_status:v("btdLab"), lab_report_status:v("btdLabReport"), client_report_status:clientReport,
+        thyrocare_cost:Number(v("btdThyroCost"))||0, our_price:Number(v("btdOurPrice"))||0,
+        report_url:_btReportAtt?.url||"", shared:clientReport==="shared",
+        sample_at:v("btdSample")==="collected"?new Date().toISOString():""};
       try{ const {error}=await supabase.from("appointments").update({blood_test_data:btData}).eq("id",_btOpenAppt.id);
         if(error&&/blood_test_data|column|schema|exist/i.test(error.message||"")){ toastErr("Can't save yet — the blood-test column is missing. Run supabase-migration-module-columns.sql in Supabase, then Save again."); return; }
         if(error)throw error; toast("Blood test record saved"); await loadBloodTestData();
       }catch(e:any){ toastErr("Save failed: "+(e.message||"error")); }
     };
     w._btShareWA=()=>{ if(!_btOpenAppt){toast("Open a record first");return;} toast("WhatsApp share — report link sent to "+(_btOpenAppt.name||"client")); };
-    w._btCollectPay=()=>{ if(!_btOpenAppt)return; const price=Number((root.querySelector("#btdOurPrice")as HTMLInputElement)?.value)||800; recOpen(_btOpenAppt.id,_btOpenAppt.name,price,_btOpenAppt.lead_id); };
-    w._btExport=()=>{ if(!_btFiltered.length){toast("Nothing to export");return;} const out:string[][]=[["Client","Phone","Panel","Checkpoint","Sample","Payment","Report","Our Price","Thyro Cost"]];
-      _btFiltered.forEach((r:any)=>out.push([r.name,r.ph,r.panel,r.checkpoint,r.sampleStatus,r.payStatus,r.reportStatus,String(r.ourPrice),String(r.thyroCost)]));
-      _downloadCsv("blood_test_export.csv",out); toast("Exported "+_btFiltered.length+" rows"); };
+    w._btCollectPay=()=>{ if(!_btOpenAppt)return; const price=Number((root.querySelector("#btdOurPrice")as HTMLInputElement)?.value)||800; recOpen(_btOpenAppt.id,_btOpenAppt.name,price,_btOpenAppt.lead_id,"bt"); };
+    w._btExport=()=>{ const rows=_btVisibleRows(); if(!rows.length){toast("Nothing to export");return;}
+      const lbl=(m:any,v:string)=>(m[v]&&m[v].l)||v||"";
+      const out:string[][]=[["Visit date","Time","Client","Phone","Panel(s)","Sample","Lab","Lab report","Client report","Payment","Our Price","Thyro Cost"]];
+      rows.forEach((r:any)=>out.push([r.date,r.time,r.name,r.ph,r.panelText,lbl(_btSampleL,r.sampleStatus),lbl(_btLabL,r.labStatus),lbl(_btLabRepL,r.labReportStatus),lbl(_btCliRepL,r.clientReportStatus),r.payStatus,String(r.ourPrice),String(r.thyroCost)]));
+      _downloadCsv("blood_test_export.csv",out); toast("Exported "+rows.length+" rows"); };
 
     // ========== PHYSIOTHERAPY MODULE (live data) ==========
     let _phAll:any[]=[], _phFiltered:any[]=[], _phDate="today", _phOpenAppt:any=null;
@@ -8579,7 +8880,7 @@ export function initApp(root: HTMLElement) {
       const isP=root.querySelector("#phPayModel .pill.on")?.textContent?.toLowerCase().includes("upfront"); pd.payment_model=isP?"pack":"per_visit";
       try{ await supabase.from("appointments").update({physio_data:pd}).eq("id",_phOpenAppt.id); toast("Treatment plan saved"); await loadPhysioData(); }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
     };
-    w._phCollectPay=()=>{ if(!_phOpenAppt)return; recOpen(_phOpenAppt.id,_phOpenAppt.name,_phOpenAppt.packPrice,_phOpenAppt.lead_id); };
+    w._phCollectPay=()=>{ if(!_phOpenAppt)return; recOpen(_phOpenAppt.id,_phOpenAppt.name,_phOpenAppt.packPrice,_phOpenAppt.lead_id,"physio"); };
     w._phPrintNotes=()=>{ if(!_phOpenAppt){toast("Open a session first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
       const win=window.open("","_blank","width=700,height=900"); if(!win){toast("Allow pop-ups");return;}
       win.document.write('<html><head><title>Physio Notes — '+(_phOpenAppt.name||"")+'</title></head><body style="font-family:system-ui;padding:28px"><h2>Physiotherapy Session Notes</h2><p>'+_phOpenAppt.name+' · '+new Date().toLocaleDateString("en-IN")+'</p><table style="border-collapse:collapse;width:100%;font-size:13px"><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600;width:120px">Subjective</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapS")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Objective</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapO")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Assessment</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapA")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Plan</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapP")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Pain</td><td style="padding:6px;border:1px solid #ddd">'+v("phPain")+'/10</td></tr></table></body></html>');
@@ -8710,15 +9011,19 @@ export function initApp(root: HTMLElement) {
     }
     w._accVerify=async(id:number)=>{
       try{ await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString()}).eq("id",id);
-        // Accounts confirming the payment ENROLLS the lead automatically (shared record) and
-        // syncs Reception + Health Coach + Advisor + dashboards. Payment date/time is already
-        // stored on the payment row (paid_at / verified_at).
+        // Accounts confirming a DIABETES payment ENROLLS the lead automatically (shared record) and
+        // syncs Reception + Health Coach + Advisor + dashboards. Blood Test / Physio have no L1/L2
+        // enrollment concept (see _svcPayLabel/_svcDoneStage in recConfirm) — verifying one of those
+        // must not call the Diabetes enrollment writer, or it produces the same "Enrolled — L2"
+        // mislabel on a non-Diabetes lead that recConfirm used to.
         const pay=_accPays.find((p:any)=>String(p.id)===String(id));
         const leadId=pay&&(pay.lead_id||(_accAppts[pay.appointment_id]||{}).lead_id);
+        const _isDiaPay=_recSvcCode((pay&&pay.service)||"")==="dia";
         // Enroll at the ACTUAL program of the verified payment (L1 / L2 / L1 + L2), not a
         // hard-coded L1 — keeps Accounts-path enrollment consistent with the coach path.
-        if(leadId){ await _enrollLeadShared(String(leadId),"Accounts payment confirmed",(pay&&pay.program)?String(pay.program):"L1"); try{ await loadReceptionData(); }catch(_){} }
-        toast(leadId?"Payment verified ✓ — lead Enrolled & synced":"Payment verified ✓"); await loadAccountsData();
+        if(leadId&&_isDiaPay){ await _enrollLeadShared(String(leadId),"Accounts payment confirmed",(pay&&pay.program)?String(pay.program):"L1"); }
+        if(leadId){ try{ await loadReceptionData(); }catch(_){} }
+        toast(leadId&&_isDiaPay?"Payment verified ✓ — lead Enrolled & synced":"Payment verified ✓"); await loadAccountsData();
       }catch(e:any){ toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
     };
     w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen("",name,amt,leadId); if(_recCollect) _recCollect.payId=id; };   // settle this outstanding payment row (not a new insert)

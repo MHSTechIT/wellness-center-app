@@ -215,6 +215,19 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 /* Freeze the first column (Lead / Lead Number) during horizontal scroll where applicable. */
 .tscroll.stick1 th:first-child,.tscroll.stick1 td:first-child{position:sticky;left:0;background:var(--surface);z-index:1}
 .tscroll.stick1 thead th:first-child{z-index:3}
+/* Check-in — per-row multi-select service dropdown (inline-expanding <details>; the table
+   container scrolls, so an open menu is always reachable without being clipped). */
+.ci-dd{position:relative;font-size:12px;min-width:150px}
+.ci-dd>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:6px;min-height:28px;padding:3px 7px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.ci-dd>summary::-webkit-details-marker{display:none}
+.ci-dd .ci-dd-tags{display:flex;flex-wrap:wrap;gap:3px;flex:1;align-items:center}
+.ci-dd .ci-dd-ph{color:var(--faint)}
+.ci-dd .ci-dd-arr{color:var(--faint);font-size:10px;transition:transform .15s}
+.ci-dd[open]>summary .ci-dd-arr{transform:rotate(180deg)}
+.ci-dd-menu{display:none;margin-top:5px;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:5px;flex-direction:column;gap:1px;box-shadow:0 8px 22px rgba(17,34,27,.12)}
+.ci-dd[open] .ci-dd-menu{display:flex}
+.ci-dd-menu label{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:500}
+.ci-dd-menu label:hover{background:var(--chip)}
 .ftable-wrap{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface)}
 .ftable-wrap table{border-collapse:separate;border-spacing:0}
 .ftable-wrap thead th{position:sticky;top:0;background:var(--surface);z-index:5;border-bottom:2px solid var(--line);border-right:1px solid var(--line);padding:10px 10px;box-shadow:0 4px 10px rgba(17,34,27,.04)}

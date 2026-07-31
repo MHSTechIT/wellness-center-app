@@ -348,7 +348,7 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="haAttendedBy">Attended by (HC)</label><input  class="input" id="haAttendedBy" readonly></div>
             <div class="fld"><label class="lbl" for="haConsultDate">Consultation date</label><input  class="input" type="date" id="haConsultDate"></div>
             <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="date" id="haReviewDate" data-future="1"></div>
-            <div class="fld"><label class="lbl">Recording status</label><div class="pills"><button class="pill p-vio on">Open</button><button class="pill p-ok">Done</button><button class="pill p-al">Not Done</button></div></div>
+            <div class="fld"><label class="lbl">Recording status</label><div class="pills" id="recStatusPills"><button class="pill p-vio on" onclick="window._recStatusSet('open')">Open</button><button class="pill p-ok" onclick="window._recStatusSet('done')">Done</button><button class="pill p-al" onclick="window._recStatusSet('notdone')">Not Done</button></div></div>
           </div>
           <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
             <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
@@ -885,16 +885,6 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div style="display:flex;gap:7px"><input class="input" id="ccQ" style="height:35px" placeholder="Try: 98412 or 99999 or Prasad"><button class="btn bsm bp" onclick="ccSearch()">Search</button></div><div id="ccRes" style="margin-top:8px"></div></div></div>
         <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> CLIENT REGISTRATION FORM</div>
           <div class="sec-bd" style="padding:4px 14px 14px">
-            <div id="nwStepNav" class="tabs" style="flex-wrap:nowrap;width:100%;overflow-x:auto;gap:6px;margin:2px 0 12px">
-              <button type="button" class="on" data-step="1" onclick="window._nwStep(1)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">1 · Client Details</button>
-              <button type="button" data-step="2" onclick="window._nwStep(2)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">2 · Service Selected</button>
-              <button type="button" data-step="3" onclick="window._nwStep(3)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">3 · Data Privacy Consent</button>
-              <button type="button" data-step="4" onclick="window._nwStep(4)" style="flex:1 1 auto;white-space:nowrap;padding:8px 12px;font-size:12px;text-align:center">4 · General Declaration</button>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-              <div style="flex:1;height:6px;background:var(--surface-2,#eef1ef);border-radius:4px;overflow:hidden"><div id="nwProgressBar" style="height:100%;width:25%;background:linear-gradient(90deg,#129468,var(--brand-600));transition:width .25s var(--ease)"></div></div>
-              <span id="nwProgressLbl" style="font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap">Step 1 of 4</span>
-            </div>
             <div class="nwStep" data-step="1">
               <div class="nwGrpHd">Personal details</div>
               <div class="g4" style="gap:10px 12px">
@@ -914,26 +904,9 @@ export function getMainContent(): string {
                 <div class="fld"><label class="lbl" for="nwLocation">Location</label><select  class="select" style="height:38px" id="nwLocation"><option>Poonamalle</option><option>Porur</option></select></div>
                 <div class="fld"><label class="lbl" for="nwAddress">Address</label><input  class="input" style="height:38px" id="nwAddress" placeholder="Street, area, city, ZIP"></div>
               </div>
-              <div class="nwGrpHd">Service &amp; booking</div>
-              <div class="fld"><label class="lbl">Service(s)</label><div class="chips" id="nwSvc"><button class="chip-o on" data-svc="dia">🩺 Diabetes</button><button class="chip-o" data-svc="bt">🩸 Blood test</button><button class="chip-o" data-svc="physio">💪 Physio</button></div></div>
-              <div class="g4" style="gap:10px 12px;margin-top:10px">
-                <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
-                <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
-                <div class="fld"><label class="lbl" for="nwProv">Provider</label><select  class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
-                <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
-              </div>
-              <div id="nwSlotRes" style="margin-top:8px"></div>
-              <div class="nwGrpHd">Payment</div>
-              <div class="g3" style="gap:10px 12px">
-                <div class="fld"><label class="lbl" for="nwCost">Cost <span class="ab">Settings</span></label><input  class="input mono" style="height:38px" id="nwCost" value="₹0 (free)" readonly></div>
-                <div class="fld"><label class="lbl">Coupon</label><div style="display:flex;gap:4px"><input class="input mono" style="height:38px" id="nwCoupon" placeholder="Code"><button class="btn bsm" style="height:38px" onclick="toast('Coupon applied · ₹200 off')">Apply</button></div></div>
-                <div class="fld"><label class="lbl">Net</label><input class="input mono" style="height:38px" value="₹0" readonly></div>
-              </div>
-            </div>
-            <div class="nwStep" data-step="2" style="display:none">
               <div class="nwGrpHd">Service selected today</div>
               <div style="font-size:12px;color:var(--muted);margin:-2px 0 10px">Please tick all the services the client is visiting for today.</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px" id="nwSvcGrid">
                 <label class="nwChk"><input type="checkbox" data-svc2="Diabetes Counselling"> Diabetes Counselling</label>
                 <label class="nwChk"><input type="checkbox" data-svc2="Weight Loss Counselling"> Weight Loss Counselling</label>
                 <label class="nwChk"><input type="checkbox" data-svc2="Sauna Bath"> Sauna Bath</label>
@@ -952,40 +925,16 @@ export function getMainContent(): string {
                 <label class="nwChk"><input type="checkbox" data-hear="MHS"> MHS</label>
                 <label class="nwChk"><input type="checkbox" data-hear="Walk-in"> Walk-in</label>
               </div>
-            </div>
-            <div class="nwStep" data-step="3" style="display:none">
-              <div class="nwGrpHd">Data privacy consent (DPDP Act 2023)</div>
-              <div style="font-size:12.5px;line-height:1.65;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px">Longer Life Wellness Centre collects your personal and health data solely to provide personalised wellness services. Your data will be stored securely, will not be sold to any third party, and will only be shared within your treating team internally. You may request data withdrawal at any time in writing.</div>
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <div class="nwConsentRow">
-                  <span class="nwConsentTxt">I consent to my health data being collected and stored for service delivery</span>
-                  <div class="nwYN">
-                    <label class="nwChk yn-yes"><input type="radio" name="nwConsent1" data-consent="health" value="Yes"> Yes</label>
-                    <label class="nwChk yn-no"><input type="radio" name="nwConsent1" data-consent="health" value="No"> No</label>
-                  </div>
-                </div>
-                <div class="nwConsentRow">
-                  <span class="nwConsentTxt">I consent to receiving wellness updates via WhatsApp / SMS / Email</span>
-                  <div class="nwYN">
-                    <label class="nwChk yn-yes"><input type="radio" name="nwConsent2" data-consent="updates" value="Yes"> Yes</label>
-                    <label class="nwChk yn-no"><input type="radio" name="nwConsent2" data-consent="updates" value="No"> No</label>
-                  </div>
-                </div>
+              <div class="nwGrpHd">Service &amp; booking</div>
+              <div class="g4" style="gap:10px 12px;margin-top:10px">
+                <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
+                <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
+                <div class="fld" id="nwProvFld"><label class="lbl" for="nwProv">Provider</label><select  class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
+                <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
               </div>
+              <div id="nwSlotRes" style="margin-top:8px"></div>
             </div>
-            <div class="nwStep" data-step="4" style="display:none">
-              <div class="nwGrpHd">General declaration</div>
-              <div style="font-size:12.5px;line-height:1.65;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px">I declare that all information provided above is true and accurate. I understand that withholding medical information may compromise my safety and the quality of services provided at Longer Life Wellness Centre.</div>
-              <div class="g3" style="gap:10px 12px">
-                <div class="fld"><label class="lbl" for="nwSign">Client signature</label><input  class="input" style="height:38px" id="nwSign" placeholder="Client name / signature"></div>
-                <div class="fld"><label class="lbl" for="nwDeclDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDeclDate"></div>
-                <div class="fld"><label class="lbl" for="nwStaffRecv">Staff received by</label><input  class="input" style="height:38px" id="nwStaffRecv" placeholder="Staff name"></div>
-              </div>
-              <div style="background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 14px;margin-top:10px;font-size:11.5px;color:var(--muted)"><b style="color:var(--ink)">For office use only</b> &nbsp;·&nbsp; Client ID: <span class="mono" id="nwOfficeCid">—</span> &nbsp;·&nbsp; Registration date: <span class="mono" id="nwOfficeRegDate">—</span> &nbsp;·&nbsp; Assigned counsellor: <span class="mono" id="nwOfficeCouns">—</span></div>
-              <div class="nwGrpHd">Service consent forms</div>
-              <div id="nwConsentForms"></div>
-            </div>
-            <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bp" style="height:38px" id="nwPrimaryBtn" onclick="window._nwPrimary()">Save &amp; Next Page</button><button class="btn" style="height:38px" onclick="nwToggle()">Cancel</button></div>
+            <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bp" style="height:38px" id="nwPrimaryBtn" onclick="window._nwPrimary()">Save &amp; Proceed</button><button class="btn" style="height:38px" onclick="nwToggle()">Cancel</button></div>
           </div></div>
       </div>
       <div>
@@ -997,6 +946,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="rcVis">Visited <span class="ab">AUTO</span></label><input  class="input mono" style="height:34px" id="rcVis" readonly></div>
               <div class="fld"><label class="lbl" for="rcReg">Registered <span class="ab">AUTO</span></label><input  class="input mono" style="height:34px" id="rcReg" readonly></div>
             </div>
+            <div id="ciResults" style="margin-top:10px"></div>
             <div class="consent" style="font-size:12px"><label><input type="checkbox" checked> DPDP data use</label><label><input type="checkbox" checked> Health data</label><label><input type="checkbox" checked> Recording</label><label><input type="checkbox"> WA follow-ups</label></div>
             <button class="btn bp bsm" style="margin-top:8px" onclick="recRegDone()">Confirm → screening</button>
           </div></div>
@@ -1014,6 +964,50 @@ export function getMainContent(): string {
           </div></div>
       </div>
     </div>
+  </div></section>
+
+  <!-- COLLECT PAYMENT (dedicated page — reached from Reception "Save & Proceed" for a Blood Test walk-in) -->
+  <section class="screen" id="s-collectpay"><div class="wrap" style="max-width:920px;padding:16px 20px 60px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Collect payment</h1>
+      <button class="btn" style="margin-left:auto" onclick="window._cpBack()">↩ Back to Reception</button>
+    </div>
+    <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Client information</div>
+      <div class="sec-bd">
+        <div class="g3" style="gap:10px 14px">
+          <div class="fld"><label class="lbl">Name</label><input  class="input" style="height:38px" id="cpName" readonly></div>
+          <div class="fld"><label class="lbl">Phone number</label><input  class="input mono" style="height:38px" id="cpPhone" readonly></div>
+          <div class="fld"><label class="lbl">Email</label><input  class="input" style="height:38px" id="cpEmail" readonly></div>
+          <div class="fld"><label class="lbl">Address</label><input  class="input" style="height:38px" id="cpAddr" readonly></div>
+          <div class="fld"><label class="lbl">Selected service</label><input  class="input" style="height:38px" id="cpSvc" readonly></div>
+        </div>
+      </div></div>
+    <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)">Tick every test / panel the client is paying for</span></div>
+      <div class="sec-bd">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap">
+          <label class="nwChk"><input type="checkbox" data-test="Complete Blood Count (CBC)" data-price="400" onchange="window._cpRecalc()"> Complete Blood Count (CBC) — ₹400</label>
+          <label class="nwChk"><input type="checkbox" data-test="Fasting Blood Sugar (FBS)" data-price="150" onchange="window._cpRecalc()"> Fasting Blood Sugar (FBS) — ₹150</label>
+          <label class="nwChk"><input type="checkbox" data-test="Full Body Health Panel" data-price="2500" onchange="window._cpRecalc()"> Full Body Health Panel — ₹2,500</label>
+          <label class="nwChk"><input type="checkbox" data-test="HbA1c" data-price="600" onchange="window._cpRecalc()"> HbA1c — ₹600</label>
+          <label class="nwChk"><input type="checkbox" data-test="Kidney Function Test (KFT)" data-price="800" onchange="window._cpRecalc()"> Kidney Function Test (KFT) — ₹800</label>
+          <label class="nwChk"><input type="checkbox" data-test="Lipid Profile" data-price="900" onchange="window._cpRecalc()"> Lipid Profile — ₹900</label>
+          <label class="nwChk"><input type="checkbox" data-test="Liver Function Test (LFT)" data-price="800" onchange="window._cpRecalc()"> Liver Function Test (LFT) — ₹800</label>
+          <label class="nwChk"><input type="checkbox" data-test="Postprandial Sugar (PPBS)" data-price="150" onchange="window._cpRecalc()"> Postprandial Sugar (PPBS) — ₹150</label>
+          <label class="nwChk"><input type="checkbox" data-test="Thyroid Profile (T3/T4/TSH)" data-price="800" onchange="window._cpRecalc()"> Thyroid Profile (T3/T4/TSH) — ₹800</label>
+          <label class="nwChk"><input type="checkbox" data-test="Vitamin B12" data-price="1200" onchange="window._cpRecalc()"> Vitamin B12 — ₹1,200</label>
+          <label class="nwChk"><input type="checkbox" data-test="Vitamin D" data-price="1500" onchange="window._cpRecalc()"> Vitamin D — ₹1,500</label>
+        </div>
+      </div></div>
+    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Payment</div>
+      <div class="sec-bd">
+        <div class="g4" style="gap:10px 14px">
+          <div class="fld"><label class="lbl" for="cpTotal">Total</label><input  class="input mono" style="height:38px" id="cpTotal" value="₹0" readonly></div>
+          <div class="fld"><label class="lbl" for="cpAmt">Amount received *</label><input  class="input mono" style="height:38px" id="cpAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0"></div>
+          <div class="fld"><label class="lbl" for="cpMode">Mode *</label><select  class="select" style="height:38px" id="cpMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div>
+          <div class="fld"><label class="lbl" for="cpTxn">Txn ref *</label><input  class="input mono" style="height:38px" id="cpTxn" maxlength="40"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" id="cpCollectBtn" onclick="window._cpCollect()">Collect payment → Accounts</button><button class="btn" onclick="window._cpBack()">Cancel</button></div>
+      </div></div>
   </div></section>
 
   <!-- SCREENING -->
@@ -1076,7 +1070,8 @@ export function getMainContent(): string {
       <div class="pills" id="btDateFilt"><button class="pill on" onclick="window._btDateF('today')">Today</button><button class="pill" onclick="window._btDateF('yest')">Yesterday</button><button class="pill" onclick="window._btDateF('wk')">This week</button><button class="pill" onclick="window._btDateF('cust')">Custom</button></div>
       <input type="date" class="input" id="btFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._btApplyDate()">
       <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._btApplyDate()">
-      <button class="btn" style="margin-left:auto" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
+      <button class="btn bp" style="margin-left:auto" onclick="window._btIntakeOpen()">+ New walk-in</button>
+      <button class="btn" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
     </div>
     <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap" id="btRevCards">
       <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div></div></div>
@@ -1125,12 +1120,21 @@ export function getMainContent(): string {
       </div>
     </div>
 
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Worklist
-      <button class="btn bsm bp" style="margin-left:auto" onclick="event.stopPropagation();window._btIntakeOpen()">+ New walk-in</button> <span class="arr">▾</span></div>
-      <div class="sec-bd"><div class="tscroll" id="btOrdersWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test orders…</div></div></div></div>
-    <!-- Legacy appointment-driven view kept intact so the pre-existing flow is unaffected. -->
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"/></svg> Appointment-linked records <span class="arr">▾</span></div>
-      <div class="sec-bd" id="btWorklistWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test data…</div></div></div>
+      <div class="sec-bd">
+        <!-- Search + status filters (static so typing never loses focus on re-render) -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <input class="input" id="btSearch" placeholder="Search name or phone…" oninput="window._btSearchRows(this.value)" style="max-width:220px;height:34px;font-size:12px">
+          <select class="select" id="btFiltSample" onchange="window._btFilterChange()" style="height:34px;font-size:12px;width:auto"><option value="">Sample: All</option><option value="collected">Collected</option><option value="yet_to_collect">Yet to Collect</option></select>
+          <select class="select" id="btFiltLab" onchange="window._btFilterChange()" style="height:34px;font-size:12px;width:auto"><option value="">Lab: All</option><option value="sent">Sent</option><option value="yet_to_send">Yet to Send</option></select>
+          <select class="select" id="btFiltLabRep" onchange="window._btFilterChange()" style="height:34px;font-size:12px;width:auto"><option value="">Lab report: All</option><option value="received">Received</option><option value="yet_to_receive">Yet to Receive</option></select>
+          <select class="select" id="btFiltCliRep" onchange="window._btFilterChange()" style="height:34px;font-size:12px;width:auto"><option value="">Client report: All</option><option value="shared">Shared</option><option value="yet_to_share">Yet to Share</option></select>
+          <button class="btn bsm" onclick="window._btClearFilters()">Clear</button>
+        </div>
+        <!-- Bulk-action toolbar (shown only when rows are selected) -->
+        <div id="btBulkBar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;background:var(--brand-tint);border:1px solid var(--line);border-radius:9px;padding:8px 12px;margin-bottom:8px;font-size:12px"></div>
+        <div class="tscroll" id="btWorklistWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test data…</div></div>
+      </div></div>
     <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bell"/></svg> Outcome reminders <span class="arr">▾</span></div>
       <div class="sec-bd" id="btRemindersWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div>
 
@@ -1139,11 +1143,17 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Blood test record — <span id="btDetailName">Client</span>
         <button class="btn bsm" style="margin-left:auto" onclick="window._btCloseDetail()">Close</button></div>
         <div class="sec-bd">
+          <!-- Tests / panels multi-select (spec-fixed catalogue) -->
+          <div class="fld fw" style="margin-bottom:6px"><label class="lbl">Tests / panels <span class="ab">multi-select</span></label>
+            <div id="btdPanelBox" style="position:relative;max-width:520px">
+              <div class="select" id="btdPanelBtn" onclick="window._btdTogglePanelDD()" style="cursor:pointer;min-height:39px;height:auto;display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:6px 10px">Select tests / panels…</div>
+              <div id="btdPanelDD" style="display:none;position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--line);border-radius:9px;max-height:260px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14);padding:5px"></div>
+            </div></div>
           <div class="g4">
-            <div class="fld"><label class="lbl" for="btdPanel">Panel / tests</label><input  class="input" id="btdPanel" placeholder="e.g. HbA1c · FBS · Lipid"></div>
-            <div class="fld"><label class="lbl" for="btdCheckpoint">Checkpoint</label><select  class="select" id="btdCheckpoint"><option>M0</option><option>M2</option><option>M4</option><option>M6</option></select></div>
-            <div class="fld"><label class="lbl" for="btdSample">Sample status</label><select  class="select" id="btdSample"><option value="pending">Pending</option><option value="collected">Collected</option><option value="sent_to_lab">Sent to lab</option><option value="done">Done</option></select></div>
-            <div class="fld"><label class="lbl" for="btdReport">Report status</label><select  class="select" id="btdReport"><option value="pending">Pending</option><option value="ready">Ready</option><option value="shared">Shared to client</option></select></div>
+            <div class="fld"><label class="lbl" for="btdSample">Sample status</label><select  class="select" id="btdSample"><option value="yet_to_collect">Yet to Collect</option><option value="collected">Collected</option></select></div>
+            <div class="fld"><label class="lbl" for="btdLab">Lab status</label><select  class="select" id="btdLab"><option value="yet_to_send">Yet to Send</option><option value="sent">Sent</option></select></div>
+            <div class="fld"><label class="lbl" for="btdLabReport">Lab report status</label><select  class="select" id="btdLabReport"><option value="yet_to_receive">Yet to Receive</option><option value="received">Received</option></select></div>
+            <div class="fld"><label class="lbl" for="btdClientReport">Client report status</label><select  class="select" id="btdClientReport"><option value="yet_to_share">Yet to Share</option><option value="shared">Shared</option></select></div>
             <div class="fld"><label class="lbl" for="btdThyroCost">Thyrocare cost (₹)</label><input  class="input mono" id="btdThyroCost" type="number" placeholder="e.g. 400"></div>
             <div class="fld"><label class="lbl" for="btdOurPrice">Our price (₹)</label><input  class="input mono" id="btdOurPrice" type="number" placeholder="e.g. 800"></div>
           </div>
