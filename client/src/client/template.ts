@@ -663,7 +663,7 @@ export function getMainContent(): string {
 
           <!-- DUPLICATES -->
           <div class="csv-tab" data-ctp="dup" style="display:none">
-            <div class="banner plan" style="margin:0 0 12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Duplicate phone numbers detected on import. Review and <b>Keep</b> (move to Imported leads) or <b>Delete</b>. Duplicates are shown here for <b>10 minutes</b>, then auto-removed.</span></div>
+            <div class="banner plan" style="margin:0 0 12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Duplicate phone numbers detected on import. Review and <b>Keep</b> (move to Imported leads) or <b>Delete</b>. Duplicates are <b>kept permanently</b> for review &amp; audit — a record is removed <b>only</b> when you Delete it, and stays after refresh.</span></div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" id="csvDupSelAll" style="accent-color:var(--brand)"> Select all</label>
               <button class="btn bsm" onclick="window._csvKeepSelected()">✓ Keep selected</button>
@@ -986,23 +986,33 @@ export function getMainContent(): string {
     <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)">Tick every test / panel the client is paying for</span></div>
       <div class="sec-bd">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap">
-          <label class="nwChk"><input type="checkbox" data-test="Complete Blood Count (CBC)" data-price="400" onchange="window._cpRecalc()"> Complete Blood Count (CBC) — ₹400</label>
-          <label class="nwChk"><input type="checkbox" data-test="Fasting Blood Sugar (FBS)" data-price="150" onchange="window._cpRecalc()"> Fasting Blood Sugar (FBS) — ₹150</label>
-          <label class="nwChk"><input type="checkbox" data-test="Full Body Health Panel" data-price="2500" onchange="window._cpRecalc()"> Full Body Health Panel — ₹2,500</label>
-          <label class="nwChk"><input type="checkbox" data-test="HbA1c" data-price="600" onchange="window._cpRecalc()"> HbA1c — ₹600</label>
-          <label class="nwChk"><input type="checkbox" data-test="Kidney Function Test (KFT)" data-price="800" onchange="window._cpRecalc()"> Kidney Function Test (KFT) — ₹800</label>
-          <label class="nwChk"><input type="checkbox" data-test="Lipid Profile" data-price="900" onchange="window._cpRecalc()"> Lipid Profile — ₹900</label>
-          <label class="nwChk"><input type="checkbox" data-test="Liver Function Test (LFT)" data-price="800" onchange="window._cpRecalc()"> Liver Function Test (LFT) — ₹800</label>
-          <label class="nwChk"><input type="checkbox" data-test="Postprandial Sugar (PPBS)" data-price="150" onchange="window._cpRecalc()"> Postprandial Sugar (PPBS) — ₹150</label>
-          <label class="nwChk"><input type="checkbox" data-test="Thyroid Profile (T3/T4/TSH)" data-price="800" onchange="window._cpRecalc()"> Thyroid Profile (T3/T4/TSH) — ₹800</label>
-          <label class="nwChk"><input type="checkbox" data-test="Vitamin B12" data-price="1200" onchange="window._cpRecalc()"> Vitamin B12 — ₹1,200</label>
-          <label class="nwChk"><input type="checkbox" data-test="Vitamin D" data-price="1500" onchange="window._cpRecalc()"> Vitamin D — ₹1,500</label>
+          <label class="nwChk"><input type="checkbox" data-test="Complete Blood Count (CBC)" data-price="400" data-thyro="180" onchange="window._cpRecalc()"> Complete Blood Count (CBC) — ₹400</label>
+          <label class="nwChk"><input type="checkbox" data-test="Fasting Blood Sugar (FBS)" data-price="150" data-thyro="40" onchange="window._cpRecalc()"> Fasting Blood Sugar (FBS) — ₹150</label>
+          <label class="nwChk"><input type="checkbox" data-test="Full Body Health Panel" data-price="2500" data-thyro="1200" onchange="window._cpRecalc()"> Full Body Health Panel — ₹2,500</label>
+          <label class="nwChk"><input type="checkbox" data-test="HbA1c" data-price="600" data-thyro="280" onchange="window._cpRecalc()"> HbA1c — ₹600</label>
+          <label class="nwChk"><input type="checkbox" data-test="Kidney Function Test (KFT)" data-price="800" data-thyro="380" onchange="window._cpRecalc()"> Kidney Function Test (KFT) — ₹800</label>
+          <label class="nwChk"><input type="checkbox" data-test="Lipid Profile" data-price="900" data-thyro="420" onchange="window._cpRecalc()"> Lipid Profile — ₹900</label>
+          <label class="nwChk"><input type="checkbox" data-test="Liver Function Test (LFT)" data-price="800" data-thyro="380" onchange="window._cpRecalc()"> Liver Function Test (LFT) — ₹800</label>
+          <label class="nwChk"><input type="checkbox" data-test="Postprandial Sugar (PPBS)" data-price="150" data-thyro="40" onchange="window._cpRecalc()"> Postprandial Sugar (PPBS) — ₹150</label>
+          <label class="nwChk"><input type="checkbox" data-test="Thyroid Profile (T3/T4/TSH)" data-price="800" data-thyro="350" onchange="window._cpRecalc()"> Thyroid Profile (T3/T4/TSH) — ₹800</label>
+          <label class="nwChk"><input type="checkbox" data-test="Vitamin B12" data-price="1200" data-thyro="600" onchange="window._cpRecalc()"> Vitamin B12 — ₹1,200</label>
+          <label class="nwChk"><input type="checkbox" data-test="Vitamin D" data-price="1500" data-thyro="800" onchange="window._cpRecalc()"> Vitamin D — ₹1,500</label>
         </div>
       </div></div>
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Payment</div>
       <div class="sec-bd">
-        <div class="g4" style="gap:10px 14px">
-          <div class="fld"><label class="lbl" for="cpTotal">Total</label><input  class="input mono" style="height:38px" id="cpTotal" value="₹0" readonly></div>
+        <div class="fld" style="margin-bottom:8px"><label class="lbl">Selected blood test panel(s)</label><input  class="input" style="height:38px" id="cpPanels" readonly placeholder="Tick a test / panel above"></div>
+        <div class="g3" style="gap:10px 14px;margin-bottom:8px">
+          <div class="fld"><label class="lbl" for="cpThyro">Thyrocare cost</label><input  class="input mono" style="height:38px" id="cpThyro" value="₹0" readonly></div>
+          <div class="fld"><label class="lbl" for="cpService">Service amount (selling price)</label><input  class="input mono" style="height:38px" id="cpService" value="₹0" readonly></div>
+          <div class="fld"><label class="lbl">Margin <span class="ab">auto</span></label><input  class="input mono" style="height:38px" id="cpMargin" value="₹0" readonly></div>
+        </div>
+        <div class="g3" style="gap:10px 14px;margin-bottom:8px">
+          <div class="fld"><label class="lbl" for="cpCoupon">Coupon code</label><div style="display:flex;gap:6px"><input  class="input mono" style="height:38px;flex:1" id="cpCoupon" placeholder="Enter code" maxlength="24"><button class="btn bsm bp" style="height:38px" onclick="window._cpApplyCoupon()">Apply</button></div><div id="cpCouponMsg" style="font-size:11px;margin-top:3px"></div></div>
+          <div class="fld"><label class="lbl" for="cpDiscount">Discount</label><input  class="input mono" style="height:38px" id="cpDiscount" value="₹0" readonly></div>
+          <div class="fld"><label class="lbl" for="cpTotal">Total amount</label><input  class="input mono" style="height:38px;font-weight:700" id="cpTotal" value="₹0" readonly></div>
+        </div>
+        <div class="g3" style="gap:10px 14px">
           <div class="fld"><label class="lbl" for="cpAmt">Amount received *</label><input  class="input mono" style="height:38px" id="cpAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0"></div>
           <div class="fld"><label class="lbl" for="cpMode">Mode *</label><select  class="select" style="height:38px" id="cpMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div>
           <div class="fld"><label class="lbl" for="cpTxn">Txn ref *</label><input  class="input mono" style="height:38px" id="cpTxn" maxlength="40"></div>

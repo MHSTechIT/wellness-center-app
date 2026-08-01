@@ -4856,7 +4856,7 @@ export function initApp(root: HTMLElement) {
           else{ stageChip=enrollLine?{t:enrollLine,c:"ok"}:(a.stage?{t:String(a.stage),c:"info"}:{t:"",c:"neu"}); }
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
-          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:a.hc_pt||"—", status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
+          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
@@ -4877,6 +4877,25 @@ export function initApp(root: HTMLElement) {
       const [from,to]=_recDateRange();
       RX=_recAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       renderAll();
+    }
+    // Make a just-created / just-checked-in appointment visible in the Appointments table WITHOUT a
+    // manual refresh: if its date falls outside the active date filter, switch the filter to a range
+    // that includes it (today → the Today preset; any other date → a Custom single-day range).
+    function _recRevealAppt(dateStr:string){
+      if(!dateStr){ applyRecDate(); return; }
+      const ds=String(dateStr).slice(0,10);
+      const [from,to]=_recDateRange();
+      const d=new Date(ds+"T12:00:00");
+      if((!from||d>=from)&&(!to||d<=to)){ applyRecDate(); return; }   // already visible — just refresh
+      if(ds===_todayLocal()){ curDate="today"; }
+      else{
+        curDate="cust";
+        const fEl=root.querySelector("#dtFrom")as HTMLInputElement|null; if(fEl) fEl.value=ds;
+        const tEl=root.querySelector("#dtTo")as HTMLInputElement|null; if(tEl) tEl.value=ds;
+        ["dtFrom","dtTo","dtTo2","dtApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement|null; if(el) el.style.display=(id==="dtApplyBtn"?"inline-flex":"inline");});
+      }
+      try{ renderFilters(); }catch(_){}
+      applyRecDate();
     }
     // Booking hook: Advisor "Appointment Fixed" → create/update an appointment row.
     async function _bookApptForLead(leadId:string,mode:string){
@@ -5351,6 +5370,10 @@ export function initApp(root: HTMLElement) {
       let draft:any=null; try{ const s=localStorage.getItem(_NW_DRAFT_KEY); draft=s?JSON.parse(s):null; }catch(_){}
       if(draft){ _nwRestoreDraft(draft); if(!((root.querySelector("#nwClientId")as HTMLInputElement)?.value)) _nwFillClientId(); toast("Draft restored"); }
       else{ _nwFillClientId(); }
+      // A walk-in is a SAME-DAY check-in — never let an empty or STALE PAST date (e.g. carried over
+      // from a restored draft) leak through: it would date the appointment in the past and hide it
+      // from the Today-filtered Appointments table. Reset it to today so the record shows immediately.
+      { const _d=root.querySelector("#nwDate")as HTMLInputElement|null; if(_d && (!_d.value || _d.value<_todayLocal())) _d.value=_todayLocal(); }
       _nwUpdateProvVis();
     }
     // Show/hide keeps every field mounted, so switching steps never loses entered data.
@@ -5486,6 +5509,7 @@ export function initApp(root: HTMLElement) {
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       _nwClearDraft();   // registration completed → discard the saved draft
       nwToggle(); await loadReceptionData();
+      _recRevealAppt(apptDate);   // ensure the new appointment shows in the Appointments table immediately
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
       toast("Created + booked + checked in → screening");
     }
@@ -5530,30 +5554,73 @@ export function initApp(root: HTMLElement) {
       const combinedStage=nonBT.length?"screening":"blood_test";
       let apptId:any=null;
       try{
-        const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:leadSvc,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:combinedStage,source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
+        // HC/PT is only meaningful for the non-blood services. Blood-Test-ONLY has no HC/PT, and the
+        // Provider dropdown is hidden in that case (its stale "Dr. Suresh" default must NOT be saved) —
+        // so send null. Assignment happens explicitly later, never automatically on registration.
+        const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:leadSvc,hc_pt:(nonBT.length?prov:null),appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:combinedStage,source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
         if(ins&&ins.error){ toastErr(/appointment|relation|exist|schema/i.test(ins.error.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(ins.error.message||"db error")); return; }
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       // The single appointment's id — the blood-test payment attaches to it.
       try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).order("id",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
       _nwClearDraft(); nwToggle(); try{ await loadReceptionData(); }catch(_){}
+      try{ _recRevealAppt(apptDate); }catch(_){}   // so the Appointments table shows it when the user returns from Collect Payment
       _cpOpen({apptId,leadId,name,phone:ph,email,addr,service:leadSvc});
       toast(nonBT.length?("Registered · "+sel.join(", ")+" → screening. Collect blood-test payment first"):"Client registered — collect blood-test payment");
     }
 
     // ---- Collect Payment page ----
-    function _cpOpen(c:{apptId:any,leadId:string,name:string,phone:string,email:string,addr:string,service:string}){
+    let _cpCoupon:any=null;   // validated bt_coupons row applied on the Collect Payment page
+    async function _cpOpen(c:{apptId:any,leadId:string,name:string,phone:string,email:string,addr:string,service:string}){
       _cpCtx={apptId:c.apptId,leadId:c.leadId,name:c.name};
       const setV=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
       setV("cpName",c.name||""); setV("cpPhone",c.phone||""); setV("cpEmail",c.email||"—"); setV("cpAddr",c.addr||"—"); setV("cpSvc",c.service||"Blood test");
       root.querySelectorAll('#cpTestsWrap input[type="checkbox"]').forEach((i:any)=>{ i.checked=false; });
+      _cpCoupon=null; setV("cpCoupon",""); const cm=root.querySelector("#cpCouponMsg"); if(cm) cm.innerHTML="";
       setV("cpAmt",""); setV("cpTxn",""); const md=root.querySelector("#cpMode")as HTMLSelectElement|null; if(md) md.selectedIndex=0;
       (w as any)._cpRecalc();
       const ts=root.querySelector("#cpTestsSec")as HTMLElement|null; if(ts) ts.style.display=(_recSvcCode(c.service)==="bt")?"":"none";   // tests dropdown only for Blood Test
       _showScreen("collectpay");
+      // Auto-fill client details from the lead PROFILE (email/name/phone live on the lead row). Address
+      // isn't stored on leads yet, so it stays "—". Guarded so a mid-fetch switch to another client is a no-op.
+      if(c.leadId){ try{ const {data}=await supabase.from("leads").select("name,phone,email").eq("meta_lead_id",c.leadId).limit(1); const l=data&&data[0]; if(l&&_cpCtx&&String(_cpCtx.leadId)===String(c.leadId)){ if(l.email&&!c.email) setV("cpEmail",l.email); if(l.name&&!c.name) setV("cpName",l.name); if(l.phone&&!c.phone) setV("cpPhone",l.phone); } }catch(_){} }
     }
-    function _cpSelectedTests():{name:string,price:number}[]{ return Array.from(root.querySelectorAll('#cpTestsWrap input[type="checkbox"]:checked')).map((i:any)=>({name:String(i.getAttribute("data-test")||""),price:Number(i.getAttribute("data-price"))||0})); }
-    function _cpTotalAmt():number{ return _cpSelectedTests().reduce((s,t)=>s+t.price,0); }
-    w._cpRecalc=()=>{ const t=_cpTotalAmt(); const tt=root.querySelector("#cpTotal")as HTMLInputElement|null; if(tt) tt.value="₹"+t.toLocaleString("en-IN"); const amt=root.querySelector("#cpAmt")as HTMLInputElement|null; if(amt) amt.value=t?String(t):""; };
+    function _cpSelectedTests():{name:string,price:number,thyro:number}[]{ return Array.from(root.querySelectorAll('#cpTestsWrap input[type="checkbox"]:checked')).map((i:any)=>({name:String(i.getAttribute("data-test")||""),price:Number(i.getAttribute("data-price"))||0,thyro:Number(i.getAttribute("data-thyro"))||0})); }
+    function _cpServiceAmt():number{ return _cpSelectedTests().reduce((s,t)=>s+t.price,0); }   // selling price (what the client pays)
+    function _cpThyroCost():number{ return _cpSelectedTests().reduce((s,t)=>s+t.thyro,0); }    // Thyrocare (lab) cost per panel
+    function _cpDiscountFor(gross:number):number{ if(!_cpCoupon) return 0; const raw=_cpCoupon.discount_type==="percent"?Math.round(gross*(Number(_cpCoupon.discount_value)||0)/100):(Number(_cpCoupon.discount_value)||0); return Math.min(Math.max(0,raw),gross); }
+    function _cpTotalAmt():number{ const s=_cpServiceAmt(); return Math.max(0,s-_cpDiscountFor(s)); }   // NET payable (after coupon)
+    // Recompute the whole breakdown — runs on every panel tick and coupon apply, so the numbers are
+    // always live: Panels · Thyrocare cost · Service amount · Discount · Total, and prefills Amount received.
+    w._cpRecalc=()=>{
+      const sel=_cpSelectedTests(); const service=_cpServiceAmt(); const thyro=_cpThyroCost();
+      const disc=_cpDiscountFor(service); const total=Math.max(0,service-disc);
+      const money=(n:number)=>"₹"+n.toLocaleString("en-IN"); const setV=(id:string,v:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v;};
+      setV("cpPanels", sel.length?sel.map(t=>t.name).join(", "):"");
+      setV("cpThyro",money(thyro)); setV("cpService",money(service)); setV("cpMargin",money(Math.max(0,total-thyro)));
+      setV("cpDiscount",disc?("−"+money(disc)):"₹0"); setV("cpTotal",money(total));
+      const amt=root.querySelector("#cpAmt")as HTMLInputElement|null; if(amt) amt.value=total?String(total):"";
+    };
+    // Apply Coupon — validated against the existing bt_coupons table (same rules the Blood Test intake
+    // uses: active / date window / usage cap), then recalculate the Total instantly.
+    w._cpApplyCoupon=async()=>{
+      const el=root.querySelector("#cpCoupon")as HTMLInputElement|null; const msg=root.querySelector("#cpCouponMsg");
+      const code=((el?.value)||"").trim().toUpperCase(); _cpCoupon=null;
+      if(!code){ if(msg) msg.innerHTML=""; (w as any)._cpRecalc(); return; }
+      try{
+        const r:any=await supabase.from("bt_coupons").select("*").eq("code",code).limit(1);
+        if(r&&r.error) throw new Error(r.error.message);
+        const c=r?.data&&r.data[0]; const today=_todayLocal(); let bad="";
+        if(!c) bad="Invalid code";
+        else if(!c.active) bad="This code is no longer active";
+        else if(c.valid_from&&today<String(c.valid_from).slice(0,10)) bad="This code isn't valid yet";
+        else if(c.valid_to&&today>String(c.valid_to).slice(0,10)) bad="This code has expired";
+        else if(c.max_uses!=null&&Number(c.used_count||0)>=Number(c.max_uses)) bad="This code has reached its usage limit";
+        if(bad){ if(msg) msg.innerHTML='<span style="color:var(--alert-ink)">'+bad+'</span>'; (w as any)._cpRecalc(); return; }
+        _cpCoupon=c; (w as any)._cpRecalc();
+        const disc=_cpDiscountFor(_cpServiceAmt());
+        if(msg) msg.innerHTML='<span style="color:var(--ok-ink)">Applied — ₹'+disc.toLocaleString("en-IN")+' off</span>';
+      }catch(_){ if(msg) msg.innerHTML='<span style="color:var(--alert-ink)">Could not check the code</span>'; (w as any)._cpRecalc(); }
+    };
     w._cpBack=()=>{ _cpCtx=null; try{ const nav=root.querySelector('#nav button[data-s="reception"]')as HTMLButtonElement|null; if(nav){ nav.click(); return; } }catch(_){} _showScreen("reception"); };
     let _cpBusy=false;   // guards against a double-click creating two paid rows
     w._cpCollect=async ()=>{
@@ -5581,7 +5648,9 @@ export function initApp(root: HTMLElement) {
         if(ctx.leadId){ try{ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",ctx.leadId); }catch(_){} }
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         try{ ach("🩸","Blood test payment collected",ctx.name+" · ₹"+amt.toLocaleString("en-IN")); }catch(_){}
-        _cpCtx=null;
+        // Count the coupon usage so max_uses actually caps (best-effort; the payment already stands).
+        if(_cpCoupon){ try{ await supabase.from("bt_coupons").update({used_count:Number(_cpCoupon.used_count||0)+1}).eq("id",_cpCoupon.id); }catch(_){} }
+        _cpCtx=null; _cpCoupon=null;
         try{ await loadReceptionData(); }catch(_){} try{ loadAccountsData(); }catch(_){} try{ loadBloodTestData(); }catch(_){}
         (w as any)._cpBack();
       }catch(e:any){ toastErr("Collect failed: "+(e.message||"db error")); }
@@ -6019,8 +6088,13 @@ export function initApp(root: HTMLElement) {
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
       toast(hasBT?(nonBT.length?("✓ "+m.name+" → Screening · collect Blood Test payment from Collect payment"):("✓ "+m.name+" → Blood Test Collect Payment queue")):("✓ "+m.name+" checked in → screening ("+now+")"));
       await loadReceptionData();   // refresh: appointment now Visited, in screening queue + payment queue
+      _recRevealAppt(m._date||_todayLocal());   // surface the just-checked-in appointment in the Appointments table
       try{ loadZoomCheckins(); }catch(_){}
       try{ loadBloodTestData(); }catch(_){}   // a Blood-Test (or combined) appointment shows in its module by service
+      // Consistency fix: an EXISTING lead checked in for Blood Test must open the Blood Test Collect
+      // Payment page immediately — exactly like a new walk-in (_nwBloodTestProceed). Previously the
+      // check-in ended at "visited" with no route, so clicking Collect Payment went nowhere.
+      if(hasBT){ try{ _cpOpen({apptId:m.id, leadId:String(m.lead_id||""), name:m.name||"", phone:m.ph||"", email:m.email||"", addr:"", service:m.serviceRaw||raw||"Blood test"}); }catch(_){} }
     }
     w.recRegDone = recRegDone;
     // ===== Zoom check-in (Appointment Fixed – Zoom) — Advisor list + Reception action =====
