@@ -669,8 +669,9 @@ export function getMainContent(): string {
               <button class="btn bsm" onclick="window._csvKeepSelected()">✓ Keep selected</button>
               <button class="btn bsm" style="color:var(--alert-ink);border-color:var(--alert)" onclick="window._csvDeleteSelected('dup')">🗑 Delete selected</button>
               <button class="btn bsm" onclick="window._csvDownload('dup')">⬇ Download</button>
+              <input class="input" id="csvDupSearch" placeholder="🔍 Search leads…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._csvDupSearch()">
             </div>
-            <div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr id="csvDupHead"><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Source</th><th>Service</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvDupBody"></tbody></table></div>
+            <div class="tscroll"><table class="tbl" style="min-width:1480px"><thead><tr id="csvDupHead"></tr></thead><tbody id="csvDupBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
               <button class="btn bsm" id="csvDupFirstBtn" onclick="window._csvDupPage('first')">« First</button>
               <button class="btn bsm" id="csvDupPrevBtn" onclick="window._csvDupPage(-1)">← Previous</button>
@@ -928,7 +929,7 @@ export function getMainContent(): string {
               <div class="nwGrpHd">Service &amp; booking</div>
               <div class="g4" style="gap:10px 12px;margin-top:10px">
                 <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
-                <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option></select></div>
+                <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>12:00 PM</option><option>12:30 PM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option><option>3:30 PM</option><option>4:00 PM</option><option>4:30 PM</option><option>5:00 PM</option><option>5:30 PM</option><option>6:00 PM</option><option>6:30 PM</option></select></div>
                 <div class="fld" id="nwProvFld"><label class="lbl" for="nwProv">Provider</label><select  class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
                 <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
               </div>
@@ -1068,8 +1069,9 @@ export function getMainContent(): string {
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Blood test — Thyrocare</h1>
       <div class="pills" id="btDateFilt"><button class="pill on" onclick="window._btDateF('today')">Today</button><button class="pill" onclick="window._btDateF('yest')">Yesterday</button><button class="pill" onclick="window._btDateF('wk')">This week</button><button class="pill" onclick="window._btDateF('cust')">Custom</button></div>
-      <input type="date" class="input" id="btFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._btApplyDate()">
-      <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._btApplyDate()">
+      <input type="date" class="input" id="btFrom" style="display:none;height:30px;font-size:12px;width:130px">
+      <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px">
+      <button class="btn bsm bp" id="btApplyBtn" style="display:none;height:30px" onclick="window._btApplyDate()">Apply</button>
       <button class="btn bp" style="margin-left:auto" onclick="window._btIntakeOpen()">+ New walk-in</button>
       <button class="btn" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
     </div>
@@ -1173,8 +1175,9 @@ export function getMainContent(): string {
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">💪 Physiotherapy</h1>
       <div class="pills" id="phDateFilt"><button class="pill on" onclick="window._phDateF('today')">Today</button><button class="pill" onclick="window._phDateF('wk')">This week</button><button class="pill" onclick="window._phDateF('cust')">Custom</button></div>
-      <input type="date" class="input" id="phFrom" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._phApplyDate()">
-      <input type="date" class="input" id="phTo" style="display:none;height:30px;font-size:12px;width:130px" onchange="window._phApplyDate()">
+      <input type="date" class="input" id="phFrom" style="display:none;height:30px;font-size:12px;width:130px">
+      <input type="date" class="input" id="phTo" style="display:none;height:30px;font-size:12px;width:130px">
+      <button class="btn bsm bp" id="phApplyBtn" style="display:none;height:30px" onclick="window._phApplyDate()">Apply</button>
       <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Revenue</span>
       <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)" id="phRevenue">₹0</span>
       <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
@@ -1329,6 +1332,30 @@ export function getMainContent(): string {
           <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="zoomTblPageInfo">Page 1 of 1</span>
           <button class="btn bsm" id="zoomTblNextBtn" onclick="window._zoomTblPage(1)">Next →</button>
           <button class="btn bsm" id="zoomTblLastBtn" onclick="window._zoomTblPage('last')">Last »</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec" id="callRecSec" style="margin-bottom:16px;display:none">
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"/></svg> Call Recordings <span class="chipb ok" id="callRecCount" style="margin-left:8px">0</span>
+        <input class="input" id="callRecSearch" placeholder="Search customer / number / status…" style="height:30px;font-size:12px;width:240px;margin-left:auto" oninput="window._callRecSearch()">
+        <button class="btn bsm" style="margin-left:8px" onclick="window._callRecDownload()">⬇ Download</button></div>
+      <div class="sec-bd">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--faint)">Date</span>
+          <input class="input" type="date" id="callRecFrom" style="height:30px;font-size:12px;width:150px" title="From">
+          <span style="color:var(--faint);font-size:12px">→</span>
+          <input class="input" type="date" id="callRecTo" style="height:30px;font-size:12px;width:150px" title="To">
+          <button class="btn bsm bp" onclick="window._callRecApply()">Apply</button>
+          <button class="btn bsm" onclick="window._callRecClear()">Clear</button>
+        </div>
+        <div class="tscroll stick1"><table class="tbl" style="min-width:960px"><thead><tr id="callRecHead"></tr></thead><tbody id="callRecBody"></tbody></table></div>
+        <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <button class="btn bsm" id="callRecFirstBtn" onclick="window._callRecPage('first')">« First</button>
+          <button class="btn bsm" id="callRecPrevBtn" onclick="window._callRecPage(-1)">← Previous</button>
+          <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="callRecPageInfo">Page 1 of 1</span>
+          <button class="btn bsm" id="callRecNextBtn" onclick="window._callRecPage(1)">Next →</button>
+          <button class="btn bsm" id="callRecLastBtn" onclick="window._callRecPage('last')">Last »</button>
         </div>
       </div>
     </div>

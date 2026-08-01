@@ -152,7 +152,7 @@ export function initApp(root: HTMLElement) {
         // own lazy loader doesn't fire a duplicate fetch.
         _advCallLoaded=true;
         const ready=Promise.allSettled([_initDataReady,_loadAdvCallStats(),loadAssignees()]);
-        const timeout=new Promise((res)=>setTimeout(res,10000));   // safety: reveal after 10s max
+        const timeout=new Promise((res)=>setTimeout(res,45000));   // safety NET only: a stuck sync/DB can't trap the user past 45s. Normal loads lift via the data promise (incl. the initial Meta sync) well before this, so it adds no delay in the happy path.
         Promise.race([ready,timeout]).then(()=>{
           try{ renderAll(); renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           if(splash){ splash.classList.add("done"); setTimeout(()=>{ splash.style.display="none"; },400); }
@@ -1194,17 +1194,24 @@ export function initApp(root: HTMLElement) {
       _manualDupPhones.forEach(p=>s.add(p));
       return s;
     }
-    // Group duplicate leads by phone → one entry each with repeat count + all sources.
-    // Also, across ALL feed leads for that phone (incl. assigned/pooled ones that have
-    // left the feed), track the latest received time and the last-assigned advisor.
-    function feedDupGroups(){
-      const ds=feedDupPhoneSet();
-      // Per-phone history over EVERY occurrence of the number (including pooled/assigned
-      // ones that have left the active feed). The Duplicates table is a HISTORICAL view:
-      // assigning a lead updates only "Last Assigned Advisor" — it never removes the
-      // record, and never changes the repeat count or last-repeat time.
+    // ===== THE single phone-duplicate grouping — shared by BOTH the Live Feed and the Bulk CSV
+    // Import wizard so both Duplicates tables use identical detection + business rules.
+    //   allList : every occurrence (drives Repeat Count / Sources / First+Last received).
+    //   repList : already search/filter-narrowed candidates; one per phone becomes the row.
+    //   isActive(l): prefer an active occurrence as the representative.
+    //   forcedDup : phones that must count as duplicates regardless of occurrence count.
+    // Returns one group per duplicated phone: {rep,count,sources,firstReceived,lastReceived,
+    // lastAssigned,lastAssignedAt,lastAssignedId}, newest repeat first.
+    function _dupGroupsFrom(allList:any[],repList:any[],isActive:(l:any)=>boolean,forcedDup?:Set<string>){
+      const counts:Record<string,number>={};
+      allList.forEach((l:any)=>{ const p=normPhone(l.phone); if(p) counts[p]=(counts[p]||0)+1; });
+      const ds=new Set<string>();
+      Object.keys(counts).forEach(p=>{ if(counts[p]>1) ds.add(p); });
+      if(forcedDup) forcedDup.forEach(p=>ds.add(p));
+      // Per-phone history over EVERY occurrence (including pooled/assigned ones that have left the
+      // active feed). Assigning a lead updates only "Last Assigned" — never the count/last-repeat.
       const meta:Record<string,any>={};
-      feedAll().forEach((l:any)=>{
+      allList.forEach((l:any)=>{
         const p=normPhone(l.phone); if(!p) return;
         const t=new Date(l.createdAt).getTime()||0;
         if(!meta[p]) meta[p]={firstReceived:l.createdAt,firstReceivedAt:Infinity,lastReceived:l.createdAt,lastReceivedAt:-Infinity,lastAssigned:"",lastAssignedAt:-1,count:0,sources:new Set<string>()};
@@ -1213,22 +1220,15 @@ export function initApp(root: HTMLElement) {
         m.sources.add((l.source==="Meta")?"Meta":(l.source==="Manual"?"Manual":(l.source||"Meta")));
         if(t<=m.firstReceivedAt){ m.firstReceivedAt=t; m.firstReceived=l.createdAt; }   // earliest = original
         if(t>=m.lastReceivedAt){ m.lastReceivedAt=t; m.lastReceived=l.createdAt; }        // latest = most recent repeat
-        // Last assigned advisor = the assignment with the most recent assignment time
-        // (assigned_at; falls back to the lead's created time). Reflects reassignments.
-        // Also keep the timestamp itself (for the "Last Assigned Date & Time" column) and WHICH
-        // occurrence holds that assignment — Reassign retargets that record, so the row's
-        // "last assigned" stays the one being changed rather than a different occurrence.
         if(l.assignedTo){ const at=l.assignedAt?(new Date(l.assignedAt).getTime()||t):t; if(at>=m.lastAssignedAt){ m.lastAssignedAt=at; m.lastAssigned=l.assignedTo; m.lastAssignedIso=l.assignedAt||l.createdAt; m.lastAssignedId=l.id; } }
       });
-      // Representative lead per duplicate phone (honors search + dashboard filters). Prefer
-      // an active/unassigned occurrence (so "Send to assignment" targets an unpooled one);
-      // otherwise fall back to the newest occurrence.
+      // Representative lead per duplicate phone. Prefer an active occurrence; else the newest.
       const rep:Record<string,any>={};
-      feedAll().filter((l:any)=>feedMatchesQuery(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service)).forEach((l:any)=>{
+      repList.forEach((l:any)=>{
         const p=normPhone(l.phone); if(!p||!ds.has(p)) return;
         const cur=rep[p];
         if(!cur){ rep[p]=l; return; }
-        const lActive=!feedIsProcessed(l), cActive=!feedIsProcessed(cur);
+        const lActive=isActive(l), cActive=isActive(cur);
         if(lActive!==cActive){ if(lActive) rep[p]=l; return; }
         if(new Date(l.createdAt).getTime()>new Date(cur.createdAt).getTime()) rep[p]=l;
       });
@@ -1240,10 +1240,18 @@ export function initApp(root: HTMLElement) {
         lastReceived: meta[p]?meta[p].lastReceived:rep[p].createdAt,
         lastAssigned: meta[p]?meta[p].lastAssigned:"",
         lastAssignedAt: (meta[p]&&meta[p].lastAssignedIso)||"",
-        // Reassign target: the occurrence that currently holds the assignment, else the
-        // representative lead (an unassigned duplicate can still be assigned from this row).
+        // Reassign target: the occurrence that holds the assignment, else the representative lead.
         lastAssignedId: (meta[p]&&meta[p].lastAssignedId)||rep[p].id,
       })).sort((a:any,b:any)=>new Date(b.lastReceived).getTime()-new Date(a.lastReceived).getTime());
+    }
+    // Live Feed duplicates: group across the whole feed, honoring search + dashboard filters.
+    function feedDupGroups(){
+      return _dupGroupsFrom(
+        feedAll(),
+        feedAll().filter((l:any)=>feedMatchesQuery(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service)),
+        (l:any)=>!feedIsProcessed(l),
+        _manualDupPhones
+      );
     }
     // The selectable lead ids for the current view (Duplicates view selects each group's rep).
     function feedSelectableIds(){
@@ -1474,17 +1482,27 @@ export function initApp(root: HTMLElement) {
       {key:"_act",label:"Action",filter:false},
     ];
     regGrid("csvImported", ()=>_csvImpCols, ()=>renderCsvValid());
+    // CSV Duplicates columns — IDENTICAL to the Live Feed Duplicates view (_feedColsDup), operating
+    // on phone-grouped rows. The feed-only functional "Reassign" is replaced by the CSV review
+    // "Action" (Keep/Delete); Last-Assigned columns read "Not Assigned" (CSV leads aren't assigned).
     const _csvDupCols:any[]=[
-      {key:"_sel",head:"",thStyle:"width:30px"},
-      {key:"dt",label:"Date & Time",filter:true,text:(r:any)=>r.dt||""},
-      {key:"campaign",label:"Campaign",filter:true,text:(r:any)=>r.campaign||""},
-      {key:"lead",label:"Lead Name",filter:true,text:(r:any)=>r.lead||""},
-      {key:"phone",label:"Phone Number",filter:true,text:(r:any)=>r.phone||""},
-      {key:"sugar",label:"Sugar Poll",filter:true,text:(r:any)=>r.sugar||""},
-      {key:"city",label:"City",filter:true,text:(r:any)=>r.city||""},
-      {key:"source",label:"Source",filter:true,text:(r:any)=>r.source||""},
-      {key:"service",label:"Service",filter:true,text:(r:any)=>r.service||""},
-      {key:"status",label:"Status",filter:false},
+      {key:"_sel",head:"",thStyle:"width:36px"},   // select-all lives in the static toolbar (#csvDupSelAll)
+      {key:"date",label:"First Update Date & Time",filter:true,text:(g:any)=>fmtIST(g.firstReceived)},
+      {key:"lastRepeat",label:"Last Repeat Date & Time",filter:true,text:(g:any)=>fmtIST(g.lastReceived)},
+      {key:"count",label:"Repeat Leads Count",filter:true,text:(g:any)=>String(g.count)},
+      {key:"campaign",label:"Campaign",filter:true,text:(g:any)=>g.rep.campaign||""},
+      {key:"adName",label:"Ad Name",filter:true,text:(g:any)=>g.rep.adName||""},
+      {key:"name",label:"Lead Name",filter:true,text:(g:any)=>g.rep.name||""},
+      {key:"phone",label:"Phone Number",filter:true,text:(g:any)=>g.rep.phone||""},
+      {key:"sugar",label:"Sugar Poll",filter:true,text:(g:any)=>g.rep.sugar||""},
+      {key:"city",label:"City",filter:true,text:(g:any)=>g.rep.city||""},
+      {key:"street",label:"Street",filter:true,text:(g:any)=>g.rep.street||""},
+      {key:"source",label:"Source",filter:true,text:(g:any)=>(g.sources||[]).join(" ")},
+      {key:"service",label:"Service",filter:true,text:(g:any)=>g.rep.service||""},
+      {key:"lang",label:"Language",filter:true,text:(g:any)=>g.rep.lang||""},
+      {key:"lastAssignedAt",label:"Last Assigned Date & Time",filter:true,text:(g:any)=>g.lastAssignedAt?fmtIST(g.lastAssignedAt):"Not Assigned"},
+      {key:"lastAssigned",label:"Last Assigned Advisor",filter:true,text:(g:any)=>g.lastAssigned||"Not Assigned"},
+      {key:"dedup",label:"Dedup",filter:true,text:(_g:any)=>"Duplicate"},
       {key:"_act",label:"Action",filter:false},
     ];
     regGrid("csvDup", ()=>_csvDupCols, ()=>renderCsvDup());
@@ -3665,10 +3683,17 @@ export function initApp(root: HTMLElement) {
     // poll is the only way to capture new leads — this is self-throttled by STALE_MS.
     const AUTO_SYNC_STALE_MS=5*60*1000; // re-sync if last sync older than 5 min
     let _autoSyncFails=0;               // consecutive auto-sync failures
-    async function maybeAutoSync(lastSync:any){
-      if(_autoSyncInFlight||_syncing) return;
+    // Whether an auto-sync will actually run for this feed load (data stale + not already syncing).
+    // The startup splash uses this to keep masking the app until AFTER the sync's re-fetch, so the
+    // dashboard reveals only FINAL counts — never the pre-sync intermediate (what made the totals
+    // jump 0 → 62 → 213 on first load).
+    function _shouldAutoSync(lastSync:any):boolean{
+      if(_autoSyncInFlight||_syncing) return false;
       const finished=lastSync&&lastSync.finished_at?new Date(lastSync.finished_at).getTime():0;
-      if(finished&&(Date.now()-finished)<AUTO_SYNC_STALE_MS) return; // fresh enough
+      return !(finished&&(Date.now()-finished)<AUTO_SYNC_STALE_MS);   // stale (or never synced) → will sync
+    }
+    async function maybeAutoSync(lastSync:any){
+      if(!_shouldAutoSync(lastSync)) return;   // fresh enough / already syncing
       await runAutoSync();
     }
     // Pull fresh leads from Meta and keep the "Last Synced" label current. Drives the
@@ -3695,7 +3720,7 @@ export function initApp(root: HTMLElement) {
       }catch(_){
         _autoSyncFails++;
         if(statusEl) statusEl.textContent=_autoSyncFails>=2?"⚠ Unable to sync data. Please check the Meta connection.":"⚠ Last sync failed. Retrying…";
-      }finally{ _autoSyncInFlight=false; const s2=root.querySelector("#metaFeedStatus"); if(s2) s2.classList.remove("syncing"); }
+      }finally{ _autoSyncInFlight=false; const s2=root.querySelector("#metaFeedStatus"); if(s2) s2.classList.remove("syncing"); _markInitialDataReady(); }   // sync finished (or failed) → never leave the startup splash trapped (idempotent no-op once already lifted)
     }
     // Perf: during a (background) sync we only rebuild the screen the user is looking
     // at; the other screens are marked dirty and rebuilt when navigated to. This keeps
@@ -3744,8 +3769,11 @@ export function initApp(root: HTMLElement) {
           if(statusEl) statusEl.textContent=(data.lastSync?"Synced · no leads matched your ad accounts":"Not synced yet — pulling from Meta…");
           if(tbody) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">No synced leads yet. Pulling from Meta…</td></tr>';
           if(countEl) countEl.textContent="0 leads in database";
-          maybeAutoSync(data.lastSync);   // empty DB → trigger an initial sync
-          _markInitialDataReady();   // terminal state (legitimately no leads) — lift the splash
+          // Empty DB → an initial sync will pull the leads; keep the splash up until that sync's
+          // re-fetch lands, so the dashboard never flashes "no leads / 0" before the real data.
+          const _willSync=_shouldAutoSync(data.lastSync);
+          maybeAutoSync(data.lastSync);
+          if(!_willSync) _markInitialDataReady();   // truly nothing to sync → lift now
           return;
         }
         _metaFetchRetries=0;   // success — reset retry counter
@@ -3776,9 +3804,12 @@ export function initApp(root: HTMLElement) {
         // Connection monitor: leads loaded → connected (unless the last sync errored).
         setMetaConn((data.lastSync&&data.lastSync.status==="error")?"disconnected":"connected",data.lastSync&&data.lastSync.error);
         updateMetaAlert();
-        // If the DB is stale, pull fresh leads from Meta in the background (captures today's leads).
+        // If the DB is stale, pull fresh leads from Meta. When a sync WILL run, keep the splash up
+        // until its re-fetch completes so the dashboard reveals the FINAL counts, not the pre-sync
+        // intermediate (the cause of the 0 → 62 → 213 flicker on first load).
+        const _willSync=_shouldAutoSync(data.lastSync);
         maybeAutoSync(data.lastSync);
-        _markInitialDataReady();   // full load complete — lift the startup splash
+        if(!_willSync) _markInitialDataReady();   // fresh data → lift now; else the sync's re-fetch lifts it
       }catch(e:any){
         // Transient failure (e.g. Supabase "fetch failed" on a cold start / network
         // blip). NEVER wipe already-loaded data — just retry with backoff so the
@@ -4279,7 +4310,7 @@ export function initApp(root: HTMLElement) {
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hd=root.querySelector("#csvImportedHead"); if(hd)hd.innerHTML=gridHead("csvImported");
       const valid=gridApply("csvImported",_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r)));
-      const dupN=_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)).length;
+      const dupN=_csvDupGroups().length;   // grouped count (parity with the feed's Duplicates tab)
       const histN=_csvBatches.filter((b:any)=>inCsvRange(b.created_at)).length;
       if(vc)vc.textContent=String(valid.length);
       if(dc)dc.textContent=String(dupN);
@@ -4312,7 +4343,35 @@ export function initApp(root: HTMLElement) {
       _csvUpdateSelAll();   // reflect the preserved selection instead of wiping it
     }
 
-    // ---- Render: duplicates ----
+    // ---- CSV lead → feed-lead shape, so the SHARED grouping + columns work unchanged ----
+    function _csvToFeedShape(r:any){
+      const d=parseFlexDate(r.dt);
+      const iso=(d&&!isNaN(d.getTime()))?d.toISOString():(r.created_at||new Date().toISOString());
+      return {id:r.id, phone:r.phone, createdAt:iso, source:r.source||"Meta",
+        name:r.lead||r.name||"", campaign:r.campaign||"", adName:r.ad||"",
+        sugar:r.sugar||"", city:r.city||"", street:r.street||"", service:r.service||"",
+        lang:"", assignedTo:"", assignedAt:""};
+    }
+    // Free-text search for the CSV Duplicates table (mirrors the Live Feed dup search box).
+    let _csvDupQuery="";
+    function csvDupMatches(r:any){ if(!_csvDupQuery)return true; const q=_csvDupQuery;
+      return (r.lead||r.name||"").toLowerCase().includes(q)||(r.phone||"").toLowerCase().includes(q)
+        ||(r.campaign||"").toLowerCase().includes(q)||(r.city||"").toLowerCase().includes(q)||(r.ad||"").toLowerCase().includes(q); }
+    // Duplicate GROUPS for the CSV wizard — the SAME _dupGroupsFrom the Live Feed uses. Occurrence
+    // counts span the whole imported set (valid + duplicate) in range; rows shown are the active
+    // duplicate copies (status="duplicate"), honoring the dup search box.
+    function _csvDupGroups(){
+      const inRange=(r:any)=>inCsvRange(r.dt);
+      const allList=_csvLeads.filter(inRange).map(_csvToFeedShape);
+      const dupRows=_csvLeads.filter((r:any)=>isActiveDup(r)&&inRange(r)&&csvDupMatches(r));
+      const groups:any[]=_dupGroupsFrom(allList, dupRows.map(_csvToFeedShape), ()=>true);
+      // Underlying duplicate lead ids per phone → group-level Keep/Delete acts on ALL copies.
+      const byPhone:Record<string,string[]>={};
+      _csvLeads.filter((r:any)=>isActiveDup(r)&&inRange(r)).forEach((r:any)=>{ const p=normPhone(r.phone); if(!p)return; (byPhone[p]=byPhone[p]||[]).push(String(r.id)); });
+      groups.forEach((g:any)=>{ g.ids=byPhone[normPhone(g.rep.phone)]||[String(g.rep.id)]; });
+      return groups;
+    }
+    // ---- Render: duplicates (phone-grouped, identical to the Live Feed → Duplicates view) ----
     function renderCsvDup(){
       const body=root.querySelector("#csvDupBody");
       const info=root.querySelector("#csvDupPageInfo");
@@ -4320,31 +4379,37 @@ export function initApp(root: HTMLElement) {
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       if(!body)return;
       const hd=root.querySelector("#csvDupHead"); if(hd)hd.innerHTML=gridHead("csvDup");
-      const dups=gridApply("csvDup",_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)));
-      const total=dups.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
+      const groups=gridApply("csvDup",_csvDupGroups());
+      const total=groups.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
       if(_csvDupPage>pages)_csvDupPage=pages;if(_csvDupPage<1)_csvDupPage=1;
-      const pageRows=dups.slice((_csvDupPage-1)*CSV_PER,(_csvDupPage-1)*CSV_PER+CSV_PER);
-      body.innerHTML=pageRows.length?pageRows.map((r:any)=>{
-        const leftMs=r.created_at?Math.max(0,DUP_TTL_MS-dupAgeMs(r)):DUP_TTL_MS;
-        const leftMin=Math.ceil(leftMs/60000);
-        const expChip='<span class="chipb '+(leftMin<=2?"al":"warn")+'" style="margin-left:6px" title="Auto-removed after 10 minutes">⏱ '+leftMin+'m left</span>';
+      const pageRows=groups.slice((_csvDupPage-1)*CSV_PER,(_csvDupPage-1)*CSV_PER+CSV_PER);
+      body.innerHTML=pageRows.length?pageRows.map((g:any)=>{
+        const ld=g.rep; const ids=(g.ids||[String(ld.id)]).join(",");
         return '<tr style="background:var(--warn-bg)">'
-        +'<td><input type="checkbox" class="csvDupChk" data-id="'+r.id+'" style="accent-color:var(--brand)"></td>'
-        +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
-        +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
-        +'<td style="font-weight:600">'+e(r.lead||"—")+'</td>'
-        +'<td class="mono">'+e(r.phone||"—")+'</td>'
-        +'<td>'+e(r.sugar||"—")+'</td>'
-        +'<td>'+e(r.city||"—")+'</td>'
-        +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
-        +'<td>'+e(r.service||"—")+'</td>'
-        +'<td><span class="chipb warn">Duplicate</span>'+expChip+'</td>'
-        +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._csvKeepOne('+r.id+')">Keep</button><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></div></td></tr>';
+        +'<td><input type="checkbox" class="csvDupChk" data-id="'+e(String(ld.id))+'" data-ids="'+e(ids)+'" style="accent-color:var(--brand)"></td>'
+        +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(fmtIST(g.firstReceived))+'</td>'
+        +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(fmtIST(g.lastReceived))+'</td>'
+        +'<td class="mono" style="text-align:center"><span class="chipb al" title="Received '+g.count+' time(s)">&times;'+g.count+'</span></td>'
+        +'<td class="mono" style="font-size:11.5px">'+e(ld.campaign||"—")+'</td>'
+        +'<td>'+e(ld.adName||"—")+'</td>'
+        +'<td style="font-weight:600">'+e(ld.name||"—")+'</td>'
+        +'<td class="mono" style="font-weight:600">'+e(ld.phone||"—")+'</td>'
+        +'<td>'+e(ld.sugar||"—")+'</td>'
+        +'<td>'+e(ld.city||"—")+'</td>'
+        +'<td>'+e(ld.street||"—")+'</td>'
+        +'<td>'+((g.sources||[]).map((s:string)=>'<span class="tag" style="margin:0 3px 3px 0;display:inline-block">'+e(s)+'</span>').join("")||"—")+'</td>'
+        +'<td>'+e(ld.service||"—")+'</td>'
+        +'<td>'+e(ld.lang||"—")+'</td>'
+        +'<td class="mono" style="font-size:11.5px;white-space:nowrap"><span style="color:var(--faint)">Not Assigned</span></td>'
+        +'<td><span style="color:var(--faint)">Not Assigned</span></td>'
+        +'<td><span class="chipb al">Duplicate</span></td>'
+        +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._csvKeepIds(\''+e(ids)+'\')">Keep</button><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteIds(\''+e(ids)+'\')">Delete</button></div></td></tr>';
       }).join("")
-        :'<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">No duplicate leads (shown for 10 minutes after import)</td></tr>';
-      if(info)info.textContent="Page "+_csvDupPage+" of "+pages;
+        :'<tr><td colspan="18" style="text-align:center;color:var(--faint);padding:18px">No duplicate leads</td></tr>';
+      if(info)info.textContent="Page "+_csvDupPage+" of "+pages+" · "+total+" duplicate lead"+(total===1?"":"s");
       void prev; void next;
       _pgBtns("csvDup",_csvDupPage,pages);
+      const dupTab=root.querySelector("#csvDupCount"); if(dupTab)dupTab.textContent=String(total);
       const sa=root.querySelector("#csvDupSelAll")as HTMLInputElement;if(sa)sa.checked=false;
     }
 
@@ -4503,11 +4568,11 @@ export function initApp(root: HTMLElement) {
       await loadCsvData();
     }
     w._csvDeleteOne=(id:number)=>csvConfirm("Delete this lead permanently?",async()=>{await csvDeleteIds([id]);toast("Lead deleted");});
+    // A checked duplicate GROUP maps to every underlying copy (data-ids); fall back to data-id.
+    function _csvDupSelIds(){ const set=new Set<string>(); root.querySelectorAll(".csvDupChk:checked").forEach((c:any)=>{ String(c.getAttribute("data-ids")||c.getAttribute("data-id")||"").split(",").filter(Boolean).forEach((x:string)=>set.add(x)); }); return Array.from(set); }
     w._csvDeleteSelected=(which:string)=>{
       // Imported-leads selection is tracked across pages in _csvSelIds; dup table reads its checkboxes.
-      const ids=which==="dup"
-        ? Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>String(c.getAttribute("data-id")))
-        : Array.from(_csvSelIds);
+      const ids=which==="dup" ? _csvDupSelIds() : Array.from(_csvSelIds);
       if(!ids.length){toast("Select one or more rows first");return;}
       csvConfirm("Delete "+ids.length+" selected lead(s) permanently?",async()=>{await csvDeleteIds(ids);_csvSelIds.clear();toast(ids.length+" deleted");});
     };
@@ -4516,8 +4581,12 @@ export function initApp(root: HTMLElement) {
       await loadCsvData();
     }
     w._csvKeepOne=async(id:number)=>{await csvKeepIds([id]);toast("Moved to imported leads");};
+    // Group-level actions (all copies of a duplicated phone) driven by the row buttons.
+    w._csvKeepIds=(csv:string)=>{ const ids=String(csv).split(",").filter(Boolean); if(!ids.length)return; csvKeepIds(ids).then(()=>toast(ids.length+" kept")); };
+    w._csvDeleteIds=(csv:string)=>{ const ids=String(csv).split(",").filter(Boolean); if(!ids.length)return; csvConfirm("Delete "+ids.length+" lead(s) permanently?",async()=>{await csvDeleteIds(ids);toast(ids.length+" deleted");}); };
+    w._csvDupSearch=()=>{ const el=root.querySelector("#csvDupSearch")as HTMLInputElement|null; _csvDupQuery=((el&&el.value)||"").trim().toLowerCase(); _csvDupPage=1; renderCsvDup(); };
     w._csvKeepSelected=()=>{
-      const ids=Array.from(root.querySelectorAll(".csvDupChk:checked")).map((c:any)=>String(c.getAttribute("data-id")));
+      const ids=_csvDupSelIds();
       if(!ids.length){toast("Select duplicates first");return;}
       csvKeepIds(ids).then(()=>toast(ids.length+" kept"));
     };
@@ -4533,7 +4602,7 @@ export function initApp(root: HTMLElement) {
     w._csvDownload=(which:string)=>{
       // Respect the active time-range + (for the valid tab) the lead search box.
       const rows=which==="dup"
-        ?_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt))
+        ?_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)&&csvDupMatches(r))
         :_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r));
       if(!rows.length){toast("Nothing to download");return;}
       downloadCsvRows(rows,"wellnessos_"+which+"_leads.csv");toast("Downloaded "+rows.length+" rows");
@@ -5335,12 +5404,37 @@ export function initApp(root: HTMLElement) {
     async function _cidFree(cid:string):Promise<boolean>{ try{ const {data}=await supabase.from("leads").select("client_id").eq("client_id",cid).limit(1); return !(data&&data.length); }catch(_){ return true; } }
     async function _nwFillClientId(){ const el=root.querySelector("#nwClientId")as HTMLInputElement|null; if(!el) return; el.value="…"; try{ el.value=await _genClientId(); }catch(_){ el.value=""; } }
     w.nwToggle = nwToggle;
-    function nwCheckSlot() {
-      const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value;
-      const booked=RX.filter((r:any)=>r.time===time); const cap=4;
+    // Reception "Check slot" → the SAME slot-board grid the advisor uses (.slotgrid/.slotcard),
+    // covering the full 9:00 AM – 6:30 PM day (TIMES). Occupancy is per time for the CHOSEN date,
+    // capacity 4 per slot (reception rule). Clicking a free card selects that time (drives nwBook,
+    // so the existing create+book flow is unchanged). Full slots are shown red and not selectable.
+    const NW_SLOT_CAP=4;
+    async function nwCheckSlot() {
       const sr=root.querySelector("#nwSlotRes")as HTMLElement; if(!sr) return;
-      if(booked.length>=cap) sr.innerHTML='<span class="chipb al">✗ '+time+' is FULL ('+booked.length+'/'+cap+')</span>';
-      else sr.innerHTML='<span class="chipb ok">✓ '+time+' available — '+booked.length+'/'+cap+' booked</span>';
+      const date=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||_todayLocal();
+      sr.innerHTML='<div style="color:var(--faint);font-size:12px;padding:6px 2px">Loading slot occupancy…</div>';
+      // Real occupancy for this date (all HCs) — count non-cancelled appointments per time.
+      const occ:Record<string,number>={}; TIMES.forEach(t=>occ[t]=0);
+      try{ const _r:any=await supabase.from("appointments").select("appt_time,status").eq("appt_date",date).neq("status","cancelled");
+        if(!(_r&&_r.error)) (_r?.data||[]).forEach((a:any)=>{ const t=a.appt_time; if(t&&occ[t]!=null) occ[t]++; });
+      }catch(_){ /* leave counts at 0 on a failed read */ }
+      const sel=((root.querySelector("#nwTime")as HTMLSelectElement)?.value)||"";
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      sr.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 2px">Day view — slot occupancy · '+esc(_recFmtDate(date))+' · '+NW_SLOT_CAP+' / slot</div>'
+        +'<div class="slotgrid">'+TIMES.map((t)=>{
+          const n=occ[t]||0; const full=n>=NW_SLOT_CAP;
+          const cls=(full?"s3 full":"s0")+(sel===t?" sel":"");
+          const tag=full?("FULL "+n+"/"+NW_SLOT_CAP):(n+"/"+NW_SLOT_CAP);
+          return '<button type="button" class="slotcard '+cls+'" data-nwt="'+esc(t)+'"'+(full?' disabled':'')+'>'
+            +'<div class="st"><span class="tm">'+esc(t)+'</span><span class="cap">'+tag+'</span></div>'
+            +'<ul><li style="color:'+(full?'var(--alert-ink)':'var(--ok-ink)')+'">'+(full?'Full':'Free')+'</li></ul></button>';
+        }).join("")+'</div>';
+      sr.querySelectorAll(".slotcard").forEach((c)=>{ (c as HTMLElement).onclick=()=>{
+        if((c as HTMLButtonElement).disabled){ c.classList.add("shake"); setTimeout(()=>c.classList.remove("shake"),350); return; }
+        const t=(c as HTMLElement).dataset.nwt!;
+        const tm=root.querySelector("#nwTime")as HTMLSelectElement|null; if(tm) tm.value=t;
+        sr.querySelectorAll(".slotcard").forEach((x)=>x.classList.remove("sel")); c.classList.add("sel");
+      }; });
     }
     w.nwCheckSlot = nwCheckSlot;
     async function nwBook() {
@@ -5470,7 +5564,7 @@ export function initApp(root: HTMLElement) {
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         try{ ach("🩸","Blood test payment collected",ctx.name+" · ₹"+amt.toLocaleString("en-IN")); }catch(_){}
         _cpCtx=null;
-        try{ await loadReceptionData(); }catch(_){} try{ loadAccountsData(); }catch(_){}
+        try{ await loadReceptionData(); }catch(_){} try{ loadAccountsData(); }catch(_){} try{ loadBloodTestData(); }catch(_){}
         (w as any)._cpBack();
       }catch(e:any){ toastErr("Collect failed: "+(e.message||"db error")); }
       finally{ _cpBusy=false; if(btn) btn.disabled=false; }
@@ -5860,34 +5954,52 @@ export function initApp(root: HTMLElement) {
       const row=_recAll.find((x:any)=>String(x.id)===String(id)); if(row){ row.serviceRaw=joined; row.svc=_recSvcCode(joined); row.svcLabel=_recSvcLabel(joined,row.session); }
       if(id!=null&&String(id)!==""){ await _dbOk(supabase.from("appointments").update({service:joined}).eq("id",id),"Update services"); }
     };
-    // Confirm → screening: mark the appointment visited, advance to screening stage, persist.
+    // Confirm → screening: mark the appointment visited and route by service. A lead that includes
+    // Blood Test is SPLIT — the non-blood services stay on this appointment and go to Screening (the
+    // existing flow), while a separate "Blood test" appointment is created and lands in the Blood Test
+    // → Collect Payment queue. Blood-Test-only skips Screening and goes straight to that queue.
     async function recRegDone(){
       if(!_ciMatch) _ciRenderTable();   // keep an explicit row-click selection; only re-derive from the current view if nothing is chosen
       if(!_ciMatch){ toastErr("Search a client by phone or name first"); return; }
+      const m=_ciMatch;
       const nowIso=new Date().toISOString();
       const now=new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+      const raw=String(m.serviceRaw||m.svcLabel||"");
+      const parts=raw.split(/\s*\+\s*|\s*,\s*/).map((s:string)=>s.trim()).filter(Boolean);
+      const hasBT=/blood/i.test(raw);
+      const nonBT=parts.filter((s:string)=>!/blood/i.test(s));
       try{
-        const {error}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",_ciMatch.id);
-        if(error) throw error;
-        // Set leads.visited_at too — that's the field the Health Coach queue reads,
-        // so the checked-in client flows through to the coach after screening.
-        if(_ciMatch.lead_id){
-          // leads.visited_at is the field the Health Coach queue reads — if THIS write fails, the
-          // client is marked visited on the appointment but silently never reaches the coach. Surface
-          // the failure (don't swallow) and only log/broadcast when it actually succeeded.
-          if(await _dbOk(supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",_ciMatch.lead_id),"Check-in handoff to Coach")){
-            const mode=(_ciMatch.meeting_type==="zoom"||/zoom/i.test(_ciMatch.source||""))?"Zoom":"Walk-in";
-            logActivity(_ciMatch.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
-            // Push Visited status + date to any open Advisor / Coach tab so it updates live.
-            _broadcastLeadSync({leadId:String(_ciMatch.lead_id),callStatus:"Visited",visitedAt:nowIso});
+        if(hasBT&&nonBT.length){
+          // Combined → split: this row keeps the non-blood services (→ Screening); a separate Blood
+          // Test appointment (dated today, the visit/collection day) is created for the payment queue.
+          const {error:e1}=await supabase.from("appointments").update({service:nonBT.join(" + "),status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",m.id);
+          if(e1) throw e1;
+          const _ins:any=await supabase.from("appointments").insert({lead_id:m.lead_id,client_id:m.clientId||null,client_name:m.name,phone:m.ph,service:"Blood test",appt_date:_todayLocal(),appt_time:m.time||"",status:"visited",visited_at:nowIso,stage:"blood_test",source:m.source||"Direct Walk-in",notes:"Blood test split from combined check-in"});
+          if(_ins&&_ins.error) throw new Error(_ins.error.message||"blood test split failed");
+        }else if(hasBT){
+          // Blood Test only → no Screening; straight into the Blood Test → Collect Payment queue.
+          const {error:e2}=await supabase.from("appointments").update({service:"Blood test",status:"visited",visited_at:nowIso,stage:"blood_test"}).eq("id",m.id);
+          if(e2) throw e2;
+        }else{
+          const {error:e3}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",m.id);
+          if(e3) throw e3;
+        }
+        // Set leads.visited_at too — the field the Health Coach queue reads (it filters non-diabetes
+        // out on its own, so a Blood-Test-only lead won't appear there). Surface a failed write.
+        if(m.lead_id){
+          if(await _dbOk(supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",m.lead_id),"Check-in handoff to Coach")){
+            const mode=(m.meeting_type==="zoom"||/zoom/i.test(m.source||""))?"Zoom":"Walk-in";
+            logActivity(m.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
+            _broadcastLeadSync({leadId:String(m.lead_id),callStatus:"Visited",visitedAt:nowIso});
           }
         }
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
-      toast("✓ "+_ciMatch.name+" checked in → screening ("+now+")");
+      toast(hasBT?(nonBT.length?("✓ "+m.name+" → Screening · Blood test added to Collect Payment queue"):("✓ "+m.name+" → Blood Test Collect Payment queue")):("✓ "+m.name+" checked in → screening ("+now+")"));
       await loadReceptionData();   // refresh: appointment now Visited, in screening queue + payment queue
       try{ loadZoomCheckins(); }catch(_){}
+      try{ loadBloodTestData(); }catch(_){}   // the split Blood Test appointment shows in its worklist/queue
     }
     w.recRegDone = recRegDone;
     // ===== Zoom check-in (Appointment Fixed – Zoom) — Advisor list + Reception action =====
@@ -7165,9 +7277,19 @@ export function initApp(root: HTMLElement) {
     ];
     regGrid("zoomTbl",()=>_zoomTblCols,()=>renderZoomTbl());
     async function loadRecordings(){
+      // Health Advisor: this page shows only THEIR Call Status + Call Recordings (advisors don't do
+      // office visits / Zoom consults). Every other role keeps the Office-Visit + Zoom tables.
+      const isAdv=_isAdvisorRole();
+      const _sh=(id:string,show:boolean)=>{ const el=root.querySelector("#"+id)as HTMLElement|null; if(el) el.style.display=show?"":"none"; };
+      _sh("ovrTblSec",!isAdv); _sh("zoomTblSec",!isAdv); _sh("callRecSec",isAdv);
+      const _rsub=root.querySelector("#recSubtitle");
+      if(isAdv){
+        if(_rsub) _rsub.textContent="Your call statuses and call recordings.";
+        await loadCallRecordings();
+        return;
+      }
       // Role-aware subtitle: Advisor/Coach see only their OWN recordings, so don't claim
       // "across customers" (which reads like a bug when their list is empty).
-      const _rsub=root.querySelector("#recSubtitle");
       if(_rsub) _rsub.textContent=_selfScopeName()
         ? "Your in-clinic office-visit and Zoom consultation recordings."
         : "All in-clinic office-visit audio and Zoom consultation recordings across customers.";
@@ -7271,6 +7393,72 @@ export function initApp(root: HTMLElement) {
       const out:string[][]=[["Meeting Date & Time","Customer Name","Zoom Recording Link","Meeting Duration","Recording Status"]];
       rows.forEach((r:any)=>out.push([fmtIST(r.meeting_at||r.created_at),r._cust||"",r.meeting_url||"",_recDur(r.duration_seconds),r.status||(r.meeting_url?"Ready":"Pending")]));
       _downloadCsv("wellnessos_zoom_recordings.csv",out); toast("Downloaded "+rows.length+" Zoom recordings");
+    };
+    // ===== Call Recordings (Advisor role only) — the advisor's OWN calls from call_recordings,
+    // shown in place of the coach-oriented Office-Visit + Zoom tables. Reuses the same grid engine,
+    // pager and CSV export. Scoped by initiated_by_email = the login who placed the call. =====
+    let _callRecRows:any[]=[]; let _callRecQuery=""; let _callRecSearchT:any=null; let _callRecApplied:{from:string;to:string}={from:"",to:""}; let _callRecPageN=1;
+    const _callDir=(r:any)=>(/in/i.test(r.direction||"")&&!/out/i.test(r.direction||""))?"Incoming":"Outgoing";
+    const _callRecCols:any[]=[
+      {key:"dt",label:"Call Date & Time",filter:true,text:(r:any)=>fmtIST(r.created_at)},
+      {key:"cust",label:"Customer Name",filter:true,text:(r:any)=>r._cust||""},
+      {key:"dir",label:"Direction",filter:true,text:(r:any)=>_callDir(r)},
+      {key:"dur",label:"Duration",filter:true,text:(r:any)=>_recDur(r.duration_seconds)},
+      {key:"status",label:"Call Status",filter:true,text:(r:any)=>r.call_status||"—"},
+      {key:"act",label:"Recording",filter:false},
+    ];
+    regGrid("callRec",()=>_callRecCols,()=>renderCallRecTbl());
+    async function loadCallRecordings(){
+      const email=String((_currentUser&&_currentUser.email)||"").trim().toLowerCase();
+      let rows:any[]=[];
+      // Fetch then filter to the advisor's own calls by login email (case-insensitive) — mirrors how
+      // _loadAdvCallStats attributes calls, so a case mismatch can't drop or leak rows.
+      try{ const {data}=await supabase.from("call_recordings").select("*").order("created_at",{ascending:false}).limit(5000); rows=(data||[]).filter((r:any)=>String(r.initiated_by_email||"").trim().toLowerCase()===email); }catch(_){ rows=[]; }
+      const ids=Array.from(new Set(rows.map((r:any)=>String(r.contact_id)).filter(Boolean)));
+      const nameMap:Record<string,string>={};
+      if(ids.length){ try{ const {data}=await supabase.from("leads").select("meta_lead_id,name").in("meta_lead_id",ids); (data||[]).forEach((l:any)=>{ if(l.meta_lead_id!=null) nameMap[String(l.meta_lead_id)]=l.name||""; }); }catch(_){} }
+      rows.forEach((r:any)=>{ r._cust=nameMap[String(r.contact_id)]||r.to_number||("Lead #"+(r.contact_id||"?")); });
+      _callRecRows=rows; _callRecPageN=1; renderCallRecTbl();
+    }
+    function _callRecBase(){
+      let base=_callRecRows;
+      const q=_callRecQuery.trim().toLowerCase();
+      if(q) base=base.filter((r:any)=>[r._cust,r.to_number,r.call_status].some((v:any)=>String(v||"").toLowerCase().includes(q)));
+      return _recDateFilter(base,_callRecApplied,(r:any)=>r.created_at);
+    }
+    function renderCallRecTbl(){
+      const head=root.querySelector("#callRecHead"); if(head)head.innerHTML=gridHead("callRec");
+      const rows=gridApply("callRec",_callRecBase());
+      const cnt=root.querySelector("#callRecCount"); if(cnt)cnt.textContent=String(rows.length);
+      const body=root.querySelector("#callRecBody"); if(!body)return;
+      const pages=Math.max(1,Math.ceil(rows.length/REC_PER));
+      if(_callRecPageN>pages)_callRecPageN=pages; if(_callRecPageN<1)_callRecPageN=1;
+      const pr=rows.slice((_callRecPageN-1)*REC_PER,(_callRecPageN-1)*REC_PER+REC_PER);
+      body.innerHTML=pr.length?pr.map((r:any)=>{
+        const url=_recA(r.recording_url||""); const has=!!r.recording_url;
+        const st=r.call_status||"—"; const stc=/complet|answer|connect/i.test(st)?"ok":/miss|fail|no.?answer|busy|reject|cancel/i.test(st)?"al":"warn";
+        return '<tr>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recE(fmtIST(r.created_at))+'</td>'
+          +'<td style="font-weight:600">'+_recE(r._cust||"—")+'</td>'
+          +'<td>'+_recE(_callDir(r))+'</td>'
+          +'<td class="mono">'+_recE(_recDur(r.duration_seconds))+'</td>'
+          +'<td><span class="chipb '+stc+'">'+_recE(st)+'</span></td>'
+          +'<td>'+(has?'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><audio controls preload="none" src="'+url+'" style="height:30px;max-width:190px"></audio><a class="btn bsm" href="'+url+'" download style="text-decoration:none">⬇ Download</a></div>':'<span style="font-size:11px;color:var(--faint)">No recording</span>')+'</td>'
+          +'</tr>';
+      }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:18px">No call recordings match the filters</td></tr>';
+      const info=root.querySelector("#callRecPageInfo"); if(info)info.textContent="Page "+_callRecPageN+" of "+pages;
+      _pgBtns("callRec",_callRecPageN,pages);
+    }
+    w._callRecSearch=()=>{ if(_callRecSearchT)clearTimeout(_callRecSearchT); _callRecSearchT=setTimeout(()=>{ _callRecQuery=(root.querySelector("#callRecSearch")as HTMLInputElement)?.value||""; _callRecPageN=1; renderCallRecTbl(); },180); };
+    w._callRecApply=()=>{ _callRecApplied={from:(root.querySelector("#callRecFrom")as HTMLInputElement)?.value||"",to:(root.querySelector("#callRecTo")as HTMLInputElement)?.value||""}; _callRecPageN=1; renderCallRecTbl(); };
+    w._callRecClear=()=>{ const f=root.querySelector("#callRecFrom")as HTMLInputElement|null; const t=root.querySelector("#callRecTo")as HTMLInputElement|null; if(f)f.value=""; if(t)t.value=""; _callRecApplied={from:"",to:""}; _callRecPageN=1; renderCallRecTbl(); };
+    w._callRecPage=(dir:any)=>{ _callRecPageN=_pgApply(_callRecPageN,dir); renderCallRecTbl(); };
+    w._callRecDownload=()=>{
+      const rows=gridApply("callRec",_callRecBase());
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Call Date & Time","Customer Name","Direction","Duration","Call Status","Recording URL"]];
+      rows.forEach((r:any)=>out.push([fmtIST(r.created_at),r._cust||"",_callDir(r),_recDur(r.duration_seconds),r.call_status||"",r.recording_url||""]));
+      _downloadCsv("wellnessos_call_recordings.csv",out); toast("Downloaded "+rows.length+" call recordings");
     };
     // Populate the coach lead profile's read-only "Reception record" (Visited / Registered / Consent).
     // The table (#coachRecepBody) was a static "—" placeholder — never wired to data. Visited comes
@@ -8370,6 +8558,23 @@ export function initApp(root: HTMLElement) {
     let _btRowSel=new Set<string>();           // selected appointment ids for bulk actions
     let _btSearch="";                          // name/phone search term
     let _btFilt={sample:"",lab:"",labReport:"",clientReport:""};
+    // Clickable summary cards: each narrows the table to its own predicate. "" = no card active.
+    let _btCard="";
+    const _btCardPreds:Record<string,(r:any)=>boolean>={
+      total:()=>true,
+      visited:(r:any)=>r.status==="visited",
+      sample:(r:any)=>r.sampleStatus==="collected",
+      lab:(r:any)=>r.labStatus==="sent",
+      pay:(r:any)=>r.payStatus==="paid",
+      notpaid:(r:any)=>r.payStatus!=="paid"&&r.payStatus!=="free",
+      report:(r:any)=>r.labReportStatus==="received",
+      shared:(r:any)=>r.clientReportStatus==="shared",
+    };
+    const _btCardDefs:{k:string;l:string;c:string}[]=[
+      {k:"total",l:"Total",c:""},{k:"visited",l:"Visited",c:"g"},{k:"sample",l:"Sample collected",c:"g"},
+      {k:"lab",l:"Sent to lab",c:"g"},{k:"pay",l:"Payment collected",c:"g"},{k:"notpaid",l:"Not paid",c:"r"},
+      {k:"report",l:"Report received",c:"g"},{k:"shared",l:"Shared",c:"g"},
+    ];
     // Simplified two-state labels (spec §4).
     const _btSampleL:any={collected:{l:"Collected",c:"ok"},yet_to_collect:{l:"Yet to Collect",c:"warn"}};
     const _btLabL:any={sent:{l:"Sent",c:"ok"},yet_to_send:{l:"Yet to Send",c:"warn"}};
@@ -8657,12 +8862,14 @@ export function initApp(root: HTMLElement) {
       _btRenderAll();
       try{ _btRenderOrders(); }catch(_){}   // the new bt_orders worklist shares this date filter
     }
-    w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); _btApplyDateFilter(); };
-    w._btApplyDate=()=>{ if(_btDate==="cust") _btApplyDateFilter(); };
+    w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); const ab=root.querySelector("#btApplyBtn")as HTMLElement|null; if(ab) ab.style.display=show?"inline-flex":"none"; root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); if(d!=="cust") _btApplyDateFilter(); };   // presets apply at once; Custom waits for the Apply button
+    w._btApplyDate=()=>{ if(_btDate==="cust") _btApplyDateFilter(); };   // triggered by the Custom-range Apply button
     // Rows visible after the search + status filters are applied on top of the date filter.
     function _btVisibleRows(){
       const q=_btSearch.trim().toLowerCase();
+      const cardPred=(_btCard&&_btCardPreds[_btCard])||null;   // active summary-card filter
       return _btFiltered.filter((r:any)=>{
+        if(cardPred&&!cardPred(r)) return false;
         if(q&&!((r.name||"").toLowerCase().includes(q)||String(r.ph||"").toLowerCase().includes(q))) return false;
         if(_btFilt.sample&&r.sampleStatus!==_btFilt.sample) return false;
         if(_btFilt.lab&&r.labStatus!==_btFilt.lab) return false;
@@ -8680,11 +8887,13 @@ export function initApp(root: HTMLElement) {
       if(el("btThyroCost")) (el("btThyroCost") as HTMLElement).textContent="₹"+totalCost.toLocaleString("en-IN");
       if(el("btMargin")) (el("btMargin") as HTMLElement).textContent="₹"+(totalBilled-totalCost).toLocaleString("en-IN");
       if(el("btPaidThyro")) (el("btPaidThyro") as HTMLElement).textContent="₹"+f.filter((r:any)=>r.labReportStatus==="received").reduce((s:number,r:any)=>s+r.thyroCost,0).toLocaleString("en-IN");
-      const cnt=(fn:(r:any)=>boolean)=>f.filter(fn).length;
-      const metrics=[{l:"Expected",v:f.length,c:""},{l:"Visited",v:cnt((r:any)=>r.status==="visited"),c:"g"},{l:"Sample collected",v:cnt((r:any)=>r.sampleStatus==="collected"),c:"g"},
-        {l:"Sent to lab",v:cnt((r:any)=>r.labStatus==="sent"),c:"g"},{l:"Payment collected",v:cnt((r:any)=>r.payStatus==="paid"),c:"g"},{l:"Not paid",v:cnt((r:any)=>r.payStatus!=="paid"&&r.payStatus!=="free"),c:"r"},
-        {l:"Report received",v:cnt((r:any)=>r.labReportStatus==="received"),c:"g"},{l:"Shared",v:cnt((r:any)=>r.clientReportStatus==="shared"),c:"g"}];
-      const me=el("btMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+      // Clickable summary cards — counts are period totals (from the date-filtered set); clicking a
+      // card filters the table below to that card's records. The active card is highlighted.
+      const me=el("btMetrics"); if(me)(me as HTMLElement).innerHTML=_btCardDefs.map(m=>{
+        const active=_btCard===m.k;
+        const v=f.filter(_btCardPreds[m.k]).length;
+        return '<div class="metric '+m.c+'" role="button" tabindex="0" title="Filter to '+_btE(m.l)+'" onclick="window._btCardFilter(\''+m.k+'\')" style="cursor:pointer'+(active?';box-shadow:0 0 0 2px var(--brand-600) inset':'')+'"><div class="ml">'+_btE(m.l)+'</div><div class="mv">'+v+'</div></div>';
+      }).join("");
       // Drop selections that are no longer visible so the bulk bar stays honest.
       const vis=_btVisibleRows(); const visIds=new Set(vis.map((r:any)=>String(r.id)));
       _btRowSel.forEach(id=>{ if(!visIds.has(id)) _btRowSel.delete(id); });
@@ -8705,7 +8914,7 @@ export function initApp(root: HTMLElement) {
           +'<td>'+chip(_btLabL,r.labStatus)+'</td>'
           +'<td>'+chip(_btLabRepL,r.labReportStatus)+'</td>'
           +'<td>'+chip(_btCliRepL,r.clientReportStatus)+'</td>'
-          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="window._btOpenDetail(\''+_btE(String(r.id))+'\')">Open</button></div></td></tr>';
+          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="window._btOpenDetail(\''+_btE(String(r.id))+'\')">Open</button>'+(r.payStatus!=="paid"?'<button class="btn bsm" title="Collect blood-test payment" onclick="event.stopPropagation();window._btCollectQueue(\''+_btE(String(r.id))+'\')">₹ Collect</button>':'<span class="chipb ok" style="font-size:10px;align-self:center">Paid</span>')+'</div></td></tr>';
       });
       wl+='</tbody></table>';
       const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
@@ -8731,13 +8940,15 @@ export function initApp(root: HTMLElement) {
     w._btToggleAll=(on:boolean)=>{ const vis=_btVisibleRows(); if(on) vis.forEach((r:any)=>_btRowSel.add(String(r.id))); else vis.forEach((r:any)=>_btRowSel.delete(String(r.id))); _btRenderAll(); };
     w._btClearSel=()=>{ _btRowSel.clear(); _btRenderAll(); };
     w._btSearchRows=(v:string)=>{ _btSearch=v||""; _btRenderAll(); };
+    // Click a summary card → filter the table to it; click the active card again to clear.
+    w._btCardFilter=(k:string)=>{ _btCard=(_btCard===k)?"":k; _btRowSel.clear(); _btRenderAll(); const wrap=root.querySelector("#btWorklistWrap")as HTMLElement|null; if(_btCard&&wrap){ try{ wrap.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(_){} } };
     w._btFilterChange=()=>{
       const g=(id:string)=>((root.querySelector("#"+id)as HTMLSelectElement|null)?.value)||"";
       _btFilt={sample:g("btFiltSample"),lab:g("btFiltLab"),labReport:g("btFiltLabRep"),clientReport:g("btFiltCliRep")};
       _btRenderAll();
     };
     w._btClearFilters=()=>{
-      _btFilt={sample:"",lab:"",labReport:"",clientReport:""}; _btSearch="";
+      _btFilt={sample:"",lab:"",labReport:"",clientReport:""}; _btSearch=""; _btCard="";
       ["btFiltSample","btFiltLab","btFiltLabRep","btFiltCliRep"].forEach(id=>{const e=root.querySelector("#"+id)as HTMLSelectElement|null; if(e)e.value="";});
       const s=root.querySelector("#btSearch")as HTMLInputElement|null; if(s)s.value="";
       _btRenderAll();
@@ -8878,6 +9089,9 @@ export function initApp(root: HTMLElement) {
     };
     w._btShareWA=()=>{ if(!_btOpenAppt){toast("Open a record first");return;} toast("WhatsApp share — report link sent to "+(_btOpenAppt.name||"client")); };
     w._btCollectPay=()=>{ if(!_btOpenAppt)return; const price=Number((root.querySelector("#btdOurPrice")as HTMLInputElement)?.value)||800; recOpen(_btOpenAppt.id,_btOpenAppt.name,price,_btOpenAppt.lead_id,"bt"); };
+    // Blood Test → Collect Payment queue: open the dedicated Collect Payment page (client info +
+    // tests/panels + total) for an unpaid blood-test appointment straight from the worklist row.
+    w._btCollectQueue=(id:any)=>{ const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r){ toastErr("Blood test record not found"); return; } _cpOpen({apptId:r.id,leadId:r.lead_id||"",name:r.name||"",phone:r.ph||"",email:"",addr:"",service:"Blood test"}); };
     w._btExport=()=>{ const rows=_btVisibleRows(); if(!rows.length){toast("Nothing to export");return;}
       const lbl=(m:any,v:string)=>(m[v]&&m[v].l)||v||"";
       const out:string[][]=[["Visit date","Time","Client","Phone","Panel(s)","Sample","Lab","Lab report","Client report","Payment","Our Price","Thyro Cost"]];
@@ -8917,8 +9131,8 @@ export function initApp(root: HTMLElement) {
       _phFiltered=_phAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _phRenderAll();
     }
-    w._phDateF=(d:string)=>{ _phDate=d; const show=d==="cust"; ["phFrom","phTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#phDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,wk:1,cust:2}[d]??0; root.querySelectorAll("#phDateFilt .pill")[idx]?.classList.add("on"); _phApplyDateFilter(); };
-    w._phApplyDate=()=>{ if(_phDate==="cust") _phApplyDateFilter(); };
+    w._phDateF=(d:string)=>{ _phDate=d; const show=d==="cust"; ["phFrom","phTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); const ab=root.querySelector("#phApplyBtn")as HTMLElement|null; if(ab) ab.style.display=show?"inline-flex":"none"; root.querySelectorAll("#phDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,wk:1,cust:2}[d]??0; root.querySelectorAll("#phDateFilt .pill")[idx]?.classList.add("on"); if(d!=="cust") _phApplyDateFilter(); };   // presets apply at once; Custom waits for the Apply button
+    w._phApplyDate=()=>{ if(_phDate==="cust") _phApplyDateFilter(); };   // triggered by the Custom-range Apply button
     function _phRenderAll(){
       const f=_phFiltered; const all=_phAll;
       const rev=f.reduce((s:number,r:any)=>s+Math.max(0,r.payAmt),0);
