@@ -3187,6 +3187,10 @@ export function initApp(root: HTMLElement) {
       }
       _advSetNotEligBadge(false,"");   // reset; restored profile (eligCheck) re-shows it if excluded
       _advAttachments=[]; renderAdvAtts();
+      _advpAtts=[]; try{ _advpRenderAtts(); }catch(_){}
+      // Physiotherapy leads get the physio-specific Basic-Information layout (Sugar/medical + Enrolled
+      // hidden); every other service keeps the default layout untouched.
+      try{ _advApplyServiceLayout(l.service||l.svc||""); }catch(_){}
       _advFuNotes=[]; renderAdvFuNotes();
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
@@ -3213,7 +3217,9 @@ export function initApp(root: HTMLElement) {
     // The editable form is a single template reused for every lead, so we can
     // serialize it index-based (positions are stable across saves & refreshes).
     function _advPanelEl(){ return root.querySelector('#s-advisor .a-p[data-p="sales"]')as HTMLElement|null; }
-    function _advCtrls(){ const p=_advPanelEl(); return p?(Array.from(p.querySelectorAll("input,select,textarea"))as any[]):[]; }
+    // [data-nocap] controls (the Physiotherapy-specific panel) are EXCLUDED from the positional
+    // capture so adding them never shifts the index-based save/restore of every existing profile.
+    function _advCtrls(){ const p=_advPanelEl(); return p?(Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap"))as any[]):[]; }
     // Human label per control (from its .fld > .lbl), deduped — powers the Activity Log diff.
     function _advLabels(){
       const seen:Record<string,number>={};
@@ -3242,20 +3248,36 @@ export function initApp(root: HTMLElement) {
     }
     function collectAdvisorProfile(){
       const p=_advPanelEl(); if(!p) return null;
-      const f=Array.from(p.querySelectorAll("input,select,textarea")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
-      const states=(sel:string)=>Array.from(p.querySelectorAll(sel)).map((b:any)=>b.classList.contains("on"));
+      const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
+      const states=(sel:string)=>Array.from(p.querySelectorAll(sel)).filter((b:any)=>!b.hasAttribute("data-nocap")).map((b:any)=>b.classList.contains("on"));
       // Persist the Not-Eligible reason so the Assigned-leads table can flag it after refresh.
       const _notElig=[...root.querySelectorAll("#eligChips .chip-o")].filter((c:any)=>c.classList.contains("on")).map((c:any)=>(c.textContent||"").trim()).filter(Boolean).join(", ");
-      return {v:2,f,chips:states(".chip-o"),stars:states("#stars .star"),pills:states(".pill"),score:states("#bdm button"),attachments:_advAttachments.slice(),fuNotes:_advFuNotes.slice(),_notElig};
+      return {v:2,f,chips:states(".chip-o"),stars:states("#stars .star"),pills:states(".pill"),score:states("#bdm button"),attachments:_advAttachments.slice(),fuNotes:_advFuNotes.slice(),_notElig,physio:_advCollectPhysio()};
+    }
+    // Physiotherapy-specific fields — captured/restored BY ID (separate from the positional array),
+    // so they never affect any other service's profile.
+    let _advpAtts:any[]=[];
+    function _advCollectPhysio(){
+      const g=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|null)?.value)||"";
+      const reports=Array.from(root.querySelectorAll("#advpReports .chip-o.on")).map((c:any)=>(c.textContent||"").trim()).filter(Boolean);
+      return { apptDate:g("advpApptDate"), timeSlot:g("advpTimeSlot"), mode:g("advpMode"), referral:g("advpReferral"), reports, remarks:g("advpRemarks"), atts:_advpAtts.slice() };
+    }
+    function _advApplyPhysio(ph:any){
+      ph=ph||{}; const s=(id:string,v:string)=>{ const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=v||""; };
+      s("advpApptDate",ph.apptDate||""); s("advpTimeSlot",ph.timeSlot||""); s("advpMode",ph.mode||""); s("advpReferral",ph.referral||""); s("advpRemarks",ph.remarks||"");
+      const set=new Set((ph.reports||[]) as string[]);
+      root.querySelectorAll("#advpReports .chip-o").forEach((c:any)=>c.classList.toggle("on",set.has((c.textContent||"").trim())));
+      _advpAtts=Array.isArray(ph.atts)?ph.atts.slice():[]; _advpRenderAtts();
     }
     function applyAdvisorProfile(obj:any){
       const p=_advPanelEl(); if(!p||!obj) return;
       _advApplying=true;
       try{
-        const els=Array.from(p.querySelectorAll("input,select,textarea"));
+        const els=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap"));
         (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
-        const setStates=(sel:string,arr:any[])=>{ if(!arr) return; const list=Array.from(p.querySelectorAll(sel)); arr.forEach((on:boolean,i:number)=>{ if(list[i]) (list[i]as HTMLElement).classList.toggle("on",!!on); }); };
+        const setStates=(sel:string,arr:any[])=>{ if(!arr) return; const list=Array.from(p.querySelectorAll(sel)).filter((b:any)=>!b.hasAttribute("data-nocap")); arr.forEach((on:boolean,i:number)=>{ if(list[i]) (list[i]as HTMLElement).classList.toggle("on",!!on); }); };
         setStates(".chip-o",obj.chips); setStates("#stars .star",obj.stars); setStates(".pill",obj.pills); setStates("#bdm button",obj.score);
+        _advApplyPhysio(obj.physio);
         _advAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderAdvAtts();
         _advFuNotes=Array.isArray(obj.fuNotes)?obj.fuNotes.slice():[]; renderAdvFuNotes();
         const range=p.querySelector("input[type=range]")as HTMLInputElement|null; const pv=p.querySelector("#pv"); if(range&&pv) pv.textContent=range.value+"%";
@@ -3275,6 +3297,7 @@ export function initApp(root: HTMLElement) {
             // Always call _advApplyEnrolled (not only when enrolled): it also manages the call-status
             // dropdown lock, so a non-enrolled lead opened after an enrolled one must run it to UNLOCK.
             _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
+            _advApplyServiceLayout(l.service||l.svc||"");   // re-assert the physio/default layout after restore
           }
         }catch(_){}
       } finally { _advApplying=false; }
@@ -3291,6 +3314,45 @@ export function initApp(root: HTMLElement) {
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       el.innerHTML=_advFuNotes.length?_advFuNotes.map((n:any)=>'<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12px"><b class="mono" style="color:var(--vio-ink)">'+e(n.at||"")+'</b> — '+e(n.text||"")+'</div>').join(""):'<div style="font-size:12px;color:var(--faint)">No follow-up notes yet.</div>';
     }
+    // ---- Physiotherapy-specific advisor layout + report attachments ----------------------------
+    // For a Physiotherapy lead ONLY: show the physio Basic-Information panel and hide the
+    // diabetes-oriented Basic-info fields + the Sugar/medical & Enrolled-status sections. Every
+    // other service keeps the full default layout (nothing hidden). Purely visibility — no data change.
+    function _advApplyServiceLayout(service:any){
+      const physio=/phys/i.test(String(service||""));
+      const show=(sel:string,on:boolean)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.style.display=on?"":"none"; };
+      show("#advPhysioSec",physio);
+      show("#advSugarSec",!physio);
+      show("#advEnrolledSec",!physio);
+      root.querySelectorAll("#advBasicSec .adv-nonphysio").forEach((el:any)=>{ el.style.display=physio?"none":""; });
+    }
+    function _advpRenderAtts(){
+      const box=root.querySelector("#advpAtts"); if(!box) return;
+      const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      box.innerHTML=_advpAtts.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(a.url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advpRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
+        +'<span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span>';
+    }
+    w._advpAddReport=()=>{
+      if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
+      const id=String(_advLeadId);
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".pdf,.jpg,.jpeg,.png,.webp,.heic";
+      inp.onchange=async()=>{
+        const file=inp.files&&inp.files[0]; if(!file) return; if(file.size>15*1024*1024){ toast("File too large (max 15 MB)"); return; }
+        toast("Uploading "+file.name+"…");
+        const path=id.replace(/[^a-zA-Z0-9._-]/g,"_")+"/physio/"+Date.now()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+        try{
+          const up=await supabase.storage.from("lead-files").upload(path,file,{upsert:false});
+          if(up.error) throw up.error;
+          const {data}=supabase.storage.from("lead-files").getPublicUrl(path);
+          _advpAtts.unshift({name:file.name,url:(data&&data.publicUrl)||"",at:new Date().toISOString()});
+          _advpRenderAtts(); try{ persistAdvProfileQuiet(id); }catch(_){}
+          logActivity(id,[{action:"File Uploaded",field:"Physio report",new:file.name}]);
+          toast("Report uploaded");
+        }catch(e:any){ toast(/bucket|not found|does not exist|404/i.test(e.message||"")?"Create a PUBLIC Storage bucket named 'lead-files' in Supabase first":"Upload failed: "+(e.message||"error")); }
+      };
+      inp.click();
+    };
+    w._advpRemoveAtt=(i:number)=>{ const a=_advpAtts[i]; if(!a) return; _advpAtts.splice(i,1); _advpRenderAtts(); if(_advLeadId){ try{ persistAdvProfileQuiet(String(_advLeadId)); }catch(_){} } };
     const _advpKey=(id:any)=>"wos_advp_"+id;
     function readProfileLocal(id:any){ try{ const s=localStorage.getItem(_advpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
     function saveProfileLocal(id:any,obj:any){ try{ localStorage.setItem(_advpKey(id),JSON.stringify(obj)); }catch(_){/* storage full/unavailable */} }
@@ -5567,14 +5629,23 @@ export function initApp(root: HTMLElement) {
     }
 
     let curSvc = "all", curDate = "today", curScFilter: string | null = null;
+    // SVC_LABELS still labels the 3-bucket REVENUE cards (dia/bt/physio) — untouched business logic.
     const SVC_LABELS: Record<string,string> = { all:"All", dia:"🩺 Diabetes", bt:"🩸 Blood test", physio:"💪 Physio" };
+    // curSvc now holds EITHER "all", a legacy 3-bucket code (dia/bt/physio — still emitted by the
+    // revenue flow-bucket clicks via _svcF2), OR one of the 7 standardized SERVICE_MASTER labels (the
+    // new Reception service pills). This one matcher understands all three so nothing else had to change.
+    function _recSvcPass(rawService:string, sel:string){
+      if(!sel||sel==="all") return true;
+      if(sel==="dia"||sel==="bt"||sel==="physio") return _recSvcCode(rawService||"")===sel;   // legacy code buckets
+      return _svcCanonMatch(rawService||"", sel);                                              // standardized master label
+    }
     const STATUS_MAP: Record<string,{l:string;c:string}> = { visited:{l:"Visited",c:"ok"}, expected:{l:"Expected",c:"warn"}, noshow:{l:"No show",c:"al"}, rescheduled:{l:"Rescheduled",c:"warn"}, cancelled:{l:"Cancelled",c:"al"} };
     const PAY_MAP: Record<string,{l:string;c:string}> = { paid:{l:"Paid",c:"ok"}, due:{l:"Due",c:"warn"}, free:{l:"Free",c:"neu"}, prepaid:{l:"Prepaid ✓",c:"ok"}, refunded:{l:"Refunded",c:"al"} };
     const TIMES = ["9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM","12:00 PM","12:30 PM","2:00 PM","2:30 PM","3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM","5:30 PM","6:00 PM","6:30 PM"];
 
     function filtered() {
       let d = [...RX];
-      if (curSvc !== "all") d = d.filter((r) => r.svc === curSvc);
+      if (curSvc !== "all") d = d.filter((r) => _recSvcPass(r.serviceRaw, curSvc));
       if (curScFilter) d = d.filter((r) => {
         if (curScFilter === "expected") return r.status === "expected";
         if (curScFilter === "visited") return r.status === "visited";
@@ -5599,7 +5670,7 @@ export function initApp(root: HTMLElement) {
       const paid=_recPays.filter((p:any)=>{
         if(p.status!=="paid"||!p.paid_at) return false;
         const d=new Date(p.paid_at); if(from&&d<from) return false; if(to&&d>to) return false;
-        if(curSvc!=="all"&&_recSvcCode(p.service||"")!==curSvc) return false;
+        if(curSvc!=="all"&&!_recSvcPass(p.service||"",curSvc)) return false;
         return true;
       });
       const net=(p:any)=>Math.max(0,(Number(p.amount)||0)-(Number(p.refund_amount)||0));
@@ -5611,7 +5682,7 @@ export function initApp(root: HTMLElement) {
       if (rs) rs.innerHTML = Object.entries(bySvc).map(([k,v]) => '<div><div style="font-size:9px;color:var(--faint);font-weight:600">'+(SVC_LABELS[k]||k).toUpperCase()+'</div><div class="mono" style="font-weight:700">₹'+v.toLocaleString("en-IN")+'</div></div>').join("");
     }
     function renderSc() {
-      const f = curSvc === "all" ? RX : RX.filter((r) => r.svc === curSvc);
+      const f = curSvc === "all" ? RX : RX.filter((r) => _recSvcPass(r.serviceRaw, curSvc));
       const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0 };
       const enrolledLeads=new Set<string>();   // Enrolled is a LEAD fact, not an appointment fact — a
       // lead with 2+ appointments (any reschedule) must only count once, same root cause as renderRev.
@@ -5622,12 +5693,29 @@ export function initApp(root: HTMLElement) {
       if (el) el.innerHTML = cards.map((x) => '<div class="metric '+x.c+'" style="cursor:pointer;'+(curScFilter===x.k?'outline:2.5px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._scClick(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
     }
     function renderFlows() {
-      const svcs = [{k:"dia",icon:"🩺",name:"Diabetes",fields:["expected","visited","screening","with HC","enrolled"]},{k:"bt",icon:"🩸",name:"Blood test",fields:["expected","visited","sample","report","billed"]},{k:"physio",icon:"💪",name:"Physio",fields:["expected","visited","in session","done","pay due"]}];
-      const el = root.querySelector("#svcFlows");
-      if (el) el.innerHTML = svcs.map((s) => {
-        const d = RX.filter((r:any)=>r.svc===s.k);
-        const vals = s.k==="dia"?[d.length,d.filter((r:any)=>r.status==="visited").length,d.filter((r:any)=>r.stage==="screening").length,d.filter((r:any)=>r.consultStatus&&r.consultStatus!=="Open"&&r.consultStatus!=="Cancelled").length,d.filter((r:any)=>r.stage==="enrolled").length]:s.k==="bt"?[d.length,d.filter((r:any)=>r.status==="visited").length,d.filter((r:any)=>r.stage==="sample").length,0,d.filter((r:any)=>r.payStatus==="paid").length]:[d.length,d.filter((r:any)=>r.status==="visited").length,d.filter((r:any)=>r.stage&&r.stage.includes("ession")).length,d.filter((r:any)=>r.stage==="done").length,d.filter((r:any)=>r.payStatus==="due").length];
-        return '<div class="aud" style="margin:0;padding:9px 11px;background:#fff;cursor:pointer" onclick="window._svcF2(\''+s.k+'\')"><div class="ahd" style="font-size:10px">'+s.icon+' '+s.name+'</div><div style="font-size:11px;line-height:1.9">'+s.fields.map((f,i)=>f.charAt(0).toUpperCase()+f.slice(1)+' <b class="mono">'+vals[i]+'</b>').join('<br>')+'</div></div>';
+      // One breakdown panel per service in the master (all 7) — not just Diabetes/Blood Test/Physio.
+      // Diabetes/Blood Test/Physio keep their detailed stage fields; the other services use a generic
+      // Expected / Visited / Done / Pay-due set. Matching uses the SAME _svcCanonMatch as the filter
+      // pills, so combined/legacy stored service strings still bucket correctly.
+      const SVC_FLOW:{label:string;icon:string;name:string;kind:string}[]=[
+        {label:"Diabetes Counselling",icon:"🩺",name:"Diabetes",kind:"dia"},
+        {label:"Weight Loss Counselling",icon:"⚖️",name:"Weight Loss",kind:"gen"},
+        {label:"Sauna Bath",icon:"🧖",name:"Sauna Bath",kind:"gen"},
+        {label:"Cold Plunge",icon:"❄️",name:"Cold Plunge",kind:"gen"},
+        {label:"Physiotherapy",icon:"💪",name:"Physio",kind:"physio"},
+        {label:"Blood Test",icon:"🩸",name:"Blood test",kind:"bt"},
+        {label:"HBOT (Hyperbaric Oxygen Therapy)",icon:"🫧",name:"HBOT",kind:"gen"},
+      ];
+      const el = root.querySelector("#svcFlows"); if(!el) return;
+      el.innerHTML = SVC_FLOW.map((s) => {
+        const d = RX.filter((r:any)=>_svcCanonMatch(r.serviceRaw||"", s.label));
+        const cnt=(fn:(r:any)=>boolean)=>d.filter(fn).length;
+        let fields:[string,number][];
+        if(s.kind==="dia") fields=[["Expected",d.length],["Visited",cnt(r=>r.status==="visited")],["Screening",cnt(r=>r.stage==="screening")],["With HC",cnt(r=>r.consultStatus&&r.consultStatus!=="Open"&&r.consultStatus!=="Cancelled")],["Enrolled",cnt(r=>r.stage==="enrolled")]];
+        else if(s.kind==="bt") fields=[["Expected",d.length],["Visited",cnt(r=>r.status==="visited")],["Sample",cnt(r=>r.stage==="sample")],["Report",cnt(r=>/report|ready|received/i.test(r.stage||""))],["Billed",cnt(r=>r.payStatus==="paid")]];
+        else if(s.kind==="physio") fields=[["Expected",d.length],["Visited",cnt(r=>r.status==="visited")],["In session",cnt(r=>!!r.stage&&r.stage.includes("ession"))],["Done",cnt(r=>r.stage==="done")],["Pay due",cnt(r=>r.payStatus==="due")]];
+        else fields=[["Expected",d.length],["Visited",cnt(r=>r.status==="visited")],["Done",cnt(r=>r.status==="visited"||r.stage==="done")],["Pay due",cnt(r=>r.payStatus==="due")]];
+        return '<div class="aud" style="margin:0;padding:9px 11px;background:#fff;cursor:pointer" onclick="window._svcF2(\''+_attr(s.label)+'\')"><div class="ahd" style="font-size:10px">'+s.icon+' '+_attr(s.name)+'</div><div style="font-size:11px;line-height:1.9">'+fields.map(([f,v])=>_attr(f)+' <b class="mono">'+v+'</b>').join('<br>')+'</div></div>';
       }).join("");
     }
     // Excel-style per-column filters for the Appointments table (shared grid engine).
@@ -5908,7 +5996,10 @@ export function initApp(root: HTMLElement) {
     w._scClick = (k:string) => { curScFilter=curScFilter===k?null:k; renderSc(); renderAppt(); };
 
     function renderFilters() {
-      const sf = root.querySelector("#svcFilt"); if (sf) sf.innerHTML = Object.entries(SVC_LABELS).map(([k,v])=>'<button class="pill '+(curSvc===k?"p-ok on":"p-info")+'" onclick="window._svcF(\''+k+'\')">'+v+'</button>').join("");
+      // Reception service pills = the standardized 7-service master (+ All), consistent with every
+      // other Service filter in the app. Filtering routes through _recSvcPass (see curSvc note).
+      const _svcPills:[string,string][]=[["all","All"],...SERVICE_MASTER.map((s:string)=>[s,s] as [string,string])];
+      const sf = root.querySelector("#svcFilt"); if (sf) sf.innerHTML = _svcPills.map(([k,v])=>'<button class="pill '+(curSvc===k?"p-ok on":"p-info")+'" onclick="window._svcF(\''+_attr(k)+'\')">'+_attr(v)+'</button>').join("");
       const dates = [["today","Today"],["tmr","Tomorrow"],["wk","This week"],["cust","Between dates"]];
       const df = root.querySelector("#dateFilt"); if (df) df.innerHTML = dates.map(([k,v])=>'<button class="pill '+(curDate===k?"on":"")+'" onclick="window._dtF(\''+k+'\')">'+v+'</button>').join("");
     }
@@ -10141,6 +10232,9 @@ export function initApp(root: HTMLElement) {
     //      filtered set (kept in sync). Filters apply only on the Apply button; search is live. ----
     let _accApplied:{from:string;to:string;service:string;method:string;status:string}={from:"",to:"",service:"all",method:"all",status:"all"};
     let _accQuery=""; let _accSearchT:any=null; let _accTxPageN=1; const ACC_PER=15; const _accTxSel=new Set<string>();
+    // Verify-proofs tab → "Transaction history" table (verified payments only) has its OWN
+    // pagination / selection / search state so it never collides with the Transactions tab.
+    let _accHistPageN=1; const _accHistSel=new Set<string>(); let _accHistQuery=""; let _accHistSearchT:any=null;
     function _accSvcMatch(paySvc:string, filter:string):boolean{
       const s=(paySvc||"").toLowerCase(); const f=(filter||"").toLowerCase();
       const tok=/blood/.test(f)?"blood":/phys/.test(f)?"phys":/weight/.test(f)?"weight":/sauna/.test(f)?"sauna":/cold/.test(f)?"cold":/hbot|hyperbaric/.test(f)?"hbot":/diabet/.test(f)?"diabet":"";
@@ -10200,10 +10294,36 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Status",filter:true,text:(p:any)=>{const m:any={requested:"Requested",abm_approved:"ABM ✓",bm_approved:"BM ✓"};return m[p.refund_status]||p.refund_status||"";}},
       {key:"act",label:"",filter:false,head:'<th></th>'},
     ];
+    // Transaction history (verified only) — same rich columns as the Transactions tab minus the
+    // Status/Actions columns (every row here is already Verified). Own select-all id.
+    const _accHistCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:30px"><input type="checkbox" id="accHistSelAll" onclick="window._accHistSelAll(this.checked)" style="accent-color:var(--brand)"></th>'},
+      {key:"date",label:"Date & Time",filter:true,text:(p:any)=>_accDT(p)},
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"phone",label:"Phone",filter:true,text:(p:any)=>p.clientPhone||""},
+      {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
+      {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+" · "+(p.method||"")},
+      {key:"ref",label:"Txn Ref / UTR",filter:true,text:(p:any)=>p.txn_ref||""},
+      {key:"subv",label:"Subvention",filter:true,text:(p:any)=>{const x=p.emi_subvention||0;return x?"−₹"+x.toLocaleString("en-IN"):"—";}},
+      {key:"net",label:"Net",filter:true,text:(p:any)=>"₹"+((p.amount||0)-(p.emi_subvention||0)).toLocaleString("en-IN")},
+      {key:"vby",label:"Verified By",filter:true,text:(p:any)=>p.verified_by||""},
+      {key:"vat",label:"Verified Date & Time",filter:true,text:(p:any)=>p.verified_at?fmtIST(p.verified_at):""},
+    ];
+    // Base list for the history table: the globally-filtered set, VERIFIED only, plus this table's own
+    // search box (name / phone / txn ref). Independent of the Transactions tab, synced to live DB.
+    function _accHistList(){
+      const q=_accHistQuery.trim().toLowerCase(); const qd=q.replace(/\D/g,"");
+      return _accFilteredPays().filter((p:any)=>{
+        if(!p.verified) return false;
+        if(q){ const key=((p.clientName||"")+" "+(p.clientPhone||"")+" "+(p.txn_ref||"")).toLowerCase(); const phd=String(p.clientPhone||"").replace(/\D/g,""); if(key.indexOf(q)<0&&!(qd&&phd.indexOf(qd)>=0)) return false; }
+        return true;
+      });
+    }
     regGrid("accTx",()=>_accTxCols,()=>_accRenderAll());
     regGrid("accVer",()=>_accVerCols,()=>_accRenderAll());
     regGrid("accOut",()=>_accOutCols,()=>_accRenderAll());
     regGrid("accRef",()=>_accRefCols,()=>_accRenderAll());
+    regGrid("accHist",()=>_accHistCols,()=>_accRenderAll());
     function _accRenderAll(){
       const pays=_accFilteredPays(); const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const todayStr=new Date().toISOString().substring(0,10);
@@ -10273,6 +10393,34 @@ export function initApp(root: HTMLElement) {
       });
       vH+='</tbody></table>';
       const vEl=root.querySelector("#accVerBody"); if(vEl){ vEl.innerHTML=vH; const _vh=root.querySelector("#accVerHead"); if(_vh)_vh.innerHTML=gridHead("accVer"); }
+      // ---- Transaction history (verified only), shown BELOW the Verify table on the same tab ----
+      // Rows land here automatically the moment they're verified (Verify → loadAccountsData → re-render).
+      const _histF=gridApply("accHist",_accHistList());
+      _accHistSel.forEach(id=>{ if(!_histF.some((p:any)=>String(p.id)===id)) _accHistSel.delete(id); });
+      const hPages=Math.max(1,Math.ceil(_histF.length/ACC_PER)); if(_accHistPageN>hPages)_accHistPageN=hPages; if(_accHistPageN<1)_accHistPageN=1;
+      const hRows=_histF.slice((_accHistPageN-1)*ACC_PER,(_accHistPageN-1)*ACC_PER+ACC_PER);
+      const hcc=_accHistCols.length;
+      let hH='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:12px;color:var(--muted)">'+_histF.length+' verified transaction'+(_histF.length===1?"":"s")+'</span><button class="btn bsm" onclick="window._accHistDownload()">⬇ Download selected</button><span id="accHistSelInfo" style="font-size:11px;color:var(--muted)"></span></div>';
+      hH+='<div class="tscroll"><table class="tbl" style="min-width:1120px"><thead><tr id="accHistHead"></tr></thead><tbody>';
+      if(!hRows.length) hH+='<tr><td colspan="'+hcc+'" style="text-align:center;color:var(--faint);padding:20px">No verified transactions yet.</td></tr>';
+      else hRows.forEach((p:any)=>{
+        const sub=p.emi_subvention||0; const net=(p.amount||0)-sub; const sel=_accHistSel.has(String(p.id));
+        hH+='<tr>'
+          +'<td><input type="checkbox" class="accHistChk" data-id="'+p.id+'"'+(sel?" checked":"")+' onchange="window._accHistRowSel(this)" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_accDT(p))+'</td>'
+          +'<td style="font-weight:600">'+e(p.clientName)+'</td>'
+          +'<td class="mono">'+e(p.clientPhone||"—")+'</td>'
+          +'<td>'+e(p.service||"—")+'</td>'
+          +'<td>'+e((p.payment_type||"full")+" · "+(p.method||"—"))+'</td>'
+          +'<td class="mono">'+e(p.txn_ref||"—")+'</td>'
+          +'<td class="mono"'+(sub?' style="color:var(--alert-ink)"':'')+'>'+(sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td>'
+          +'<td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td>'
+          +'<td>'+e(p.verified_by||"—")+'</td>'
+          +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+(p.verified_at?e(fmtIST(p.verified_at)):"—")+'</td></tr>';
+      });
+      hH+='</tbody></table></div>';
+      hH+='<div style="display:flex;gap:10px;margin-top:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="btn bsm" onclick="window._accHistPage(\'first\')">« First</button><button class="btn bsm" onclick="window._accHistPage(-1)">← Prev</button><span style="font-size:12px;font-weight:600">Page '+_accHistPageN+' of '+hPages+'</span><button class="btn bsm" onclick="window._accHistPage(1)">Next →</button><button class="btn bsm" onclick="window._accHistPage(\'last\')">Last »</button></div>';
+      const hEl=root.querySelector("#accHistBody"); if(hEl){ hEl.innerHTML=hH; const _hh=root.querySelector("#accHistHead"); if(_hh)_hh.innerHTML=gridHead("accHist"); const hsa=root.querySelector("#accHistSelAll")as HTMLInputElement|null; if(hsa){ const vis=hRows.map((p:any)=>String(p.id)); hsa.checked=vis.length>0&&vis.every(id=>_accHistSel.has(id)); } const hsi=root.querySelector("#accHistSelInfo"); if(hsi) hsi.textContent=_accHistSel.size?(_accHistSel.size+" selected"):""; }
       // Outstanding tab
       const _outF=gridApply("accOut",outstanding);
       let oH='<table class="tbl"><thead><tr id="accOutHead"></tr></thead><tbody>';
@@ -10374,6 +10522,29 @@ export function initApp(root: HTMLElement) {
       const out:string[][]=[["Date & Time","Client","Phone","Service","Payment Method","Txn Ref / UTR","EMI Subvention","Net Amount","Status","Verified By","Verified Date & Time"]];
       src.forEach((p:any)=>{ const sub=p.emi_subvention||0; out.push([_accDT(p),p.clientName||"",p.clientPhone||"",p.service||"",(p.payment_type||"full")+" · "+(p.method||""),p.txn_ref||"",String(sub),String((p.amount||0)-sub),p.verified?"Verified":"Unverified",p.verified_by||"",p.verified_at?fmtIST(p.verified_at):""]); });
       _downloadCsv("accounts_transactions.csv",out); toast((rows.length?rows.length:src.length)+" row(s) downloaded"); };
+    // ---- Transaction history (verified) table handlers ----
+    w._accHistSearch=()=>{ if(_accHistSearchT) clearTimeout(_accHistSearchT); _accHistSearchT=setTimeout(()=>{
+      _accHistQuery=((root.querySelector("#accHistSearch") as HTMLInputElement)?.value||"").trim(); _accHistPageN=1; _accRenderAll();
+    },220); };
+    w._accHistPage=(dir:any)=>{
+      const pages=Math.max(1,Math.ceil(_accHistList().length/ACC_PER));
+      if(dir==="first") _accHistPageN=1; else if(dir==="last") _accHistPageN=pages;
+      else _accHistPageN=Math.min(pages,Math.max(1,_accHistPageN+Number(dir)));
+      _accRenderAll();
+    };
+    w._accHistRowSel=(el:HTMLInputElement)=>{ const id=el.getAttribute("data-id")||""; if(el.checked)_accHistSel.add(id); else _accHistSel.delete(id);
+      const si=root.querySelector("#accHistSelInfo"); if(si) si.textContent=_accHistSel.size?(_accHistSel.size+" selected"):"";
+      const sa=root.querySelector("#accHistSelAll") as HTMLInputElement|null; if(sa){ const chks=Array.from(root.querySelectorAll(".accHistChk")) as HTMLInputElement[]; sa.checked=chks.length>0&&chks.every(c=>c.checked); } };
+    w._accHistSelAll=(checked:boolean)=>{ const chks=Array.from(root.querySelectorAll(".accHistChk")) as HTMLInputElement[];
+      chks.forEach(c=>{ const id=c.getAttribute("data-id")||""; c.checked=checked; if(checked)_accHistSel.add(id); else _accHistSel.delete(id); });
+      const si=root.querySelector("#accHistSelInfo"); if(si) si.textContent=_accHistSel.size?(_accHistSel.size+" selected"):""; };
+    w._accHistDownload=()=>{
+      const sel=_accHistList().filter((p:any)=>_accHistSel.has(String(p.id)));
+      const src=sel.length?sel:_accHistList();
+      if(!src.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Date & Time","Client","Phone","Service","Payment Method","Txn Ref / UTR","EMI Subvention","Net Amount","Verified By","Verified Date & Time"]];
+      src.forEach((p:any)=>{ const sub=p.emi_subvention||0; out.push([_accDT(p),p.clientName||"",p.clientPhone||"",p.service||"",(p.payment_type||"full")+" · "+(p.method||""),p.txn_ref||"",String(sub),String((p.amount||0)-sub),p.verified_by||"",p.verified_at?fmtIST(p.verified_at):""]); });
+      _downloadCsv("verified_transactions.csv",out); toast((sel.length?sel.length:src.length)+" row(s) downloaded"); };
 
     // ========== REPORTS CENTRE MODULE (live data) ==========
     let _repTab="lead", _repLeads:any[]=[], _repAppts:any[]=[], _repPays:any[]=[];

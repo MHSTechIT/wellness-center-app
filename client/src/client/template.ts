@@ -87,25 +87,47 @@ export function getMainContent(): string {
         <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No reception record for this lead yet.</div></div></div>
     </div>
     <div class="a-p" data-p="sales">
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Basic info <span class="arr">▾</span></div>
+      <div class="sec" id="advBasicSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Basic info <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="advfName">Name <span class="req">*</span></label><input  class="input" id="advfName" value=""></div>
           <div class="fld"><label class="lbl" for="advfPhone">Phone no <span class="req">*</span></label><input  class="input mono" id="advfPhone" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
-          <div class="fld"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
+          <div class="fld adv-nonphysio"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
           <div class="fld"><label class="lbl" for="advfWhats">WhatsApp no</label><input  class="input mono" id="advfWhats" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
-          <div class="fld"><label class="lbl" for="advfEmail">Email</label><input  class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="advfEmail">Email</label><input  class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
           <div class="fld"><label class="lbl" for="advfGender">Gender <span class="req">*</span></label><select  class="select" id="advfGender"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
           <div class="fld"><label class="lbl" for="advfAge">Age <span class="req">*</span></label><input  class="input mono" id="advfAge" type="number" min="1" max="120" placeholder="e.g. 42"></div>
-          <div class="fld"><label class="lbl" for="advfOcc">Occupation <span class="req">*</span> <span class="nb">NEW</span></label><select  class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
-          <div class="fld"><label class="lbl" for="advfLang">Language <span class="req">*</span></label><select  class="select" id="advfLang"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
-          <div class="fld"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
-          <div class="fld"><label class="lbl" for="haLeadGen">Lead generated <span class="ab">AUTO</span></label><input  class="input mono" id="haLeadGen" readonly></div>
-          <div class="fld"><label class="lbl" for="haBatch">Batch code</label><input  class="input mono" id="haBatch" placeholder="—"></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="advfOcc">Occupation <span class="req">*</span> <span class="nb">NEW</span></label><select  class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="advfLang">Language <span class="req">*</span></label><select  class="select" id="advfLang"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
+          <div class="fld adv-nonphysio"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="haLeadGen">Lead generated <span class="ab">AUTO</span></label><input  class="input mono" id="haLeadGen" readonly></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="haBatch">Batch code</label><input  class="input mono" id="haBatch" placeholder="—"></div>
           <div class="fld"><label class="lbl" for="advfLoc">Location <span class="req">*</span></label><select  class="select" id="advfLoc"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
-          <div class="fld" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
+          <div class="fld adv-nonphysio" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
+      <!-- PHYSIOTHERAPY-SPECIFIC panel — shown only for Physiotherapy leads (data-nocap: kept out of
+           the positional advisor-profile capture, persisted separately so other services are untouched). -->
+      <div class="sec" id="advPhysioSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Physiotherapy — basic information <span class="chipb info" style="margin-left:6px">Physio</span> <span class="arr">▾</span></div>
+        <div class="sec-bd">
+          <div class="g4">
+            <div class="fld"><label class="lbl" for="advpApptDate">Preferred appointment date</label><input class="input" type="date" id="advpApptDate" data-nocap data-future="1"></div>
+            <div class="fld"><label class="lbl" for="advpTimeSlot">Preferred time slot</label><select class="select" id="advpTimeSlot" data-nocap><option value="">— Select —</option><option>Morning (9–12)</option><option>Afternoon (12–3)</option><option>Evening (3–6:30)</option></select></div>
+            <div class="fld"><label class="lbl" for="advpMode">Mode of consultation</label><select class="select" id="advpMode" data-nocap><option value="">— Select —</option><option>Offline</option><option>Online</option></select></div>
+            <div class="fld"><label class="lbl" for="advpReferral">Referral details</label><select class="select" id="advpReferral" data-nocap><option value="">— Select —</option><option>MHS Student</option><option>Google</option><option>Friend &amp; Family</option><option>Social Media</option><option>Doctor Referral</option><option>Walk-in</option></select></div>
+          </div>
+          <div class="fld fw" style="margin-top:8px"><label class="lbl">Reports available <span class="ab">if any</span></label>
+            <div class="chips" id="advpReports">
+              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">X-ray</button>
+              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">MRI</button>
+              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">CT Scan</button>
+              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">Blood Reports</button>
+              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">NCV &amp; EMG</button>
+            </div>
+            <div id="advpAtts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span></div></div>
+          <div class="fld fw" style="margin-top:8px"><label class="lbl" for="advpRemarks">Remarks <span class="ab">if any</span></label><textarea class="area" id="advpRemarks" data-nocap rows="3" placeholder="Condition, pain area, doctor's note, referral notes…"></textarea></div>
+        </div></div></div>
+
+      <div class="sec" id="advSugarSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="advfSugar">Sugar level <span class="req">*</span></label><select  class="select" id="advfSugar"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
           <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date"></div>
@@ -192,7 +214,7 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl" for="visDt">Visited date <span class="ab">AUTO</span></label><input  class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec" id="advEnrolledSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO</span></label><div class="pills" id="enrStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Enrolled</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the health coach marks the client Enrolled.</div></div>
           <div class="fld"><label class="lbl" for="enrDt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
@@ -874,7 +896,7 @@ export function getMainContent(): string {
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
       <div id="scCards" class="metrics" style="margin:0;grid-template-columns:repeat(4,1fr)"></div>
-      <div id="svcFlows" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+      <div id="svcFlows" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"></div>
     </div>
     <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-cal"/></svg> Appointments <span class="chipb info" style="margin-left:6px" id="apptCount">0</span> <span style="margin-left:auto;font-size:11px;color:var(--faint)">Click row → full record</span> <input class="input" id="apptSearch" placeholder="Search lead number…" onclick="event.stopPropagation()" oninput="window._apptSearch(this.value)" style="height:32px;max-width:220px;margin-left:12px;font-size:12px"> <span class="arr">▾</span></div>
       <div class="ftable-wrap" id="apptWrap" style="max-height:380px"></div>
@@ -1261,8 +1283,12 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Transactions</div>
         <div class="sec-bd" id="accTxBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading transactions…</div></div></div></div>
     <div class="acc-p" data-p="ver" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Proof verification — nothing counts as received until verified</div>
-        <div class="sec-bd" id="accVerBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Verify transactions — pending verification (nothing counts as received until verified)</div>
+        <div class="sec-bd" id="accVerBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div>
+      <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-wallet"/></svg> Transaction history — verified payments</span>
+        <input class="input" id="accHistSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:230px;font-size:12px;font-weight:400" oninput="window._accHistSearch()"></div>
+        <div class="sec-bd" id="accHistBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
     <div class="acc-p" data-p="out" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Outstanding — balance chasing lives here</div>
         <div class="sec-bd" id="accOutBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
