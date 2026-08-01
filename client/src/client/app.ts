@@ -6397,7 +6397,16 @@ export function initApp(root: HTMLElement) {
         // (tagged service "Blood test") so revenue buckets correctly and Accounts can verify. The
         // /db gateway resolves {error} rather than throwing — check it via _dbOk, never assume success.
         if(!(await _dbOk(supabase.from("payments").insert({appointment_id:ctx.apptId||null,lead_id:ctx.leadId,amount:amt,status:"paid",method,paid_at:nowIso,collected_by:"Reception desk",service:"Blood test",txn_ref:txnRef||null}),"Blood test payment"))) return;
-        if(ctx.apptId){ try{ await supabase.from("appointments").update({stage:"Blood Test Completed"}).eq("id",ctx.apptId); }catch(_){} }
+        // Persist the selected panels + pricing onto the appointment so the Blood Test dashboard cards
+        // (Total billed / Thyrocare cost / Our margin) and the detail panel reflect the REAL numbers —
+        // previously only the payment row was written, leaving blood_test_data pricing at 0.
+        if(ctx.apptId){ try{
+          const {data:_cur}=await supabase.from("appointments").select("blood_test_data").eq("id",ctx.apptId).limit(1);
+          const _bt:any={...((_cur&&_cur[0]&&_cur[0].blood_test_data)||{})};
+          _bt.panels=tests.map((t:any)=>t.name); _bt.panel=tests.map((t:any)=>t.name).join(", ");
+          _bt.our_price=total; _bt.thyrocare_cost=_cpThyroCost();
+          await supabase.from("appointments").update({blood_test_data:_bt,stage:"Blood Test Completed"}).eq("id",ctx.apptId);
+        }catch(_){ try{ await supabase.from("appointments").update({stage:"Blood Test Completed"}).eq("id",ctx.apptId); }catch(__){} } }
         if(ctx.leadId){ try{ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",ctx.leadId); }catch(_){} }
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         try{ ach("🩸","Blood test payment collected",ctx.name+" · ₹"+amt.toLocaleString("en-IN")); }catch(_){}
@@ -9820,7 +9829,9 @@ export function initApp(root: HTMLElement) {
     }
     function _btRenderAll(){
       const f=_btFiltered;
-      const totalBilled=f.reduce((s:number,r:any)=>s+Math.max(0,r.ourPrice),0);
+      // TOTAL BILLED = the amount billed per record: the stored our_price when present, otherwise the
+      // actual payment collected — so paid records show revenue even if pricing wasn't stamped on them.
+      const totalBilled=f.reduce((s:number,r:any)=>s+Math.max(0,r.ourPrice||r.payAmt||0),0);
       const totalCost=f.reduce((s:number,r:any)=>s+Math.max(0,r.thyroCost),0);
       const el=(id:string)=>root.querySelector("#"+id);
       if(el("btTotalBilled")) (el("btTotalBilled") as HTMLElement).textContent="₹"+totalBilled.toLocaleString("en-IN");
