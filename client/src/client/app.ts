@@ -77,6 +77,42 @@ export function initApp(root: HTMLElement) {
     // A Health Coach is scoped to clients whose assigned coach (appointment hc_pt) is this name.
     function _isCoachRole():boolean{ return !!_currentUser && String(_currentUser.role||"")==="Health Coach"; }
     function _coachScope():string{ return _isCoachRole() ? (_advisorName() || "__no_coach__") : ""; }
+
+    // ---- Service-line scoping (app_users.service → leads.service) ----
+    // A SECOND, independent axis from the advisor/coach name scoping above: that one answers "whose
+    // lead is this", this one answers "is this lead even in my service line". Both must pass.
+    //
+    // Returns the lower-cased substrings identifying the signed-in user's service, or null for
+    // "see everything". Null (no filtering) in four cases, each deliberate:
+    //   * the user has no service set — every account predating this feature, so nobody silently
+    //     loses visibility the moment it ships;
+    //   * their service carries no match terms (Admin) — reception/accounts/management work across
+    //     every line by definition;
+    //   * they hold an oversight role — a Manager scoped to one line could not do their job;
+    //   * the services master failed to load — fail OPEN here, because failing closed would blank
+    //     out the whole app over a transient fetch error.
+    const _SERVICE_BYPASS_ROLES=["Super Admin","Manager","Branch Manager"];
+    function _serviceScope():string[]|null{
+      if(!_currentUser) return null;
+      if(_SERVICE_BYPASS_ROLES.includes(String(_currentUser.role||""))) return null;
+      const label=String(_currentUser.service||"").trim();
+      if(!label) return null;
+      const svc=_orgServices.find((s:any)=>String(s.label).trim().toLowerCase()===label.toLowerCase());
+      if(!svc) return null;
+      const terms=_asArr(svc.match_terms).map((t:any)=>String(t).toLowerCase()).filter(Boolean);
+      return terms.length?terms:null;
+    }
+    // Does this row belong to the signed-in user's service line? Substring matching means a
+    // combination value ("Diabetes Counselling + Blood Test") satisfies BOTH lines, which is the
+    // clinically correct answer and the reason leads.service was not normalised to one canonical
+    // value. A row with NO service is treated as unclassified and stays VISIBLE — hiding untagged
+    // records would make them unreachable to everyone except the bypass roles.
+    function _serviceAllows(row:any,terms:string[]|null):boolean{
+      if(!terms) return true;
+      const v=String((row&&(row.service??row.svc))||"").toLowerCase().trim();
+      if(!v) return true;
+      return terms.some((t:string)=>v.includes(t));
+    }
     // The logged-in user's own name (Advisor / Coach) — used to scope the Recordings page to the
     // recordings THEY made. Empty for full-access roles (Manager/Admin/etc.) so they see all.
     function _selfScopeName():string{ return (_isAdvisorRole()||_isCoachRole()) ? (_advisorName()||"none") : ""; }
@@ -95,16 +131,257 @@ export function initApp(root: HTMLElement) {
       {key:"admin",label:"Settings"}
     ];
     const FULL_ACCESS=["advisor","coach","import","abm","reception","screening","bloodtest","physio","recordings","accounts","reports","admin"];
-    const RBAC_ROLES=["Advisor","Senior Advisor","Health Coach","Screening","Receptionist","Diagnostics","Physiotherapist","Accounts","ABM","Manager","Branch Manager"];
+
+    // ===== Services & roles master (org_services / org_roles / org_role_services) =====
+    // These three lists replace what used to be hardcoded arrays here: RBAC_ROLES (the frozen
+    // column list of the RBAC matrix), DEFAULT_RBAC (role -> screens) and ASSIGNEE_ROLES (who
+    // receives leads). They are now editable from Settings → Services & Roles.
+    //
+    // A role is globally unique and may belong to SEVERAL services (the spec puts "Advisor" under
+    // both Diabetics and Physiotherapy). Which line a person works in is app_users.service — a
+    // separate axis from what they are allowed to do.
+    let _orgServices:any[]=[];   // {id,label,sort,is_active}
+    let _orgRoles:any[]=[];      // {id,name,is_assignable,modules,is_protected,is_active,sort}
+    let _orgLinks:any[]=[];      // {role_id,service_id}
+
+    // Fallback used only until the master loads (or if it fails) — mirrors the seed in
+    // db/migration-org-services-roles.sql so a failed fetch can never lock everyone out.
     const DEFAULT_RBAC:Record<string,string[]>={
       "Advisor":["advisor","recordings"],"Senior Advisor":["advisor","import","recordings"],
+      "Telecaller":["advisor","recordings"],
       "Health Coach":["coach","recordings"],"Screening":["screening"],
       "Receptionist":["reception","screening","bloodtest","physio","recordings"],"Diagnostics":["bloodtest"],
-      "Physiotherapist":["physio"],"Accounts":["accounts"],
-      "ABM":["abm","advisor","import","reports"],
+      "Physiotherapist":["physio"],"Instructor":["recordings"],"Accounts":["accounts"],
+      "BDM":["reports"],"ABM":["abm","advisor","import","reports"],
       "Manager":FULL_ACCESS.slice(),
       "Branch Manager":FULL_ACCESS.slice()
     };
+
+    function _roleRow(name:string){ return _orgRoles.find((r:any)=>String(r.name)===String(name))||null; }
+    // Does this role receive lead assignments? (was: ASSIGNEE_ROLES.includes(role))
+    function _roleIsAssignable(name:string):boolean{
+      const r=_roleRow(name);
+      if(r) return !!r.is_assignable;
+      return ASSIGNEE_ROLES_FALLBACK.includes(String(name));
+    }
+    const ASSIGNEE_ROLES_FALLBACK=["Advisor","Senior Advisor","Telecaller","Manager","Health Coach"];
+    // Screen modules for a role — the role master first, then the built-in default.
+    function _roleModules(name:string):string[]{
+      const r=_roleRow(name);
+      if(r&&Array.isArray(r.modules)) return r.modules.slice();
+      return (DEFAULT_RBAC[String(name)]||[]).slice();
+    }
+    // Every role name to show as a column in the RBAC matrix (was: RBAC_ROLES).
+    function _rbacRoleNames():string[]{
+      const live=_orgRoles.filter((r:any)=>r.is_active&&!r.is_protected).map((r:any)=>r.name);
+      return live.length?live:Object.keys(DEFAULT_RBAC);
+    }
+    // Active role names offered for a given service label ("" = every active role).
+    function _rolesForService(serviceLabel:string):string[]{
+      const svc=_orgServices.find((s:any)=>String(s.label)===String(serviceLabel));
+      if(!svc) return _orgRoles.filter((r:any)=>r.is_active).map((r:any)=>r.name);
+      const ids=new Set(_orgLinks.filter((l:any)=>String(l.service_id)===String(svc.id)).map((l:any)=>String(l.role_id)));
+      return _orgRoles.filter((r:any)=>r.is_active&&ids.has(String(r.id))).sort((a:any,b:any)=>(a.sort||0)-(b.sort||0)).map((r:any)=>r.name);
+    }
+
+    // ===== Settings → Services & Roles (add / edit / remove) =====
+    const _orgEsc=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    function _svcRoleNames(svcId:any){
+      const ids=new Set(_orgLinks.filter((l:any)=>String(l.service_id)===String(svcId)).map((l:any)=>String(l.role_id)));
+      return _orgRoles.filter((r:any)=>ids.has(String(r.id))).map((r:any)=>r.name);
+    }
+    function _roleServiceLabels(roleId:any){
+      const ids=new Set(_orgLinks.filter((l:any)=>String(l.role_id)===String(roleId)).map((l:any)=>String(l.service_id)));
+      return _orgServices.filter((s:any)=>ids.has(String(s.id))).map((s:any)=>s.label);
+    }
+    // How many people currently hold this role — shown so an admin can see what a deactivate or
+    // delete would actually affect before doing it.
+    function _roleHeadcount(name:string){ return _usrList.filter((u:any)=>String(u.role)===String(name)).length; }
+
+    function renderServicesRoles(){
+      const sb=root.querySelector("#svcBody") as HTMLElement|null;
+      if(sb){
+        sb.innerHTML=_orgServices.length?_orgServices.map((s:any)=>{
+          const roles=_svcRoleNames(s.id);
+          return '<tr style="'+(s.is_active?"":"opacity:.55")+'">'
+            +'<td style="font-weight:600">'+_orgEsc(s.label)+'</td>'
+            +'<td style="font-size:12px;color:var(--muted)">'+(roles.length?roles.map(_orgEsc).join(", "):"—")+'</td>'
+            +'<td><span class="chipb '+(s.is_active?"ok":"neu")+'">'+(s.is_active?"Active":"Inactive")+'</span></td>'
+            +'<td><div style="display:flex;gap:6px;flex-wrap:wrap">'
+              +'<button class="btn bsm" onclick="window._svcRename(\''+_orgEsc(s.id)+'\')">Rename</button>'
+              +'<button class="btn bsm" onclick="window._svcToggle(\''+_orgEsc(s.id)+'\')">'+(s.is_active?"Deactivate":"Activate")+'</button>'
+              +'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._svcDel(\''+_orgEsc(s.id)+'\')">Remove</button>'
+            +'</div></td></tr>';
+        }).join(""):'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:18px">No services yet — add one above.</td></tr>';
+      }
+
+      const rb=root.querySelector("#roleBody") as HTMLElement|null;
+      if(rb){
+        rb.innerHTML=_orgRoles.length?_orgRoles.map((r:any)=>{
+          const svcs=_roleServiceLabels(r.id);
+          const mods=_asArr(r.modules);
+          const n=_roleHeadcount(r.name);
+          const lock=r.is_protected;
+          return '<tr style="'+(r.is_active?"":"opacity:.55")+'">'
+            +'<td style="font-weight:600">'+_orgEsc(r.name)+(lock?' <span class="chipb vio" title="Built-in role — renaming or removing it would lock out the only account that can undo the change">locked</span>':"")+'</td>'
+            +'<td style="font-size:12px;color:var(--muted)">'+(svcs.length?svcs.map(_orgEsc).join(", "):'<span style="color:var(--faint)">none</span>')+'</td>'
+            +'<td><input type="checkbox" '+(r.is_assignable?"checked ":"")+'onchange="window._roleAssignable(\''+_orgEsc(r.id)+'\',this.checked)" style="accent-color:var(--brand);width:16px;height:16px;cursor:pointer" title="Appears in Assign-to dropdowns and gets a mirrored assignee record"></td>'
+            +'<td class="mono" style="font-size:11.5px">'+(mods.length?mods.length+" of "+MODULES_LIST.length:'<span style="color:var(--alert-ink)">none</span>')+'</td>'
+            +'<td class="mono">'+n+'</td>'
+            +'<td><span class="chipb '+(r.is_active?"ok":"neu")+'">'+(r.is_active?"Active":"Inactive")+'</span></td>'
+            +'<td><div style="display:flex;gap:6px;flex-wrap:wrap">'
+              +'<button class="btn bsm" onclick="window._roleServices(\''+_orgEsc(r.id)+'\')">Services…</button>'
+              +(lock?"":'<button class="btn bsm" onclick="window._roleRename(\''+_orgEsc(r.id)+'\')">Rename</button>'
+              +'<button class="btn bsm" onclick="window._roleToggle(\''+_orgEsc(r.id)+'\')">'+(r.is_active?"Deactivate":"Activate")+'</button>'
+              +'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._roleDel(\''+_orgEsc(r.id)+'\')">Remove</button>')
+            +'</div></td></tr>';
+        }).join(""):'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No roles yet.</td></tr>';
+      }
+
+      // "Add role" pickers
+      const svcSel=root.querySelector("#roleNewSvc") as HTMLSelectElement|null;
+      if(svcSel){ const cur=svcSel.value;
+        svcSel.innerHTML=_orgServices.filter((s:any)=>s.is_active).map((s:any)=>'<option value="'+_orgEsc(s.label)+'">'+_orgEsc(s.label)+'</option>').join("");
+        if(cur) svcSel.value=cur; }
+      const cpSel=root.querySelector("#roleNewCopy") as HTMLSelectElement|null;
+      if(cpSel){ const cur=cpSel.value;
+        cpSel.innerHTML='<option value="">— no screens —</option>'+_orgRoles.filter((r:any)=>r.is_active).map((r:any)=>'<option value="'+_orgEsc(r.name)+'">'+_orgEsc(r.name)+'</option>').join("");
+        if(cur) cpSel.value=cur; }
+    }
+
+    async function _orgReload(){ await loadOrgMaster(); renderServicesRoles(); renderRbacMatrix(); renderUsers(); }
+
+    w._svcAdd=async()=>{
+      const el=root.querySelector("#svcNew") as HTMLInputElement|null;
+      const label=(el?.value||"").trim();
+      if(!label){ toastErr("Enter a service name"); return; }
+      if(_orgServices.some((s:any)=>String(s.label).toLowerCase()===label.toLowerCase())){ toastErr("That service already exists"); return; }
+      const sort=(_orgServices.reduce((m:number,s:any)=>Math.max(m,Number(s.sort)||0),0))+10;
+      if(!(await _dbOk(supabase.from("org_services").insert({label,sort}),"Add service"))) return;
+      if(el) el.value="";
+      toast("Service added"); await _orgReload();
+    };
+    w._svcRename=async(id:any)=>{
+      const s=_orgServices.find((x:any)=>String(x.id)===String(id)); if(!s) return;
+      const next=(window.prompt("Rename service",s.label)||"").trim();
+      if(!next||next===s.label) return;
+      if(_orgServices.some((x:any)=>String(x.id)!==String(id)&&String(x.label).toLowerCase()===next.toLowerCase())){ toastErr("Another service already has that name"); return; }
+      // app_users.service stores the LABEL, so the rename has to carry across or those people would
+      // point at a service that no longer exists.
+      if(!(await _dbOk(supabase.from("org_services").update({label:next}).eq("id",id),"Rename service"))) return;
+      await _dbOk(supabase.from("app_users").update({service:next}).eq("service",s.label),"Move users to renamed service");
+      toast("Service renamed"); await _orgReload(); await loadUsers();
+    };
+    w._svcToggle=async(id:any)=>{
+      const s=_orgServices.find((x:any)=>String(x.id)===String(id)); if(!s) return;
+      if(!(await _dbOk(supabase.from("org_services").update({is_active:!s.is_active}).eq("id",id),"Update service"))) return;
+      toast(s.is_active?"Service deactivated":"Service activated"); await _orgReload();
+    };
+    w._svcDel=async(id:any)=>{
+      const s=_orgServices.find((x:any)=>String(x.id)===String(id)); if(!s) return;
+      const held=_usrList.filter((u:any)=>String(u.service||"")===String(s.label)).length;
+      const msg="Remove the service “"+s.label+"”?"
+        +(held?"\n\n⚠ "+held+" user(s) are assigned to it. They will be left with no service, which means no service-based filtering applies to them.":"")
+        +"\n\nIts roles are NOT deleted — they just stop being offered under this service.";
+      if(!window.confirm(msg)) return;
+      if(!(await _dbOk(supabase.from("org_services").delete().eq("id",id),"Remove service"))) return;
+      if(held) await _dbOk(supabase.from("app_users").update({service:null}).eq("service",s.label),"Clear service on affected users");
+      toast("Service removed"); await _orgReload(); await loadUsers();
+    };
+
+    w._roleAdd=async()=>{
+      const nameEl=root.querySelector("#roleNew") as HTMLInputElement|null;
+      const name=(nameEl?.value||"").trim();
+      if(!name){ toastErr("Enter a role name"); return; }
+      if(_orgRoles.some((r:any)=>String(r.name).toLowerCase()===name.toLowerCase())){ toastErr("That role already exists"); return; }
+      const svcLabel=(root.querySelector("#roleNewSvc")as HTMLSelectElement)?.value||"";
+      const copyFrom=(root.querySelector("#roleNewCopy")as HTMLSelectElement)?.value||"";
+      const assignable=!!(root.querySelector("#roleNewAsg")as HTMLInputElement)?.checked;
+      const modules=copyFrom?_roleModules(copyFrom):[];
+      if(!modules.length&&!window.confirm("“"+name+"” will have NO screen access, so anyone given this role signs in to an empty app.\n\nCreate it anyway? (You can grant screens later in Roles & RBAC.)")) return;
+      const sort=(_orgRoles.reduce((m:number,r:any)=>Math.max(m,Number(r.sort)||0),0))+10;
+      if(!(await _dbOk(supabase.from("org_roles").insert({name,is_assignable:assignable,modules,sort}),"Add role"))) return;
+      // Link it to the chosen service. Re-read to get the generated id rather than guessing.
+      await loadOrgMaster();
+      const created=_orgRoles.find((r:any)=>String(r.name)===name);
+      const svc=_orgServices.find((s:any)=>String(s.label)===svcLabel);
+      if(created&&svc) await _dbOk(supabase.from("org_role_services").insert({role_id:created.id,service_id:svc.id}),"Link role to service");
+      if(nameEl) nameEl.value="";
+      toast("Role added"+(copyFrom?" — screens copied from "+copyFrom:"")); await _orgReload();
+    };
+    w._roleRename=async(id:any)=>{
+      const r=_orgRoles.find((x:any)=>String(x.id)===String(id)); if(!r||r.is_protected) return;
+      const next=(window.prompt("Rename role",r.name)||"").trim();
+      if(!next||next===r.name) return;
+      if(_orgRoles.some((x:any)=>String(x.id)!==String(id)&&String(x.name).toLowerCase()===next.toLowerCase())){ toastErr("Another role already has that name"); return; }
+      const held=_roleHeadcount(r.name);
+      if(held&&!window.confirm("Rename “"+r.name+"” to “"+next+"”?\n\n"+held+" user(s) hold this role and will be moved with it.")) return;
+      if(!(await _dbOk(supabase.from("org_roles").update({name:next}).eq("id",id),"Rename role"))) return;
+      // app_users.role and assignees.role are plain text keyed on the name — both must follow, or
+      // those people land on a role the RBAC matrix no longer has a column for and lose every screen.
+      await _dbOk(supabase.from("app_users").update({role:next}).eq("role",r.name),"Move users to renamed role");
+      await _dbOk(supabase.from("assignees").update({role:next}).eq("role",r.name),"Move assignees to renamed role");
+      toast("Role renamed"); await _orgReload(); await _reloadPeople();
+    };
+    w._roleToggle=async(id:any)=>{
+      const r=_orgRoles.find((x:any)=>String(x.id)===String(id)); if(!r||r.is_protected) return;
+      if(!(await _dbOk(supabase.from("org_roles").update({is_active:!r.is_active}).eq("id",id),"Update role"))) return;
+      toast(r.is_active?"Role deactivated":"Role activated"); await _orgReload();
+    };
+    w._roleAssignable=async(id:any,on:boolean)=>{
+      if(!(await _dbOk(supabase.from("org_roles").update({is_assignable:!!on}).eq("id",id),"Update role"))) return;
+      await _orgReload(); await _reloadPeople();
+    };
+    w._roleDel=async(id:any)=>{
+      const r=_orgRoles.find((x:any)=>String(x.id)===String(id)); if(!r||r.is_protected) return;
+      const held=_roleHeadcount(r.name);
+      if(held){ toastErr(held+" user(s) still hold “"+r.name+"”. Move them to another role first."); return; }
+      if(!window.confirm("Remove the role “"+r.name+"”?")) return;
+      if(!(await _dbOk(supabase.from("org_roles").delete().eq("id",id),"Remove role"))) return;
+      toast("Role removed"); await _orgReload();
+    };
+    // Toggle which services offer this role (many-to-many).
+    w._roleServices=async(id:any)=>{
+      const r=_orgRoles.find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      const current=new Set(_roleServiceLabels(r.id));
+      const all=_orgServices.map((s:any)=>s.label);
+      const answer=window.prompt(
+        "Which services offer “"+r.name+"”?\n\nComma-separated. Available: "+all.join(", "),
+        Array.from(current).join(", "));
+      if(answer==null) return;
+      const want=answer.split(",").map(s=>s.trim()).filter(Boolean);
+      const bad=want.filter(x=>!all.some((l:string)=>l.toLowerCase()===x.toLowerCase()));
+      if(bad.length){ toastErr("Unknown service: "+bad.join(", ")); return; }
+      const wantIds=new Set(_orgServices.filter((s:any)=>want.some(x=>x.toLowerCase()===String(s.label).toLowerCase())).map((s:any)=>String(s.id)));
+      const haveIds=new Set(_orgLinks.filter((l:any)=>String(l.role_id)===String(r.id)).map((l:any)=>String(l.service_id)));
+      for(const sid of wantIds) if(!haveIds.has(sid)) await _dbOk(supabase.from("org_role_services").insert({role_id:r.id,service_id:sid}),"Link role");
+      for(const sid of haveIds) if(!wantIds.has(sid)) await _dbOk(supabase.from("org_role_services").delete().eq("role_id",r.id).eq("service_id",sid),"Unlink role");
+      toast("Services updated"); await _orgReload();
+    };
+
+    async function loadOrgMaster(){
+      try{
+        const [s,r,l]:any[]=await Promise.all([
+          supabase.from("org_services").select("*").order("sort"),
+          supabase.from("org_roles").select("*").order("sort"),
+          supabase.from("org_role_services").select("*"),
+        ]);
+        if(!s.error) _orgServices=s.data||[];
+        if(!r.error) _orgRoles=(r.data||[]).map((x:any)=>({...x,modules:_asArr(x.modules)}));
+        if(!l.error) _orgLinks=l.data||[];
+        // Swallowing these errors is how an empty Service/Role dropdown looked like a UI bug for a
+        // whole round-trip: the gateway was rejecting the tables outright ("unknown table"), and
+        // nothing said so. A failure here disables user creation, so it must be loud.
+        const err=(s.error||r.error||l.error);
+        if(err) toastErr("Could not load services & roles: "+(err.message||"unknown error"));
+      }catch(e:any){ toastErr("Could not load services & roles: "+(e?.message||"network error")); }
+    }
+    // The gateway may hand back JSONB as a string depending on the driver path.
+    function _asArr(v:any):string[]{
+      if(Array.isArray(v)) return v;
+      if(typeof v==="string"){ try{ const p=JSON.parse(v); return Array.isArray(p)?p:[]; }catch(_){ return []; } }
+      return [];
+    }
 
     function showLogin(errMsg?:string){
       const overlay=root.querySelector("#loginOverlay") as HTMLElement;
@@ -179,6 +456,10 @@ export function initApp(root: HTMLElement) {
           return;
         }
         _currentUser=appUser;
+        // The services/roles master must land BEFORE loadRbacMatrix + applyNavGating: a role's
+        // allowed screens now come from org_roles.modules, so gating that runs first would fall
+        // back to DEFAULT_RBAC and hide screens from any role added after this build shipped.
+        await loadOrgMaster();
         await loadRbacMatrix();
         showApp();
       }catch(e:any){
@@ -255,12 +536,18 @@ export function initApp(root: HTMLElement) {
     },0);
 
     // RBAC matrix
+    // The matrix is now DERIVED from the roles master (org_roles.modules) rather than stored
+    // separately in app_settings. Two stores meant two answers: editing a role's screens in
+    // Services & Roles had no effect while an app_settings row shadowed it. org_roles is the single
+    // source of truth; DEFAULT_RBAC only covers a cold failure so nobody is locked out.
     async function loadRbacMatrix(){
-      // Never let a missing/erroring rbac row break sign-in (this runs inside checkAuth):
-      // fall back to the built-in defaults on any failure.
       try{
-        const {data}=await supabase.from("app_settings").select("value").eq("key","rbac").single();
-        _rbacMatrix=data?.value||{...DEFAULT_RBAC};
+        if(!_orgRoles.length) await loadOrgMaster();
+        if(_orgRoles.length){
+          const m:Record<string,string[]>={};
+          for(const r of _orgRoles) m[String(r.name)]=_asArr(r.modules);
+          _rbacMatrix=m;
+        } else _rbacMatrix={...DEFAULT_RBAC};
       }catch(_){ _rbacMatrix={...DEFAULT_RBAC}; }
     }
 
@@ -268,9 +555,10 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#rbacMatrixBody") as HTMLElement;
       if(!body) return;
       const m=_rbacMatrix||DEFAULT_RBAC;
-      const thCells=RBAC_ROLES.map(r=>'<th style="font-size:9px;padding:8px 5px;max-width:65px;word-wrap:break-word;text-align:center">'+r+'</th>').join("");
+      const _rbacCols=_rbacRoleNames();
+      const thCells=_rbacCols.map(r=>'<th style="font-size:9px;padding:8px 5px;max-width:65px;word-wrap:break-word;text-align:center">'+r+'</th>').join("");
       const rows=MODULES_LIST.map(mod=>{
-        const cells=RBAC_ROLES.map(r=>{
+        const cells=_rbacCols.map(r=>{
           const on=(m[r]||[]).includes(mod.key);
           return '<td style="text-align:center"><input type="checkbox" '+(on?'checked ':'')+' data-mod="'+mod.key+'" data-role="'+r+'" onchange="window._rbacToggle(this)" style="accent-color:var(--brand);width:16px;height:16px;cursor:pointer"></td>';
         }).join("");
@@ -287,11 +575,19 @@ export function initApp(root: HTMLElement) {
       if(!_rbacMatrix[role]) _rbacMatrix[role]=[];
       if(el.checked){ if(!_rbacMatrix[role].includes(mod)) _rbacMatrix[role].push(mod); }
       else { _rbacMatrix[role]=_rbacMatrix[role].filter((x:string)=>x!==mod); }
-      saveRbac();
+      saveRbac(role);
     };
 
-    async function saveRbac(){
-      await supabase.from("app_settings").upsert({key:"rbac",value:_rbacMatrix,updated_at:new Date().toISOString()});
+    // Persists ONE role's screen list back onto its org_roles row. Writing only the toggled role
+    // (rather than the whole matrix) means two admins editing different roles can't clobber each
+    // other, which a single JSON blob could not avoid.
+    async function saveRbac(role:string){
+      const mods=(_rbacMatrix&&_rbacMatrix[role])||[];
+      const row=_roleRow(role);
+      if(row){
+        if(!(await _dbOk(supabase.from("org_roles").update({modules:mods}).eq("id",row.id),"Save permissions"))) return;
+        row.modules=mods.slice();
+      }
       if(_currentUser&&_currentUser.role!=="Super Admin") applyNavGating();
     }
 
@@ -325,7 +621,7 @@ export function initApp(root: HTMLElement) {
         _syncNavGroups();
         return;
       }
-      const allowed=(_rbacMatrix&&_rbacMatrix[role])||DEFAULT_RBAC[role]||[];
+      const allowed=(_rbacMatrix&&_rbacMatrix[role])||_roleModules(role);
       root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>{
         (btn as HTMLElement).style.display=allowed.includes(btn.dataset.s)?"":"none";
       });
@@ -348,53 +644,122 @@ export function initApp(root: HTMLElement) {
       renderUsers();
     }
 
+    // ===== Merged Users & Assignees =====
+    // app_users (login) and assignees (lead-assignment master) stay SEPARATE tables — every
+    // downstream consumer (leads.assigned_to string join, _advisorName(), populateAdvisorDropdowns,
+    // renderAdvisorLoad, _asgActiveLeadCount) is untouched. Only the SCREEN merges: one row per
+    // person, joined by lowercased email.
+    //
+    // Assignees with no matching user account are included deliberately. They exist (assignees
+    // used to be created directly on their own tab, and _asgRemoveUser explicitly preserves them),
+    // and leads are assigned to them by NAME. Listing only app_users would make them vanish from
+    // the UI while still owning leads — and the first person to "tidy up" an unexplained dropdown
+    // entry would orphan that whole book.
+    function _usrMerged():any[]{
+      const key=(s:any)=>String(s||"").trim().toLowerCase();
+      const byEmail=new Map<string,any>();
+      for(const a of _assignees){ const k=key(a.email); if(k) byEmail.set(k,a); }
+      const rows=_usrList.map((u:any)=>{
+        const a=byEmail.get(key(u.email))||null;
+        if(a) byEmail.delete(key(u.email));
+        return {
+          key:"u:"+u.id, uid:u.id, aid:a?a.id:null, email:u.email, name:u.name||(a&&a.name)||"",
+          role:u.role, service:u.service||"", branch:a?a.branch:"", phone:a?a.phone:"", did:u.tata_did||"", ext:u.tata_extension||"",
+          active:!!u.active, created_at:u.created_at, hasLogin:true,
+          assignable:_roleIsAssignable(u.role), linked:!!a,
+        };
+      });
+      // Whatever is left in byEmail had no user row; plus every assignee with no email at all.
+      const orphans=_assignees.filter((a:any)=>{ const k=key(a.email); return !k||byEmail.has(k); });
+      for(const a of orphans){
+        rows.push({
+          key:"a:"+a.id, uid:null, aid:a.id, email:a.email||"", name:a.name||"",
+          role:a.role, service:"", branch:a.branch||"", phone:a.phone||"", did:"", ext:"",
+          active:!!a.is_active, created_at:a.created_at, hasLogin:false,
+          assignable:true, linked:true,
+        });
+      }
+      return rows;
+    }
+
     function renderUsers(){
       const body=root.querySelector("#usrBody") as HTMLElement;
       if(!body) return;
-      if(!_usrList.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:22px">No users yet. Add the first user above.</td></tr>'; return; }
+      let _merged=_usrMerged();
+      if(_usrQ){
+        _merged=_merged.filter((u:any)=>[u.name,u.email,u.role,u.service,u.branch,u.phone,u.did,u.ext]
+          .some((f:any)=>String(f||"").toLowerCase().includes(_usrQ)));
+      }
+      if(!_merged.length){ body.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:22px">'+(_usrQ?"No one matches “"+_usrQ.replace(/</g,"&lt;")+"”.":"No users yet — click “+ Add User” to create the first one.")+'</td></tr>'; return; }
       // Full escape (&<>"') — this table renders email/name/role straight from app_users with no
       // escaping at all before, and those fields are writable via the /db gateway (e.g. by anyone
       // with a Manager+ session), so an unescaped value here was a real stored-XSS path into the
       // Super Admin's own screen. Most of this file's local `e()` helpers only strip </>` — this one
       // additionally covers quotes/ampersand since that's what was actually missing.
       const esc=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      const _uhd=root.querySelector("#usrHead"); if(_uhd)_uhd.innerHTML=gridHead("usr"); const _usrR=gridApply("usr",_usrList); body.innerHTML=_usrR.map((u:any)=>{
+      const _uhd=root.querySelector("#usrHead"); if(_uhd)_uhd.innerHTML=gridHead("usr"); const _usrR=gridApply("usr",_merged); body.innerHTML=_usrR.map((u:any)=>{
         const isSelf=_currentUser&&_currentUser.email===u.email;
-        return '<tr><td class="mono" style="font-size:12px">'+esc(u.email)+'</td><td>'+esc(u.name||"—")+'</td>'
+        const dim=u.active?"":"opacity:.55";
+        // A login whose assignable role has no assignee row can't see its own leads — flag it
+        // rather than let the person discover it as an empty dashboard.
+        const broken=u.hasLogin&&u.assignable&&!u.linked;
+        return '<tr style="'+dim+'"><td class="mono" style="font-size:12px">'+(u.email?esc(u.email):'<span style="color:var(--faint)">— no login —</span>')+'</td>'
+          +'<td style="font-weight:600">'+esc(u.name||"—")
+            +(u.hasLogin?"":' <span class="chipb neu" title="Receives leads but has no login account">assignee only</span>')
+            +(broken?' <span class="chipb al" title="No assignee row — this person will see no leads. Re-save to fix.">⚠ not assignable</span>':"")+'</td>'
           +'<td><span class="chipb '+(u.role==="Super Admin"?"vio":u.role==="Branch Manager"?"info":"neu")+'">'+esc(u.role)+'</span></td>'
+          +'<td>'+(u.service?esc(u.service):'<span style="color:var(--faint)">—</span>')+'</td>'
+          +'<td>'+esc(u.branch||"—")+'</td><td class="mono">'+esc(u.phone||"—")+'</td>'
+          +'<td class="mono" style="font-size:11.5px">'+(u.did?esc(u.did):'<span style="color:var(--faint)">—</span>')+'</td>'
+          +'<td class="mono" style="font-size:11.5px">'+(u.ext?esc(u.ext):'<span style="color:var(--faint)">—</span>')+'</td>'
+          +'<td class="mono">'+(u.assignable?_asgActiveLeadCount(u.name):"—")+'</td>'
           +'<td><span class="chipb '+(u.active?"ok":"al")+'">'+(u.active?"Active":"Inactive")+'</span></td>'
-          +'<td class="mono" style="font-size:11px">'+_dIST(u.created_at)+'</td>'
-          +'<td>'+(isSelf?'<span style="font-size:11px;color:var(--faint)">You</span>'
-            :'<button class="btn bsm" onclick="window._usrToggle('+u.id+')">'+(u.active?"Deactivate":"Activate")+'</button>'
-            +' <button class="btn bsm" onclick="window._usrResetPassword('+u.id+')" title="Clear their password so they can set a new one via \'First time? Set your password\'">Reset password</button>'
-            +(u.role!=="Super Admin"?' <button class="btn bsm" onclick="window._usrDel('+u.id+')" style="color:var(--alert-ink)">Remove</button>':""))
-          +'</td></tr>';
+          +'<td><div style="display:flex;gap:6px;flex-wrap:wrap">'
+            +'<button class="btn bsm" onclick="window._usrEdit(\''+esc(u.key)+'\')">Edit</button>'
+            +(isSelf?'<span style="font-size:11px;color:var(--faint);align-self:center">You</span>'
+              :'<button class="btn bsm" onclick="window._usrToggle(\''+esc(u.key)+'\')">'+(u.active?"Deactivate":"Activate")+'</button>'
+              +(u.hasLogin?'<button class="btn bsm" onclick="window._usrResetPassword('+u.uid+')" title="Clear their password so they can set a new one via \'First time? Set your password\'">Reset password</button>':"")
+              +(u.role!=="Super Admin"?'<button class="btn bsm" onclick="window._usrDel(\''+esc(u.key)+'\')" style="color:var(--alert-ink)">Remove</button>':""))
+          +'</div></td></tr>';
       }).join("");
     }
 
-    // Roles that actually receive lead assignments — mirrors the Assignees tab's own role
-    // dropdown (template.ts #asgRole). Users tab has extra login-only roles (Receptionist,
-    // Diagnostics, Physiotherapist, Accounts, ABM, Branch Manager, Super Admin, Screening) that
-    // never belong in an "Assigned to" dropdown, so those are never mirrored into `assignees`.
-    const ASSIGNEE_ROLES=["Advisor","Senior Advisor","Telecaller","Manager","Health Coach"];
+    // Which roles receive lead assignments is now per-role data on org_roles.is_assignable,
+    // editable in Settings → Services & Roles. See _roleIsAssignable() near the top of this file.
     // Keep the linked `assignees` row (matched by email — the same link `_advisorName()` already
     // relies on for RBAC scoping) in sync with a Users-tab action. Best-effort: never blocks the
     // app_users write, since Assignees is a convenience mirror, not the source of truth for login.
-    async function _asgSyncUser(email:string,name:string,role:string,active:boolean){
-      if(!email) return;
+    // Returns true when the assignee side is in the state the caller asked for. The merged
+    // Users & Assignees screen surfaces a FALSE return as a visible warning: a login whose
+    // assignee row is missing resolves to "__no_advisor__" in _advisorScope(), so that person
+    // signs in to an empty dashboard with no error anywhere. Silent failure here is exactly the
+    // bug that hides.
+    async function _asgSyncUser(email:string,name:string,role:string,active:boolean,branch?:string,phone?:string){
+      if(!email) return false;
       // Same failure mode fixed elsewhere this session: the gateway resolves {error} rather than
       // throwing, so a bare try/catch reads a failed lookup as "no existing assignee" and inserts a
       // second row for the same person — duplicate names in every "Assigned to" dropdown.
       const _exRes:any=await supabase.from("assignees").select("id").eq("email",email).limit(1);
-      if(_exRes&&_exRes.error) return;   // best-effort mirror — abort quietly rather than risk a duplicate
+      if(_exRes&&_exRes.error) return false;   // abort rather than risk a duplicate
       const existing=_exRes?.data;
+      let ok=true;
       if(existing&&existing.length){
-        if(ASSIGNEE_ROLES.includes(role)) await _dbOk(supabase.from("assignees").update({name:name||email,role,is_active:active}).eq("id",existing[0].id),"Assignee sync");
-        else await _dbOk(supabase.from("assignees").delete().eq("id",existing[0].id),"Assignee sync");   // role changed OUT of an assignable role
-      } else if(ASSIGNEE_ROLES.includes(role)&&active){
-        await _dbOk(supabase.from("assignees").insert({name:name||email,role,branch:"Chennai",email,is_active:true}),"Assignee sync");
+        if(_roleIsAssignable(role)){
+          const patch:any={name:name||email,role,is_active:active};
+          if(branch!=null) patch.branch=branch;
+          if(phone!=null) patch.phone=phone||null;
+          ok=await _dbOk(supabase.from("assignees").update(patch).eq("id",existing[0].id),"Assignee sync");
+        }
+        else ok=await _dbOk(supabase.from("assignees").delete().eq("id",existing[0].id),"Assignee sync");   // role changed OUT of an assignable role
+      } else if(_roleIsAssignable(role)){
+        // Create the row whatever the active state — is_active carries that instead. Gating the
+        // INSERT on `active` meant a deactivated person with an assignable role and no assignee
+        // row could never be repaired: Edit → Update did nothing, reported "Saved", and left the
+        // "⚠ not assignable" badge in place with their leads still detached.
+        ok=await _dbOk(supabase.from("assignees").insert({name:name||email,role,branch:branch||"Chennai",email,phone:phone||null,is_active:active}),"Assignee sync");
       }
       try{ await loadAssignees(); }catch(_){}
+      return ok;
     }
     async function _asgRemoveUser(email:string){
       if(!email) return;
@@ -403,6 +768,208 @@ export function initApp(root: HTMLElement) {
       }catch(_){}
     }
 
+    // Which merged row the form is editing ("u:<id>" / "a:<id>"), or null when adding.
+    let _usrEditKey:string|null=null;
+    let _usrEditRow:any=null;
+
+    // The merged table is a JOIN of two independently-cached lists, so BOTH must be refetched after
+    // any write — reloading only app_users left _assignees holding the pre-write row, and the join
+    // then failed to match a person to themselves. That is what made a freshly linked assignee show
+    // "⚠ not assignable" with an empty branch until a full page reload: the database was already
+    // correct, the in-memory copy was not.
+    async function _reloadPeople(){ await loadAssignees(); await loadUsers(); }
+
+    // ---- Custom select ----
+    // Wraps a native <select> in a styled listbox. The <select> stays in the DOM and remains the
+    // single source of truth for the value, so _fillRoleSelect / _fillServiceSelect / the save
+    // handler keep reading and writing `.value` exactly as before — this only replaces what is
+    // drawn. Options are read from the live <select> each time the list opens, so a dynamically
+    // repopulated dropdown (the Service → Role cascade) never needs to notify this code.
+    function _cselSync(sel:HTMLSelectElement){
+      const wrap=sel.closest(".csel") as HTMLElement|null; if(!wrap) return;
+      const val=wrap.querySelector(".csel-val") as HTMLElement|null; if(!val) return;
+      const opt=sel.options[sel.selectedIndex];
+      const txt=opt?opt.text:"";
+      val.textContent=txt||"— select —";
+      // Placeholder styling for the empty-value option (e.g. "— All / not service-specific —").
+      val.classList.toggle("ph",!opt||opt.value==="");
+    }
+    function _cselClose(wrap:HTMLElement){ wrap.classList.remove("open"); const b=wrap.querySelector(".csel-btn") as HTMLElement|null; b&&b.setAttribute("aria-expanded","false"); }
+    function _cselCloseAll(){ root.querySelectorAll(".csel.open").forEach((w:any)=>_cselClose(w)); }
+
+    function _enhanceSelect(sel:HTMLSelectElement|null){
+      if(!sel||sel.dataset.csel) return;
+      sel.dataset.csel="1";
+      const wrap=document.createElement("div"); wrap.className="csel";
+      sel.parentNode&&sel.parentNode.insertBefore(wrap,sel);
+      wrap.appendChild(sel); sel.classList.add("csel-native"); sel.setAttribute("tabindex","-1");
+      const btn=document.createElement("button");
+      btn.type="button"; btn.className="csel-btn";
+      btn.setAttribute("aria-haspopup","listbox"); btn.setAttribute("aria-expanded","false");
+      if(sel.id){
+        const lab=root.querySelector('label[for="'+sel.id+'"]') as HTMLElement|null;
+        if(lab) btn.setAttribute("aria-label",(lab.textContent||"").trim());
+      }
+      btn.innerHTML='<span class="csel-val"></span><svg class="csel-arw" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+      const list=document.createElement("div"); list.className="csel-list"; list.setAttribute("role","listbox");
+      wrap.appendChild(btn); wrap.appendChild(list);
+
+      const esc=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const build=()=>{
+        list.innerHTML=Array.from(sel.options).map((o,i)=>{
+          const isSel=i===sel.selectedIndex;
+          const muted=o.value===""||/^—/.test(o.text);
+          return '<div class="csel-opt'+(isSel?" sel":"")+(muted?" muted":"")+'" role="option" data-i="'+i+'"'
+            +' aria-selected="'+(isSel?"true":"false")+'"><span class="tick">✓</span><span>'+esc(o.text)+'</span></div>';
+        }).join("");
+      };
+      const pick=(i:number)=>{
+        if(i<0||i>=sel.options.length) return;
+        sel.selectedIndex=i; _cselSync(sel);
+        // Fire change so the cascade (_usrServiceChange / _usrRoleChange) runs exactly as it would
+        // for a real <select>.
+        sel.dispatchEvent(new Event("change",{bubbles:true}));
+        _cselClose(wrap); btn.focus();
+      };
+      const open=()=>{
+        _cselCloseAll(); build();
+        // Flip upward when there isn't room below (the modal body scrolls).
+        const r=btn.getBoundingClientRect();
+        wrap.classList.toggle("up",(window.innerHeight-r.bottom)<260&&r.top>260);
+        wrap.classList.add("open"); btn.setAttribute("aria-expanded","true");
+        const cur=list.querySelector(".csel-opt.sel") as HTMLElement|null;
+        if(cur){ cur.classList.add("cur"); cur.scrollIntoView({block:"nearest"}); }
+      };
+      btn.addEventListener("click",(e)=>{ e.stopPropagation(); wrap.classList.contains("open")?_cselClose(wrap):open(); });
+      list.addEventListener("click",(e:any)=>{
+        const o=e.target.closest(".csel-opt"); if(!o) return;
+        e.stopPropagation(); pick(Number(o.dataset.i));
+      });
+      const move=(d:number)=>{
+        const opts=Array.from(list.querySelectorAll(".csel-opt")) as HTMLElement[];
+        if(!opts.length) return;
+        let i=opts.findIndex(o=>o.classList.contains("cur"));
+        if(i<0) i=opts.findIndex(o=>o.classList.contains("sel"));
+        i=Math.max(0,Math.min(opts.length-1,(i<0?0:i)+d));
+        opts.forEach(o=>o.classList.remove("cur"));
+        opts[i].classList.add("cur"); opts[i].scrollIntoView({block:"nearest"});
+      };
+      wrap.addEventListener("keydown",(e:any)=>{
+        const isOpen=wrap.classList.contains("open");
+        if(e.key==="Escape"&&isOpen){ e.stopPropagation(); _cselClose(wrap); btn.focus(); return; }
+        if(!isOpen&&(e.key==="Enter"||e.key===" "||e.key==="ArrowDown")){ e.preventDefault(); open(); return; }
+        if(!isOpen) return;
+        if(e.key==="ArrowDown"){ e.preventDefault(); move(1); }
+        else if(e.key==="ArrowUp"){ e.preventDefault(); move(-1); }
+        else if(e.key==="Enter"){ e.preventDefault();
+          const cur=list.querySelector(".csel-opt.cur") as HTMLElement|null;
+          if(cur) pick(Number(cur.dataset.i));
+        }
+      });
+      _cselSync(sel);
+    }
+    // One document-level listener closes any open list on an outside click.
+    root.addEventListener("click",()=>_cselCloseAll());
+
+    // ---- Modal shell ----
+    function _usrModalErr(msg:string){
+      const el=root.querySelector("#usrModalErr")as HTMLElement|null;
+      if(el) el.textContent=msg||"";
+      if(msg) toastErr(msg);
+    }
+    // Fill Service from the master. "" = no specific service, kept for people whose work isn't
+    // tied to one line (and for every existing user, whose service column is NULL).
+    function _fillServiceSelect(sel:string){
+      const el=root.querySelector("#usrService")as HTMLSelectElement|null; if(!el) return;
+      const esc=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const opts=_orgServices.filter((s:any)=>s.is_active).map((s:any)=>'<option value="'+esc(s.label)+'">'+esc(s.label)+'</option>').join("");
+      el.innerHTML='<option value="">— All / not service-specific —</option>'+opts;
+      el.value=sel||"";
+      _cselSync(el);
+    }
+    // Role options are whatever the chosen service offers. Keeping the current value when it is
+    // still valid means switching service back and forth doesn't silently reassign someone.
+    // keepForeign: only when EDITING someone. Their stored role may not be linked to the selected
+    // service (or may have been retired), and dropping it would silently reassign them on save, so
+    // it is prepended and kept selected. When the operator actively CHANGES service, foreign roles
+    // must not survive — that produced "Service: Admin, Role: Advisor", an impossible pairing
+    // offered as the default because the previous selection was carried over blindly.
+    function _fillRoleSelect(service:string,keep:string,keepForeign:boolean=false){
+      const el=root.querySelector("#usrRole")as HTMLSelectElement|null; if(!el) return;
+      const esc=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      let names=_rolesForService(service);
+      const foreign=!!(keep&&!names.includes(keep));
+      if(foreign&&keepForeign) names=[keep].concat(names);
+      if(!names.length){ el.innerHTML='<option value="">— no roles for this service —</option>'; _cselSync(el); return; }
+      el.innerHTML=names.map((n:string)=>{
+        const odd=keepForeign&&foreign&&n===keep;
+        return '<option value="'+esc(n)+'"'+(odd?' data-foreign="1"':'')+'>'+esc(n)+(odd?" (not in this service)":"")+'</option>';
+      }).join("");
+      // Keep the current role when it is valid here; otherwise fall to this service's first role.
+      el.value=(keep&&names.includes(keep))?keep:names[0];
+      _cselSync(el);
+    }
+    w._usrServiceChange=()=>{
+      const svc=(root.querySelector("#usrService")as HTMLSelectElement)?.value||"";
+      const cur=(root.querySelector("#usrRole")as HTMLSelectElement)?.value||"";
+      _fillRoleSelect(svc,cur,false);   // never carry a role across a service change
+      w._usrRoleChange();
+    };
+    function _enhanceUserModal(){
+      for(const id of ["#usrService","#usrRole","#usrBranch"]) _enhanceSelect(root.querySelector(id) as HTMLSelectElement|null);
+    }
+    w._usrOpenModal=()=>{
+      _enhanceUserModal();
+      _usrEditKey=null; _usrEditRow=null;
+      _usrModalErr("");
+      for(const s of ["#usrName","#usrEmail","#usrPhone","#usrDid","#usrExt"]){ const el=root.querySelector(s)as HTMLInputElement|null; if(el) el.value=""; }
+      const em=root.querySelector("#usrEmail")as HTMLInputElement|null;
+      if(em){ em.readOnly=false; em.title=""; em.placeholder="user@clinic.com"; }
+      const br=root.querySelector("#usrBranch")as HTMLSelectElement|null; if(br){ br.value="Chennai"; _cselSync(br); }
+      _fillServiceSelect(""); _fillRoleSelect("","");
+      w._usrRoleChange();
+      const t=root.querySelector("#usrModalTitle"); if(t) t.textContent="Add User";
+      const b=root.querySelector("#usrSaveBtn"); if(b) b.textContent="Create user";
+      const m=root.querySelector("#usrModal")as HTMLElement|null; if(m) m.classList.add("open");
+      setTimeout(()=>{ const n=root.querySelector("#usrName")as HTMLInputElement|null; if(n) n.focus(); },60);
+    };
+    w._usrCloseModal=()=>{
+      const m=root.querySelector("#usrModal")as HTMLElement|null; if(m) m.classList.remove("open");
+      _usrEditKey=null; _usrEditRow=null; _usrModalErr("");
+    };
+    // _usrCancelEdit predates the modal and is still called from the save paths — keep it as an
+    // alias so those call sites close the dialog rather than clearing a form that is no longer inline.
+    w._usrCancelEdit=()=>w._usrCloseModal();
+
+    // Close on Escape, and on a click landing on the backdrop rather than the card.
+    root.addEventListener("keydown",(e:any)=>{
+      if(e.key==="Escape"){ const m=root.querySelector("#usrModal"); if(m&&m.classList.contains("open")) w._usrCloseModal(); }
+    });
+    setTimeout(()=>{
+      const m=root.querySelector("#usrModal")as HTMLElement|null;
+      if(m) m.addEventListener("mousedown",(e:any)=>{ if(e.target===m) w._usrCloseModal(); });
+    },0);
+
+    // Free-text filter over the merged table (the grid's own column filters still apply on top).
+    let _usrQ="";
+    w._usrSearch=()=>{ _usrQ=((root.querySelector("#usrSearch")as HTMLInputElement)?.value||"").trim().toLowerCase(); renderUsers(); };
+
+    // Branch/phone live on the `assignees` row, which only exists for lead-receiving roles.
+    // Show that plainly instead of accepting input that would be silently dropped.
+    w._usrRoleChange=()=>{
+      const role=(root.querySelector("#usrRole")as HTMLSelectElement)?.value||"Advisor";
+      const on=_roleIsAssignable(role);
+      const hint=root.querySelector("#usrRoleHint")as HTMLElement|null;
+      for(const id of ["usrBranchFld","usrPhoneFld"]){
+        const el=root.querySelector("#"+id)as HTMLElement|null;
+        if(el){ el.style.opacity=on?"":"0.45"; el.querySelectorAll("input,select").forEach((f:any)=>f.disabled=!on); }
+      }
+      if(hint){
+        hint.style.display=on?"none":"";
+        hint.textContent=on?"":"“"+role+"” does not receive leads, so Branch and Phone don't apply — this person gets a login only, and won't appear in “Assign to” dropdowns.";
+      }
+    };
+
     w._usrCreate=async function(){
       const emailEl=root.querySelector("#usrEmail") as HTMLInputElement;
       const nameEl=root.querySelector("#usrName") as HTMLInputElement;
@@ -410,45 +977,141 @@ export function initApp(root: HTMLElement) {
       const email=(emailEl?.value||"").trim().toLowerCase();
       const name=(nameEl?.value||"").trim();
       const role=roleEl?.value||"Advisor";
-      if(!email){ toastErr("Enter an email address"); return; }
-      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Invalid email format"); return; }
+      const service=(root.querySelector("#usrService")as HTMLSelectElement)?.value||"";
+      const branch=(root.querySelector("#usrBranch")as HTMLSelectElement)?.value||"Chennai";
+      const phone=((root.querySelector("#usrPhone")as HTMLInputElement)?.value||"").trim();
+      // Smartflo rejects a caller ID carrying a "+" or spaces, so store digits only — the same
+      // normalisation the server applies (normalizeCallerId in services/tata.ts).
+      const did=((root.querySelector("#usrDid")as HTMLInputElement)?.value||"").replace(/\D/g,"");
+      const ext=((root.querySelector("#usrExt")as HTMLInputElement)?.value||"").replace(/\D/g,"");
+      const _editingAssigneeOnly=!!(_usrEditKey&&_usrEditRow&&!_usrEditRow.uid);
+      if(!name){ _usrModalErr("Enter a name"); return; }
+      // An "assignee only" record has no login and therefore no email. Requiring one would make
+      // those rows uneditable — they exist because assignees used to be created without accounts,
+      // and several of them own real books of leads. Email stays OPTIONAL here: leave it blank to
+      // edit the person in place, or fill it in to give them a login.
+      if(!email&&!_editingAssigneeOnly){ _usrModalErr("Enter an email address"); return; }
+      if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ _usrModalErr("Invalid email format"); return; }
+      if(phone&&!/^\d{10}$/.test(phone)){ _usrModalErr("Phone must be a 10-digit number"); return; }
+
       try{
-        const {error}=await supabase.from("app_users").insert({email,name:name||null,role});
-        if(error){ toastErr(error.message.includes("duplicate")?"This email already exists":error.message); return; }
-        // Auto-mirror into Assignees so this user is immediately selectable in "Assigned to"
-        // dropdowns — only for roles that actually receive leads (see ASSIGNEE_ROLES above).
-        await _asgSyncUser(email,name,role,true);
-        toast("User added — they can set their password on the login screen"+(ASSIGNEE_ROLES.includes(role)?" · added to Assignees":""));
-        if(emailEl) emailEl.value="";
-        if(nameEl) nameEl.value="";
-        await loadUsers();
+        if(_usrEditKey&&_usrEditRow){
+          const prev=_usrEditRow;
+          // NOTE: renaming updates the assignee record ONLY. leads.assigned_to,
+          // lead_assignments.advisor and appointments.hc_pt keep the OLD name, so an existing book
+          // detaches from its owner on rename. This is the long-standing behaviour and was kept
+          // deliberately (a cascade was built and reverted on request) — reassign affected leads by
+          // hand, or avoid renaming anyone who already owns leads.
+          if(prev.uid){
+            if(!(await _dbOk(supabase.from("app_users").update({name,role,service:service||null,tata_did:did||null,tata_extension:ext||null}).eq("id",prev.uid),"User update"))) return;
+            const synced=await _asgSyncUser(email,name,role,prev.active,branch,phone);
+            if(prev.assignable&&_roleIsAssignable(role)&&!synced) toastErr("Saved the login, but the assignee record did not update — this person may not see their leads.");
+            else toast("Saved");
+            w._usrCancelEdit();
+            await _reloadPeople();
+            return;
+          }
+
+          // ---- Assignee-only row (no login account) ----
+          // _asgSyncUser matches on email, which this record doesn't have, so it can't be used:
+          // write the assignees row directly by id. Without this the edit silently did nothing.
+          if(email){
+            // Promote to a real user: create the login, then stamp the email onto the assignee row
+            // so the two are linked from here on (email is the join key everywhere else).
+            const {error}=await supabase.from("app_users").insert({email,name,role,service:service||null,tata_did:did||null,tata_extension:ext||null});
+            if(error){ _usrModalErr(error.message.includes("duplicate")?"That email already belongs to another user":error.message); return; }
+          }
+          const patch:any={name,role,branch,phone:phone||null};
+          if(email) patch.email=email;
+          if(!(await _dbOk(supabase.from("assignees").update(patch).eq("id",prev.aid),"Assignee update"))) return;
+          toast(email?"Login created and linked — they can set a password on the login screen":"Saved");
+          w._usrCancelEdit();
+          await _reloadPeople();
+          return;
+        }
+
+        const {error}=await supabase.from("app_users").insert({email,name,role,service:service||null,tata_did:did||null,tata_extension:ext||null});
+        if(error){ _usrModalErr(error.message.includes("duplicate")?"This email already exists":error.message); return; }
+        // Mirror into Assignees so this person is immediately selectable in "Assigned to"
+        // dropdowns — only for roles flagged "receives leads" in Settings → Services & Roles.
+        const synced=await _asgSyncUser(email,name,role,true,branch,phone);
+        if(_roleIsAssignable(role)&&!synced) toastErr("User created, but the assignee record failed — they will see no leads until you re-save this row.");
+        else toast("User added — they can set their password on the login screen"+(_roleIsAssignable(role)?" · added to Assignees":""));
+        w._usrCancelEdit();
+        await _reloadPeople();
       }catch(e:any){ toastErr("Failed: "+(e.message||"db error")); }
     };
 
-    w._usrToggle=async function(id:any){
-      const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
-      if(!u) return;
+    w._usrEdit=function(key:string){
+      const r=_usrMerged().find((x:any)=>x.key===key); if(!r) return;
+      _enhanceUserModal();
+      _usrEditKey=key; _usrEditRow=r;
+      _usrModalErr("");
+      const set=(sel:string,v:string)=>{ const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null; if(el) el.value=v; };
+      set("#usrName",r.name||""); set("#usrEmail",r.email||"");
+      // Service first — it decides which roles the Role select offers. Passing the person's current
+      // role as `keep` means a role that is no longer linked to their service still shows, so
+      // opening and saving a record can never silently reassign them.
+      _fillServiceSelect(r.service||"");
+      _fillRoleSelect(r.service||"",r.role||"",true);   // editing: never drop their stored role
+      set("#usrBranch",r.branch||"Chennai"); set("#usrPhone",r.phone||"");
+      { const b=root.querySelector("#usrBranch")as HTMLSelectElement|null; if(b) _cselSync(b); }
+      set("#usrDid",r.did||""); set("#usrExt",r.ext||"");
+      // Email is the join key between app_users and assignees, so it's locked once a login exists —
+      // changing it there would silently break the link. An "assignee only" row has no login yet,
+      // so the field stays OPEN: typing an email is exactly how you give that person an account.
+      const em=root.querySelector("#usrEmail")as HTMLInputElement|null;
+      if(em){
+        em.readOnly=r.hasLogin;
+        em.placeholder=r.hasLogin?"user@clinic.com":"optional — add one to create a login";
+        em.title=r.hasLogin
+          ?"Email is the link between the login and the assignee record — remove and re-add to change it."
+          :"This person has no login. Enter an email to create one and link it to this assignee record.";
+      }
+      w._usrRoleChange();
+      const t=root.querySelector("#usrModalTitle"); if(t) t.textContent="Edit "+(r.name||r.email||"user");
+      const b=root.querySelector("#usrSaveBtn"); if(b) b.textContent="Save changes";
+      const m=root.querySelector("#usrModal")as HTMLElement|null; if(m) m.classList.add("open");
+    };
+
+    w._usrCancelEdit=function(){
+      _usrEditKey=null; _usrEditRow=null;
+      for(const s of ["#usrName","#usrEmail","#usrPhone","#usrDid","#usrExt"]){ const el=root.querySelector(s)as HTMLInputElement|null; if(el) el.value=""; }
+      const em=root.querySelector("#usrEmail")as HTMLInputElement|null; if(em){ em.readOnly=false; em.title=""; em.placeholder="user@clinic.com"; }
+      const b=root.querySelector("#usrAddBtn"); if(b)b.textContent="+ Add user";
+      const c=root.querySelector("#usrCancelBtn")as HTMLElement|null; if(c)c.style.display="none";
+      w._usrRoleChange();
+    };
+
+    w._usrToggle=async function(key:any){
+      const u=_usrMerged().find((x:any)=>x.key===String(key)); if(!u) return;
       const next=!u.active;
       // A deactivate/remove is a security-relevant action — an unchecked write here means the UI can
       // confirm "User deactivated" while the account can still sign in, because the write silently
       // failed and nothing said so.
-      if(!(await _dbOk(supabase.from("app_users").update({active:next}).eq("id",id),"User update"))) return;
-      // Deactivating/reactivating a user pulls them out of / back into "Assigned to" dropdowns too.
-      await _asgSyncUser(u.email,u.name,u.role,next);
-      toast(u.active?"User deactivated":"User activated");
-      await loadUsers();
+      if(u.uid&&!(await _dbOk(supabase.from("app_users").update({active:next}).eq("id",u.uid),"User update"))) return;
+      // Deactivating/reactivating pulls them out of / back into "Assigned to" dropdowns too.
+      if(u.hasLogin) await _asgSyncUser(u.email,u.name,u.role,next,u.branch,u.phone);
+      else if(u.aid&&!(await _dbOk(supabase.from("assignees").update({is_active:next}).eq("id",u.aid),"Assignee update"))) return;
+      toast(u.active?"Deactivated":"Activated");
+      await _reloadPeople();
     };
 
-    w._usrDel=async function(id:any){
-      const u=_usrList.find((x:any)=>String(x.id)===String(id));   // id is BIGSERIAL → gateway returns a string
-      if(u&&u.role==="Super Admin"){ toastErr("Cannot remove Super Admin"); return; }
-      if(!(await _dbOk(supabase.from("app_users").delete().eq("id",id),"User removal"))) return;
+    w._usrDel=async function(key:any){
+      const u=_usrMerged().find((x:any)=>x.key===String(key)); if(!u) return;
+      if(u.role==="Super Admin"){ toastErr("Cannot remove Super Admin"); return; }
+      // Removing someone who still owns leads would leave those leads pointing at a name that no
+      // longer resolves — the same orphaning the rename cascade exists to prevent.
+      const n=u.assignable?_asgActiveLeadCount(u.name):0;
+      const warn=n?"\n\n⚠ "+n+" lead(s) are still assigned to them. Reassign those first, or they will be left with an owner that no longer exists.":"";
+      if(!window.confirm("Remove "+(u.name||u.email)+"?"+warn)) return;
+      if(u.uid&&!(await _dbOk(supabase.from("app_users").delete().eq("id",u.uid),"User removal"))) return;
       // Remove the linked Assignee row too, so a removed user's name doesn't linger as a
-      // selectable "Assigned to" target. Only removes the row THIS user is linked to (by email) —
-      // pre-existing assignees with no matching user account are never touched.
-      if(u) await _asgRemoveUser(u.email);
-      toast("User removed");
-      await loadUsers();
+      // selectable "Assigned to" target.
+      if(u.hasLogin) await _asgRemoveUser(u.email);
+      else if(u.aid) await _dbOk(supabase.from("assignees").delete().eq("id",u.aid),"Assignee removal");
+      toast("Removed");
+      await _reloadPeople();
     };
 
     // /auth/signup now refuses to run once a password already exists (closes the account-takeover
@@ -462,7 +1125,7 @@ export function initApp(root: HTMLElement) {
       if(!window.confirm("Clear "+u.email+"'s password? They'll need to set a new one via \"First time? Set your password\" on the login screen before they can sign in again.")) return;
       if(!(await _dbOk(supabase.from("app_users").update({password_hash:null}).eq("id",id),"Password reset"))) return;
       toast(u.email+"'s password cleared — they can set a new one at login");
-      await loadUsers();
+      await _reloadPeople();
     };
 
     // ========== NAV ==========
@@ -1548,16 +2211,6 @@ export function initApp(root: HTMLElement) {
     ];
     regGrid("advLoad", ()=>_advLoadCols, ()=>renderAdvisorLoad());
     const _dIST=(d:any)=>{ if(!d)return "—"; const x=d instanceof Date?d:new Date(d); return isNaN(x.getTime())?"—":new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric"}).format(x); };
-    const _asgCols:any[]=[
-      {key:"name",label:"Name",filter:true,text:(a:any)=>a.name||""},
-      {key:"role",label:"Role",filter:true,text:(a:any)=>a.role||""},
-      {key:"branch",label:"Branch",filter:true,text:(a:any)=>a.branch||""},
-      {key:"phone",label:"Phone",filter:true,text:(a:any)=>a.phone||""},
-      {key:"active",label:"Active leads",filter:true,text:(a:any)=>String(_asgActiveLeadCount(a.name))},
-      {key:"status",label:"Status",filter:true,text:(a:any)=>a.is_active?"Active":"Inactive"},
-      {key:"_act",label:"Actions",filter:false},
-    ];
-    regGrid("asg", ()=>_asgCols, ()=>renderAssigneesTable());
     const _csvHistCols:any[]=[
       {key:"dt",label:"Imported at (IST)",filter:true,text:(b:any)=>fmtIST(b.created_at)},
       {key:"file",label:"File name",filter:true,text:(b:any)=>b.file_name||""},
@@ -1578,12 +2231,18 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Repeat Visitor",filter:true,text:(g:any)=>g.visits>1?"Repeat":"First-time"},
     ];
     regGrid("rv", ()=>_rvCols, ()=>renderCsvRepeat());
+    // Merged Users & Assignees grid — rows come from _usrMerged(), not _usrList.
     const _usrCols:any[]=[
       {key:"email",label:"Email",filter:true,text:(u:any)=>u.email||""},
       {key:"name",label:"Name",filter:true,text:(u:any)=>u.name||""},
       {key:"role",label:"Role",filter:true,text:(u:any)=>u.role||""},
+      {key:"service",label:"Service",filter:true,text:(u:any)=>u.service||""},
+      {key:"branch",label:"Branch",filter:true,text:(u:any)=>u.branch||""},
+      {key:"phone",label:"Phone",filter:true,text:(u:any)=>u.phone||""},
+      {key:"did",label:"DID",filter:true,text:(u:any)=>u.did||""},
+      {key:"ext",label:"Ext",filter:true,text:(u:any)=>u.ext||""},
+      {key:"leads",label:"Active leads",filter:true,text:(u:any)=>u.assignable?String(_asgActiveLeadCount(u.name)):""},
       {key:"status",label:"Status",filter:true,text:(u:any)=>u.active?"Active":"Inactive"},
-      {key:"created",label:"Created",filter:true,text:(u:any)=>_dIST(u.created_at)},
       {key:"_act",label:"Actions",filter:false},
     ];
     regGrid("usr", ()=>_usrCols, ()=>renderUsers());
@@ -1712,7 +2371,6 @@ export function initApp(root: HTMLElement) {
 
     // ===== Assignee master (loaded from Supabase `assignees`) =====
     let _assignees:any[]=[];
-    let _asgEditId:number|null=null;
 
     // ===== Send-to-assignment → Unassigned Pool (persisted via leads.in_pool) =====
     const _movedToPool=new Set<string>();   // lead ids currently in the pool (from DB)
@@ -1814,7 +2472,10 @@ export function initApp(root: HTMLElement) {
       const body=root.querySelector("#unassignedPoolBody");
       const cnt=root.querySelector("#poolCount");
       const hd=root.querySelector("#poolHead"); if(hd)hd.innerHTML=gridHead("pool");
-      const poolAll=_unassignedPool.filter((p:any)=>inAbmRange(p.ts));   // time-range filter
+      // Service line first: an unassigned lead outside the viewer's line must not be visible OR
+      // assignable by them, so this filters the count and the bulk-assign checkboxes too.
+      const _svcScope=_serviceScope();
+      const poolAll=_unassignedPool.filter((p:any)=>_serviceAllows(p,_svcScope)&&inAbmRange(p.ts));   // service + time-range filter
       const pool=gridApply("pool",poolAll.filter(poolMatchesQuery));     // + search + column filters
       if(cnt) cnt.textContent=String(poolAll.length);
       if(!body) return;
@@ -1870,20 +2531,11 @@ export function initApp(root: HTMLElement) {
       // Advisor workload within the selected time range (by pool/lead timestamp).
       return _asgActiveLeadsFor(name).length;
     }
-    function renderAssigneesTable(){
-      const body=root.querySelector("#asgBody");
-      if(!body) return;
-      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      const _ahd=root.querySelector("#asgHead"); if(_ahd)_ahd.innerHTML=gridHead("asg"); const _asgR=gridApply("asg",_assignees); body.innerHTML=_asgR.length?_asgR.map((a:any)=>{
-        const cnt=_asgActiveLeadCount(a.name);
-        return '<tr style="'+(a.is_active?'':'opacity:0.55')+'">'
-          +'<td style="font-weight:600">'+esc(a.name)+'</td><td>'+esc(a.role)+'</td><td>'+esc(a.branch)+'</td>'
-          +'<td class="mono">'+esc(a.phone||"—")+'</td><td class="mono">'+cnt+'</td>'
-          +'<td>'+(a.is_active?'<span class="chipb ok">Active</span>':'<span class="chipb neu">Inactive</span>')+'</td>'
-          +'<td><div style="display:flex;gap:6px"><button class="btn bsm" onclick="window._asgEdit('+a.id+')">Edit</button>'
-          +'<button class="btn bsm" onclick="window._asgToggle('+a.id+','+(a.is_active?'false':'true')+')">'+(a.is_active?'Deactivate':'Activate')+'</button></div></td></tr>';
-      }).join(""):'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No assignees yet — add one above</td></tr>';
-    }
+    // The standalone Assignees table is gone — Settings now has ONE "Users & Assignees" tab whose
+    // table already renders every assignee (see _usrMerged). This name is kept because six call
+    // sites across the ABM/import/sync paths fire it whenever assignee data changes; they should
+    // still repaint that merged table.
+    function renderAssigneesTable(){ renderUsers(); }
     function renderAdvisorLoad(){
       const body=root.querySelector("#advisorLoadBody");
       if(!body) return;
@@ -2080,58 +2732,11 @@ export function initApp(root: HTMLElement) {
         fuOwner.innerHTML='<option value="">-- Select --</option>'+active.map((a:any)=>'<option value="'+esc(a.name)+'">'+esc(a.name)+(a.role?(" — "+esc(a.role)):"")+'</option>').join("");
         if(cur&&Array.from(fuOwner.options).some(o=>o.value===cur))fuOwner.value=cur; }
     }
-    w._asgCreate=async()=>{
-      const name=((root.querySelector("#asgName")as HTMLInputElement)?.value||"").trim();
-      if(!name){toast("Enter a name");return;}
-      const role=(root.querySelector("#asgRole")as HTMLSelectElement)?.value||"Advisor";
-      const branch=(root.querySelector("#asgBranch")as HTMLSelectElement)?.value||"Chennai";
-      const phone=((root.querySelector("#asgPhone")as HTMLInputElement)?.value||"").trim();
-      if(phone&&!/^\d{10}$/.test(phone)){toast("Phone must be a 10-digit number");return;}
-      const email=((root.querySelector("#asgEmail")as HTMLInputElement)?.value||"").trim().toLowerCase();
-      if(email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){toast("Enter a valid login email");return;}
-      try{
-        if(_asgEditId){
-          const {error}=await supabase.from("assignees").update({name,role,branch,phone,email:email||null}).eq("id",_asgEditId);
-          if(error) throw error; toast("Assignee updated");
-        }else{
-          const {error}=await supabase.from("assignees").insert({name,role,branch,phone,email:email||null});
-          if(error) throw error; toast("Assignee added");
-        }
-        (w as any)._asgCancelEdit();
-        await loadAssignees();
-      }catch(e:any){
-        toast(/exist|relation|schema/i.test(e.message||"")?"Run supabase-migration-assignees.sql first":"Save failed: "+(e.message||"db error"));
-      }
-    };
-    w._asgEdit=(id:any)=>{
-      // id column is BIGSERIAL → the data gateway returns it as a string, while the
-      // onclick passes a numeric literal; compare as strings so the lookup matches.
-      const a=_assignees.find((x:any)=>String(x.id)===String(id)); if(!a) return;
-      (root.querySelector("#asgName")as HTMLInputElement).value=a.name;
-      (root.querySelector("#asgRole")as HTMLSelectElement).value=a.role;
-      (root.querySelector("#asgBranch")as HTMLSelectElement).value=a.branch;
-      (root.querySelector("#asgPhone")as HTMLInputElement).value=a.phone||"";
-      const _ae=root.querySelector("#asgEmail")as HTMLInputElement|null; if(_ae)_ae.value=a.email||"";
-      _asgEditId=id;
-      const b=root.querySelector("#asgAddBtn"); if(b)b.textContent="Update assignee";
-      const c=root.querySelector("#asgCancelBtn")as HTMLElement; if(c)c.style.display="";
-    };
-    w._asgCancelEdit=()=>{
-      _asgEditId=null;
-      const n=root.querySelector("#asgName")as HTMLInputElement; if(n)n.value="";
-      const p=root.querySelector("#asgPhone")as HTMLInputElement; if(p)p.value="";
-      const em=root.querySelector("#asgEmail")as HTMLInputElement; if(em)em.value="";
-      const b=root.querySelector("#asgAddBtn"); if(b)b.textContent="+ Add assignee";
-      const c=root.querySelector("#asgCancelBtn")as HTMLElement; if(c)c.style.display="none";
-    };
-    w._asgToggle=async(id:number,active:boolean)=>{
-      try{
-        const {error}=await supabase.from("assignees").update({is_active:active}).eq("id",id);
-        if(error) throw error;
-        await loadAssignees();
-        toast(active?"Assignee activated":"Assignee deactivated");
-      }catch(e:any){ toast("Update failed: "+(e.message||"db error")); }
-    };
+    // _asgCreate / _asgEdit / _asgCancelEdit / _asgToggle used to drive the standalone Assignees
+    // form. That form is gone (Settings → Users & Assignees is now one screen), and those handlers
+    // dereferenced #asgName et al. with non-null assertions — they would throw the moment anything
+    // still called them. Their behaviour now lives in _usrCreate / _usrEdit / _usrToggle, which
+    // write BOTH tables and cascade a rename across leads.assigned_to.
     // Persist a lead → advisor assignment (leaves the unassigned pool).
     w._assignLead=async(id:string,name:string)=>{
       if(!name) return;
@@ -3300,12 +3905,14 @@ export function initApp(root: HTMLElement) {
     let _asnApplied:{src:string;svc:string;from:string;to:string;advisor:string}={src:"all",svc:"all",from:"",to:"",advisor:"all"};
     function haCommonFilter(list:any[]){
       const scope=_advisorScope();   // Advisor role → always locked to their own leads (ignores the top filter)
+      const svcScope=_serviceScope(); // Service line → locked to their own line (ignores the top filter)
       const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to;
       const adv=scope||_asnApplied.advisor;
       const fromT=from?new Date(from+"T00:00:00").getTime():0;
       const toT=to?new Date(to+"T23:59:59").getTime():0;
-      if(!scope&&src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
+      if(!scope&&!svcScope&&src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
       return list.filter((l:any)=>{
+        if(!_serviceAllows(l,svcScope)) return false;
         if(src!=="all"&&(l.source||"")!==src) return false;
         if(svc!=="all"&&!_svcCanonMatch(l.service,svc)) return false;
         if(adv&&adv!=="all"&&(l.assignedTo||"")!==adv) return false;   // advisor is a TOP filter → drives dashboard + table
@@ -7817,7 +8424,9 @@ export function initApp(root: HTMLElement) {
       const q=_coachQuery.trim().toLowerCase();
       const fromT=from?new Date(from+"T00:00:00").getTime():0;
       const toT=to?new Date(to+"T23:59:59").getTime():0;
+      const _svcScope=_serviceScope();   // Service line → second, independent axis
       return _coachClients.filter((c:any)=>{
+        if(!_serviceAllows(c,_svcScope)) return false;
         if(scope){ if((c.hc||"")!==scope) return false; }
         else if(coach!=="all"&&(c.hc||"")!==coach) return false;
         if(st!=="all"&&!_coachConsMatch(c,st)) return false;   // filter by consultation status (matches cards + column; L1+L2 matches both Enrolled cards)
@@ -9903,9 +10512,15 @@ export function initApp(root: HTMLElement) {
       const devTabBtn=root.querySelector('#abmTabs button[data-t="dev"]')as HTMLButtonElement|null;
       if(devTabBtn) devTabBtn.addEventListener("click",()=>{ w._renderCallDeviation(); w._renderLeadsDeviation(); });
       const usrTabBtn=root.querySelector('#settTabs button[data-t="st-usr"]')as HTMLButtonElement|null;
-      if(usrTabBtn) usrTabBtn.addEventListener("click",()=>{ loadUsers(); });
+      // The merged table joins app_users to assignees, so refresh BOTH — otherwise an assignee
+      // added elsewhere (or a stale _assignees from init) renders the wrong branch/phone/lead count.
+      if(usrTabBtn) usrTabBtn.addEventListener("click",()=>{ loadAssignees(); loadUsers(); });
       const rbacTabBtn=root.querySelector('#settTabs button[data-t="st-rbac"]')as HTMLButtonElement|null;
       if(rbacTabBtn) rbacTabBtn.addEventListener("click",()=>{ renderRbacMatrix(); });
+      // Services & Roles: refetch the master on open so a change made in another tab/session shows,
+      // and loadUsers() so the "People" headcount column is current.
+      const orgTabBtn=root.querySelector('#settTabs button[data-t="st-org"]')as HTMLButtonElement|null;
+      if(orgTabBtn) orgTabBtn.addEventListener("click",()=>{ loadUsers(); loadOrgMaster().then(()=>renderServicesRoles()); });
     }
     // ---- Build-version watch: prompt an already-open client to reload after a new deploy ----
     // The bundle bakes its commit SHA (BUILD_VERSION); the server reports the deployed SHA at

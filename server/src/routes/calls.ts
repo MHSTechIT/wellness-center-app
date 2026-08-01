@@ -3,6 +3,7 @@ import { supabase } from '../shared/supabase';
 import { requireAuth } from '../shared/session';
 import {
   tataConfig,
+  tataConfigForUser,
   clickToCall,
   clickToCallSupport,
   normalizePhone,
@@ -28,7 +29,11 @@ async function initiate(req: Request, res: Response) {
     // with its own extension + caller ID in .env.local (tata_tele_*_<role>), so the call
     // rings the right desk phone and shows the right caller ID for that team.
     const role = String((req.query.role as string) || req.body?.role || '').trim().toLowerCase();
-    const cfg = tataConfig(role);   // reads .env.local (tata_tele_*[_role]) with UPPERCASE fallback
+    // Per-user DID/extension (Settings → Users & Assignees), falling back to the role env vars and
+    // then the unsuffixed base. Resolved from the SESSION email that requireAuth already verified —
+    // never from the request body, since /db/query lets any authenticated user write app_users, so
+    // a client-supplied DID would let anyone place calls under someone else's caller ID.
+    const cfg = await tataConfigForUser(req.user?.email, role);
     const key = cfg.apiKey;
     const extRaw = cfg.extension;
     const agentMobileRaw = cfg.agentNumber;
@@ -37,7 +42,7 @@ async function initiate(req: Request, res: Response) {
     const agent = useExt ? extRaw : normalizePhone(agentMobileRaw) || agentMobileRaw;
     if (!key || !agent || !callerId) {
       const missing = [!key && 'API key', !agent && 'agent extension/number', !callerId && 'caller ID'].filter(Boolean).join(', ');
-      res.status(503).json({ ok: false, error: 'Telephony not configured for role "' + (role || 'default') + '" — missing: ' + missing + '. Set tata_tele_api_key / tata_tele_default_extension_number / tata_tele_caller_id (optionally per-role, e.g. _' + (role || 'advisor') + ') in the server environment, then restart. Check /api/calls/config-status?role=' + (role || '') + '.' });
+      res.status(503).json({ ok: false, error: 'Telephony not configured — missing: ' + missing + '. Set this user\'s DID and Extension in Settings → Users & Assignees, or set tata_tele_api_key / tata_tele_default_extension_number / tata_tele_caller_id (optionally per-role, e.g. _' + (role || 'advisor') + ') in the server environment. Check /api/calls/config-status?role=' + (role || '') + '.' });
       return;
     }
 
@@ -283,7 +288,7 @@ async function syncProvider(req: Request, res: Response) {
     // without being wide enough to misattribute a genuinely different, later call to the number.
     const MATCH_WINDOW_MS = 10 * 60 * 1000;
     const consumedPlaceholderIds: string[] = [];
-    const ownNumbers = configuredCallerNumbers();
+    const ownNumbers = await configuredCallerNumbers();
 
     let synced = 0, skippedExternal = 0;
     for (const r of mine) {
@@ -365,12 +370,17 @@ async function syncProvider(req: Request, res: Response) {
 // GET /api/calls/config-status[?role=advisor|coach|reception] — reports WHICH telephony config
 // values are present for a role (booleans only, NEVER the secret values), so operators can verify
 // the deployed server's environment is configured without exposing the API key / caller IDs.
-function configStatus(req: Request, res: Response) {
+async function configStatus(req: Request, res: Response) {
   const role = String((req.query.role as string) || '').trim().toLowerCase();
-  const cfg = tataConfig(role);
+  // Report readiness for the CALLER, not just the role: with per-user DIDs, the role env can be
+  // fully configured while this individual still cannot dial (or vice versa). `perUser` says which
+  // layer answered. Booleans only — never the DID/extension/key values themselves.
+  const cfg: any = await tataConfigForUser(req.user?.email, role);
   res.json({
     ok: true,
     role: role || '(default)',
+    user: req.user?.email || null,
+    perUser: !!cfg.perUser,
     hasApiKey: !!cfg.apiKey,
     hasExtension: !!cfg.extension,
     hasAgentNumber: !!cfg.agentNumber,

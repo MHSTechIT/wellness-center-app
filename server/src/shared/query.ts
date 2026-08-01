@@ -15,6 +15,12 @@ const TABLES = new Set([
   // control, not a formality — the gateway reaches any table named here — so new tables must be
   // added deliberately. These four are module-owned and carry no credentials.
   'bt_tests', 'bt_lab_partners', 'bt_coupons', 'bt_orders',
+  // Services & roles master (db/migration-org-services-roles.sql). Every signed-in client READS
+  // these to build the user form and the nav gating, so they must be reachable. WRITES are a
+  // different matter — org_roles.modules decides which screens a role can open, so an unrestricted
+  // write here would let any authenticated user grant themselves the admin screen. See
+  // validateOrgWrite in routes/data.ts, which limits mutations to the admin roles.
+  'org_services', 'org_roles', 'org_role_services',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 // A caller with no limit at all (or an absurdly large one) could pull an entire table in one

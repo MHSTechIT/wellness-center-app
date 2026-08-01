@@ -68,11 +68,49 @@ export function tataConfig(role?: string) {
 // spaces or dashes. Keeps "919240254219" as-is and turns "+919240223973" into "919240223973".
 export function normalizeCallerId(raw: string): string { return (raw || '').replace(/\D/g, ''); }
 
-// Every extension + caller ID configured for this clinic, across every role (advisor, coach,
-// reception, plus the unsuffixed base). Used to recognise a Smartflo CDR record as GENUINELY
+// PER-USER config. DID + extension are now editable per person in Settings → Users & Assignees
+// (app_users.tata_did / .tata_extension), so a call rings that individual's desk and shows their
+// own caller ID instead of one shared per-role number.
+//
+// Resolution LAYERS, never replaces: user → role env → base env. A hard switch to user-only would
+// 503 every existing account the moment this shipped, since none of them have a DID yet.
+//
+// The API key is deliberately NOT per-user: it is one account-level secret for the whole clinic,
+// and app_users is readable by any authenticated session through the /db/query gateway.
+export async function tataConfigForUser(email?: string | null, role?: string) {
+  const base = tataConfig(role);
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return base;
+  try {
+    const { data } = await supabase.from('app_users').select('tata_did,tata_extension').eq('email', e).limit(1);
+    const u = data && data[0];
+    if (!u) return base;
+    const did = normalizeCallerId(String(u.tata_did || ''));
+    const ext = String(u.tata_extension || '').trim();
+    return {
+      ...base,
+      callerId: did || base.callerId,
+      extension: ext || base.extension,
+      perUser: !!(did || ext),
+    };
+  } catch { return base; }
+}
+
+// Every extension + caller ID configured for this clinic — the per-role env values AND every
+// per-user DID/extension in app_users. Used to recognise a Smartflo CDR record as GENUINELY
 // placed through this app's click-to-call — see isOwnCallRecord below for which raw fields to
 // compare this against and why. Digits-only, deduped, empty strings dropped.
-export function configuredCallerNumbers(): Set<string> {
+//
+// INACTIVE users are included on purpose: this set also decides whether a HISTORICAL call can be
+// re-synced. Filtering to active users would make an ex-employee's past calls fail isOwnCallRecord
+// and get silently discarded by syncProvider (skippedExternal), erasing them from Call History.
+//
+// Cached: syncProvider calls this once per request, and it is now a DB read rather than an env
+// lookup. 60s is far shorter than any realistic DID-change-to-next-call gap.
+let _numCache: { at: number; set: Set<string> } | null = null;
+const NUM_CACHE_MS = 60 * 1000;
+
+function envCallerNumbers(): Set<string> {
   const out = new Set<string>();
   const add = (v: string) => { const d = (v || '').replace(/\D/g, ''); if (d) out.add(d); };
   for (const role of [undefined, 'advisor', 'coach', 'reception']) {
@@ -82,6 +120,25 @@ export function configuredCallerNumbers(): Set<string> {
   }
   return out;
 }
+
+export async function configuredCallerNumbers(nowMs: number = Date.now()): Promise<Set<string>> {
+  if (_numCache && nowMs - _numCache.at < NUM_CACHE_MS) return _numCache.set;
+  const out = envCallerNumbers();
+  try {
+    const { data } = await supabase.from('app_users').select('tata_did,tata_extension');
+    for (const u of data || []) {
+      for (const v of [u.tata_did, u.tata_extension]) {
+        const d = String(v || '').replace(/\D/g, '');
+        if (d) out.add(d);
+      }
+    }
+  } catch { /* env-only fallback — better than an empty set, which would drop every call */ }
+  _numCache = { at: nowMs, set: out };
+  return out;
+}
+
+// Invalidate after a DID/extension write so the next sync sees it without waiting out the TTL.
+export function resetCallerNumberCache() { _numCache = null; }
 
 // Does this Smartflo CDR record match one of OUR configured extensions/caller IDs — i.e. was it
 // genuinely dialled through this app's click-to-call, not some other line entirely?

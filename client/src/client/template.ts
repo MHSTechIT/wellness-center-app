@@ -651,7 +651,7 @@ export function getMainContent(): string {
               <input class="input" id="csvSearch" placeholder="🔍 Search leads…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._csvSearch()">
               <span class="chipb ok" id="csvImportedCount">0 records</span>
             </div>
-            <div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr id="csvImportedHead"><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
+            <div class="tscroll"><table class="tbl" style="min-width:1280px"><thead><tr id="csvImportedHead"><th style="width:30px"></th><th>Date &amp; Time</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody id="csvImportedBody"></tbody></table></div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
               <button class="btn bsm" id="csvFirstBtn" onclick="window._csvPage('first')">« First</button>
               <button class="btn bsm" id="csvPrevBtn" onclick="window._csvPage(-1)">← Previous</button>
@@ -721,7 +721,7 @@ export function getMainContent(): string {
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <input class="input" id="impDrillSearch" placeholder="Search lead / phone / campaign / city…" oninput="window._impDrillSearch()" style="height:31px;font-size:12px;max-width:320px">
         </div>
-        <div class="tscroll stick1"><table class="tbl" style="min-width:1180px"><thead><tr id="impDrillHead"></tr></thead><tbody id="impDrillBody"></tbody></table></div>
+        <div class="tscroll stick1"><table class="tbl" style="min-width:1280px"><thead><tr id="impDrillHead"></tr></thead><tbody id="impDrillBody"></tbody></table></div>
         <div style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
           <button class="btn bsm" id="impDrillFirstBtn" onclick="window._impDrillPage('first')">« First</button>
           <button class="btn bsm" id="impDrillPrevBtn" onclick="window._impDrillPage(-1)">← Previous</button>
@@ -1376,24 +1376,8 @@ export function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-asg">Assignees</button><button data-t="st-usr">Users</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
-    <div class="st-p" data-p="st-asg" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assignees — single source of truth for everyone who can receive leads</div>
-        <div class="sec-bd">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-            <div class="fld" style="margin:0"><label class="lbl" for="asgName">Name</label><input  class="input" id="asgName" placeholder="e.g. Priya K." style="height:34px;width:160px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="asgRole">Role</label><select  class="select" id="asgRole" style="height:34px;width:150px"><option>Advisor</option><option>Senior Advisor</option><option>Telecaller</option><option>Manager</option><option>Health Coach</option></select></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="asgBranch">Branch</label><select  class="select" id="asgBranch" style="height:34px;width:140px"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="asgPhone">Phone</label><input  class="input mono" id="asgPhone" placeholder="optional · 10 digits" style="height:34px;width:140px" type="tel" inputmode="numeric" maxlength="10" oninput="window._digitsOnly(this)"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="asgEmail">Login email</label><input  class="input" id="asgEmail" placeholder="links their Advisor login" style="height:34px;width:200px" type="email" title="Match this advisor to their login account (app user email) so an Advisor sees only their own leads"></div>
-            <button class="btn bp" id="asgAddBtn" onclick="window._asgCreate()" style="height:34px">+ Add assignee</button>
-            <button class="btn bsm" id="asgCancelBtn" onclick="window._asgCancelEdit()" style="height:34px;display:none">Cancel</button>
-          </div>
-          <div class="tscroll"><table class="tbl" style="min-width:820px"><thead><tr id="asgHead"><th>Name</th><th>Role</th><th>Branch</th><th>Phone</th><th>Active leads</th><th>Status</th><th>Actions</th></tr></thead><tbody id="asgBody"></tbody></table></div>
-          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Active assignees appear in the “Assign to” dropdown on Assign &amp; approve and in Advisor load. Deactivated assignees keep their history but can’t receive new leads.</p>
-        </div></div>
-    </div>
 
     <div class="st-p" data-p="st-svc">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Service pricing — all services, all variations · dynamic</div>
@@ -1466,16 +1450,39 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-usr" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> User management — who can log in and what role they have</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Users &amp; Assignees — one record per person: login, role, branch and telephony</div>
         <div class="sec-bd">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-            <div class="fld" style="margin:0"><label class="lbl" for="usrEmail">Email</label><input  class="input" id="usrEmail" placeholder="user@clinic.com" style="height:34px;width:220px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="usrName">Name</label><input  class="input" id="usrName" placeholder="Display name" style="height:34px;width:160px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="usrRole">Role</label><select  class="select" id="usrRole" style="height:34px;width:170px"><option>Advisor</option><option>Senior Advisor</option><option>Health Coach</option><option>Screening</option><option>Receptionist</option><option>Diagnostics</option><option>Physiotherapist</option><option>Accounts</option><option>ABM</option><option>Manager</option><option>Branch Manager</option><option>Super Admin</option></select></div>
-            <button class="btn bp" id="usrAddBtn" onclick="window._usrCreate()" style="height:34px">+ Add user</button>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+            <button class="btn bp" onclick="window._usrOpenModal()" style="height:36px"><svg class="icon"><use href="#i-user"/></svg> + Add User</button>
+            <input class="input" id="usrSearch" placeholder="Search name / email / role…" oninput="window._usrSearch()" style="height:36px;font-size:12.5px;max-width:280px;margin-left:auto">
           </div>
-          <div class="tscroll"><table class="tbl" style="min-width:700px"><thead><tr id="usrHead"><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
-          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Users added here can log in with their email. First-time users set their password on the login screen.</p>
+          <div class="tscroll stick1"><table class="tbl" style="min-width:1280px"><thead><tr id="usrHead"><th>Email</th><th>Name</th><th>Role</th><th>Service</th><th>Branch</th><th>Phone</th><th>DID</th><th>Ext</th><th>Active leads</th><th>Status</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Users can log in with their email; first-time users set a password on the login screen. Lead-receiving roles (Advisor, Senior Advisor, Telecaller, Manager, Health Coach) also appear in the “Assign to” dropdown and Advisor load. Deactivated people keep their history but receive no new leads. DID + extension make the Call button dial from that person's own line.</p>
+        </div></div>
+    </div>
+
+    <div class="st-p" data-p="st-org" style="display:none">
+      <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-split"/></svg> Services — the lines your clinic runs</div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+            <div class="fld" style="margin:0"><label class="lbl" for="svcNew">New service</label><input class="input" id="svcNew" placeholder="e.g. Nutrition" style="height:34px;width:220px"></div>
+            <button class="btn bp" onclick="window._svcAdd()" style="height:34px">+ Add service</button>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr><th>Service</th><th>Roles</th><th>Status</th><th>Actions</th></tr></thead><tbody id="svcBody"></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">A deactivated service stays on existing user records but is no longer offered when adding someone.</p>
+        </div></div>
+
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Roles — what a person can do, and where they appear</div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
+            <div class="fld" style="margin:0"><label class="lbl" for="roleNew">New role</label><input class="input" id="roleNew" placeholder="e.g. Nutritionist" style="height:34px;width:190px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="roleNewSvc">Service</label><select class="select" id="roleNewSvc" style="height:34px;width:170px"></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="roleNewCopy">Start from <span class="ab">COPIES SCREENS</span></label><select class="select" id="roleNewCopy" style="height:34px;width:180px"></select></div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);height:34px;white-space:nowrap"><input type="checkbox" id="roleNewAsg" style="accent-color:var(--brand);width:15px;height:15px"> Receives leads</label>
+            <button class="btn bp" onclick="window._roleAdd()" style="height:34px">+ Add role</button>
+          </div>
+          <p style="font-size:11.5px;color:var(--faint);margin:0 0 14px">“Start from” copies that role’s screen access to the new one — a role created with no screens would sign in to an empty app. Adjust afterwards in Roles &amp; RBAC.</p>
+          <div class="tscroll stick1"><table class="tbl" style="min-width:900px"><thead><tr><th>Role</th><th>Services</th><th>Receives leads</th><th>Screens</th><th>People</th><th>Status</th><th>Actions</th></tr></thead><tbody id="roleBody"></tbody></table></div>
         </div></div>
     </div>
 
@@ -1526,5 +1533,46 @@ export function getMainContent(): string {
     </div>
 
   </div></section>
+
+  <!-- USER CREATE / EDIT MODAL -->
+  <div class="umodal" id="usrModal" role="dialog" aria-modal="true" aria-labelledby="usrModalTitle">
+    <div class="umodal-card">
+      <div class="umodal-hd">
+        <h2 id="usrModalTitle">Add User</h2>
+        <button class="umodal-x" aria-label="Close" onclick="window._usrCloseModal()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="umodal-bd">
+        <div class="umodal-sec">Identity</div>
+        <div class="umodal-grid">
+          <div class="fld" style="margin:0"><label class="lbl" for="usrName">Name <span class="req">*</span></label><input class="input" id="usrName" placeholder="e.g. Priya K." autocomplete="off"></div>
+          <div class="fld" style="margin:0"><label class="lbl" for="usrEmail">Email <span class="req">*</span></label><input class="input" id="usrEmail" type="email" placeholder="user@clinic.com" autocomplete="off"></div>
+        </div>
+
+        <div class="umodal-sec">Service &amp; role</div>
+        <div class="umodal-grid">
+          <div class="fld" style="margin:0"><label class="lbl" for="usrService">Service</label><select class="select" id="usrService" onchange="window._usrServiceChange()"></select></div>
+          <div class="fld" style="margin:0"><label class="lbl" for="usrRole">Role</label><select class="select" id="usrRole" onchange="window._usrRoleChange()"></select></div>
+        </div>
+        <p id="usrRoleHint" style="font-size:11.5px;color:var(--faint);margin:8px 0 0;display:none"></p>
+
+        <div class="umodal-sec" id="usrPostingSec">Posting</div>
+        <div class="umodal-grid">
+          <div class="fld" style="margin:0" id="usrBranchFld"><label class="lbl" for="usrBranch">Branch</label><select class="select" id="usrBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select></div>
+          <div class="fld" style="margin:0" id="usrPhoneFld"><label class="lbl" for="usrPhone">Phone</label><input class="input mono" id="usrPhone" placeholder="10 digits" type="tel" inputmode="numeric" maxlength="10" oninput="window._digitsOnly(this)"></div>
+        </div>
+
+        <div class="umodal-sec">Telephony <span style="font-weight:500;color:var(--faint);text-transform:none;letter-spacing:0">— leave blank to use the shared line</span></div>
+        <div class="umodal-grid">
+          <div class="fld" style="margin:0"><label class="lbl" for="usrDid">Tata DID <span class="nb">CALLER ID</span></label><input class="input mono" id="usrDid" placeholder="e.g. 919240254219" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)" title="Caller ID shown to the customer. Digits only — a leading + makes Smartflo reject the call."></div>
+          <div class="fld" style="margin:0"><label class="lbl" for="usrExt">Extension</label><input class="input mono" id="usrExt" placeholder="e.g. 0606089050073" inputmode="numeric" maxlength="20" oninput="window._digitsOnly(this)" title="Agent extension that rings first when this person clicks Call."></div>
+        </div>
+      </div>
+      <div class="umodal-ft">
+        <span id="usrModalErr" class="umodal-err"></span>
+        <button class="btn bsm" onclick="window._usrCloseModal()">Cancel</button>
+        <button class="btn bp" id="usrSaveBtn" onclick="window._usrCreate()">Create user</button>
+      </div>
+    </div>
+  </div>
   `;
 }

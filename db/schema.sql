@@ -238,10 +238,19 @@ CREATE TABLE IF NOT EXISTS app_users (
   role          TEXT NOT NULL DEFAULT 'Advisor',
   active        BOOLEAN NOT NULL DEFAULT true,
   password_hash TEXT,               -- scrypt$salt$hash (set via /auth/signup)
+  -- Per-user Tata Tele click-to-call. DID = the caller ID shown to the customer (plain digits,
+  -- no "+" — Smartflo rejects it otherwise); extension = the agent desk phone that rings first.
+  -- Resolved server-side from the session user; falls back to the per-role .env values.
+  tata_did       TEXT,
+  tata_extension TEXT,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash  TEXT;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS tata_did       TEXT;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS tata_extension TEXT;
 CREATE INDEX IF NOT EXISTS idx_app_users_email ON app_users(lower(email));
+CREATE INDEX IF NOT EXISTS idx_app_users_tata_did ON app_users(tata_did) WHERE tata_did IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_app_users_tata_ext ON app_users(tata_extension) WHERE tata_extension IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS app_settings (
   key        TEXT PRIMARY KEY,

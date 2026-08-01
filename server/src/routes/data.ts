@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { runQuery } from '../shared/query';
 import { requireAuth } from '../shared/session';
 import { broadcastChange } from './events';
+import { resetCallerNumberCache } from '../services/tata';
 
 // Actions that CHANGE data. A 'select' must never broadcast, or every client's refresh read would
 // trigger another broadcast and the whole fleet would loop forever.
@@ -31,9 +32,44 @@ function validateCoachProfileWrite(q: any): string | null {
   return null;
 }
 
+// Telephony columns on app_users decide which line a call dials FROM and which caller ID the
+// customer sees. This gateway reaches every table with no per-table authorization, so without
+// this check any authenticated user could rewrite anyone's DID — placing calls under another
+// person's identity, and (because configuredCallerNumbers trusts these values) pulling arbitrary
+// Smartflo CDR records into this clinic's call history. Restricted to the admin roles that own
+// the Settings screen where these fields live.
+const TELEPHONY_COLS = ['tata_did', 'tata_extension'];
+const TELEPHONY_ADMIN_ROLES = new Set(['Super Admin', 'Branch Manager', 'Manager']);
+function validateTelephonyWrite(q: any, user: any): string | null {
+  if (!q || q.table !== 'app_users') return null;
+  if (!['insert', 'update', 'upsert'].includes(String(q.action))) return null;
+  const rows = Array.isArray(q.values) ? q.values : (q.values ? [q.values] : []);
+  const touches = rows.some((r: any) => r && TELEPHONY_COLS.some((c) => Object.prototype.hasOwnProperty.call(r, c)));
+  if (!touches) return null;
+  if (TELEPHONY_ADMIN_ROLES.has(String(user?.role || ''))) return null;
+  return 'Only an admin can change a user\'s telephony (DID / extension) settings.';
+}
+
+// The services/roles master is readable by every signed-in client (the user form and nav gating
+// need it), but writing it is privilege escalation: org_roles.modules IS the permission list, so
+// anyone who can update it can hand themselves the Settings screen — and org_roles.is_assignable
+// silently changes who receives leads. Mutations are therefore admin-only, enforced here rather
+// than by hiding the Settings tab, which stops nobody who can post to this endpoint directly.
+const ORG_TABLES = new Set(['org_services', 'org_roles', 'org_role_services']);
+function validateOrgWrite(q: any, user: any): string | null {
+  if (!q || !ORG_TABLES.has(String(q.table))) return null;
+  if (!MUTATIONS.has(String(q.action))) return null;
+  if (TELEPHONY_ADMIN_ROLES.has(String(user?.role || ''))) return null;
+  return 'Only an admin can change services and roles.';
+}
+
 export function registerDataRoutes(app: Express) {
   app.post('/db/query', requireAuth, async (req: Request, res: Response) => {
     const q = req.body || {};
+    const tErr = validateTelephonyWrite(q, req.user);
+    if (tErr) { res.status(403).json({ data: null, error: { message: tErr }, count: null }); return; }
+    const oErr = validateOrgWrite(q, req.user);
+    if (oErr) { res.status(403).json({ data: null, error: { message: oErr }, count: null }); return; }
     // Domain rule (mirrors the frontend): a coach profile whose consultation status is
     // "Will Join Immediately" MUST carry a review date. Enforced here too so the DB can never
     // hold a "join" record without the follow-up date, even if the client check is bypassed.
@@ -41,6 +77,12 @@ export function registerDataRoutes(app: Express) {
     if (gErr) { res.status(400).json({ data: null, error: { message: gErr }, count: null }); return; }
     const r = await runQuery(q);
     res.json({ data: r.data, error: r.error, count: r.count });
+    // A DID/extension write changes which Smartflo CDR records count as OURS. configuredCallerNumbers
+    // caches that set for 60s, so without this drop a call placed in the first minute after saving a
+    // new DID would fail isOwnCallRecord and be discarded by syncProvider as an external call.
+    if (!r.error && q.table === 'app_users' && MUTATIONS.has(String(q.action))) {
+      try { resetCallerNumberCache(); } catch { /* cache drop must never affect the write */ }
+    }
     // Real-time fan-out AFTER the response, so a slow/failed notify can never delay or break the
     // write itself. Only successful mutations notify. This one hook covers every page and role
     // because every write in the app already funnels through this endpoint — see events.ts.
