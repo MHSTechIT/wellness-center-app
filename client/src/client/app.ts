@@ -163,6 +163,7 @@ export function initApp(root: HTMLElement) {
       renderAll();
       seed();
       loadReceptionData();
+      try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
       setTimeout(()=>{ try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){} },4000);
     }
 
@@ -714,6 +715,27 @@ export function initApp(root: HTMLElement) {
       if(x.indexOf("hbot")>=0||x.indexOf("hyperbaric")>=0||x.indexOf("oxygen")>=0)return "HBOT (Hyperbaric Oxygen Therapy)";
       return s||"";
     }
+    // ===== SINGLE SOURCE OF TRUTH for the Service master list =====
+    // Every Service dropdown/filter across the app renders THIS list (same items, same order), and
+    // every service filter matches through _svcCanonMatch so legacy/combined stored values (e.g.
+    // "Diabetes", "Physio", "Diabetes + Blood test") still filter correctly against the new labels.
+    const SERVICE_MASTER=["Diabetes Counselling","Weight Loss Counselling","Sauna Bath","Cold Plunge","Physiotherapy","Blood Test","HBOT (Hyperbaric Oxygen Therapy)"];
+    // Build the <option> markup for a service <select>. includeAll → prepend an "All services" option.
+    function _svcOptionsHtml(includeAll:boolean, allLabel?:string){
+      return (includeAll?'<option value="all">'+(allLabel||"All services")+'</option>':'')+SERVICE_MASTER.map(s=>'<option>'+s+'</option>').join("");
+    }
+    // Point a data-driven service <select> at the master list, preserving the current selection.
+    function _fillSvcMaster(selId:string, allLabel?:string){
+      const el=root.querySelector(selId) as HTMLSelectElement|null; if(!el) return;
+      const cur=el.value; el.innerHTML=_svcOptionsHtml(true,allLabel||"All services");
+      el.value=Array.from(el.options).some(o=>o.value===cur)?cur:"all";
+    }
+    // Does a record's (possibly legacy or multi-service) service string match the selected master label?
+    // Splits combos on + , / & / "and", canonicalises each part via normService, matches if ANY part hits.
+    function _svcCanonMatch(recordSvc:string, selectedLabel:string){
+      if(!selectedLabel||selectedLabel==="all") return true;
+      return String(recordSvc||"").split(/[+,/&]| and /i).some(p=>{ const t=p.trim(); return !!t&&normService(t)===selectedLabel; });
+    }
     function leadPasses(dateObj:Date,source:string,service?:string){
       if(!dateObj||isNaN(dateObj.getTime())) return false;
       const mo=_impFilter.mo, yr=_impFilter.yr, df=_impFilter.df, dt=_impFilter.dt, src=_impFilter.src, svc=_impFilter.svc;
@@ -727,7 +749,7 @@ export function initApp(root: HTMLElement) {
         if(mo!=="all"&&dateObj.getMonth()!==Number(mo))return false;
       }
       if(src!=="all"&&source!==src)return false;
-      if(svc!=="all"&&normService(service||"")!==svc)return false;
+      if(svc!=="all"&&!_svcCanonMatch(service||"",svc))return false;
       return true;
     }
     function impFiltered(){
@@ -1079,7 +1101,7 @@ export function initApp(root: HTMLElement) {
         +'<div class="fld"><label class="lbl">Phone *</label><input class="input mono" id="slPhone" type="tel" inputmode="numeric" maxlength="15" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>'
         +'<div class="fld"><label class="lbl">Email</label><input class="input" id="slEmail" type="email" placeholder="email@example.com"></div>'
         +'<div class="fld"><label class="lbl">Source</label><select class="select" id="slSource"><option>Walk-in / Referral / Telecalling</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Manual</option></select></div>'
-        +'<div class="fld"><label class="lbl">Service</label><select class="select" id="slService"><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>'
+        +'<div class="fld"><label class="lbl">Service</label><select class="select" id="slService">'+_svcOptionsHtml(false)+'</select></div>'
         +'<div class="fld"><label class="lbl">Language</label><select class="select" id="slLang"><option>Tamil</option><option>Telugu</option><option>English</option><option>Hindi</option></select></div>'
         +'<div class="fld"><label class="lbl">City</label><input class="input" id="slCity" placeholder="City"></div>'
         +'<div class="fld"><label class="lbl">Sugar level</label><select class="select" id="slSugar"><option value="">—</option><option>No Sugar</option><option>150-250</option><option>Above 250</option></select></div>'
@@ -2213,7 +2235,7 @@ export function initApp(root: HTMLElement) {
       // populate service + source filters from the whole assigned set (preserve selection)
       const _asnBaseAll=[..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras];
       const _fillAsnSel=(sel:string,vals:string[],allLabel:string)=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map((v:string)=>'<option>'+(v||"").replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
-      _fillAsnSel("#asnService",_asnBaseAll.map((l:any)=>l.service),"All services");
+      _fillSvcMaster("#asnService");   // standardized master list (not data-derived) — same everywhere
       _fillAsnSel("#asnSource",_asnBaseAll.map((l:any)=>l.source),"All sources");
       const list=assignedLeads();
       const _alF=gridApply("assignedLeads",list);
@@ -2355,7 +2377,7 @@ export function initApp(root: HTMLElement) {
       };
       fill("#asnHistAdvisor",_asnHist.map((r:any)=>r.advisor),"All health advisors");
       fill("#asnHistSource",_asnHist.map((r:any)=>r.source),"All sources");
-      fill("#asnHistService",_asnHist.map((r:any)=>r.service),"All services");
+      _fillSvcMaster("#asnHistService");   // standardized master list — consistent across the app
     }
     function _asnHistMatchesQuery(r:any){
       const q=_asnHistQuery.trim().toLowerCase(); if(!q) return true;
@@ -2377,7 +2399,7 @@ export function initApp(root: HTMLElement) {
         if(toT&&t>toT) return false;
         if(adv!=="all"&&(r.advisor||"")!==adv) return false;
         if(src!=="all"&&(r.source||"")!==src) return false;
-        if(svc!=="all"&&(r.service||"")!==svc) return false;
+        if(svc!=="all"&&!_svcCanonMatch(r.service,svc)) return false;
         if(poolOnly&&r.status!=="unassigned") return false;
         return _asnHistMatchesQuery(r);
       });
@@ -3285,7 +3307,7 @@ export function initApp(root: HTMLElement) {
       if(!scope&&src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
       return list.filter((l:any)=>{
         if(src!=="all"&&(l.source||"")!==src) return false;
-        if(svc!=="all"&&(l.service||"")!==svc) return false;
+        if(svc!=="all"&&!_svcCanonMatch(l.service,svc)) return false;
         if(adv&&adv!=="all"&&(l.assignedTo||"")!==adv) return false;   // advisor is a TOP filter → drives dashboard + table
         if(fromT||toT){ const dv=_asnDateVal(l); const t=dv?new Date(dv).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
         return true;
@@ -4013,9 +4035,11 @@ export function initApp(root: HTMLElement) {
     let _csvPage=1, _csvDupPage=1, _csvTabName="valid";
     const CSV_PER=10;
     // Duplicates are review items shown in the Duplicates tab. They are NEVER auto-removed — a
-    // duplicate stays until the user EXPLICITLY Keeps or Deletes it (full traceability, no data
-    // loss). (Previously they were purged from the DB 10 minutes after upload by a periodic sweep.)
-    function isActiveDup(r:any){ return r.status==="duplicate"; }
+    // duplicate stays until the user EXPLICITLY Deletes it (full traceability, no data loss).
+    // (Previously they were purged from the DB 10 minutes after upload by a periodic sweep.)
+    // Detection is now LIVE + PHONE-BASED (see _csvDupGroups): the tab surfaces every normalized
+    // phone that occurs 2+ times across all imported rows, independent of any import-time status
+    // stamp — so it can't show a false 0 once rows have been kept, sent, or imported in odd formats.
     let _csvSweepTimer:any=null;   // kept null so the existing clearInterval cleanup stays a harmless no-op
 
     // ---- Shared time-range filter (applies to all 4 CSV tabs) ----
@@ -4164,8 +4188,9 @@ export function initApp(root: HTMLElement) {
           const filePhones=new Set<string>();let valid=0,dup=0,invalid=0;
           _csvParsed.forEach(r=>{
             if(!r.phone){invalid++;return;}
-            if(filePhones.has(r.phone)||_csvPhones.has(r.phone)){dup++;return;}
-            filePhones.add(r.phone);valid++;
+            const np=normPhone(r.phone);
+            if(filePhones.has(np)||_csvPhones.has(np)){dup++;return;}
+            filePhones.add(np);valid++;
           });
           if(nameEl)nameEl.textContent=f.name;
           if(infoEl)infoEl.textContent=_csvParsed.length+" rows · parsed";
@@ -4206,7 +4231,7 @@ export function initApp(root: HTMLElement) {
         _csvLeads=(lr.data||[]).map((r:any)=>({id:r.id,batch_id:r.batch_id,dt:r.date_time,campaign:r.campaign,ad:r.ad_name,lead:r.lead_name,phone:r.phone,sugar:r.sugar_poll,city:r.city,street:r.street,source:r.source,service:r.service,name:r.name,status:r.status,created_at:r.created_at}));
         _csvBatches=br.data||[];
         _csvPhones.clear();
-        _csvLeads.forEach((r:any)=>{if(r.status==="valid"&&r.phone)_csvPhones.add(r.phone);});
+        _csvLeads.forEach((r:any)=>{if(r.status==="valid"&&r.phone){const np=normPhone(r.phone);if(np)_csvPhones.add(np);}});
         // Enrich sent rows with their LIVE assignment (advisor + date) from the linked leads row
         // (meta_lead_id "csv-<id>") so the Status column can show "Assigned to X · date".
         try{
@@ -4230,8 +4255,9 @@ export function initApp(root: HTMLElement) {
       const filePhones=new Set<string>();
       _csvParsed.forEach(r=>{
         if(!r.phone) return;                                   // invalid — skip (no phone)
-        const isDup=_csvPhones.has(r.phone)||filePhones.has(r.phone);
-        filePhones.add(r.phone);
+        const np=normPhone(r.phone);
+        const isDup=_csvPhones.has(np)||filePhones.has(np);
+        filePhones.add(np);
         (isDup?dup:valid).push(r);
       });
       if(valid.length+dup.length===0){toast("No rows with a phone number");return;}
@@ -4257,7 +4283,7 @@ export function initApp(root: HTMLElement) {
         const sumEl=root.querySelector("#csvSummary");if(sumEl)sumEl.textContent=valid.length+" imported · "+dup.length+" duplicates kept for review";
         _csvPage=1;_csvDupPage=1;
         await loadCsvData();   // auto-refreshes all CSV tabs incl. Duplicates with the latest records
-        if(dup.length){ w._csvTab("dup"); toast(dup.length+" duplicate"+(dup.length===1?"":"s")+" detected — shown for 10 min in the Duplicates tab"); }
+        if(dup.length){ w._csvTab("dup"); toast(dup.length+" duplicate"+(dup.length===1?"":"s")+" detected — kept permanently in the Duplicates tab for review"); }
         else toast(valid.length+" leads imported");
       }catch(e:any){
         const isMissing=/exist|relation|schema/i.test(e.message||"");
@@ -4378,13 +4404,24 @@ export function initApp(root: HTMLElement) {
     // duplicate copies (status="duplicate"), honoring the dup search box.
     function _csvDupGroups(){
       const inRange=(r:any)=>inCsvRange(r.dt);
-      const allList=_csvLeads.filter(inRange).map(_csvToFeedShape);
-      const dupRows=_csvLeads.filter((r:any)=>isActiveDup(r)&&inRange(r)&&csvDupMatches(r));
-      const groups:any[]=_dupGroupsFrom(allList, dupRows.map(_csvToFeedShape), ()=>true);
-      // Underlying duplicate lead ids per phone → group-level Keep/Delete acts on ALL copies.
-      const byPhone:Record<string,string[]>={};
-      _csvLeads.filter((r:any)=>isActiveDup(r)&&inRange(r)).forEach((r:any)=>{ const p=normPhone(r.phone); if(!p)return; (byPhone[p]=byPhone[p]||[]).push(String(r.id)); });
-      groups.forEach((g:any)=>{ g.ids=byPhone[normPhone(g.rep.phone)]||[String(g.rep.id)]; });
+      const rangeRows=_csvLeads.filter(inRange);
+      const allList=rangeRows.map(_csvToFeedShape);
+      // LIVE, PHONE-BASED duplicate detection (permanent): a duplicate = any normalized phone (last
+      // 10 digits) that occurs in 2+ imported rows in range, REGARDLESS of import-time status. We feed
+      // every in-range row (search-narrowed) as the repList, so _dupGroupsFrom surfaces one group per
+      // repeated phone and the tab never shows a false 0 just because rows were later kept/sent.
+      const repRows=rangeRows.filter((r:any)=>csvDupMatches(r));
+      const groups:any[]=_dupGroupsFrom(allList, repRows.map(_csvToFeedShape), ()=>true);
+      // Per phone, the REDUNDANT copies = every occurrence except the earliest original. Keep/Delete/
+      // Send act on these, so resolving a duplicate can never destroy the one clean original record.
+      const byPhone:Record<string,any[]>={};
+      rangeRows.forEach((r:any)=>{ const p=normPhone(r.phone); if(!p)return; (byPhone[p]=byPhone[p]||[]).push(r); });
+      const redundant:Record<string,string[]>={};
+      Object.keys(byPhone).forEach(p=>{
+        const rows=byPhone[p].slice().sort((a:any,b:any)=>{ const da=parseFlexDate(a.dt),db=parseFlexDate(b.dt); return (da?da.getTime():0)-(db?db.getTime():0); });
+        redundant[p]=rows.slice(1).map((r:any)=>String(r.id));   // drop the earliest = keep the original
+      });
+      groups.forEach((g:any)=>{ const p=normPhone(g.rep.phone); g.ids=(redundant[p]&&redundant[p].length)?redundant[p]:[String(g.rep.id)]; });
       return groups;
     }
     // ---- Render: duplicates (phone-grouped, identical to the Live Feed → Duplicates view) ----
@@ -4617,9 +4654,13 @@ export function initApp(root: HTMLElement) {
     }
     w._csvDownload=(which:string)=>{
       // Respect the active time-range + (for the valid tab) the lead search box.
-      const rows=which==="dup"
-        ?_csvLeads.filter((r:any)=>isActiveDup(r)&&inCsvRange(r.dt)&&csvDupMatches(r))
-        :_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r));
+      let rows:any[];
+      if(which==="dup"){
+        // Export EVERY copy of every repeated phone (full audit), matching the live dup view.
+        const cnt:Record<string,number>={};
+        _csvLeads.filter((r:any)=>inCsvRange(r.dt)).forEach((r:any)=>{ const p=normPhone(r.phone); if(p)cnt[p]=(cnt[p]||0)+1; });
+        rows=_csvLeads.filter((r:any)=>{ const p=normPhone(r.phone); return !!p&&cnt[p]>1&&inCsvRange(r.dt)&&csvDupMatches(r); });
+      } else rows=_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r));
       if(!rows.length){toast("Nothing to download");return;}
       downloadCsvRows(rows,"wellnessos_"+which+"_leads.csv");toast("Downloaded "+rows.length+" rows");
     };
@@ -5421,7 +5462,17 @@ export function initApp(root: HTMLElement) {
     function _nwHasBloodTest():boolean{ return _nwSelectedSvcs().indexOf("Blood Test")>=0; }
     // Provider field hides only when Blood Test is the ONLY service (a one-shot diagnostic needs no
     // provider). If any other service is also ticked, that service needs a provider → keep it shown.
-    function _nwUpdateProvVis(){ const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=_nwBloodTestOnly()?"none":""; }
+    // Current wall-clock time as an appointment slot label ("11:47 AM") — Blood Test uses this
+    // automatically instead of a manually chosen slot.
+    function _nowApptTime(){ const d=new Date(); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12; return h+":"+String(d.getMinutes()).padStart(2,"0")+" "+ap; }
+    function _nwUpdateProvVis(){
+      const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=_nwBloodTestOnly()?"none":"";
+      // Blood Test uses the current date/time — hide the whole slot-booking block whenever Blood Test
+      // is selected (alone or combined); other-service-only visits keep the Check-slot flow unchanged.
+      const bt=_nwHasBloodTest();
+      const book=root.querySelector("#nwBookingSec")as HTMLElement|null; if(book) book.style.display=bt?"none":"";
+      const note=root.querySelector("#nwBtBookNote")as HTMLElement|null; if(note) note.style.display=bt?"":"none";
+    }
     // Primary button "Save & Proceed": if Blood Test is selected (alone OR with other services) →
     // dedicated Collect Payment page for the blood-test payment FIRST; the remaining services are
     // registered into the normal screening/Health-Coach flow so they continue automatically after.
@@ -5529,7 +5580,6 @@ export function initApp(root: HTMLElement) {
       const ph=((root.querySelector("#nwPhone")as HTMLInputElement)?.value||"").trim();
       const email=((root.querySelector("#nwEmail")as HTMLInputElement)?.value||"").trim();
       const addr=((root.querySelector("#nwAddress")as HTMLInputElement)?.value||"").trim();
-      const time=(root.querySelector("#nwTime")as HTMLSelectElement)?.value||"";
       const prov=(root.querySelector("#nwProv")as HTMLSelectElement)?.value||"";
       if(!name||!ph){ toastErr("Enter name and phone"); return; }
       if(!/^\d{10}$/.test(ph)){ toastErr("Enter a valid 10-digit mobile number"); return; }
@@ -5537,7 +5587,9 @@ export function initApp(root: HTMLElement) {
       const sel=_nwSelectedSvcs();                      // every ticked service (incl. Blood Test)
       const nonBT=sel.filter(s=>s!=="Blood Test");       // the "remaining services" that follow the normal flow
       const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
-      const apptDate=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||today;
+      // Blood Test uses the CURRENT date & time automatically — no manual slot (the booking UI is hidden).
+      const time=_nowApptTime();
+      const apptDate=today;
       const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
       let clientId=((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"").trim();
@@ -5574,6 +5626,9 @@ export function initApp(root: HTMLElement) {
       _cpCtx={apptId:c.apptId,leadId:c.leadId,name:c.name};
       const setV=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
       setV("cpName",c.name||""); setV("cpPhone",c.phone||""); setV("cpEmail",c.email||"—"); setV("cpAddr",c.addr||"—"); setV("cpSvc",c.service||"Blood test");
+      // Render the test checkboxes LIVE from the pricing master (bt_tests), then reset selection.
+      if(!_btmList.length){ try{ await loadBtMaster(); }catch(_){} }
+      try{ _cpRenderTests(); }catch(_){}
       root.querySelectorAll('#cpTestsWrap input[type="checkbox"]').forEach((i:any)=>{ i.checked=false; });
       _cpCoupon=null; setV("cpCoupon",""); const cm=root.querySelector("#cpCouponMsg"); if(cm) cm.innerHTML="";
       setV("cpAmt",""); setV("cpTxn",""); const md=root.querySelector("#cpMode")as HTMLSelectElement|null; if(md) md.selectedIndex=0;
@@ -5960,7 +6015,7 @@ export function initApp(root: HTMLElement) {
       return {l:"Scheduled",c:"info"};
     }
     // The 7 bookable services — options in the Check-in "Selected Service" multi-select dropdown.
-    const _CI_SERVICES=["Diabetes Counselling","Weight Loss Counselling","Sauna Bath","Cold Plunge","Physiotherapy","Blood Test","HBOT (Hyperbaric Oxygen Therapy)"];
+    const _CI_SERVICES=SERVICE_MASTER;   // single source of truth (see SERVICE_MASTER near normService)
     // Distinctive token per service → pre-selects the right option(s) from an appointment's saved
     // service string, including legacy values ("Diabetes", "Blood test", "Physio").
     const _CI_SVC_TOKEN:Record<string,string>={"Diabetes Counselling":"diabet","Weight Loss Counselling":"weight","Sauna Bath":"sauna","Cold Plunge":"cold","Physiotherapy":"phys","Blood Test":"blood","HBOT (Hyperbaric Oxygen Therapy)":"hbot"};
@@ -7767,7 +7822,7 @@ export function initApp(root: HTMLElement) {
         else if(coach!=="all"&&(c.hc||"")!==coach) return false;
         if(st!=="all"&&!_coachConsMatch(c,st)) return false;   // filter by consultation status (matches cards + column; L1+L2 matches both Enrolled cards)
         if(src!=="all"&&(c.source||"")!==src) return false;
-        if(svc!=="all"&&(c.service||"")!==svc) return false;
+        if(svc!=="all"&&!_svcCanonMatch(c.service,svc)) return false;
         if(fromT||toT){ const t=c.visitedAt?new Date(c.visitedAt).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
         if(q&&![c.name,c.phone,c.source,c.hc].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0)) return false;
         return true;
@@ -7818,7 +7873,7 @@ export function initApp(root: HTMLElement) {
         fill("#coCoach",coachNames,"All health coaches");
       }
       fill("#coSource",_coachClients.map((c:any)=>c.source),"All sources");
-      fill("#coService",_coachClients.map((c:any)=>c.service),"All services");
+      _fillSvcMaster("#coService");   // standardized master list — consistent across the app
       const stEl=root.querySelector("#coStatus")as HTMLSelectElement|null;
       if(stEl){ const cur=stEl.value; const eo=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); stEl.innerHTML='<option value="all">All statuses</option>'+_coachStatusCards.map((s:string)=>'<option value="'+eo(s)+'">'+eo(s)+'</option>').join(""); if(Array.from(stEl.options).some(o=>o.value===cur)) stEl.value=cur; }
     }
@@ -8640,6 +8695,9 @@ export function initApp(root: HTMLElement) {
     // ========== BLOOD TEST MODULE (live data) ==========
     let _btAll:any[]=[], _btFiltered:any[]=[], _btDate="today", _btOpenAppt:any=null, _btReportAtt:any=null;
     // Spec-fixed tests / panels catalogue used by the record detail multi-select.
+    // Canonical panel CODES + names are stable (existing records store these codes in
+    // blood_test_data.panels). PRICES here are just the display seed — they are refreshed live from
+    // the Blood Test Pricing Master (bt_tests) by _btSyncPanelPrices(), matched by name.
     const BT_PANELS:{code:string;name:string;price:number}[]=[
       {code:"CBC",name:"Complete Blood Count (CBC)",price:400},
       {code:"FBS",name:"Fasting Blood Sugar (FBS)",price:150},
@@ -8654,6 +8712,88 @@ export function initApp(root: HTMLElement) {
       {code:"VITD",name:"Vitamin D",price:1500},
     ];
     const _btPanelName=(code:string)=>{ const p=BT_PANELS.find(x=>x.code===code); return p?p.name:code; };
+    // ===== Blood Test & Pricing Master (bt_tests) — Settings CRUD + the single pricing source =======
+    let _btmList:any[]=[]; let _btmEditId:any=null;
+    // Sync BT_PANELS display prices from the master by NAME (codes stay stable so stored panel codes
+    // keep resolving). Only prices move — never the code/name identity.
+    function _btSyncPanelPrices(){
+      BT_PANELS.forEach(p=>{ const m=_btmList.find((t:any)=>String(t.name||"").trim().toLowerCase()===p.name.toLowerCase()); if(m&&m.price!=null) p.price=Number(m.price)||p.price; });
+    }
+    // Collect Payment test checkboxes — rendered LIVE from the master (active panels only), carrying
+    // both the selling price (data-price) and the Thyrocare/lab cost (data-thyro) → drives the margin.
+    function _cpRenderTests(){
+      const box=root.querySelector("#cpTestsWrap"); if(!box) return;
+      const src=(_btmList.length?_btmList:_btTests)||[];
+      const active=src.filter((t:any)=>t.active!==false);
+      const money=(n:any)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
+      box.innerHTML=active.length?active.map((t:any)=>'<label class="nwChk"><input type="checkbox" data-test="'+_attr(String(t.name||""))+'" data-price="'+(Number(t.price)||0)+'" data-thyro="'+(Number(t.lab_cost)||0)+'" onchange="window._cpRecalc()"> '+_attr(String(t.name||""))+' — '+money(t.price)+'</label>').join("")
+        :'<div style="font-size:12px;color:var(--faint)">No active blood-test panels — add them in Settings → Blood Test pricing.</div>';
+    }
+    async function loadBtMaster(){
+      try{ const r:any=await supabase.from("bt_tests").select("*").order("name"); _btmList=(r&&r.error)?[]:((r&&r.data)||[]); }catch(_){ _btmList=[]; }
+      _renderBtMaster();
+      // Keep every downstream reader in sync from this one load.
+      _btTests=_btmList.filter((t:any)=>t.active!==false); _btMastersLoaded=true;
+      _btSyncPanelPrices();
+      try{ _cpRenderTests(); }catch(_){}
+      try{ _btRenderTests(); }catch(_){}   // Reception intake chips, if the intake is open
+    }
+    function _renderBtMaster(){
+      const body=root.querySelector("#btmBody"); if(!body) return;
+      const money=(n:any)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
+      if(!_btmList.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No panels yet — add one above, or run db/migration-bloodtest-module.sql to seed the defaults.</td></tr>'; return; }
+      body.innerHTML=_btmList.map((t:any)=>{
+        const margin=(Number(t.price)||0)-(Number(t.lab_cost)||0); const on=t.active!==false;
+        return '<tr><td style="font-weight:600">'+_attr(String(t.name||"—"))+'</td>'
+          +'<td class="mono">'+money(t.price)+'</td>'
+          +'<td class="mono">'+money(t.lab_cost)+'</td>'
+          +'<td class="mono" style="font-weight:700;color:'+(margin>=0?"var(--ok-ink)":"var(--alert-ink)")+'">'+money(margin)+'</td>'
+          +'<td>'+(on?'<span class="chipb ok">Active</span>':'<span class="chipb neu">Inactive</span>')+'</td>'
+          +'<td><div style="display:flex;gap:5px;flex-wrap:wrap">'
+            +'<button class="btn bsm" onclick="window._btmEdit(\''+_attr(String(t.id))+'\')">Edit</button>'
+            +'<button class="btn bsm" onclick="window._btmToggle(\''+_attr(String(t.id))+'\','+(!on)+')">'+(on?"Deactivate":"Activate")+'</button>'
+            +'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._btmDelete(\''+_attr(String(t.id))+'\')">Delete</button>'
+          +'</div></td></tr>';
+      }).join("");
+    }
+    const _btmV=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|null)?.value||"").trim();
+    const _btmSetV=(id:string,val:string)=>{ const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=val; };
+    w._btmMargin=()=>{ const p=Number(_btmV("btmPrice"))||0; const c=Number(_btmV("btmCost"))||0; const el=root.querySelector("#btmMargin"); if(el) el.textContent="₹"+(p-c).toLocaleString("en-IN"); };
+    w._btmSave=async()=>{
+      const name=_btmV("btmName"); if(!name){ toast("Enter a test / panel name"); return; }
+      const price=Math.round(Number(_btmV("btmPrice"))||0);
+      const cost=Math.round(Number(_btmV("btmCost"))||0);
+      const rt=_btmV("btmRetest"); const retest=rt?Math.round(Number(rt)):null;
+      try{
+        if(_btmEditId){
+          const {error}=await supabase.from("bt_tests").update({name,price,lab_cost:cost,retest_months:retest}).eq("id",_btmEditId);
+          if(error) throw error; toast("Panel updated");
+        }else{
+          const code=(name.replace(/[^A-Za-z0-9]/g,"").toUpperCase().slice(0,16)||"PANEL")+"-"+String(Date.now()).slice(-5);
+          const {error}=await supabase.from("bt_tests").insert({code,name,price,lab_cost:cost,retest_months:retest,active:true});
+          if(error) throw error; toast("Panel added");
+        }
+        w._btmCancel(); await loadBtMaster();
+      }catch(e:any){ toast(/exist|relation|schema|column/i.test(e.message||"")?"Run db/migration-bloodtest-module.sql first":"Save failed: "+(e.message||"db error")); }
+    };
+    w._btmEdit=(id:any)=>{
+      const t=_btmList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
+      _btmSetV("btmName",String(t.name||"")); _btmSetV("btmPrice",t.price!=null?String(t.price):""); _btmSetV("btmCost",t.lab_cost!=null?String(t.lab_cost):""); _btmSetV("btmRetest",t.retest_months!=null?String(t.retest_months):"");
+      _btmEditId=id; w._btmMargin();
+      const b=root.querySelector("#btmAddBtn"); if(b)b.textContent="Update panel";
+      const c=root.querySelector("#btmCancelBtn")as HTMLElement|null; if(c)c.style.display="";
+    };
+    w._btmCancel=()=>{ _btmEditId=null; ["btmName","btmPrice","btmCost","btmRetest"].forEach(id=>_btmSetV(id,"")); w._btmMargin();
+      const b=root.querySelector("#btmAddBtn"); if(b)b.textContent="+ Add test"; const c=root.querySelector("#btmCancelBtn")as HTMLElement|null; if(c)c.style.display="none"; };
+    w._btmToggle=async(id:any,active:boolean)=>{
+      try{ const {error}=await supabase.from("bt_tests").update({active}).eq("id",id); if(error) throw error; await loadBtMaster(); toast(active?"Panel activated":"Panel deactivated"); }
+      catch(e:any){ toast("Update failed: "+(e.message||"db error")); }
+    };
+    w._btmDelete=(id:any)=>{
+      const t=_btmList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
+      if(!window.confirm('Delete "'+(t.name||"this panel")+'" from the pricing master? Past records keep their stored prices.')) return;
+      supabase.from("bt_tests").delete().eq("id",id).then(async()=>{ toast("Panel deleted"); await loadBtMaster(); }).catch((e:any)=>toast("Delete failed: "+(e?.message||"db error")));
+    };
     let _btdPanels=new Set<string>();          // selected panel codes for the open record
     let _btRowSel=new Set<string>();           // selected appointment ids for bulk actions
     let _btSearch="";                          // name/phone search term
@@ -9019,7 +9159,42 @@ export function initApp(root: HTMLElement) {
       wl+='</tbody></table>';
       const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
       _btRenderBulkBar();
-      const rw=el("btRemindersWrap"); if(rw)(rw as HTMLElement).innerHTML='<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">Outcome reminders are auto-generated from appointment milestones.</div>';
+      _btRenderReminders();
+    }
+    // Outcome reminders — the actionable next step for each blood-test record (auto-derived from its
+    // milestone statuses), plus panel-cadence re-test reminders from bt_orders.next_due_date. Was a
+    // static placeholder; now generated live from the same data the worklist shows.
+    function _btRenderReminders(){
+      const rw=root.querySelector("#btRemindersWrap")as HTMLElement|null; if(!rw) return;
+      const rank:Record<string,number>={al:0,warn:1,info:2};
+      const rows:{name:string;ph:string;when:string;kind:string;c:string;_o:number}[]=[];
+      // One "next action" per appointment-linked record (whichever stage it's stuck at) + payment.
+      _btFiltered.forEach((r:any)=>{
+        const when=(r.date||"")+(r.time?" · "+r.time:"");
+        if(r.sampleStatus!=="collected") rows.push({name:r.name,ph:r.ph,when,kind:"Collect blood sample",c:"warn",_o:1});
+        else if(r.labStatus!=="sent") rows.push({name:r.name,ph:r.ph,when,kind:"Send sample to lab",c:"warn",_o:1});
+        else if(r.labReportStatus!=="received") rows.push({name:r.name,ph:r.ph,when,kind:"Chase lab report",c:"info",_o:2});
+        else if(r.clientReportStatus!=="shared") rows.push({name:r.name,ph:r.ph,when,kind:"Share report with client",c:"info",_o:2});
+        if(r.payStatus!=="paid"&&r.payStatus!=="free") rows.push({name:r.name,ph:r.ph,when,kind:"Collect payment",c:"al",_o:0});
+      });
+      // Panel-cadence re-test reminders (overdue or due within 45 days) from the stored orders.
+      const today=_todayLocal(); const nowT=new Date(today+"T00:00:00").getTime();
+      (_btOrders||[]).forEach((o:any)=>{
+        const due=o.next_due_date?String(o.next_due_date).slice(0,10):""; if(!due) return;
+        const days=Math.round((new Date(due+"T00:00:00").getTime()-nowT)/86400000);
+        if(days>45) return;
+        const overdue=days<0;
+        rows.push({name:o.client_name||"Client",ph:_btMask(o.phone),when:fmtISTDate(due),
+          kind:overdue?("Re-test overdue by "+Math.abs(days)+"d"):(days===0?"Re-test due today":("Re-test due in "+days+"d")),
+          c:overdue?"al":"warn",_o:overdue?0:1});
+      });
+      if(!rows.length){ rw.innerHTML='<div style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No outcome reminders — every blood-test record for this period is up to date.</div>'; return; }
+      rows.sort((a,b)=>(a._o-b._o)||(rank[a.c]-rank[b.c]));
+      const cap=100; const shown=rows.slice(0,cap);
+      rw.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;margin:2px 0 8px">'+rows.length+' reminder'+(rows.length===1?"":"s")+' · next action per record + upcoming re-tests</div>'
+        +'<div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr><th>Client</th><th>Phone</th><th>Visit / due</th><th>Reminder</th></tr></thead><tbody>'
+        +shown.map(x=>'<tr><td style="font-weight:600">'+_btE(x.name)+'</td><td class="mono">'+_btE(x.ph)+'</td><td class="mono" style="font-size:11.5px;white-space:nowrap">'+_btE(x.when||"—")+'</td><td><span class="chipb '+x.c+'">'+_btE(x.kind)+'</span></td></tr>').join("")
+        +'</tbody></table></div>'+(rows.length>cap?'<div style="font-size:11px;color:var(--faint);margin-top:6px">Showing first '+cap+' of '+rows.length+'.</div>':'');
     }
     // Bulk-action toolbar: one-click set of any status across every selected record (spec §6).
     function _btRenderBulkBar(){
@@ -9353,15 +9528,45 @@ export function initApp(root: HTMLElement) {
       }catch(_){ _accPays=[]; }
       _accRenderAll();
     }
+    // ---- Top-bar filters + search + pagination; every card and the Transactions table read the SAME
+    //      filtered set (kept in sync). Filters apply only on the Apply button; search is live. ----
+    let _accApplied:{from:string;to:string;service:string;method:string;status:string}={from:"",to:"",service:"all",method:"all",status:"all"};
+    let _accQuery=""; let _accSearchT:any=null; let _accTxPageN=1; const ACC_PER=15; const _accTxSel=new Set<string>();
+    function _accSvcMatch(paySvc:string, filter:string):boolean{
+      const s=(paySvc||"").toLowerCase(); const f=(filter||"").toLowerCase();
+      const tok=/blood/.test(f)?"blood":/phys/.test(f)?"phys":/weight/.test(f)?"weight":/sauna/.test(f)?"sauna":/cold/.test(f)?"cold":/hbot|hyperbaric/.test(f)?"hbot":/diabet/.test(f)?"diabet":"";
+      return tok?s.includes(tok):s.includes(f);
+    }
+    function _accFilteredPays(){
+      const q=_accQuery.trim().toLowerCase(); const qd=q.replace(/\D/g,"");
+      const fromT=_accApplied.from?new Date(_accApplied.from).getTime():0;
+      const toT=_accApplied.to?new Date(_accApplied.to).getTime():0;
+      return _accPays.filter((p:any)=>{
+        const t=new Date(p.paid_at||p.created_at||0).getTime();
+        if(fromT&&(!t||t<fromT)) return false; if(toT&&(!t||t>toT)) return false;
+        if(_accApplied.service!=="all"&&!_accSvcMatch(p.service,_accApplied.service)) return false;
+        if(_accApplied.method!=="all"&&String(p.method||"").toLowerCase()!==_accApplied.method.toLowerCase()) return false;
+        if(_accApplied.status==="verified"&&!p.verified) return false;
+        if(_accApplied.status==="unverified"&&p.verified) return false;
+        if(q){ const key=((p.clientName||"")+" "+(p.clientPhone||"")+" "+(p.txn_ref||"")).toLowerCase(); const phd=String(p.clientPhone||"").replace(/\D/g,""); if(key.indexOf(q)<0&&!(qd&&phd.indexOf(qd)>=0)) return false; }
+        return true;
+      });
+    }
+    const _accDT=(p:any)=>{ const iso=p.paid_at||p.created_at; return iso?fmtIST(iso):(p.dateFmt||""); };
     const _accTxCols=[
-      {key:"date",label:"Date",filter:true,text:(p:any)=>p.dateFmt||""},
+      {key:"sel",label:"",filter:false,head:'<th style="width:30px"><input type="checkbox" id="accTxSelAll" onclick="window._accTxSelAll(this.checked)" style="accent-color:var(--brand)"></th>'},
+      {key:"date",label:"Date & Time",filter:true,text:(p:any)=>_accDT(p)},
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"phone",label:"Phone",filter:true,text:(p:any)=>p.clientPhone||""},
       {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
       {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+" · "+(p.method||"")},
-      {key:"gross",label:"Gross",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
-      {key:"subv",label:"Subv.",filter:true,text:(p:any)=>{const x=p.emi_subvention||0;return x?"−₹"+x.toLocaleString("en-IN"):"—";}},
+      {key:"ref",label:"Txn Ref / UTR",filter:true,text:(p:any)=>p.txn_ref||""},
+      {key:"subv",label:"Subvention",filter:true,text:(p:any)=>{const x=p.emi_subvention||0;return x?"−₹"+x.toLocaleString("en-IN"):"—";}},
       {key:"net",label:"Net",filter:true,text:(p:any)=>"₹"+((p.amount||0)-(p.emi_subvention||0)).toLocaleString("en-IN")},
       {key:"status",label:"Status",filter:true,text:(p:any)=>p.verified?"Verified":"Unverified"},
+      {key:"vby",label:"Verified By",filter:true,text:(p:any)=>p.verified_by||""},
+      {key:"vat",label:"Verified Date & Time",filter:true,text:(p:any)=>p.verified_at?fmtIST(p.verified_at):""},
+      {key:"act",label:"Actions",filter:false,head:'<th>Actions</th>'},
     ];
     const _accVerCols=[
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
@@ -9391,36 +9596,63 @@ export function initApp(root: HTMLElement) {
     regGrid("accOut",()=>_accOutCols,()=>_accRenderAll());
     regGrid("accRef",()=>_accRefCols,()=>_accRenderAll());
     function _accRenderAll(){
-      const pays=_accPays; const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const pays=_accFilteredPays(); const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const todayStr=new Date().toISOString().substring(0,10);
-      const todayPaid=pays.filter((p:any)=>p.status==="paid"&&(p.paid_at||p.created_at||"").startsWith(todayStr));
-      const collectedToday=todayPaid.reduce((s:number,p:any)=>s+(p.amount||0),0);
+      const collectedToday=pays.filter((p:any)=>p.status==="paid"&&(p.paid_at||p.created_at||"").startsWith(todayStr)).reduce((s:number,p:any)=>s+(p.amount||0),0);
       const unverified=pays.filter((p:any)=>p.status==="paid"&&!p.verified);
+      const unverifiedAmt=unverified.reduce((s:number,p:any)=>s+(p.amount||0),0);
       const outstanding=pays.filter((p:any)=>p.status==="due");
       const outstandingAmt=outstanding.reduce((s:number,p:any)=>s+(p.amount||0),0);
       const refunds=pays.filter((p:any)=>p.refund_status&&p.refund_status!=="processed");
       const emiSub=pays.reduce((s:number,p:any)=>s+(p.emi_subvention||0),0);
       const fmtL=(n:number)=>n>=100000?"₹"+(n/100000).toFixed(1)+"L":n>=1000?"₹"+(n/1000).toFixed(1)+"K":"₹"+n.toLocaleString("en-IN");
-      const metrics=[{l:"Collected today",v:fmtL(collectedToday),c:"g"},{l:"Pending verification",v:String(unverified.length),c:unverified.length?"a":"",t:unverified.length?"proofs to verify":""},
-        {l:"Outstanding",v:fmtL(outstandingAmt),c:outstandingAmt?"a":""},{l:"Refunds pending",v:String(refunds.length),c:refunds.length?"r":""},
-        {l:"EMI subvention",v:fmtL(emiSub),c:""}];
-      const mel=root.querySelector("#accMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div>'+(m.t?'<div class="mt warn">'+m.t+'</div>':'')+'</div>').join("");
+      // KPI cards — Pending Verification + Outstanding each show BOTH a count and an amount, and are
+      // click-to-filter. All reflect the applied filters (they read the same _accFilteredPays()).
+      const metrics=[
+        {l:"Collected today",v:fmtL(collectedToday),sub:"",c:"g",click:""},
+        {l:"Pending verification",v:String(unverified.length)+(unverified.length===1?" txn":" txns"),sub:fmtL(unverifiedAmt)+" pending",c:unverified.length?"a":"",click:"unverified"},
+        {l:"Outstanding",v:String(outstanding.length)+(outstanding.length===1?" txn":" txns"),sub:fmtL(outstandingAmt)+" outstanding",c:outstandingAmt?"a":"",click:"outstanding"},
+        {l:"Refunds pending",v:String(refunds.length),sub:"",c:refunds.length?"r":"",click:"refunds"},
+        {l:"EMI subvention",v:fmtL(emiSub),sub:"",c:"",click:""}
+      ];
+      // For the amount-bearing cards (Pending / Outstanding) the ₹ total is the headline value and the
+      // txn count is the label — so the amount reads big and bold, the count reads as its subtitle.
+      const mel=root.querySelector("#accMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"'+(m.click?' role="button" tabindex="0" title="Click to filter transactions" style="cursor:pointer" onclick="window._accCardFilter(\''+m.click+'\')"':'')+'><div class="ml">'+m.l+'</div>'+(m.sub?'<div class="mv" style="font-size:22px">'+m.sub.replace(/ pending| outstanding/,"")+'</div><div class="mt" style="font-size:12px;font-weight:600;color:var(--muted);margin-top:2px">'+m.v+'</div>':'<div class="mv">'+m.v+'</div>')+'</div>').join("");
       const vc=root.querySelector("#accVerCount"); if(vc) vc.textContent=unverified.length?" · "+unverified.length:"";
       const oc=root.querySelector("#accOutCount"); if(oc) oc.textContent=outstanding.length?" · "+outstanding.length:"";
       const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
-      // Transactions tab
+      // ---- Transactions tab: filtered + paginated, multi-select + download; sticky header via .tscroll ----
       const allPaid=pays.filter((p:any)=>p.status==="paid"||p.amount>0);
       const _txF=gridApply("accTx",allPaid);
-      let txH='<table class="tbl"><thead><tr id="accTxHead"></tr></thead><tbody>';
-      if(!_txF.length) txH+='<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">No transactions yet.</td></tr>';
-      else _txF.slice(0,100).forEach((p:any)=>{
-        const sub=p.emi_subvention||0; const net=(p.amount||0)-sub;
+      _accTxSel.forEach(id=>{ if(!_txF.some((p:any)=>String(p.id)===id)) _accTxSel.delete(id); });   // drop selections that filtered out
+      const pages=Math.max(1,Math.ceil(_txF.length/ACC_PER)); if(_accTxPageN>pages)_accTxPageN=pages; if(_accTxPageN<1)_accTxPageN=1;
+      const pageRows=_txF.slice((_accTxPageN-1)*ACC_PER,(_accTxPageN-1)*ACC_PER+ACC_PER);
+      const cc=_accTxCols.length;
+      let txH='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:12px;color:var(--muted)">'+_txF.length+' transaction'+(_txF.length===1?"":"s")+'</span><button class="btn bsm" onclick="window._accTxDownload()">⬇ Download selected</button><span id="accTxSelInfo" style="font-size:11px;color:var(--muted)"></span></div>';
+      txH+='<div class="tscroll"><table class="tbl" style="min-width:1200px"><thead><tr id="accTxHead"></tr></thead><tbody>';
+      if(!pageRows.length) txH+='<tr><td colspan="'+cc+'" style="text-align:center;color:var(--faint);padding:20px">No transactions match the filters.</td></tr>';
+      else pageRows.forEach((p:any)=>{
+        const sub=p.emi_subvention||0; const net=(p.amount||0)-sub; const sel=_accTxSel.has(String(p.id));
         const verChip=p.verified?'<span class="chipb ok">Verified</span>':'<span class="chipb warn">Unverified</span>';
-        txH+='<tr><td class="mono">'+e(p.dateFmt)+'</td><td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td>'+e((p.payment_type||"full")+" · "+(p.method||""))+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td>'
-          +'<td class="mono"'+(sub?'style="color:var(--alert-ink)"':'')+'>'+( sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td><td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td><td>'+verChip+'</td></tr>';
+        const act=p.verified?'—':'<button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button>';
+        txH+='<tr>'
+          +'<td><input type="checkbox" class="accTxChk" data-id="'+p.id+'"'+(sel?" checked":"")+' onchange="window._accTxRowSel(this)" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_accDT(p))+'</td>'
+          +'<td style="font-weight:600">'+e(p.clientName)+'</td>'
+          +'<td class="mono">'+e(p.clientPhone||"—")+'</td>'
+          +'<td>'+e(p.service||"—")+'</td>'
+          +'<td>'+e((p.payment_type||"full")+" · "+(p.method||"—"))+'</td>'
+          +'<td class="mono">'+e(p.txn_ref||"—")+'</td>'
+          +'<td class="mono"'+(sub?' style="color:var(--alert-ink)"':'')+'>'+(sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td>'
+          +'<td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td>'
+          +'<td>'+verChip+'</td>'
+          +'<td>'+e(p.verified_by||"—")+'</td>'
+          +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+(p.verified_at?e(fmtIST(p.verified_at)):"—")+'</td>'
+          +'<td>'+act+'</td></tr>';
       });
-      txH+='</tbody></table>';
-      const txEl=root.querySelector("#accTxBody"); if(txEl){ txEl.innerHTML=txH; const _th=root.querySelector("#accTxHead"); if(_th)_th.innerHTML=gridHead("accTx"); }
+      txH+='</tbody></table></div>';
+      txH+='<div style="display:flex;gap:10px;margin-top:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="btn bsm" onclick="window._accTxPage(\'first\')">« First</button><button class="btn bsm" onclick="window._accTxPage(-1)">← Prev</button><span style="font-size:12px;font-weight:600">Page '+_accTxPageN+' of '+pages+'</span><button class="btn bsm" onclick="window._accTxPage(1)">Next →</button><button class="btn bsm" onclick="window._accTxPage(\'last\')">Last »</button></div>';
+      const txEl=root.querySelector("#accTxBody"); if(txEl){ txEl.innerHTML=txH; const _th=root.querySelector("#accTxHead"); if(_th)_th.innerHTML=gridHead("accTx"); const sa=root.querySelector("#accTxSelAll")as HTMLInputElement|null; if(sa){ const vis=pageRows.map((p:any)=>String(p.id)); sa.checked=vis.length>0&&vis.every(id=>_accTxSel.has(id)); } const si=root.querySelector("#accTxSelInfo"); if(si) si.textContent=_accTxSel.size?(_accTxSel.size+" selected"):""; }
       // Verify proofs tab
       const _verF=gridApply("accVer",unverified);
       let vH='<table class="tbl"><thead><tr id="accVerHead"></tr></thead><tbody>';
@@ -9457,7 +9689,7 @@ export function initApp(root: HTMLElement) {
       const rEl=root.querySelector("#accRefBody"); if(rEl){ rEl.innerHTML=rH; const _rh=root.querySelector("#accRefHead"); if(_rh)_rh.innerHTML=gridHead("accRef"); }
     }
     w._accVerify=async(id:number)=>{
-      try{ await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString()}).eq("id",id);
+      try{ const _vby=(_currentUser&&(_currentUser.name||_currentUser.email))||"Accounts"; await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString(),verified_by:_vby}).eq("id",id);
         // Accounts confirming a DIABETES payment ENROLLS the lead automatically (shared record) and
         // syncs Reception + Health Coach + Advisor + dashboards. Blood Test / Physio have no L1/L2
         // enrollment concept (see _svcPayLabel/_svcDoneStage in recConfirm) — verifying one of those
@@ -9483,6 +9715,56 @@ export function initApp(root: HTMLElement) {
       const out:string[][]=[["Date","Client","Service","Method","Amount","Status","Verified","Txn Ref"]];
       _accPays.forEach((p:any)=>out.push([p.dateFmt,p.clientName,p.service,p.method||"",String(p.amount||0),p.status,p.verified?"Yes":"No",p.txn_ref||""]));
       _downloadCsv("accounts_export.csv",out); toast("Exported"); };
+    // ---- Accounts filter / search / pagination / selection handlers ----
+    w._accApplyFilters=()=>{
+      _accApplied={
+        from:(root.querySelector("#accFrom") as HTMLInputElement)?.value||"",
+        to:(root.querySelector("#accTo") as HTMLInputElement)?.value||"",
+        service:(root.querySelector("#accSvcF") as HTMLSelectElement)?.value||"all",
+        method:(root.querySelector("#accMethodF") as HTMLSelectElement)?.value||"all",
+        status:(root.querySelector("#accStatusF") as HTMLSelectElement)?.value||"all",
+      };
+      _accTxPageN=1; _accRenderAll();
+    };
+    w._accClearFilters=()=>{
+      _accApplied={from:"",to:"",service:"all",method:"all",status:"all"}; _accQuery="";
+      ["accFrom","accTo","accSearch"].forEach(id=>{ const el=root.querySelector("#"+id) as HTMLInputElement|null; if(el) el.value=""; });
+      ["accSvcF","accMethodF","accStatusF"].forEach(id=>{ const el=root.querySelector("#"+id) as HTMLSelectElement|null; if(el) el.value="all"; });
+      _accTxPageN=1; _accRenderAll();
+    };
+    w._accSearch=()=>{ if(_accSearchT) clearTimeout(_accSearchT); _accSearchT=setTimeout(()=>{
+      _accQuery=((root.querySelector("#accSearch") as HTMLInputElement)?.value||"").trim(); _accTxPageN=1; _accRenderAll();
+    },220); };
+    w._accCardFilter=(kind:string)=>{
+      // Clicking a KPI card jumps to the transactions view narrowed to that card's rows.
+      const sf=root.querySelector("#accStatusF") as HTMLSelectElement|null;
+      if(kind==="unverified"){ _accApplied.status="unverified"; if(sf) sf.value="unverified"; }
+      else if(kind==="outstanding"||kind==="refunds"){ /* status filter n/a for due/refund; still refresh */ }
+      _accTxPageN=1; _accRenderAll();
+      // Refunds/Outstanding have their own tabs; unverified stays on the Transactions tab.
+      const tabKey=(kind==="outstanding")?"out":(kind==="refunds")?"ref":"tx";
+      const tabBtn=root.querySelector('#accTabs button[data-t="'+tabKey+'"]') as HTMLElement|null; if(tabBtn) tabBtn.click();
+    };
+    w._accTxPage=(dir:any)=>{
+      const _txF=gridApply("accTx",_accFilteredPays().filter((p:any)=>p.status==="paid"||p.amount>0));
+      const pages=Math.max(1,Math.ceil(_txF.length/ACC_PER));
+      if(dir==="first") _accTxPageN=1; else if(dir==="last") _accTxPageN=pages;
+      else _accTxPageN=Math.min(pages,Math.max(1,_accTxPageN+Number(dir)));
+      _accRenderAll();
+    };
+    w._accTxRowSel=(el:HTMLInputElement)=>{ const id=el.getAttribute("data-id")||""; if(el.checked)_accTxSel.add(id); else _accTxSel.delete(id);
+      const si=root.querySelector("#accTxSelInfo"); if(si) si.textContent=_accTxSel.size?(_accTxSel.size+" selected"):"";
+      const sa=root.querySelector("#accTxSelAll") as HTMLInputElement|null; if(sa){ const chks=Array.from(root.querySelectorAll(".accTxChk")) as HTMLInputElement[]; sa.checked=chks.length>0&&chks.every(c=>c.checked); } };
+    w._accTxSelAll=(checked:boolean)=>{ const chks=Array.from(root.querySelectorAll(".accTxChk")) as HTMLInputElement[];
+      chks.forEach(c=>{ const id=c.getAttribute("data-id")||""; c.checked=checked; if(checked)_accTxSel.add(id); else _accTxSel.delete(id); });
+      const si=root.querySelector("#accTxSelInfo"); if(si) si.textContent=_accTxSel.size?(_accTxSel.size+" selected"):""; };
+    w._accTxDownload=()=>{
+      const rows=_accFilteredPays().filter((p:any)=>_accTxSel.has(String(p.id)));
+      const src=rows.length?rows:_accFilteredPays().filter((p:any)=>p.status==="paid"||p.amount>0);
+      if(!src.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Date & Time","Client","Phone","Service","Payment Method","Txn Ref / UTR","EMI Subvention","Net Amount","Status","Verified By","Verified Date & Time"]];
+      src.forEach((p:any)=>{ const sub=p.emi_subvention||0; out.push([_accDT(p),p.clientName||"",p.clientPhone||"",p.service||"",(p.payment_type||"full")+" · "+(p.method||""),p.txn_ref||"",String(sub),String((p.amount||0)-sub),p.verified?"Verified":"Unverified",p.verified_by||"",p.verified_at?fmtIST(p.verified_at):""]); });
+      _downloadCsv("accounts_transactions.csv",out); toast((rows.length?rows.length:src.length)+" row(s) downloaded"); };
 
     // ========== REPORTS CENTRE MODULE (live data) ==========
     let _repTab="lead", _repLeads:any[]=[], _repAppts:any[]=[], _repPays:any[]=[];
@@ -9514,7 +9796,7 @@ export function initApp(root: HTMLElement) {
       return items.filter((r:any)=>{
         if(src!=="all"&&(r.source||"").indexOf(src)<0) return false;
         if(lang!=="all"&&(r.language||"")!==lang) return false;
-        if(svc!=="all"&&(r.service||"").indexOf(svc)<0) return false;
+        if(svc!=="all"&&!_svcCanonMatch(r.service,svc)) return false;
         return true;
       });
     }

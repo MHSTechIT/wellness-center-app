@@ -565,7 +565,7 @@ export function getMainContent(): string {
         <span style="color:var(--faint);font-size:12px">to</span>
         <input class="input mono" id="impDateTo" type="datetime-local" title="To date &amp; time" style="height:33px;font-size:11.5px;width:182px">
         <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option></select>
-        <select class="select" id="impService" style="height:33px;font-size:12px;width:150px"><option value="all">All Services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select>
+        <select class="select" id="impService" style="height:33px;font-size:12px;width:150px"><option value="all">All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select>
         <button class="btn bsm bp" onclick="window._impApplyFilters()">Apply</button>
         <button class="btn bsm" onclick="window._impClearFilters()">Clear</button>
       </div>
@@ -618,7 +618,7 @@ export function getMainContent(): string {
               <p style="margin:4px 0 3px;font-weight:600;color:var(--ink)" id="csvFileName">Click to choose a CSV file</p>
               <p style="font-size:12px;margin:0" id="csvFileInfo">Use the template above for the correct columns</p>
             </label></div>
-          <div><div class="g2" style="gap:9px;margin-top:0"><select class="select" id="csvSource"><option>Meta</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select" id="csvBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select><select class="select" id="csvBatch"><option>WK-JUN-04</option><option>WK-JUN-03</option><option>WK-JUL-01</option></select><select class="select" id="csvService"><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Physiotherapy</option><option>Cold Plunge</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
+          <div><div class="g2" style="gap:9px;margin-top:0"><select class="select" id="csvSource"><option>Meta</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select" id="csvBranch"><option>Chennai</option><option>Coimbatore</option><option>Madurai</option></select><select class="select" id="csvBatch"><option>WK-JUN-04</option><option>WK-JUN-03</option><option>WK-JUL-01</option></select><select class="select" id="csvService"><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
             <div id="csvSummary" style="background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-top:13px;font-size:12.5px;color:var(--faint);font-weight:600">Upload a CSV to see the de-dupe summary</div>
             <button class="btn bp" id="csvImportBtn" style="margin-top:13px;width:100%" disabled onclick="window._importCSV()">Import leads</button></div>
         </div>
@@ -663,7 +663,6 @@ export function getMainContent(): string {
 
           <!-- DUPLICATES -->
           <div class="csv-tab" data-ctp="dup" style="display:none">
-            <div class="banner plan" style="margin:0 0 12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Duplicate phone numbers detected on import. Review and <b>Keep</b> (move to Imported leads) or <b>Delete</b>. Duplicates are <b>kept permanently</b> for review &amp; audit — a record is removed <b>only</b> when you Delete it, and stays after refresh.</span></div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600"><input type="checkbox" id="csvDupSelAll" style="accent-color:var(--brand)"> Select all</label>
               <button class="btn bsm" onclick="window._csvKeepSelected()">✓ Keep selected</button>
@@ -926,6 +925,8 @@ export function getMainContent(): string {
                 <label class="nwChk"><input type="checkbox" data-hear="MHS"> MHS</label>
                 <label class="nwChk"><input type="checkbox" data-hear="Walk-in"> Walk-in</label>
               </div>
+              <!-- Slot booking — hidden when Blood Test is selected (it uses the current date/time). -->
+              <div id="nwBookingSec">
               <div class="nwGrpHd">Service &amp; booking</div>
               <div class="g4" style="gap:10px 12px;margin-top:10px">
                 <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
@@ -934,6 +935,8 @@ export function getMainContent(): string {
                 <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
               </div>
               <div id="nwSlotRes" style="margin-top:8px"></div>
+              </div>
+              <div id="nwBtBookNote" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"><span class="chipb info">Blood Test</span> uses the current date &amp; time automatically — no slot booking needed.</div>
             </div>
             <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bp" style="height:38px" id="nwPrimaryBtn" onclick="window._nwPrimary()">Save &amp; Proceed</button><button class="btn" style="height:38px" onclick="nwToggle()">Cancel</button></div>
           </div></div>
@@ -985,19 +988,8 @@ export function getMainContent(): string {
       </div></div>
     <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)">Tick every test / panel the client is paying for</span></div>
       <div class="sec-bd">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap">
-          <label class="nwChk"><input type="checkbox" data-test="Complete Blood Count (CBC)" data-price="400" data-thyro="180" onchange="window._cpRecalc()"> Complete Blood Count (CBC) — ₹400</label>
-          <label class="nwChk"><input type="checkbox" data-test="Fasting Blood Sugar (FBS)" data-price="150" data-thyro="40" onchange="window._cpRecalc()"> Fasting Blood Sugar (FBS) — ₹150</label>
-          <label class="nwChk"><input type="checkbox" data-test="Full Body Health Panel" data-price="2500" data-thyro="1200" onchange="window._cpRecalc()"> Full Body Health Panel — ₹2,500</label>
-          <label class="nwChk"><input type="checkbox" data-test="HbA1c" data-price="600" data-thyro="280" onchange="window._cpRecalc()"> HbA1c — ₹600</label>
-          <label class="nwChk"><input type="checkbox" data-test="Kidney Function Test (KFT)" data-price="800" data-thyro="380" onchange="window._cpRecalc()"> Kidney Function Test (KFT) — ₹800</label>
-          <label class="nwChk"><input type="checkbox" data-test="Lipid Profile" data-price="900" data-thyro="420" onchange="window._cpRecalc()"> Lipid Profile — ₹900</label>
-          <label class="nwChk"><input type="checkbox" data-test="Liver Function Test (LFT)" data-price="800" data-thyro="380" onchange="window._cpRecalc()"> Liver Function Test (LFT) — ₹800</label>
-          <label class="nwChk"><input type="checkbox" data-test="Postprandial Sugar (PPBS)" data-price="150" data-thyro="40" onchange="window._cpRecalc()"> Postprandial Sugar (PPBS) — ₹150</label>
-          <label class="nwChk"><input type="checkbox" data-test="Thyroid Profile (T3/T4/TSH)" data-price="800" data-thyro="350" onchange="window._cpRecalc()"> Thyroid Profile (T3/T4/TSH) — ₹800</label>
-          <label class="nwChk"><input type="checkbox" data-test="Vitamin B12" data-price="1200" data-thyro="600" onchange="window._cpRecalc()"> Vitamin B12 — ₹1,200</label>
-          <label class="nwChk"><input type="checkbox" data-test="Vitamin D" data-price="1500" data-thyro="800" onchange="window._cpRecalc()"> Vitamin D — ₹1,500</label>
-        </div>
+        <!-- Rendered live from the Blood Test Pricing Master (bt_tests) by _cpRenderTests(). -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap"></div>
       </div></div>
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Payment</div>
       <div class="sec-bd">
@@ -1253,6 +1245,16 @@ export function getMainContent(): string {
     <div class="ph"><div><h1>Accounts &amp; finance</h1><p>Gross vs net always two numbers. Verification closes the loop.</p></div>
       <div class="pha"><button class="btn" onclick="window._accExport()"><svg class="icon"><use href="#i-dl"/></svg> Export Excel</button></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Accounts</span>
+    <div class="sec" style="margin-top:10px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="fld" style="margin:0"><label class="lbl">From date &amp; time</label><input  class="input" type="datetime-local" id="accFrom" style="height:34px;width:190px;font-size:12px"></div>
+      <div class="fld" style="margin:0"><label class="lbl">To date &amp; time</label><input  class="input" type="datetime-local" id="accTo" style="height:34px;width:190px;font-size:12px"></div>
+      <div class="fld" style="margin:0"><label class="lbl">Service</label><select  class="select" id="accSvcF" style="height:34px;width:170px"><option value="all">All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
+      <div class="fld" style="margin:0"><label class="lbl">Payment method</label><select  class="select" id="accMethodF" style="height:34px;width:140px"><option value="all">All methods</option><option>Cash</option><option>UPI</option><option>Card</option><option>Net Banking</option><option>Bank Transfer</option><option>Cheque</option><option>Other</option></select></div>
+      <div class="fld" style="margin:0"><label class="lbl">Verification</label><select  class="select" id="accStatusF" style="height:34px;width:130px"><option value="all">All</option><option value="verified">Verified</option><option value="unverified">Unverified</option></select></div>
+      <button class="btn bsm bp" style="height:34px" onclick="window._accApplyFilters()">Apply</button>
+      <button class="btn bsm" style="height:34px" onclick="window._accClearFilters()">Clear</button>
+      <input  class="input" id="accSearch" placeholder="Search name / phone / ref…" style="height:34px;max-width:230px;margin-left:auto;font-size:12px" oninput="window._accSearch()">
+    </div></div>
     <div class="metrics" id="accMetrics"></div>
     <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
     <div class="acc-p" data-p="tx">
@@ -1279,7 +1281,7 @@ export function getMainContent(): string {
         <div class="fld"><label class="lbl" for="repPeriod">Period</label><select  class="select" id="repPeriod" onchange="window._repLoad()"><option value="today">Today</option><option value="month" selected>This month</option><option value="quarter">Quarter</option><option value="all">All time</option></select></div>
         <div class="fld"><label class="lbl" for="repSource">Source</label><select  class="select" id="repSource" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
         <div class="fld"><label class="lbl" for="repLang">Language</label><select  class="select" id="repLang" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
-        <div class="fld"><label class="lbl" for="repService">Service</label><select  class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All</option><option value="Diabetes">Diabetes Counselling</option><option value="Weight Loss">Weight Loss Counselling</option><option value="Sauna">Sauna Bath</option><option value="Physio">Physiotherapy</option><option value="Cold">Cold Plunge</option><option value="Blood">Blood Test</option><option value="HBOT">HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
+        <div class="fld"><label class="lbl" for="repService">Service</label><select  class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
       </div></div></div>
     <div class="rep-pick">
       <button class="rep on" onclick="window._repTab('lead')"><svg class="icon"><use href="#i-inbox"/></svg> Lead report</button>
@@ -1374,7 +1376,7 @@ export function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-asg">Assignees</button><button data-t="st-usr">Users</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-asg">Assignees</button><button data-t="st-usr">Users</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
     <div class="st-p" data-p="st-asg" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assignees — single source of truth for everyone who can receive leads</div>
@@ -1407,12 +1409,7 @@ export function getMainContent(): string {
               <tr><td>L2 · EMI</td><td><input class="input mono" style="height:32px;max-width:120px" value="32000"></td><td><span class="chipb ok">Active</span></td><td></td></tr>
             </tbody></table></div>
           <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--info-ink)">🩸 Blood test (Thyrocare partnership)</div>
-            <table class="tbl"><thead><tr><th>Panel</th><th>Our price</th><th>Thyrocare cost</th><th>Margin</th></tr></thead><tbody>
-              <tr><td>HbA1c</td><td><input class="input mono" style="height:32px;max-width:100px" value="400"></td><td><input class="input mono" style="height:32px;max-width:100px" value="200"></td><td class="mono" style="font-weight:700;color:var(--ok-ink)">₹200</td></tr>
-              <tr><td>FBS</td><td><input class="input mono" style="height:32px;max-width:100px" value="400"></td><td><input class="input mono" style="height:32px;max-width:100px" value="200"></td><td class="mono" style="font-weight:700;color:var(--ok-ink)">₹200</td></tr>
-              <tr><td>Lipid profile</td><td><input class="input mono" style="height:32px;max-width:100px" value="600"></td><td><input class="input mono" style="height:32px;max-width:100px" value="300"></td><td class="mono" style="font-weight:700;color:var(--ok-ink)">₹300</td></tr>
-              <tr><td>Thyroid</td><td><input class="input mono" style="height:32px;max-width:100px" value="500"></td><td><input class="input mono" style="height:32px;max-width:100px" value="250"></td><td class="mono" style="font-weight:700;color:var(--ok-ink)">₹250</td></tr>
-            </tbody></table></div>
+            <p style="font-size:12.5px;color:var(--muted);margin:6px 2px">Blood-test panels &amp; pricing are now managed in the dedicated <b><a href="#" onclick="event.preventDefault();document.querySelector('#settTabs button[data-t=\'st-btm\']').click()" style="color:var(--brand-600)">Blood Test pricing</a></b> tab — the single dynamic source of truth (service amount, Thyrocare cost, auto margin) reflected across Reception, Collect Payment and the Blood Test module.</p></div>
           <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--vio-ink)">💪 Physiotherapy</div>
             <table class="tbl"><thead><tr><th>Item</th><th>Price</th><th></th></tr></thead><tbody>
               <tr><td>Initial consultation</td><td><input class="input mono" style="height:32px;max-width:120px" value="500"></td><td></td></tr>
@@ -1425,6 +1422,24 @@ export function getMainContent(): string {
               <tr><td>Extended sessions (per session)</td><td><input class="input mono" style="height:32px;max-width:120px" value="800"></td><td></td></tr>
             </tbody></table></div>
           <button class="btn bp" style="margin-top:12px" onclick="toast('All service pricing saved — reflected across all screens')">Save pricing</button>
+        </div></div>
+    </div>
+
+    <!-- BLOOD TEST & PRICING MASTER — dynamic CRUD on bt_tests (single source of truth) -->
+    <div class="st-p" data-p="st-btm" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Blood Test &amp; Pricing Master — the single source of truth for every blood-test price</div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <div class="fld" style="margin:0"><label class="lbl" for="btmName">Test / panel</label><input  class="input" id="btmName" placeholder="e.g. HbA1c" style="height:34px;width:220px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="btmPrice">Service amount (₹)</label><input  class="input mono" id="btmPrice" type="number" min="0" style="height:34px;width:130px" oninput="window._btmMargin()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="btmCost">Thyrocare cost (₹)</label><input  class="input mono" id="btmCost" type="number" min="0" style="height:34px;width:130px" oninput="window._btmMargin()"></div>
+            <div class="fld" style="margin:0"><label class="lbl">Margin <span class="ab">auto</span></label><div class="input mono select auto" id="btmMargin" style="height:34px;width:110px;display:flex;align-items:center">₹0</div></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="btmRetest">Re-test (months)</label><input  class="input mono" id="btmRetest" type="number" min="0" placeholder="optional" style="height:34px;width:120px"></div>
+            <button class="btn bp" id="btmAddBtn" onclick="window._btmSave()" style="height:34px">+ Add test</button>
+            <button class="btn bsm" id="btmCancelBtn" onclick="window._btmCancel()" style="height:34px;display:none">Cancel</button>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th>Test / panel</th><th>Service amount</th><th>Thyrocare cost</th><th>Margin</th><th>Status</th><th>Actions</th></tr></thead><tbody id="btmBody"></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Add, edit, delete or (de)activate any panel. Changes take effect live across Reception intake, Collect Payment and the Blood Test module — no code change or redeploy needed.</p>
         </div></div>
     </div>
 
