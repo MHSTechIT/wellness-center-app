@@ -4012,22 +4012,11 @@ export function initApp(root: HTMLElement) {
     const _csvPhones=new Set<string>(); // valid phones already in DB (dedupe)
     let _csvPage=1, _csvDupPage=1, _csvTabName="valid";
     const CSV_PER=10;
-    // Duplicates are review items: they live in the Duplicates tab for 10 minutes
-    // after upload, then are auto-removed (hidden immediately, deleted from the DB
-    // by a periodic sweep). Valid imported leads are never touched.
-    const DUP_TTL_MS=10*60*1000;
-    function dupAgeMs(r:any){ return r.created_at?(Date.now()-new Date(r.created_at).getTime()):0; }
-    function isActiveDup(r:any){ return r.status==="duplicate" && (!r.created_at || dupAgeMs(r)<DUP_TTL_MS); }
-    let _csvSweepTimer:any=null;
-    async function sweepExpiredDups(){
-      const expired=_csvLeads.filter((r:any)=>r.status==="duplicate"&&r.created_at&&dupAgeMs(r)>=DUP_TTL_MS);
-      if(expired.length){
-        const ids=expired.map((r:any)=>r.id);
-        try{ for(let i=0;i<ids.length;i+=200){ await supabase.from("csv_leads").delete().in("id",ids.slice(i,i+200)); } }catch(_){}
-        _csvLeads=_csvLeads.filter((r:any)=>!ids.includes(r.id));
-      }
-      renderCsvValid();renderCsvDup();   // refresh counts + table even if nothing expired this tick
-    }
+    // Duplicates are review items shown in the Duplicates tab. They are NEVER auto-removed — a
+    // duplicate stays until the user EXPLICITLY Keeps or Deletes it (full traceability, no data
+    // loss). (Previously they were purged from the DB 10 minutes after upload by a periodic sweep.)
+    function isActiveDup(r:any){ return r.status==="duplicate"; }
+    let _csvSweepTimer:any=null;   // kept null so the existing clearInterval cleanup stays a harmless no-op
 
     // ---- Shared time-range filter (applies to all 4 CSV tabs) ----
     const _csvRange:{from:Date|null,to:Date|null}={from:null,to:null};
@@ -4218,6 +4207,16 @@ export function initApp(root: HTMLElement) {
         _csvBatches=br.data||[];
         _csvPhones.clear();
         _csvLeads.forEach((r:any)=>{if(r.status==="valid"&&r.phone)_csvPhones.add(r.phone);});
+        // Enrich sent rows with their LIVE assignment (advisor + date) from the linked leads row
+        // (meta_lead_id "csv-<id>") so the Status column can show "Assigned to X · date".
+        try{
+          const sent=_csvLeads.filter((r:any)=>r.status==="sent"||r.status==="assigned");
+          if(sent.length){
+            const keys=sent.map((r:any)=>"csv-"+r.id); const asn:Record<string,any>={};
+            for(let i=0;i<keys.length;i+=200){ const {data}=await supabase.from("leads").select("meta_lead_id,assigned_to,assigned_at,is_assigned,call_status").in("meta_lead_id",keys.slice(i,i+200)); (data||[]).forEach((l:any)=>{ asn[String(l.meta_lead_id)]=l; }); }
+            _csvLeads.forEach((r:any)=>{ const l=asn["csv-"+r.id]; if(l){ r._assignedTo=l.assigned_to||""; r._assignedAt=l.assigned_at||""; r._isAssigned=!!l.is_assigned; r._callStatus=l.call_status||""; } });
+          }
+        }catch(_){}
         renderCsvValid();renderCsvDup();renderCsvHist();populateRvSources();renderCsvRepeat();
       }catch(e:any){
         const sumEl=root.querySelector("#csvSummary");
@@ -4300,6 +4299,21 @@ export function initApp(root: HTMLElement) {
       sa.indeterminate=checked>0&&checked<boxes.length;
     }
     w._csvRowSel=(el:any)=>{ const id=String(el.getAttribute("data-id")); if(el.checked)_csvSelIds.add(id); else _csvSelIds.delete(id); _csvUpdateSelAll(); };
+    // Status chip for an imported CSV row. Uploaded → Sent to Assignment → Assigned (with the
+    // advisor + assigned date pulled from the linked leads row); Duplicate / Deleted / Failed too.
+    function _csvStatusCell(r:any):string{
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(r.status==="duplicate") return '<span class="chipb warn">Duplicate</span>';
+      if(r.status==="deleted") return '<span class="chipb al">Deleted</span>';
+      if(r.status==="failed") return '<span class="chipb al">Failed</span>';
+      if(r.status==="sent"||r.status==="assigned"){
+        if(r._isAssigned&&r._assignedTo){
+          return '<span class="chipb ok">Assigned</span><div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap">'+e(r._assignedTo)+(r._assignedAt?(' · '+e(fmtISTDate(r._assignedAt))):'')+'</div>';
+        }
+        return '<span class="chipb info">Sent to Assignment</span>'+(r._assignedAt?'<div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap">'+e(fmtISTDate(r._assignedAt))+'</div>':'');
+      }
+      return '<span class="chipb ok">Uploaded</span>';
+    }
     function renderCsvValid(){
       const wrap=root.querySelector("#csvImportedWrap")as HTMLElement;
       const body=root.querySelector("#csvImportedBody");
@@ -4309,7 +4323,9 @@ export function initApp(root: HTMLElement) {
       const prev=root.querySelector("#csvPrevBtn")as HTMLButtonElement,next=root.querySelector("#csvNextBtn")as HTMLButtonElement;
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hd=root.querySelector("#csvImportedHead"); if(hd)hd.innerHTML=gridHead("csvImported");
-      const valid=gridApply("csvImported",_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r)));
+      // Imported-leads tab keeps EVERY non-duplicate row — valid, sent-to-assignment and assigned —
+      // so leads never vanish after being sent; the Status column shows each one's current state.
+      const valid=gridApply("csvImported",_csvLeads.filter((r:any)=>(r.status==="valid"||r.status==="sent"||r.status==="assigned")&&inCsvRange(r.dt)&&csvMatchesQuery(r)));
       const dupN=_csvDupGroups().length;   // grouped count (parity with the feed's Duplicates tab)
       const histN=_csvBatches.filter((b:any)=>inCsvRange(b.created_at)).length;
       if(vc)vc.textContent=String(valid.length);
@@ -4320,8 +4336,8 @@ export function initApp(root: HTMLElement) {
       const total=valid.length;const pages=Math.max(1,Math.ceil(total/CSV_PER));
       if(_csvPage>pages)_csvPage=pages;if(_csvPage<1)_csvPage=1;
       const pageRows=valid.slice((_csvPage-1)*CSV_PER,(_csvPage-1)*CSV_PER+CSV_PER);
-      body.innerHTML=pageRows.length?pageRows.map((r:any)=>'<tr>'
-        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'"'+(_csvSelIds.has(String(r.id))?" checked":"")+' style="accent-color:var(--brand)" onchange="window._csvRowSel(this)"></td>'
+      body.innerHTML=pageRows.length?pageRows.map((r:any)=>{ const _sent=(r.status==="sent"||r.status==="assigned"); return '<tr'+(_sent?' style="background:var(--surface-2,#f6f9f7)"':'')+'>'
+        +'<td><input type="checkbox" class="csvChk" data-id="'+r.id+'"'+(_sent?' disabled title="Already sent to assignment"':(_csvSelIds.has(String(r.id))?" checked":""))+' style="accent-color:var(--brand)'+(_sent?';opacity:.4':'')+'" onchange="window._csvRowSel(this)"></td>'
         +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+e(r.dt||"—")+'</td>'
         +'<td class="mono" style="font-size:11.5px">'+e(r.campaign||"—")+'</td>'
         +'<td>'+e(r.ad||"—")+'</td>'
@@ -4333,8 +4349,8 @@ export function initApp(root: HTMLElement) {
         +'<td><span class="tag">'+e(r.source||"—")+'</span></td>'
         +'<td>'+e(r.service||"—")+'</td>'
         +'<td>'+e(r.name||"—")+'</td>'
-        +'<td><span class="chipb ok">Valid</span></td>'
-        +'<td><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></td></tr>').join("")
+        +'<td>'+_csvStatusCell(r)+'</td>'
+        +'<td><button class="btn bsm" style="color:var(--alert-ink)" onclick="window._csvDeleteOne('+r.id+')">Delete</button></td></tr>'; }).join("")
         :'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:18px">No imported leads yet</td></tr>';
       if(cnt)cnt.textContent=total+" record"+(total===1?"":"s");
       if(info)info.textContent="Page "+_csvPage+" of "+pages;
@@ -4556,7 +4572,7 @@ export function initApp(root: HTMLElement) {
     if(_vSelAll)_vSelAll.onchange=()=>{
       const valid=_csvLeads.filter((r:any)=>r.status==="valid"&&inCsvRange(r.dt)&&csvMatchesQuery(r));
       if(_vSelAll.checked) valid.forEach((r:any)=>_csvSelIds.add(String(r.id))); else valid.forEach((r:any)=>_csvSelIds.delete(String(r.id)));
-      root.querySelectorAll("#csvImportedBody .csvChk").forEach((c:any)=>{c.checked=_vSelAll.checked;});
+      root.querySelectorAll("#csvImportedBody .csvChk:not([disabled])").forEach((c:any)=>{c.checked=_vSelAll.checked;});   // never tick already-sent (disabled) rows
       _vSelAll.indeterminate=false;
     };
     const _dSelAll=root.querySelector("#csvDupSelAll")as HTMLInputElement;
@@ -4621,8 +4637,9 @@ export function initApp(root: HTMLElement) {
       if(!sel){toast("Open the Imported leads or Duplicates tab and select rows");return;}
       const ids=Array.from(root.querySelectorAll(sel)).map((c:any)=>String(c.getAttribute("data-id")));
       if(ids.length===0){toast("Select one or more leads first");return;}
-      const rows=ids.map((id:string)=>_csvLeads.find((r:any)=>String(r.id)===id)).filter(Boolean);
-      if(rows.length===0){toast("Select one or more leads first");return;}
+      // Idempotent: a lead already sent to assignment can't be sent again (req: prevent duplicate assignment).
+      const rows=ids.map((id:string)=>_csvLeads.find((r:any)=>String(r.id)===id)).filter(Boolean).filter((r:any)=>r.status!=="sent"&&r.status!=="assigned");
+      if(rows.length===0){toast("Selected lead(s) are already sent to assignment");return;}
       try{
         const nowIso=new Date().toISOString();
         // Manual-source leads: Source and Language both shown as "Manual".
@@ -4641,11 +4658,15 @@ export function initApp(root: HTMLElement) {
           const {error}=await supabase.from("leads").upsert(payload.slice(i,i+200),{onConflict:"meta_lead_id"});
           if(error) throw error;
         }
-        // Move (not copy): remove the rows from csv_leads so they leave the import
-        // table and can't be pushed again.
-        for(let i=0;i<ids.length;i+=200){
-          await supabase.from("csv_leads").delete().in("id",ids.slice(i,i+200));
+        // KEEP the rows in the wizard (complete audit/history): mark them "sent" instead of deleting,
+        // so they stay visible with a "Sent to Assignment" status and can't be pushed again. The linked
+        // leads row ("csv-<id>") carries the live assignment (advisor + date) once picked up.
+        const sendIds=rows.map((r:any)=>String(r.id));
+        for(let i=0;i<sendIds.length;i+=200){
+          await supabase.from("csv_leads").update({status:"sent"}).in("id",sendIds.slice(i,i+200));
         }
+        rows.forEach((r:any)=>{ r.status="sent"; });   // reflect immediately in memory
+        _csvSelIds.clear();
       }catch(e:any){
         toast(/in_pool|column|schema|exist/i.test(e.message||"")?"Run the assignment migrations first":"Send failed: "+(e.message||"db error"));
         return;
@@ -4659,7 +4680,8 @@ export function initApp(root: HTMLElement) {
 
     loadCsvData();
     // Sweep expired CSV duplicates (>10 min) and keep the countdown chips fresh.
-    _csvSweepTimer=setInterval(()=>{ sweepExpiredDups(); },30000);
+    // (Removed) the 30s sweep that auto-deleted duplicates older than 10 min — duplicates now persist
+    // until the user explicitly Keeps or Deletes them. _csvSweepTimer stays null (cleanup is a no-op).
     loadAssignmentExtras().then(()=>{rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
     loadAssignmentHistory();   // Assigned Leads History audit table
     loadZoomCheckins();        // Zoom appointments awaiting check-in
