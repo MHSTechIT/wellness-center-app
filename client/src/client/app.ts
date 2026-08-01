@@ -5015,7 +5015,7 @@ export function initApp(root: HTMLElement) {
         const due=RX.filter((r:any)=>r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"));
         el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||0;   // next installment / due amount (not the aggregate)
           const typeChip=r.collectLabel?' <span class="chipb info" style="font-size:10px">'+r.collectLabel+'</span>':'';
-          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recOpen('+r.id+',\''+(r.name||"").replace(/'/g,"")+'\','+amt+',\''+(r.lead_id||"")+'\',\''+(r.svc||"dia")+'\')">Collect</button></div>';
+          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recCollectRoute('+r.id+')">Collect</button></div>';
         }).join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
@@ -5523,25 +5523,21 @@ export function initApp(root: HTMLElement) {
       try{
         await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:leadSvc,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
       }catch(_){ /* lead insert best-effort */ }
-      // The remaining (non-blood-test) services → a normal appointment that flows to screening → HC,
-      // exactly like nwBook. This is what "continues the existing workflow after the payment".
-      if(nonBT.length){
-        try{
-          const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:nonBT.join(" + "),hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception (blood test collected separately)"});
-          if(ins&&ins.error){ toastErr(/appointment|relation|exist|schema/i.test(ins.error.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(ins.error.message||"db error")); return; }
-        }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
-      }
-      // The Blood Test appointment (kept out of the screening queue — it goes through Collect Payment).
+      // ONE combined appointment for ALL selected services — no split. It flows to Screening for the
+      // non-blood services AND is picked up by the Blood Test module for the blood part; the Collect
+      // Payment step below handles the blood-test payment. Blood-Test-ONLY → stage "blood_test"
+      // (skips Screening); otherwise stage "screening" so the other services continue their flow.
+      const combinedStage=nonBT.length?"screening":"blood_test";
+      let apptId:any=null;
       try{
-        const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:"Blood test",appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:"blood_test",source:"Direct Walk-in",language:langVal,notes:"Blood-test walk-in registered at reception"});
+        const ins:any=await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:leadSvc,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:combinedStage,source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
         if(ins&&ins.error){ toastErr(/appointment|relation|exist|schema/i.test(ins.error.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(ins.error.message||"db error")); return; }
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
-      // Fetch the Blood Test appointment's id so the payment attaches to it (scoped to service so a
-      // combined-service walk-in's OTHER appointment is never picked by mistake).
-      let apptId:any=null; try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).eq("service","Blood test").order("id",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
+      // The single appointment's id — the blood-test payment attaches to it.
+      try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).order("id",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
       _nwClearDraft(); nwToggle(); try{ await loadReceptionData(); }catch(_){}
       _cpOpen({apptId,leadId,name,phone:ph,email,addr,service:leadSvc});
-      toast(nonBT.length?("Registered · "+nonBT.join(", ")+" → screening. Collect blood-test payment first"):"Client registered — collect blood-test payment");
+      toast(nonBT.length?("Registered · "+sel.join(", ")+" → screening. Collect blood-test payment first"):"Client registered — collect blood-test payment");
     }
 
     // ---- Collect Payment page ----
@@ -5616,6 +5612,18 @@ export function initApp(root: HTMLElement) {
       const ra=root.querySelector("#recWbAmt")as HTMLInputElement; if(ra) ra.value=String(Number(amt)||0);
     }
     w._recOpen = recOpen;
+    // Collect Payment routing: a patient whose services include Blood Test opens the dedicated Blood
+    // Test Collect Payment page (tests → payment → order → receipt → sample); everyone else uses the
+    // standard collect modal. The non-blood services keep their normal collect flow.
+    w._recCollectRoute=(id:any)=>{
+      const r=_recAll.find((x:any)=>String(x.id)===String(id)); if(!r){ toastErr("Appointment not found"); return; }
+      if(/blood/i.test(String(r.serviceRaw||"")) || r.svc==="bt"){
+        _cpOpen({apptId:r.id, leadId:r.lead_id||"", name:r.name||"", phone:r.ph||"", email:r.email||"", addr:"", service:r.serviceRaw||"Blood test"});
+        return;
+      }
+      const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||0;
+      recOpen(r.id, r.name||"Client", amt, r.lead_id||"", r.svc||"dia");
+    };
     // Resolve a LEAD's program from its own payment rows — never from _curProgram() (the coach's
     // on-screen program dropdown), which reflects whoever is open in the Health Coach view, not
     // the lead Reception is collecting for. That mismatch is what mis-tagged Reception payments.
@@ -5991,21 +5999,12 @@ export function initApp(root: HTMLElement) {
       const hasBT=/blood/i.test(raw);
       const nonBT=parts.filter((s:string)=>!/blood/i.test(s));
       try{
-        if(hasBT&&nonBT.length){
-          // Combined → split: this row keeps the non-blood services (→ Screening); a separate Blood
-          // Test appointment (dated today, the visit/collection day) is created for the payment queue.
-          const {error:e1}=await supabase.from("appointments").update({service:nonBT.join(" + "),status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",m.id);
-          if(e1) throw e1;
-          const _ins:any=await supabase.from("appointments").insert({lead_id:m.lead_id,client_id:m.clientId||null,client_name:m.name,phone:m.ph,service:"Blood test",appt_date:_todayLocal(),appt_time:m.time||"",status:"visited",visited_at:nowIso,stage:"blood_test",source:m.source||"Direct Walk-in",notes:"Blood test split from combined check-in"});
-          if(_ins&&_ins.error) throw new Error(_ins.error.message||"blood test split failed");
-        }else if(hasBT){
-          // Blood Test only → no Screening; straight into the Blood Test → Collect Payment queue.
-          const {error:e2}=await supabase.from("appointments").update({service:"Blood test",status:"visited",visited_at:nowIso,stage:"blood_test"}).eq("id",m.id);
-          if(e2) throw e2;
-        }else{
-          const {error:e3}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage:"screening"}).eq("id",m.id);
-          if(e3) throw e3;
-        }
+        // No split — ONE appointment keeps ALL its services. Blood-Test-ONLY skips Screening and lands
+        // in the Blood Test → Collect Payment queue; anything with a non-blood service goes to Screening
+        // (and, if it also includes Blood Test, still appears in the Blood Test module by service).
+        const stage=(hasBT&&!nonBT.length)?"blood_test":"screening";
+        const {error:e1}=await supabase.from("appointments").update({status:"visited",visited_at:nowIso,stage}).eq("id",m.id);
+        if(e1) throw e1;
         // Set leads.visited_at too — the field the Health Coach queue reads (it filters non-diabetes
         // out on its own, so a Blood-Test-only lead won't appear there). Surface a failed write.
         if(m.lead_id){
@@ -6018,10 +6017,10 @@ export function initApp(root: HTMLElement) {
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
-      toast(hasBT?(nonBT.length?("✓ "+m.name+" → Screening · Blood test added to Collect Payment queue"):("✓ "+m.name+" → Blood Test Collect Payment queue")):("✓ "+m.name+" checked in → screening ("+now+")"));
+      toast(hasBT?(nonBT.length?("✓ "+m.name+" → Screening · collect Blood Test payment from Collect payment"):("✓ "+m.name+" → Blood Test Collect Payment queue")):("✓ "+m.name+" checked in → screening ("+now+")"));
       await loadReceptionData();   // refresh: appointment now Visited, in screening queue + payment queue
       try{ loadZoomCheckins(); }catch(_){}
-      try{ loadBloodTestData(); }catch(_){}   // the split Blood Test appointment shows in its worklist/queue
+      try{ loadBloodTestData(); }catch(_){}   // a Blood-Test (or combined) appointment shows in its module by service
     }
     w.recRegDone = recRegDone;
     // ===== Zoom check-in (Appointment Fixed – Zoom) — Advisor list + Reception action =====
@@ -6867,9 +6866,14 @@ export function initApp(root: HTMLElement) {
     async function loadScreeningData(){
       try{
         const {data}=await supabase.from("appointments").select("*").in("stage",["screening","screened","done"]).order("appt_date",{ascending:false}).limit(500);
-        // Blood-test records live only in the Blood Test workflow — they must never surface in
-        // the Screening queue even though reception check-in stamps stage="screening" on them.
-        _scAll=(data||[]).filter((a:any)=>!/blood/i.test(a.service||"")).map((a:any)=>{
+        // Blood-test-ONLY records live only in the Blood Test workflow — they must never surface in
+        // the Screening queue. A COMBINED appointment (e.g. Diabetes + Blood Test) still belongs in
+        // Screening for its non-blood services, so exclude only when EVERY service is blood.
+        _scAll=(data||[]).filter((a:any)=>{
+          const svc=String(a.service||""); if(!/blood/i.test(svc)) return true;
+          const parts=svc.split(/\s*\+\s*|\s*,\s*/).map((s:string)=>s.trim()).filter(Boolean);
+          return parts.some((p:string)=>!/blood/i.test(p));   // keep combined; drop blood-only
+        }).map((a:any)=>{
           const sv=a.screening_vitals_data||{};
           return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
             status:a.status||"expected", stage:a.stage||"", service:a.service||"Diabetes",
