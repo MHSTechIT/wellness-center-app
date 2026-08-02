@@ -5927,54 +5927,152 @@ export function initApp(root: HTMLElement) {
         // ---- pull the live payment records for this lead (source of truth for per-program fees) ----
         let pays:any[]=[];
         try{ const {data}=await supabase.from("payments").select("*").eq("lead_id",r.lead_id).order("created_at",{ascending:true}); pays=data||[]; }catch(_){ pays=[]; }
-        const paid=pays.filter((p:any)=>p.status==="paid");
-        const normProg=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const hasL1=/l1/i.test(s), hasL2=/l2/i.test(s); if(hasL1&&hasL2) return "L1 + L2"; if(hasL2&&!hasL1) return "L2"; return "L1"; };
-        // Group EVERY payment (paid + due) by its program → a program's fee = paid + balance.
-        const byProg:Record<string,{paid:number;due:number}>={};
-        pays.forEach((p:any)=>{ const k=normProg(p.program); const o=(byProg[k]=byProg[k]||{paid:0,due:0}); const amt=Number(p.amount)||0; if(p.status==="paid") o.paid+=amt; else if(p.status==="due") o.due+=amt; });
-        // Decide which program(s) this invoice covers — the customer's ENROLLED program(s):
-        //   1) the consultation status ("Enrolled – L2") when it names a level;
-        //   2) else the program(s) that have an outstanding balance (a due installment marks the
-        //      real active plan) — this excludes a stray/mis-tagged one-off payment in another
-        //      program (e.g. an L2 installment plan must not pull in a stray L1 payment);
-        //   3) else every program that has a paid amount.
-        const order=["L1","L2","L1 + L2"];
-        const consP=_progFromCons(r.consultStatus);
-        const consSet=consP?(consP==="L1 + L2"?["L1","L2","L1 + L2"]:[consP]):[];
-        let keys:string[];
-        if(consSet.length) keys=order.filter(k=>consSet.indexOf(k)>=0 && byProg[k]);
-        else { const withDue=order.filter(k=>byProg[k]&&byProg[k].due>0); keys=withDue.length?withDue:order.filter(k=>byProg[k]&&byProg[k].paid>0); }
-        // One membership line per selected program; fee = paid + due for that program.
-        const items:{prog:string;incl:number;paid:number;due:number}[]=keys.map(k=>({prog:k,incl:byProg[k].paid+byProg[k].due,paid:byProg[k].paid,due:byProg[k].due})).filter(it=>it.incl>0);
-        // Fallback (nothing matched): single line from the appointment's paid amount.
-        if(!items.length){
-          const amt=Number(r.payAmt)||paid.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
-          if(amt>0) items.push({prog:consP,incl:amt,paid:amt,due:0});
-        }
-        if(!items.length){ toastErr("No amount on record for this client — cannot generate invoice"); return; }
-
         const round2=(n:number)=>Math.round(n*100)/100;
         const fmt=(n:number)=>(Number(n)||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2});
-        // The program fee is GST-inclusive (18% = CGST 9% + SGST 9%); back-compute the tax-exclusive base.
-        const lines=items.map((it)=>({
-          desc:"Course Membership Fees"+(it.prog?(" ("+it.prog+")"):""),
-          hsn:"999249",
-          base:round2(it.incl/1.18),
-        }));
-        const total=round2(items.reduce((s,it)=>s+it.incl,0));       // Grand Total = full program fee (paid + balance)
-        const amountPaid=round2(items.reduce((s,it)=>s+it.paid,0));  // received so far
-        const balanceDue=round2(items.reduce((s,it)=>s+it.due,0));   // outstanding
+        // jsPDF's standard fonts are WinAnsi-encoded and have no ₹ glyph — money shown INSIDE the PDF
+        // must use "Rs." (the rest of the document already avoids ₹ for the same reason).
+        const money=(n:any)=>"Rs."+(Number(n)||0).toLocaleString("en-IN");
+        // ---- WHICH service(s) does this invoice cover? -----------------------------------------
+        // The PAYMENT rows tied to THIS appointment are the truth — payments.service is stamped at
+        // collect time ("Blood test" / "Physio" / "Diabetes"). The appointment's own service line is
+        // only a fallback, because a client can check in for SEVERAL services at once ("Diabetes
+        // Counselling, Blood Test"): canonicalising that combined string picked Diabetes (normService
+        // tests "diab" before "blood") and then billed the blood-test payment — which carries no
+        // program — as an "L1 Program" fee, because normProg defaults a null program to L1.
+        const apptRows=pays.filter((p:any)=>String(p.appointment_id||"")===String(id));
+        // Appointment-line fallback, using the SAME precedence as the Reception Service column
+        // (_recSvcCode: blood → physio → everything else) so the invoice matches the row it came from.
+        const rawSvc=String(r.serviceRaw||"");
+        const apptSvc=/blood/i.test(rawSvc)?"Blood Test":(/phys/i.test(rawSvc)?"Physiotherapy":(normService(rawSvc)||""));
+        const apptHasDia=/diab|sugar/i.test(rawSvc);
+        // A payment linked to this appointment but tagged "Diabetes" on an appointment that never
+        // mentions Diabetes is the legacy collect default (_svcPayLabel only knows dia/bt/physio, so
+        // Weight Loss / Sauna / Cold Plunge / HBOT collections are all stored as "Diabetes" + an L1
+        // program). Bill it as the appointment's OWN service instead of as a program fee.
+        const svcOfRow=(p:any)=>{ let s=normService(String(p.service||"")); if(s==="Diabetes Counselling"&&!apptHasDia&&apptSvc) s=apptSvc; return s||apptSvc||"Service"; };
+        const rowsBySvc:Record<string,any[]>={};
+        apptRows.forEach((p:any)=>{ const k=svcOfRow(p); (rowsBySvc[k]=rowsBySvc[k]||[]).push(p); });
+        let svcNames=Object.keys(rowsBySvc);
+        if(!svcNames.length){
+          // Nothing links a payment to this appointment (coach/legacy rows carry lead_id only) — fall
+          // back to the appointment's service and that service's lead-level rows.
+          const k=apptSvc||(pays.some((p:any)=>p.program)?"Diabetes Counselling":"Service");
+          svcNames=[k];
+          rowsBySvc[k]=pays.filter((p:any)=>{ const s=normService(String(p.service||"")); return s?s===k:true; });
+        }
+        const svcName=svcNames.join(" + ");
+        const isDia=svcNames.length===1&&svcNames[0]==="Diabetes Counselling";
+        const HSN="999249";
+        // Line items are GST-INCLUSIVE (`incl`); the tax-exclusive base is back-computed at 18% below.
+        const lines:{desc:string;sub?:string;hsn:string;incl:number;base:number}[]=[];
+        let total=0, amountPaid=0, balanceDue=0, balDueDate="";
+        const dueDates:string[]=[];
+        const invPays:any[]=[];   // the payment rows this invoice is actually built from (drives the invoice date)
+
+        for(const svc of svcNames){
+        if(svc==="Diabetes Counselling"){
+          // ===== Diabetes Counselling — the one service with an L1/L2 program + installment plan =====
+          // Read the LEAD's rows (coach installment rows carry lead_id only, never appointment_id),
+          // but drop anything explicitly tagged as another service or a Blood Test / Physio fee would
+          // be folded into the program total by normProg's L1 default.
+          const diaPays=pays.filter((p:any)=>{ const s=normService(String(p.service||"")); return !s||s==="Diabetes Counselling"; });
+          const normProg=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const hasL1=/l1/i.test(s), hasL2=/l2/i.test(s); if(hasL1&&hasL2) return "L1 + L2"; if(hasL2&&!hasL1) return "L2"; return "L1"; };
+          // Group EVERY payment (paid + due) by its program → a program's fee = paid + balance.
+          const byProg:Record<string,{paid:number;due:number;rows:any[]}>={};
+          diaPays.forEach((p:any)=>{ const k=normProg(p.program); const o=(byProg[k]=byProg[k]||{paid:0,due:0,rows:[]}); o.rows.push(p); const amt=Number(p.amount)||0; if(p.status==="paid") o.paid+=amt; else if(p.status==="due") o.due+=amt; });
+          // Decide which program(s) this invoice covers — the customer's ENROLLED program(s):
+          //   1) the consultation status ("Enrolled – L2") when it names a level;
+          //   2) else the program(s) that have an outstanding balance (a due installment marks the
+          //      real active plan) — this excludes a stray/mis-tagged one-off payment in another
+          //      program (e.g. an L2 installment plan must not pull in a stray L1 payment);
+          //   3) else every program that has a paid amount.
+          const order=["L1","L2","L1 + L2"];
+          const consP=_progFromCons(r.consultStatus);
+          const consSet=consP?(consP==="L1 + L2"?["L1","L2","L1 + L2"]:[consP]):[];
+          let keys:string[];
+          if(consSet.length) keys=order.filter(k=>consSet.indexOf(k)>=0 && byProg[k]);
+          else { const withDue=order.filter(k=>byProg[k]&&byProg[k].due>0); keys=withDue.length?withDue:order.filter(k=>byProg[k]&&byProg[k].paid>0); }
+          // One program line per selected program; fee = paid + due for that program.
+          const items:{prog:string;incl:number;paid:number;due:number}[]=keys.map(k=>({prog:k,incl:byProg[k].paid+byProg[k].due,paid:byProg[k].paid,due:byProg[k].due})).filter(it=>it.incl>0);
+          // Fallback (nothing matched): single line from what this lead has actually paid.
+          if(!items.length){
+            const amt=diaPays.filter((p:any)=>p.status==="paid").reduce((s:number,p:any)=>s+(Number(p.amount)||0),0)||(svcNames.length===1?Number(r.payAmt)||0:0);
+            if(amt>0) items.push({prog:consP,incl:amt,paid:amt,due:0});
+          }
+          // Description = the ACTUAL payment item: "L2 Program", "L1 + L2 Program", plus the
+          // installment / advance / EMI breakdown for that program when the client is on a part plan.
+          items.forEach((it)=>{
+            const prows=((byProg[it.prog]||{rows:[]}).rows||[]).filter((p:any)=>p.payment_type==="installment"||p.payment_type==="advance"||p.payment_type==="emi");
+            const parts=prows.slice().sort((a:any,b:any)=>Number(a.installment_number||0)-Number(b.installment_number||0)).map((p:any)=>{
+              const nm=p.payment_type==="advance"?"Advance":(p.payment_type==="emi"?"EMI Down Payment":(it.prog?it.prog+" – ":"")+"Installment "+(Number(p.installment_number)||1));
+              return nm+" "+money(p.amount)+" ("+(p.status==="paid"?"Paid":("Due"+(p.due_date?" by "+fmtISTDate(p.due_date):"")))+")";
+            });
+            lines.push({desc:(it.prog?it.prog+" Program":"Program Fees")+" – Diabetes Counselling",sub:parts.join("   ·   ")||undefined,hsn:HSN,incl:it.incl,base:round2(it.incl/1.18)});
+          });
+          total+=items.reduce((s,it)=>s+it.incl,0);       // Grand Total = full program fee (paid + balance)
+          amountPaid+=items.reduce((s,it)=>s+it.paid,0);  // received so far
+          balanceDue+=items.reduce((s,it)=>s+it.due,0);   // outstanding
+          diaPays.forEach((p:any)=>{ if(p.status==="due"&&p.due_date&&keys.indexOf(normProg(p.program))>=0) dueDates.push(String(p.due_date)); });
+          invPays.push(...diaPays);
+        } else {
+          // ===== One-shot services (Blood Test, Physiotherapy, Weight Loss, Sauna, Cold Plunge, HBOT) =====
+          // Bill ONLY this service's money — never the lead-level aggregate (which can include the
+          // Diabetes program fees, or another service billed on the same appointment).
+          const rows=rowsBySvc[svc]||[];
+          invPays.push(...rows);
+          const sum=(f:(p:any)=>boolean)=>round2(rows.filter(f).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0));
+          let svcPaid=sum((p:any)=>p.status==="paid");
+          let svcDue=sum((p:any)=>p.status==="due");
+          let svcTotal=round2(svcPaid+svcDue);
+          // Last resort (single-service invoice with no usable rows): the appointment's own amount.
+          if(svcTotal<=0&&svcNames.length===1){ svcPaid=round2(Number(r.payAmt)||0); svcDue=0; svcTotal=svcPaid; }
+          rows.forEach((p:any)=>{ if(p.status==="due"&&p.due_date) dueDates.push(String(p.due_date)); });
+          amountPaid+=svcPaid; balanceDue+=svcDue; total+=svcTotal;
+          if(svc==="Blood Test"){
+            // The tests / panels the client paid for are persisted onto the appointment at collect time
+            // (blood_test_data.panels — names or legacy codes; `panel` is the older free-text field).
+            let panels:string[]=[];
+            try{
+              const {data:_ad}=await supabase.from("appointments").select("blood_test_data").eq("id",id).limit(1);
+              const bt:any=(_ad&&_ad[0]&&_ad[0].blood_test_data)||{};
+              panels=(Array.isArray(bt.panels)&&bt.panels.length)
+                ? bt.panels.map((c:any)=>_btPanelName(String(c))).filter(Boolean)
+                : String(bt.panel||"").split(/\s*,\s*/).map(s=>s.trim()).filter(Boolean);
+            }catch(_){}
+            // Itemise one row per test when every panel resolves to a master price AND those prices add
+            // up to exactly what was billed. Otherwise (coupon/discount/manual amount) fall back to one
+            // line naming every test — either way the invoice total equals the amount collected.
+            const priceOf=(nm:string)=>{
+              const k=nm.trim().toLowerCase();
+              const m=_btmList.find((t:any)=>String(t.name||"").trim().toLowerCase()===k);
+              if(m&&m.price!=null) return Number(m.price)||0;
+              const b=BT_PANELS.find(p=>p.name.toLowerCase()===k||p.code.toLowerCase()===k);
+              return b?Number(b.price)||0:0;
+            };
+            const priced=panels.map(nm=>({nm,p:priceOf(nm)}));
+            const itemise=priced.length>0&&priced.every(x=>x.p>0)&&Math.abs(priced.reduce((s,x)=>s+x.p,0)-svcTotal)<1;
+            if(itemise) priced.forEach(x=>lines.push({desc:"Blood Test – "+x.nm,hsn:HSN,incl:x.p,base:round2(x.p/1.18)}));
+            else lines.push({desc:"Blood Test"+(panels.length?" – "+panels.join(", "):""),hsn:HSN,incl:svcTotal,base:round2(svcTotal/1.18)});
+          } else {
+            lines.push({desc:svc+(r.session?(" – "+String(r.session)):""),hsn:HSN,incl:svcTotal,base:round2(svcTotal/1.18)});
+          }
+        }
+        }
+        total=round2(total); amountPaid=round2(amountPaid); balanceDue=round2(balanceDue);
+        // Earliest outstanding balance due date (for the "Balance Due (by …)" line).
+        if(dueDates.length) balDueDate=fmtISTDate(dueDates.slice().sort()[0]);
+        if(!lines.length||total<=0){ toastErr("No amount on record for this client — cannot generate invoice"); return; }
         const baseTotal=round2(total/1.18);
         const cgst=round2(baseTotal*0.09);
         const sgst=round2(baseTotal*0.09);
-        // Earliest outstanding balance due date (for the "Balance Due (by …)" line).
-        const dueRow=pays.filter((p:any)=>p.status==="due"&&keys.indexOf(normProg(p.program))>=0&&p.due_date).sort((a:any,b:any)=>String(a.due_date).localeCompare(String(b.due_date)))[0];
-        const balDueDate=dueRow?fmtISTDate(dueRow.due_date):"";
 
         // Invoice identity — stable per appointment. Reception appointment id (a serial) drives the suffix.
         const suffix=(String(id).replace(/\D/g,"").slice(-4))||"0001";
         const invNo="MHS/DD/"+suffix;
-        const lastPaidAt=paid.length?(paid[paid.length-1].paid_at||paid[paid.length-1].created_at):"";
+        // Invoice date = the LATEST payment this invoice covers (rows come from several service
+        // groups, so sort rather than trusting the concatenation order).
+        const paidRows=invPays.filter((p:any)=>p.status==="paid").map((p:any)=>String(p.paid_at||p.created_at||"")).filter(Boolean).sort();
+        const lastPaidAt=paidRows.length?paidRows[paidRows.length-1]:"";
         const invDate=fmtISTDate(lastPaidAt||new Date().toISOString());
 
         // ---- render (A4, mm) ----
@@ -6005,7 +6103,9 @@ export function initApp(root: HTMLElement) {
         // Bill To
         doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(90,90,90); doc.text("Bill To",ML,y); y+=5;
         doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(20,20,20); doc.text(String(r.name||"Client"),ML,y); y+=5;
-        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(70,70,70); doc.text("Phone : "+(r.ph||"-"),ML,y); y+=7;
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(70,70,70); doc.text("Phone : "+(r.ph||"-"),ML,y); y+=4.6;
+        // The service this invoice is for (Blood Test / Diabetes Counselling / Physiotherapy / …).
+        doc.text("Service : "+svcName+(!isDia&&r.session?(" · "+String(r.session)):""),ML,y); y+=7;
 
         // Items table — column right-edges: sno 24, desc, hsn 118, qty 134, rate 165, amount 196(MR)
         const rowH=8, tableTop=y;
@@ -6019,16 +6119,25 @@ export function initApp(root: HTMLElement) {
         doc.text("Rate",cRateR,y+5.3,{align:"right"});
         doc.text("Amount",cAmtR,y+5.3,{align:"right"});
         y+=rowH;
-        doc.setTextColor(35,35,35); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+        // Descriptions are service-specific and can be long (a full list of blood-test panels, or an
+        // installment breakdown), so each row wraps and grows instead of overflowing into the columns.
+        const descW=cHsnR-6-cDesc;
         lines.forEach((l,i)=>{
+          doc.setFont("helvetica","normal"); doc.setFontSize(9);
+          const dl:string[]=doc.splitTextToSize(l.desc,descW);
+          doc.setFontSize(7.5);
+          const sl:string[]=l.sub?doc.splitTextToSize(l.sub,descW):[];
+          const rh=Math.max(rowH,dl.length*4.2+sl.length*3.4+3.8);
           const ry=y+5.3;
+          doc.setTextColor(35,35,35); doc.setFont("helvetica","normal"); doc.setFontSize(9);
           doc.text(String(i+1),cSno,ry,{align:"center"});
-          doc.text(l.desc,cDesc,ry);
+          doc.text(dl,cDesc,ry);
           doc.text(l.hsn,cHsnR,ry,{align:"right"});
           doc.text("1",cQtyR,ry,{align:"right"});
           doc.text(fmt(l.base),cRateR,ry,{align:"right"});
           doc.text(fmt(l.base),cAmtR,ry,{align:"right"});
-          y+=rowH;
+          if(sl.length){ doc.setFontSize(7.5); doc.setTextColor(95,95,95); doc.text(sl,cDesc,ry+dl.length*4.2); }
+          y+=rh;
           doc.setDrawColor(228); doc.setLineWidth(0.2); doc.line(ML,y,MR,y);
         });
         // table outer border + column separators
