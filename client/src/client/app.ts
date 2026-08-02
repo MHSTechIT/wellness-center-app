@@ -422,7 +422,20 @@ export function initApp(root: HTMLElement) {
     // the splash forever.
     let _initReadyResolve:((v?:any)=>void)|null=null;
     const _initDataReady=new Promise((res)=>{ _initReadyResolve=res; });
-    function _markInitialDataReady(){ if(_initReadyResolve){ const r=_initReadyResolve; _initReadyResolve=null; r(); } }
+    function _markInitialDataReady(){ _haFeedDone=true; try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){} if(_initReadyResolve){ const r=_initReadyResolve; _initReadyResolve=null; r(); } }
+    // ---- "Is the lead book actually loaded yet?" ------------------------------------------------
+    // The Advisor dashboard counts an IN-MEMORY book (_metaLeads + _assignedExtras). Every render
+    // before those arrive produced a confident "Total Leads 0 / Enrolled 0" — with 4,000+ leads in
+    // the database — which reads as data loss, not as loading. Reported repeatedly against
+    // production, where a cold start makes that window long. The cards now show "—" until BOTH
+    // halves of the book have landed: the Meta feed reaching a terminal state (success, empty or
+    // give-up — _markInitialDataReady) AND the non-Meta CSV/Manual/Walk-in extras
+    // (loadAssignmentExtras). A genuine zero still renders as 0 once loading is done.
+    let _haFeedDone=false, _haExtrasDone=false, _haFeedFailed=false;
+    // Ready = the book can be trusted. A feed that gave up is terminal but NOT trustworthy: showing
+    // its "0" would be the same lie in a different disguise, so the cards stay on "—" and the
+    // dashboard says why (see the banner in renderHealthDashboard).
+    function _haBookReady(){ return _haFeedDone&&_haExtrasDone&&!_haFeedFailed; }
     let _appShownOnce=false;
     function showApp(){
       const overlay=root.querySelector("#loginOverlay") as HTMLElement;
@@ -2477,6 +2490,9 @@ export function initApp(root: HTMLElement) {
         // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
         _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null}));
       }catch(_){ /* columns/table may be absent — ignore */ }
+      // Terminal either way (loaded or unavailable) — the book is as complete as it will get, so the
+      // dashboard may now show real numbers instead of the loading placeholder.
+      _haExtrasDone=true;
     }
 
     // ---- Assign & Approve time-range filter (pool / deviation / advisor load) ----
@@ -2969,7 +2985,7 @@ export function initApp(root: HTMLElement) {
         +'<td><span class="chipb '+_callStatusCls(_asnCallStatus(l))+'">'+e(_asnCallStatus(l))+'</span></td>'
         +'<td><div style="display:flex;gap:6px"><button class="btn bsm bp" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">Open profile</button><button class="btn bsm" onclick="window._unassignLead(\''+e(String(l.id))+'\')">Return to pool</button></div></td></tr>';
       }).join("")
-        :'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:18px">No assigned leads yet</td></tr>';
+        :'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:18px">'+(_haBookReady()?"No assigned leads yet":"Loading leads…")+'</td></tr>';
       if(info)info.textContent="Page "+_asnPage+" of "+pages;
       void prev; void next;
       _pgBtns("asn",_asnPage,pages);
@@ -4111,8 +4127,18 @@ export function initApp(root: HTMLElement) {
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
-        const cards=HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer" onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div><div class="mv">'+counts[c.key]+'</div></div>');
-        cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div><div class="mv">'+book.length+'</div></div>');
+        // Until the book has loaded, show a muted "—" rather than a number: a 0 here is
+        // indistinguishable from "you have no leads" (see _haBookReady).
+        const _ready=_haBookReady();
+        const mv=(v:any)=>'<div class="mv"'+(_ready?'':' style="color:var(--faint)" title="Loading leads…"')+'>'+(_ready?v:"—")+'</div>';
+        const cards=[];
+        // Loading / failed-to-load notice, full width above the cards.
+        if(!_ready) cards.push('<div style="grid-column:1/-1;font-size:12px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted)">'
+          +(_haFeedFailed
+            ? '⚠ Couldn’t load your leads — the counts below are not available. Check your connection, then <button class="btn bsm" style="margin-left:6px" onclick="window._refreshMetaFeed()">↻ Reload</button>'
+            : 'Loading leads…')+'</div>');
+        cards.push(...HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer" onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])+'</div>'));
+        cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
@@ -4127,8 +4153,8 @@ export function initApp(root: HTMLElement) {
         // even though it still shows on the lead's own Call History.
         const _callScopeName=_advCallScopeName();
         const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):"";
-        cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div><div class="mv">'+_callAgg.n+'</div></div>');
-        cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div><div class="mv">'+_fmtCallDur(_callAgg.d)+'</div></div>');
+        cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
+        cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
         kpiEl.innerHTML=cards.join("");
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
@@ -4584,6 +4610,10 @@ export function initApp(root: HTMLElement) {
       try{
         const res=await fetch(_api("/api/meta/leads"),{headers:authHeaders()});
         const data=await res.json();
+        // The feed answered — clear any earlier "gave up" state so the dashboard's counts come back
+        // (the 5-minute poll and ↻ Reload both land here). Without this a single bad spell would
+        // leave the cards stuck on "—" for the rest of the session.
+        _haFeedFailed=false;
         if(data.error){
           // Only a real schema problem is permanent; everything else (e.g. a
           // transient "fetch failed" to Supabase) is retried, WITHOUT wiping data.
@@ -4658,6 +4688,9 @@ export function initApp(root: HTMLElement) {
         }
         if(statusEl) statusEl.textContent="⚠ Could not reach the database — click ↻ Reload";
         if(tbody&&!haveData) tbody.innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:24px">Could not reach the database. Click ↻ Reload to retry.</td></tr>';
+        // Tell the Advisor dashboard too — that screen has no Meta status line, so without this it
+        // would just sit on empty counts with no explanation anywhere the advisor can see.
+        if(!haveData) _haFeedFailed=true;
         setMetaConn("disconnected","database unreachable");   // leads aren't flowing → flag it
         _markInitialDataReady();   // gave up — reveal the app (with its offline notice) rather than spin
         return;
@@ -10463,6 +10496,24 @@ export function initApp(root: HTMLElement) {
       return "waiting";
     }
     const _PH_CONSULT:Record<string,{l:string;c:string}>={waiting:{l:"Waiting",c:"warn"},in_session:{l:"In session",c:"info"},completed:{l:"Completed",c:"ok"},cancelled:{l:"Cancelled",c:"al"}};
+    // The patient-assessment form: [input id, physio_data.assessment key, printed label]. ONE list
+    // drives the form fill, the save and the printout — adding a field means adding it here and in
+    // the markup, nowhere else. Pain intensity / health condition / next session are handled
+    // separately because they also live at the top level of physio_data (the sessions table and the
+    // visit history read them there).
+    const PH_ASSESS_FIELDS:[string,string,string][]=[
+      ["phaActivity","physical_activity","Physical activity"],
+      ["phaNutrition","nutrition","Nutrition"],
+      ["phaSmoking","smoking","Smoking"],
+      ["phaAlcohol","alcohol","Alcohol"],
+      ["phaHistory","history","Past medical & surgical history"],
+      ["phaComplaint","complaint","Chief complaint(s)"],
+      ["phaDuration","duration","Duration of symptoms"],
+      ["phaPainLoc","pain_location","Pain location"],
+      ["phaTests","special_tests","Special test results"],
+      ["phaDiagnosis","diagnosis","Diagnosis"],
+      ["phaTreatment","treatment_plan","Treatment plan"],
+    ];
     function _phDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_phDate==="today") return [sod(now),eod(now)];
@@ -10538,12 +10589,29 @@ export function initApp(root: HTMLElement) {
       if(!(await _dbOk(supabase.from("physio_pricing").delete().eq("id",id),"Remove physio pricing"))) return;
       toast("Removed"); await loadPhysioPricing();
     };
-    // Treatment-plan helper: typing a "Sessions planned" that matches a pack (6/8/12…) pre-fills the
-    // pack price from the master. Manual edits after that stand — this only fills on a match.
-    w._phPlanMatch=()=>{
-      const n=Math.round(Number((root.querySelector("#phPlanned")as HTMLInputElement)?.value||0));
-      const pack=_phpPackFor(n); if(!pack) return;
-      const pp=root.querySelector("#phPackPrice")as HTMLInputElement|null; if(pp) pp.value=String(Number(pack.price)||0);
+    // ---- Physiotherapy Session Details (treatment-plan section) helpers ----
+    // Sessions from the plan dropdown (5/8/10) or the Custom Package input.
+    function _phTpSessions():number{
+      const plan=(root.querySelector("#phTpPlan")as HTMLSelectElement)?.value||"";
+      if(plan==="custom") return Math.max(0,Math.round(Number((root.querySelector("#phTpCustom")as HTMLInputElement)?.value||0)||0));
+      return Number(plan)||0;
+    }
+    // Auto amount from the pricing master: Package → the matching pack price (falls back to
+    // per-session rate × sessions when no pack matches); Per Visit → the per-session rate.
+    function _phTpAutoAmt(n:number,model:string):number{
+      if(model!=="pack") return _phpPerSession();
+      const pack=_phpPackFor(n); if(pack) return Number(pack.price)||0;
+      return n>0?_phpPerSession()*n:_phpPerSession();
+    }
+    w._phTpPlanChange=()=>{
+      const plan=(root.querySelector("#phTpPlan")as HTMLSelectElement)?.value||"";
+      const f=root.querySelector("#phTpCustomFld")as HTMLElement|null; if(f) f.style.display=plan==="custom"?"":"none";
+      w._phTpAmtSync();
+    };
+    w._phTpAmtSync=()=>{
+      const model=(root.querySelector("#phTpPayType")as HTMLSelectElement)?.value||"pack";
+      const amt=root.querySelector("#phTpAmt")as HTMLInputElement|null; if(amt) amt.value=String(_phTpAutoAmt(_phTpSessions(),model));
+      const prog=root.querySelector("#phTpProgress"); if(prog&&_phOpenAppt) prog.textContent=(_phOpenAppt.sessionsCompleted||0)+" / "+(_phTpSessions()||"—")+" Sessions Completed";
     };
 
     async function loadPhysioData(){
@@ -10583,7 +10651,7 @@ export function initApp(root: HTMLElement) {
             status:a.status||"expected", stage:a.stage||"", session:a.session||"", pt:a.hc_pt||"",
             condition:pd.condition||adv.condition||"", sessionsPlanned:planned, sessionsCompleted:done,
             payModel:pd.payment_model||"per_visit", packPrice:Number(pd.pack_price)||_phpPerSession(),
-            soap:pd.soap||{}, painLevel:pd.pain_level, visits:pd.visits||[],
+            assessment:pd.assessment||{}, painLevel:pd.pain_level, visits:pd.visits||[],
             nextDate:pd.next_session||"", consult,
             // Straight from the advisor's Physiotherapy panel (leads.advisor_profile.physio).
             advReferral:adv.referral||"", advMode:adv.mode||"", advSlot:adv.timeSlot||"", advReports:(adv.reports||[]).join(", "),
@@ -10603,14 +10671,33 @@ export function initApp(root: HTMLElement) {
     w._phApplyDate=()=>{ if(_phDate==="cust") _phApplyDateFilter(); };   // triggered by the Custom-range Apply button
     // Search (name / phone) + consultation-status filter, applied on top of the date range.
     w._phSearch=(v:string)=>{ _phSearchQ=String(v||""); _phRenderAll(); };
-    w._phStatusF=(k:string)=>{ _phStatus=k||"all";
-      root.querySelectorAll("#phStatusFilt .pill").forEach((b:any)=>b.classList.toggle("on",(b.textContent||"").trim().toLowerCase()===(k==="all"?"all":k)));
-      _phRenderAll(); };
+    // The KPI cards and the filter pills drive ONE state (_phStatus), so they can never disagree —
+    // the pills are just the four consultation statuses, the cards add the other views.
+    const PH_FILTERS:{k:string;label:string;test:(r:any)=>boolean}[]=[
+      {k:"all",label:"All",test:()=>true},
+      {k:"waiting",label:"Waiting",test:(r:any)=>r.consult==="waiting"},
+      {k:"in_session",label:"In session",test:(r:any)=>r.consult==="in_session"},
+      {k:"completed",label:"Completed",test:(r:any)=>r.consult==="completed"},
+      {k:"cancelled",label:"Cancelled",test:(r:any)=>r.consult==="cancelled"},
+      {k:"active_plans",label:"Active plans",test:(r:any)=>r.sessionsPlanned>0&&r.sessionsCompleted<r.sessionsPlanned},
+      {k:"payment_due",label:"Payment due",test:(r:any)=>r.payStatus!=="paid"},
+    ];
+    const _phFilterOf=(k:string)=>PH_FILTERS.find(x=>x.k===k)||PH_FILTERS[0];
+    w._phStatusF=(k:string)=>{ _phStatus=k||"all"; _phRenderAll(); };
+    // KPI card → filter the table to that card, then bring the table into view. Clicking the active
+    // card again clears it, the same toggle-to-clear the Reception status cards and the Blood Test
+    // summary cards use.
+    w._phCardF=(k:string)=>{
+      _phStatus=(_phStatus===k)?"all":(k||"all");
+      _phRenderAll();
+      try{ (root.querySelector("#phSessionsWrap") as HTMLElement|null)?.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(_){}
+    };
     function _phVisibleRows(){
       const q=_phSearchQ.trim().toLowerCase();
       const qDigits=q.replace(/\D/g,"");
+      const pass=_phFilterOf(_phStatus).test;
       return _phFiltered.filter((r:any)=>{
-        if(_phStatus!=="all"&&r.consult!==_phStatus) return false;
+        if(!pass(r)) return false;
         if(!q) return true;
         if(String(r.name||"").toLowerCase().indexOf(q)>=0) return true;
         return !!qDigits && String(r.ph||"").replace(/\D/g,"").indexOf(qDigits)>=0;
@@ -10620,19 +10707,24 @@ export function initApp(root: HTMLElement) {
       const f=_phFiltered; const all=_phAll;
       const rev=f.reduce((s:number,r:any)=>s+Math.max(0,r.payAmt),0);
       const el=(id:string)=>root.querySelector("#"+id); if(el("phRevenue"))(el("phRevenue") as HTMLElement).textContent="₹"+rev.toLocaleString("en-IN");
-      const cnt=(fn:(r:any)=>boolean)=>f.filter(fn).length;
-      const activePlans=all.filter((r:any)=>r.sessionsPlanned>0&&r.sessionsCompleted<r.sessionsPlanned);
-      // Metrics read the SAME consultation status as the table, so the cards and the rows agree.
-      const metrics=[{l:"Patients today",v:f.length,c:""},{l:"Waiting",v:cnt((r:any)=>r.consult==="waiting"),c:"a"},
-        {l:"In session",v:cnt((r:any)=>r.consult==="in_session"),c:""},{l:"Completed",v:cnt((r:any)=>r.consult==="completed"),c:"g"},
-        {l:"Active plans",v:activePlans.length,c:"g"},
-        {l:"Payment due",v:f.filter((r:any)=>r.payStatus!=="paid").length,c:"a"}];
-      const me=el("phMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+      const activePlans=all.filter((r:any)=>r.sessionsPlanned>0&&r.sessionsCompleted<r.sessionsPlanned);   // side "Active patients" list — whole book, not the date window
+      // Every card is a filter: its count comes from the SAME predicate the table applies, so the
+      // number on the card is exactly how many rows clicking it will show.
+      const cardOf=(k:string,label:string,c:string)=>({k,l:label,c,v:f.filter(_phFilterOf(k).test).length});
+      const metrics=[cardOf("all","Patients today",""),cardOf("waiting","Waiting","a"),
+        cardOf("in_session","In session",""),cardOf("completed","Completed","g"),
+        cardOf("cancelled","Cancelled","r"),cardOf("active_plans","Active plans","g"),
+        cardOf("payment_due","Payment due","a")];
+      const me=el("phMetrics"); if(me)(me as HTMLElement).innerHTML=metrics.map(m=>'<div class="metric '+m.c+'" style="cursor:pointer;'+(_phStatus===m.k?"outline:2.5px solid var(--brand);outline-offset:-1px":"")+'" title="Show only these records" onclick="window._phCardF(\''+m.k+'\')"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
+      // Keep the pills in step with whatever set the filter (pill, card, or a card being cleared).
+      root.querySelectorAll("#phStatusFilt .pill").forEach((b:any)=>b.classList.toggle("on",(b.textContent||"").trim().toLowerCase()===_phFilterOf(_phStatus).label.toLowerCase()));
       const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Session table — the full clinical row: appointment, patient, therapist, plan, consultation
       // status, progress, payment and the next visit.
       const vis=_phVisibleRows();
-      const cntEl=el("phSessCount"); if(cntEl)(cntEl as HTMLElement).textContent=String(vis.length);
+      // Header count reflects the active filter (e.g. "3 · Waiting"), so it's obvious the table is
+      // showing a subset rather than everything.
+      const cntEl=el("phSessCount"); if(cntEl)(cntEl as HTMLElement).textContent=String(vis.length)+(_phStatus!=="all"?" · "+_phFilterOf(_phStatus).label:"");
       let tbl='<table class="tbl" style="min-width:1180px"><thead><tr><th>Visit date &amp; time</th><th>Patient</th><th>Phone</th><th>Health condition</th><th>Physiotherapist</th><th>Session / plan</th><th>Consultation</th><th>Progress</th><th>Payment</th><th>Next session</th><th>Actions</th></tr></thead><tbody>';
       if(!vis.length) tbl+='<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:20px">No physiotherapy records match.</td></tr>';
       else vis.forEach((r:any)=>{
@@ -10686,27 +10778,42 @@ export function initApp(root: HTMLElement) {
       setRO("phAdvMode",[r.advMode,r.advSlot].filter(Boolean).join(" · ")||"—");
       setRO("phAdvReports",r.advReports||"—");
       setRO("phAdvNotes",r.advRemarks||"");
-      if(el("phSoapS")) el("phSoapS").value=r.soap.subjective||"";
-      if(el("phSoapO")) el("phSoapO").value=r.soap.objective||"";
-      if(el("phSoapA")) el("phSoapA").value=r.soap.assessment||"";
-      if(el("phSoapP")) el("phSoapP").value=r.soap.plan||"";
+      // ---- Patient assessment (physio_data.assessment) — restore exactly what was entered ----
+      const asm=r.assessment||{};
+      PH_ASSESS_FIELDS.forEach(([id,key])=>{ const e2=el(id); if(e2) e2.value=asm[key]||""; });
       if(el("phPain")) el("phPain").value=r.painLevel!=null?String(r.painLevel):"";
-      if(el("phRom")) el("phRom").value=r.soap.rom||"";
-      if(el("phExercises")) el("phExercises").value=r.soap.exercises||"";
       if(el("phCondition")) el("phCondition").value=r.condition;
       if(el("phNextDate")) el("phNextDate").value=r.nextDate?String(r.nextDate).slice(0,10):"";
-      if(el("phPlanned")) el("phPlanned").value=String(r.sessionsPlanned||"");
-      if(el("phCompleted")) el("phCompleted").value=String(r.sessionsCompleted);
-      if(el("phRemaining")) el("phRemaining").value=String(Math.max(0,(r.sessionsPlanned||0)-r.sessionsCompleted));
-      if(el("phPackPrice")) el("phPackPrice").value=String(r.packPrice||"");
-      root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.toggle("on",b.textContent.toLowerCase().includes(r.payModel==="pack"?"upfront":"per")));
+      // ---- Physiotherapy Session Details ----
+      // Therapist dropdown: active Physiotherapist assignees ∪ the standing names ∪ whatever is
+      // already stored on the appointment (so a legacy value like "Ganesh (PT)" still shows selected).
+      const thSel=el("phTpTherapist");
+      if(thSel){
+        const names=Array.from(new Set([
+          ..._assignees.filter((a:any)=>a.is_active&&/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name||"").trim()),
+          "Karuna","Swathi",
+          ...(r.pt?[String(r.pt).trim()]:[])
+        ].filter(Boolean)));
+        thSel.innerHTML='<option value="">— Select —</option>'+names.map((n:string)=>'<option>'+_orgEsc(n)+'</option>').join("");
+        if(r.pt) thSel.value=String(r.pt).trim();
+      }
+      const planSel=el("phTpPlan"); const nPl=Number(r.sessionsPlanned)||0;
+      if(planSel) planSel.value=[5,8,10].indexOf(nPl)>=0?String(nPl):(nPl>0?"custom":"");
+      const custF=root.querySelector("#phTpCustomFld")as HTMLElement|null; if(custF) custF.style.display=(planSel&&planSel.value==="custom")?"":"none";
+      if(el("phTpCustom")) el("phTpCustom").value=(planSel&&planSel.value==="custom")?String(nPl):"";
+      if(el("phTpStatus")) el("phTpStatus").value=r.consult==="in_session"?"in_progress":r.consult;
+      const prog=root.querySelector("#phTpProgress"); if(prog) prog.textContent=(r.sessionsCompleted||0)+" / "+(nPl||"—")+" Sessions Completed";
+      if(el("phTpNext")) el("phTpNext").value=r.nextDate?String(r.nextDate).slice(0,10):"";
+      if(el("phTpPayType")) el("phTpPayType").value=r.payModel==="pack"?"pack":"per_visit";
+      if(el("phTpPayMode")) el("phTpPayMode").value=(r.phData&&r.phData.payment_mode)||"";
+      if(el("phTpAmt")) el("phTpAmt").value=String(r.packPrice||"");
+      if(el("phTpNotes")) el("phTpNotes").value=(r.phData&&r.phData.session_notes)||"";
       const vh=el("phVisitHistory"); if(vh){ if(r.visits.length){ vh.innerHTML='<table class="tbl"><thead><tr><th>Session</th><th>Date</th><th>Pain</th><th>Notes</th></tr></thead><tbody>'
         +r.visits.map((v:any)=>'<tr><td class="mono">'+v.session+'</td><td class="mono">'+v.date+'</td><td class="mono">'+(v.pain!=null?v.pain+'/10':'—')+'</td><td>'+(_btE(v.notes||"—"))+'</td></tr>').join("")+'</tbody></table>';
       } else { vh.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px">No visits recorded yet.</div>'; } }
       const sp=root.querySelector("#phSoapPanel") as HTMLElement; if(sp) sp.style.display="block";
       sp?.scrollIntoView({behavior:"smooth"}); _phRenderAll();
     };
-    w._phPayModel=(m:string)=>{ root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>b.classList.remove("on")); root.querySelectorAll("#phPayModel .pill").forEach((b:any)=>{if(b.textContent.toLowerCase().includes(m==="pack"?"upfront":"per"))b.classList.add("on");}); };
     // Start = the physiotherapist has taken the patient in. Marks the appointment visited (if
     // Reception's check-in hasn't already) and flips the consultation status Waiting → In session.
     w._phStartSession=async(id:number)=>{ try{
@@ -10725,7 +10832,7 @@ export function initApp(root: HTMLElement) {
       // Idempotent: a session counts + logs a visit exactly once (guards double-click and
       // Complete-then-Save both bumping the counter / adding duplicate visit rows).
       if(!pd._completed){ pd._completed=true; pd.sessions_completed=(Number(pd.sessions_completed)||0)+1;
-        const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level!=null?pd.pain_level:r.painLevel,notes:(pd.soap&&pd.soap.assessment?String(pd.soap.assessment).substring(0,80):"Completed")};
+        const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level!=null?pd.pain_level:r.painLevel,notes:((pd.assessment&&(pd.assessment.diagnosis||pd.assessment.complaint))?String(pd.assessment.diagnosis||pd.assessment.complaint).substring(0,80):"Completed")};
         if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
       }
       pd.consult_status="completed"; pd.completed_at=new Date().toISOString(); pd.started=true;
@@ -10738,16 +10845,22 @@ export function initApp(root: HTMLElement) {
       const r=_phAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
       if(await _phFinishConsult(r)) toast("✓ Consultation completed — "+r.name+" sent to Reception for payment");
     };
-    // "Save notes" — record the assessment WITHOUT finishing the consultation (a mid-plan visit).
-    function _phCollectSoap(pd:any){
-      const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
-      pd.soap={subjective:v("phSoapS"),objective:v("phSoapO"),assessment:v("phSoapA"),plan:v("phSoapP"),rom:v("phRom"),exercises:v("phExercises")};
-      pd.pain_level=Math.max(0,Math.min(10,Number(v("phPain"))||0));   // clamp 0–10
+    // Collect the assessment form into physio_data. One list drives the form fill (_phOpenSession),
+    // the save, and the printout, so a new field only has to be added here and in the markup.
+    function _phCollectAssessment(pd:any){
+      const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement)?.value||"";
+      const asm:any={};
+      PH_ASSESS_FIELDS.forEach(([id,key])=>{ asm[key]=v(id); });
+      pd.assessment=asm;
+      // Pain intensity + health condition ALSO live at the top level: the sessions table's
+      // "Health condition" column and the visit history's Pain column read them there.
+      pd.pain_level=Math.max(0,Math.min(10,Number(v("phPain"))||0));   // clamp to the 1–10 scale
+      pd.condition=v("phCondition");
       pd.next_session=v("phNextDate")||"";
     }
     w._phSaveNotes=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;}
-      const pd=_phOpenAppt.phData||{}; _phCollectSoap(pd); pd.started=true;
+      const pd=_phOpenAppt.phData||{}; _phCollectAssessment(pd); pd.started=true;
       try{ if(!(await _dbOk(supabase.from("appointments").update({physio_data:pd}).eq("id",_phOpenAppt.id),"Save notes"))) return;
         toast("Session notes saved"); await loadPhysioData();
       }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
@@ -10755,18 +10868,62 @@ export function initApp(root: HTMLElement) {
     w._phSaveSoap=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;}
       const r=_phOpenAppt;
-      if(await _phFinishConsult(r,_phCollectSoap)) toast("✓ Consultation completed — "+r.name+" sent to Reception for payment");
+      if(await _phFinishConsult(r,_phCollectAssessment)) toast("✓ Consultation completed — "+r.name+" sent to Reception for payment");
     };
     w._phSavePlan=async()=>{
-      if(!_phOpenAppt){toast("Open a patient first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement)?.value||"";
-      const pd=_phOpenAppt.phData||{}; pd.condition=v("phCondition"); pd.sessions_planned=Number(v("phPlanned"))||0; pd.pack_price=Number(v("phPackPrice"))||0;
-      const isP=root.querySelector("#phPayModel .pill.on")?.textContent?.toLowerCase().includes("upfront"); pd.payment_model=isP?"pack":"per_visit";
-      try{ await supabase.from("appointments").update({physio_data:pd}).eq("id",_phOpenAppt.id); toast("Treatment plan saved"); await loadPhysioData(); }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
+      if(!_phOpenAppt){toast("Open a patient first");return;}
+      const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement)?.value||"";
+      const r=_phOpenAppt; const pd=r.phData||{};
+      const sessions=_phTpSessions();
+      const status=v("phTpStatus");
+      const therapist=v("phTpTherapist").trim();
+      // Health condition stays owned by the assessment form above — never written from here.
+      pd.sessions_planned=sessions;
+      pd.payment_model=v("phTpPayType")==="pack"?"pack":"per_visit";
+      pd.payment_mode=v("phTpPayMode")||"";
+      pd.session_notes=v("phTpNotes")||"";
+      if(v("phTpNext")) pd.next_session=v("phTpNext");
+      pd.pack_price=Math.round(Number(v("phTpAmt")))||_phTpAutoAmt(sessions,pd.payment_model);
+      // "Completed" rides the SAME flow as the Complete buttons (_phFinishConsult): visit logged
+      // once, stage → "Physio Consultation Completed", patient handed to Reception → Collect payment.
+      if(status==="completed"&&r.consult!=="completed"){
+        if(therapist){ try{ await supabase.from("appointments").update({hc_pt:therapist}).eq("id",r.id); }catch(_){} }
+        if(await _phFinishConsult(r)) toast("✓ Session details saved & consultation completed — "+r.name+" sent to Reception for payment");
+        return;
+      }
+      if(status==="in_progress"){ pd.started=true; if(pd.consult_status==="completed") delete pd.consult_status; }
+      if(status==="waiting"){ pd.started=false; delete pd.consult_status; }
+      const patch:any={physio_data:pd};
+      if(therapist) patch.hc_pt=therapist;
+      if(status==="cancelled") patch.status="cancelled";
+      else if(String(r.raw?.status||"")==="cancelled") patch.status="visited";   // revived from cancelled
+      // Un-completing: a stage that still says "…Completed" would force the derived status back to
+      // completed (see _phConsult) — reset it to a neutral physio stage.
+      if(status!=="completed"&&/complet/i.test(String(r.raw?.stage||""))) patch.stage="physio";
+      try{
+        if(!(await _dbOk(supabase.from("appointments").update(patch).eq("id",r.id),"Save session details"))) return;
+        toast("Physiotherapy session details saved"); await loadPhysioData();
+      }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
     };
     w._phCollectPay=()=>{ if(!_phOpenAppt)return; recOpen(_phOpenAppt.id,_phOpenAppt.name,_phOpenAppt.packPrice,_phOpenAppt.lead_id,"physio"); };
-    w._phPrintNotes=()=>{ if(!_phOpenAppt){toast("Open a session first");return;} const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement)?.value||"";
+    w._phPrintNotes=()=>{ if(!_phOpenAppt){toast("Open a patient first");return;}
+      const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement)?.value||"";
+      const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
       const win=window.open("","_blank","width=700,height=900"); if(!win){toast("Allow pop-ups");return;}
-      win.document.write('<html><head><title>Physio Notes — '+(_phOpenAppt.name||"")+'</title></head><body style="font-family:system-ui;padding:28px"><h2>Physiotherapy Session Notes</h2><p>'+_phOpenAppt.name+' · '+new Date().toLocaleDateString("en-IN")+'</p><table style="border-collapse:collapse;width:100%;font-size:13px"><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600;width:120px">Subjective</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapS")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Objective</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapO")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Assessment</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapA")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Plan</td><td style="padding:6px;border:1px solid #ddd">'+v("phSoapP")+'</td></tr><tr><td style="padding:6px;border:1px solid #ddd;font-weight:600">Pain</td><td style="padding:6px;border:1px solid #ddd">'+v("phPain")+'/10</td></tr></table></body></html>');
+      // Printed from the SAME field list the form and the save use, so the sheet can never drift.
+      const row=(label:string,val:string)=>'<tr><td style="padding:6px;border:1px solid #ddd;font-weight:600;width:210px;vertical-align:top">'+esc(label)+'</td><td style="padding:6px;border:1px solid #ddd;white-space:pre-wrap">'+esc(val||"—")+'</td></tr>';
+      const grp=(t:string)=>'<tr><td colspan="2" style="padding:7px 6px;border:1px solid #ddd;background:#F3F4F6;font-weight:700">'+esc(t)+'</td></tr>';
+      const lifestyle=PH_ASSESS_FIELDS.slice(0,4), medical=PH_ASSESS_FIELDS.slice(4);
+      win.document.write('<html><head><title>Physiotherapy assessment — '+esc(_phOpenAppt.name||"")+'</title></head>'
+        +'<body style="font-family:system-ui;padding:28px"><h2>Physiotherapy — patient assessment</h2>'
+        +'<p>'+esc(_phOpenAppt.name)+' · '+esc(_phOpenAppt.ph||"")+' · '+new Date().toLocaleDateString("en-IN")+'</p>'
+        +'<table style="border-collapse:collapse;width:100%;font-size:13px">'
+        +grp("Lifestyle information")+lifestyle.map(([id,,label])=>row(label,v(id))).join("")
+        +grp("Medical assessment")+medical.map(([id,,label])=>row(label,v(id))).join("")
+        +row("Pain intensity",v("phPain")?v("phPain")+"/10":"")
+        +row("Health condition",v("phCondition"))
+        +row("Next session",v("phNextDate"))
+        +'</table></body></html>');
       win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
     };
     // Export exactly what the table shows (same rows, same columns, same filters).

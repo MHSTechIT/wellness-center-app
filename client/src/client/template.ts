@@ -1239,37 +1239,63 @@ export function getMainContent(): string {
             </div>
             <div class="fld fw" style="margin-top:6px"><label class="lbl" for="phAdvNotes">Previous notes / remarks</label><textarea class="area" id="phAdvNotes" rows="2" readonly></textarea></div>
           </div></div>
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Session record — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
+        <!-- Patient assessment — the physiotherapist's own record for this consultation. Everything
+             here is stored in appointments.physio_data.assessment (JSONB), so reopening the patient
+             restores exactly what was entered. -->
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Patient assessment — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
+            <div class="nwGrpHd">Lifestyle information</div>
+            <div class="g4">
+              <div class="fld"><label class="lbl" for="phaActivity">Physical activity</label><select class="select" id="phaActivity"><option value="">— Select —</option><option>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
+              <div class="fld"><label class="lbl" for="phaNutrition">Nutrition</label><select class="select" id="phaNutrition"><option value="">— Select —</option><option>Balanced</option><option>Vegetarian</option><option>Non-vegetarian</option><option>Irregular / poor</option></select></div>
+              <div class="fld"><label class="lbl" for="phaSmoking">Smoking</label><select class="select" id="phaSmoking"><option value="">— Select —</option><option>No</option><option>Occasional</option><option>Regular</option><option>Former</option></select></div>
+              <div class="fld"><label class="lbl" for="phaAlcohol">Alcohol</label><select class="select" id="phaAlcohol"><option value="">— Select —</option><option>No</option><option>Occasional</option><option>Regular</option><option>Former</option></select></div>
+            </div>
+            <div class="nwGrpHd" style="margin-top:12px">Medical assessment</div>
             <div class="g2">
-              <div class="fld"><label class="lbl" for="phSoapS">Subjective (patient says)</label><textarea  class="area" id="phSoapS" placeholder="Pain level, better since last session…"></textarea></div>
-              <div class="fld"><label class="lbl" for="phSoapO">Objective (therapist observes)</label><textarea  class="area" id="phSoapO" placeholder="ROM improved, swelling reduced…"></textarea></div>
-              <div class="fld"><label class="lbl" for="phSoapA">Assessment</label><textarea  class="area" id="phSoapA" placeholder="Progressing well, add resistance…"></textarea></div>
-              <div class="fld"><label class="lbl" for="phSoapP">Plan (next session)</label><textarea  class="area" id="phSoapP" placeholder="Increase reps, core stability…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phaHistory">Past medical &amp; surgical history</label><textarea class="area" id="phaHistory" rows="2" placeholder="Diabetes, hypertension, surgeries…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phaComplaint">Chief complaint(s)</label><textarea class="area" id="phaComplaint" rows="2" placeholder="Lower back pain radiating to the left leg…"></textarea></div>
             </div>
             <div class="g4" style="margin-top:6px">
-              <div class="fld"><label class="lbl" for="phPain">Pain (0–10)</label><input  class="input mono" id="phPain" type="number" min="0" max="10" style="max-width:80px"></div>
-              <div class="fld"><label class="lbl" for="phRom">ROM improvement</label><input  class="input" id="phRom" placeholder="e.g. +15°"></div>
-              <div class="fld"><label class="lbl" for="phExercises">Exercises prescribed</label><input  class="input" id="phExercises" placeholder="e.g. stretches, resistance band"></div>
-              <div class="fld"><label class="lbl" for="phNextDate">Next session</label><input  class="input" type="date" id="phNextDate" data-future="1"></div>
+              <div class="fld"><label class="lbl" for="phaDuration">Duration of symptoms</label><input class="input" id="phaDuration" placeholder="e.g. 3 weeks"></div>
+              <div class="fld"><label class="lbl" for="phaPainLoc">Pain location</label><input class="input" id="phaPainLoc" placeholder="e.g. L4–L5, left knee"></div>
+              <div class="fld"><label class="lbl" for="phPain">Pain intensity (1–10)</label><input class="input mono" id="phPain" type="number" min="1" max="10" placeholder="—"></div>
+              <div class="fld"><label class="lbl" for="phaTests">Special test results</label><input class="input" id="phaTests" placeholder="e.g. SLR positive"></div>
             </div>
-            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"/></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Complete consultation &rarr; Reception</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
+            <div class="g2" style="margin-top:6px">
+              <div class="fld"><label class="lbl" for="phaDiagnosis">Diagnosis</label><textarea class="area" id="phaDiagnosis" rows="2" placeholder="Clinical diagnosis…"></textarea></div>
+              <div class="fld"><label class="lbl" for="phaTreatment">Treatment plan</label><textarea class="area" id="phaTreatment" rows="2" placeholder="Modalities, exercises, home program…"></textarea></div>
+            </div>
+            <div class="g4" style="margin-top:6px">
+              <div class="fld"><label class="lbl" for="phCondition">Health condition</label><input class="input" id="phCondition" placeholder="Shown in the Sessions table"></div>
+              <div class="fld"><label class="lbl" for="phNextDate">Next session</label><input class="input" type="date" id="phNextDate" data-future="1"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"/></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Complete consultation</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
             <p style="font-size:11px;color:var(--faint);margin-top:6px">Completing the consultation sends this patient to Reception &rarr; Collect payment. The payment status then shows on both pages.</p>
           </div></div>
 
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Treatment plan — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Physiotherapy Session Details — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g4">
-              <div class="fld"><label class="lbl" for="phCondition">Condition</label><input  class="input" id="phCondition"></div>
-              <div class="fld"><label class="lbl" for="phPlanned">Sessions planned</label><input  class="input mono" id="phPlanned" type="number" oninput="window._phPlanMatch()" title="Matching a pack (6/8/12…) auto-fills the pack price from the pricing master"></div>
-              <div class="fld"><label class="lbl" for="phCompleted">Sessions completed</label><input  class="input mono" id="phCompleted" readonly></div>
-              <div class="fld"><label class="lbl" for="phRemaining">Remaining</label><input  class="input mono" id="phRemaining" readonly></div>
-              <div class="fld"><label class="lbl">Payment model</label><div class="pills" id="phPayModel"><button class="pill p-ok" onclick="window._phPayModel('pack')">Upfront pack</button><button class="pill" onclick="window._phPayModel('per_visit')">Per visit</button></div></div>
-              <div class="fld"><label class="lbl" for="phPackPrice">Pack / session price (₹)</label><input  class="input mono" id="phPackPrice" type="number"></div>
+              <div class="fld"><label class="lbl" for="phTpTherapist">Physiotherapist name</label><select class="select" id="phTpTherapist"><option value="">— Select —</option><option>Karuna</option><option>Swathi</option></select></div>
+              <div class="fld"><label class="lbl" for="phTpPlan">Session / treatment plan</label><select class="select" id="phTpPlan" onchange="window._phTpPlanChange()"><option value="">— Select —</option><option value="5">5 Sessions</option><option value="8">8 Sessions</option><option value="10">10 Sessions</option><option value="custom">Custom Package</option></select></div>
+              <div class="fld" id="phTpCustomFld" style="display:none"><label class="lbl" for="phTpCustom">Custom sessions</label><input class="input mono" id="phTpCustom" type="number" min="1" placeholder="e.g. 12" oninput="window._phTpAmtSync()"></div>
+              <div class="fld"><label class="lbl" for="phTpStatus">Consultation status</label><select class="select" id="phTpStatus"><option value="waiting">Waiting</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
             </div>
+            <div class="g4" style="margin-top:6px">
+              <div class="fld"><label class="lbl">Session progress <span class="ab">auto</span></label><div class="input mono auto" id="phTpProgress" style="display:flex;align-items:center">—</div></div>
+              <div class="fld"><label class="lbl" for="phTpNext">Next session date</label><input class="input" type="date" id="phTpNext" data-future="1"></div>
+            </div>
+            <div class="nwGrpHd" style="margin-top:12px">Payment details</div>
+            <div class="g4">
+              <div class="fld"><label class="lbl" for="phTpPayType">Payment type</label><select class="select" id="phTpPayType" onchange="window._phTpAmtSync()"><option value="pack">Package</option><option value="per_visit">Per Visit</option></select></div>
+              <div class="fld"><label class="lbl" for="phTpPayMode">Payment mode</label><select class="select" id="phTpPayMode"><option value="">— Select —</option><option>Cash</option><option>UPI</option><option>Card</option><option>Net Banking</option></select></div>
+              <div class="fld"><label class="lbl" for="phTpAmt">Amount (₹) <span class="ab">auto</span></label><input class="input mono" id="phTpAmt" type="number" min="0" title="Auto-filled from the pricing master (pack price or per-session rate) — editable"></div>
+            </div>
+            <div class="fld fw" style="margin-top:6px"><label class="lbl" for="phTpNotes">Session notes</label><textarea class="area" id="phTpNotes" rows="2" placeholder="Optional therapist notes…"></textarea></div>
             <div class="fld fw"><label class="lbl">Visit history</label>
               <div id="phVisitHistory"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">Open a patient to see visit history.</div></div></div>
-            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"/></svg> Save plan</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
+            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"/></svg> Save session details</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
           </div></div>
         </div>
       </div>
