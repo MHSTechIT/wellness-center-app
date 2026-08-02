@@ -13,7 +13,7 @@ export function getMainContent(): string {
       <button class="btn bsm bp" onclick="window._topFilterApply()">Apply</button>
       <button class="btn bsm" onclick="window._topFilterClear()">Clear</button>
     </div></div>
-    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Advisor dashboard
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Advisor dashboard
       <div class="pills" id="asnViewToggle" style="margin-left:auto"><button class="pill on" onclick="window._asnToggleView('list')">List View</button><button class="pill" onclick="window._asnToggleView('kanban')">Kanban View</button></div>
       <select class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px"><option value="all">All call/lead statuses</option></select></div>
       <div class="sec-bd">
@@ -26,7 +26,7 @@ export function getMainContent(): string {
           <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
       <div class="sec-bd">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <input class="input" id="assignedSearch" placeholder="Search lead / phone / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._assignedSearch()">
@@ -41,7 +41,7 @@ export function getMainContent(): string {
         <button class="btn bsm" id="asnLastBtn" onclick="window._asnPage('last')">Last »</button>
         <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
       </div></div></div>
-    <div class="sec" style="margin-bottom:14px" id="asnHistSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"/></svg> Assigned leads history <span class="chipb neu" id="asnHistCount" style="margin-left:8px">0</span></div>
+    <div class="sec" style="margin-bottom:14px" id="asnHistSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"></use></svg> Assigned leads history <span class="chipb neu" id="asnHistCount" style="margin-left:8px">0</span></div>
       <div class="sec-bd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <input class="input" type="date" id="asnHistFrom" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned from">
@@ -61,7 +61,7 @@ export function getMainContent(): string {
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
     <div id="advOpenList" style="display:none"></div>
     <div id="advDetailPane" style="min-width:0">
-    <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"/></svg> <span id="advCtxText"></span></div>
+    <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"></use></svg> <span id="advCtxText"></span></div>
     <div class="chead">
       <span class="cav" id="advAv"></span>
       <div class="cmeta">
@@ -70,10 +70,10 @@ export function getMainContent(): string {
         <div class="cbadges" id="advBadges"></div>
       </div>
       <div class="cacts">
-        <div style="text-align:center"><div class="ring"><svg width="62" height="62" viewBox="0 0 62 62"><circle class="bgc" cx="31" cy="31" r="26"/><circle class="fgc" id="aRing" cx="31" cy="31" r="26" stroke="#C07F0E" stroke-dasharray="163.4" stroke-dashoffset="42"/></svg><span class="rc" id="aClock" style="color:var(--warn-ink)">3:09</span></div><div class="rl">SLA · 4h</div></div>
+        <div style="text-align:center"><div class="ring"><svg width="62" height="62" viewBox="0 0 62 62"><circle class="bgc" cx="31" cy="31" r="26"></circle><circle class="fgc" id="aRing" cx="31" cy="31" r="26" stroke="#C07F0E" stroke-dasharray="163.4" stroke-dashoffset="42"></circle></svg><span class="rc" id="aClock" style="color:var(--warn-ink)">3:09</span></div><div class="rl">SLA · 4h</div></div>
         <span class="chipb vio" id="consBadge" style="height:30px">Status: —</span>
-        <button class="btn bp" id="callBtn" onclick="window._advCallToggle()"><svg class="icon"><use href="#i-phone"/></svg> <span>Call</span></button>
-        <button class="btn bwa"><svg class="icon"><use href="#i-msg"/></svg> WA</button>
+        <button class="btn bp" id="callBtn" onclick="window._advCallToggle()"><svg class="icon"><use href="#i-phone"></use></svg> <span>Call</span></button>
+        <button class="btn bwa"><svg class="icon"><use href="#i-msg"></use></svg> WA</button>
       </div>
     </div>
     <div class="rtabs" id="aTabs">
@@ -82,12 +82,12 @@ export function getMainContent(): string {
       <button data-t="extra">Extra Info</button><button data-t="calls">Call History <span class="mini" id="advCallCount" style="display:none">0</span></button>
     </div>
     <div class="a-p" data-p="recep" style="display:none">
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception-entered data — consent, visited time, registration time, service, token. Audit-logged.</span></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception-entered data — consent, visited time, registration time, service, token. Audit-logged.</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No reception record for this lead yet.</div></div></div>
     </div>
     <div class="a-p" data-p="sales">
-      <div class="sec" id="advBasicSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Basic info <span class="arr">▾</span></div>
+      <div class="sec" id="advBasicSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"></use></svg> Basic info <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="advfName">Name <span class="req">*</span></label><input  class="input" id="advfName" value=""></div>
           <div class="fld"><label class="lbl" for="advfPhone">Phone no <span class="req">*</span></label><input  class="input mono" id="advfPhone" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
@@ -107,7 +107,7 @@ export function getMainContent(): string {
 
       <!-- PHYSIOTHERAPY-SPECIFIC panel — shown only for Physiotherapy leads (data-nocap: kept out of
            the positional advisor-profile capture, persisted separately so other services are untouched). -->
-      <div class="sec" id="advPhysioSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Physiotherapy — basic information <span class="chipb info" style="margin-left:6px">Physio</span> <span class="arr">▾</span></div>
+      <div class="sec" id="advPhysioSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Physiotherapy — basic information <span class="chipb info" style="margin-left:6px">Physio</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
             <div class="fld"><label class="lbl" for="advpApptDate">Preferred appointment date</label><input class="input" type="date" id="advpApptDate" data-nocap data-future="1"></div>
@@ -123,11 +123,11 @@ export function getMainContent(): string {
               <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">Blood Reports</button>
               <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">NCV &amp; EMG</button>
             </div>
-            <div id="advpAtts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span></div></div>
+            <div id="advpAtts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"></use></svg> Upload report</span></div></div>
           <div class="fld fw" style="margin-top:8px"><label class="lbl" for="advpRemarks">Remarks <span class="ab">if any</span></label><textarea class="area" id="advpRemarks" data-nocap rows="3" placeholder="Condition, pain area, doctor's note, referral notes…"></textarea></div>
-        </div></div></div>
+        </div></div>
 
-      <div class="sec" id="advSugarSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"/></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
+      <div class="sec" id="advSugarSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"></use></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="advfSugar">Sugar level <span class="req">*</span></label><select  class="select" id="advfSugar"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
           <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date"></div>
@@ -137,7 +137,7 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Treatment <span class="nb">NEW</span></label><select class="select"><option selected>Allopathy</option><option>Siddha</option><option>Ayurveda</option><option>Homeopathy</option><option>No Treatment</option><option>Skipped</option></select></div>
           <div class="fld"><label class="lbl">Years of treatment <span class="nb">NEW</span></label><select class="select"><option>Less than 1 yr</option><option>1–2 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
           <div class="fld fw"><label class="lbl">Blood report — attachment <span class="nb">NEW</span></label>
-            <div class="atts" id="bloodAtts"><span class="att"><svg class="icon"><use href="#i-clip"/></svg> sugar_report_may26.pdf</span><span class="att add" onclick="addBlood()"><svg class="icon"><use href="#i-clip"/></svg> Add report</span></div></div>
+            <div class="atts" id="bloodAtts"><span class="att"><svg class="icon"><use href="#i-clip"></use></svg> sugar_report_may26.pdf</span><span class="att add" onclick="addBlood()"><svg class="icon"><use href="#i-clip"></use></svg> Add report</span></div></div>
           <div class="fld fw"><label class="lbl">How are they managing now · multi-select</label>
             <div class="chips" data-oth="mgOth"><button class="chip-o on">Medicine</button><button class="chip-o">Insulin</button><button class="chip-o on">Diet</button><button class="chip-o">Fitness</button><button class="chip-o">Yoga</button><button class="chip-o" data-others="1">Others</button></div>
             <input class="input hideblock" id="mgOth" style="margin-top:8px;max-width:380px" placeholder="Enter details…"></div>
@@ -149,10 +149,10 @@ export function getMainContent(): string {
               <button class="chip-o neg">Cancer</button><button class="chip-o neg">Brain Tumor</button><button class="chip-o neg">Recent Heart Surgery</button><button class="chip-o neg">Organ Transplant</button><button class="chip-o neg">Pregnancy</button><button class="chip-o neg">Age Above 75</button><button class="chip-o neg">Already Paid</button><button class="chip-o neg">Other Language</button><button class="chip-o neg" data-others="1">Others</button>
             </div>
             <input class="input hideblock" id="elOth" style="margin-top:8px;max-width:380px" placeholder="Enter exclusion detail…">
-            <div class="banner good" id="eligBanner"><svg class="icon" style="width:16px;height:16px"><use href="#i-check"/></svg> <span>Eligible for diabetes reversal — appointment can be booked.</span></div></div>
+            <div class="banner good" id="eligBanner"><svg class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg> <span>Eligible for diabetes reversal — appointment can be booked.</span></div></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"/></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"></use></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="salesSel">Salesperson <span class="ab">AUTO</span></label><select  class="select auto" id="salesSel" tabindex="-1"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option></select></div>
@@ -162,7 +162,7 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Tags</label><input class="input" placeholder="e.g. hot-lead, follow-up"></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-phone"/></svg> Call status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-phone"></use></svg> Call status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
@@ -173,7 +173,7 @@ export function getMainContent(): string {
           </div>
           <div class="fld"><label class="lbl">Call notes <span class="nb">NEW</span></label><textarea class="area" rows="3" placeholder="What was discussed, objections, next step…"></textarea></div>
           <div class="banner plan hideblock" id="fuPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
-            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Follow-up plan — standard procedure</b></div>
+            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Follow-up plan — standard procedure</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--vio-ink)">Reason / intent</label><select class="select" style="height:36px"><option>Will decide this week</option><option>Family discussion needed</option><option>Budget / salary date</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuPlannedDt">Planned date &amp; time *</label><input  class="input" style="height:36px" type="datetime-local" id="fuPlannedDt" data-future="1" onchange="window._fuPlannedSync()"></div>
@@ -186,16 +186,16 @@ export function getMainContent(): string {
           </div>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-msg"/></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-msg"></use></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g3">
             <div class="fld"><label class="lbl" for="waTplSel">Template</label><select  class="select" id="waTplSel" onchange="waTpl()"><option value="welcome" selected>Welcome &amp; intro</option><option value="appt">Appointment confirmation</option><option value="fu">Follow-up reminder</option><option value="pay">Payment link</option></select></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl" for="waPrev">Preview</label><textarea  class="area" id="waPrev" rows="3" placeholder="Template preview will appear here"></textarea></div>
           </div>
-          <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg class="icon" style="width:14px;height:14px"><use href="#i-msg"/></svg> Send via WATI</button></div>
+          <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg class="icon" style="width:14px;height:14px"><use href="#i-msg"></use></svg> Send via WATI</button></div>
         </div></div>
 
-      <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"/></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
+      <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"></use></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
             <div class="fld"><label class="lbl" for="slotDate">Date</label><input  class="input" type="date" id="slotDate" data-future="1" onchange="renderSlots()"></div>
@@ -204,29 +204,29 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="apptReq">Appt request <span class="ab">AUTO</span></label><input  class="input mono" id="apptReq" readonly placeholder="—"></div>
           </div>
           <div class="fld"><label class="lbl">Day view — slot occupancy</label><div class="slotgrid" id="slotGrid"></div></div>
-          <div class="banner plan hideblock" id="reschBanner" style="display:none"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg> <span>Reschedule mode — pick new slot.</span></div>
-          <div style="display:flex;gap:9px;margin-top:13px"><button class="btn bp" id="bookBtn" onclick="bookSlot()"><svg class="icon"><use href="#i-check"/></svg> <span id="bookBtnLabel">Book into selected slot</span></button><button class="btn hideblock" id="reschBtn" style="display:none" onclick="startResch()"><svg class="icon"><use href="#i-repeat"/></svg> Reschedule</button></div>
+          <div class="banner plan hideblock" id="reschBanner" style="display:none"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg> <span>Reschedule mode — pick new slot.</span></div>
+          <div style="display:flex;gap:9px;margin-top:13px"><button class="btn bp" id="bookBtn" onclick="bookSlot()"><svg class="icon"><use href="#i-check"></use></svg> <span id="bookBtnLabel">Book into selected slot</span></button><button class="btn hideblock" id="reschBtn" style="display:none" onclick="startResch()"><svg class="icon"><use href="#i-repeat"></use></svg> Reschedule</button></div>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"></use></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Visited status <span class="ab">AUTO</span></label><div class="pills" id="visStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Visited</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the receptionist confirms check-in.</div></div>
           <div class="fld"><label class="lbl" for="visDt">Visited date <span class="ab">AUTO</span></label><input  class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
-      <div class="sec" id="advEnrolledSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec" id="advEnrolledSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"></use></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO</span></label><div class="pills" id="enrStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Enrolled</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the health coach marks the client Enrolled.</div></div>
           <div class="fld"><label class="lbl" for="enrDt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"/></svg> Sales caller self-audit <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"></use></svg> Sales caller self-audit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">Self evaluation</div><div class="g3">
           <div class="fld"><label class="lbl glbl">✓ Good</label><textarea class="area"></textarea></div>
           <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea class="area"></textarea></div>
           <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea class="area"></textarea></div></div></div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"/></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"></use></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">BDM evaluation</div><div class="g3">
           <div class="fld"><label class="lbl glbl">✓ Good</label><textarea class="area"></textarea></div>
           <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea class="area"></textarea></div>
@@ -235,26 +235,26 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">BDM score</label><div class="score" id="bdm"><button>1</button><button>2</button><button>3</button><button class="on">4</button><button>5</button></div></div>
             <div class="fld"><label class="lbl">Status</label><select class="select"><option>Open</option><option selected>Done</option></select></div></div></div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"/></svg> Remarks <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"></use></svg> Remarks <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="fld"><textarea class="area" rows="2" placeholder="Add a remark…"></textarea></div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"/></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"></use></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="tscroll js-actlog" id="actLog" style="margin-top:12px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._advSaveRecord()">Save lead record</button></div>
     </div>
     <div class="a-p" data-p="health" style="display:none">
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> This clinical record is owned by the Health coach — advisors can read everything but edit nothing. Every view is audit-logged.</span></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-stetho"/></svg> Consultation &amp; program <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> This clinical record is owned by the Health coach — advisors can read everything but edit nothing. Every view is audit-logged.</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-stetho"></use></svg> Consultation &amp; program <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No health-coach consultation recorded for this lead yet.</div></div></div>
     </div>
-    <div class="a-p" data-p="pay" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Payment history</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No payment records for this lead yet.</div></div></div></div>
-    <div class="a-p" data-p="notes" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"/></svg> Internal notes</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No internal notes for this lead yet.</div></div></div></div>
-    <div class="a-p" data-p="extra" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-doc"/></svg> Extra info</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No additional information for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="pay" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No payment records for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="notes" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"></use></svg> Internal notes</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No internal notes for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="extra" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-doc"></use></svg> Extra info</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No additional information for this lead yet.</div></div></div></div>
     <div class="a-p" data-p="calls" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"/></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
         <div class="sec-bd" id="advCallLog"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"/></svg> History of activity</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"></use></svg> History of activity</div>
         <div class="sec-bd"><div class="tscroll js-actlog" style="margin-top:4px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
     </div>
     </div><!-- /advDetailPane -->
@@ -275,11 +275,11 @@ export function getMainContent(): string {
       <button class="btn bsm" onclick="window._coachFilterClear()">Clear</button>
       <input class="input" id="coSearch" placeholder="Search client / phone…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._coachSearch()">
     </div>
-    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span>
+    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span>
       <div class="pills" id="coachViewToggle" style="margin-left:auto;flex-shrink:0"></div>
       <select class="select" id="coachConsFilter" style="height:30px;font-size:12px;width:210px;margin-left:8px;flex-shrink:0" title="Filter by consultation status" onchange="window._coachConsFilter(this.value)"></select></div>
       <div class="sec-bd"><div class="metrics" id="coachDash" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div></div></div>
-    <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
+    <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
       <input class="input" id="coCliSearch" placeholder="Search client / phone / coach…" style="height:30px;font-size:12px;width:250px;margin-left:auto" oninput="window._coachCliSearch()">
       <button class="btn bsm" style="margin-left:8px" onclick="window._coachCliDownload()">⬇ Download</button></div>
       <div class="sec-bd">
@@ -295,14 +295,14 @@ export function getMainContent(): string {
         </div>
         <div id="coachKanban" style="display:none;overflow-x:auto"></div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
+    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
       <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th>Client</th><th>Phone</th><th>Appointment Fixed Date &amp; Time</th><th>Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
       <div class="cmeta"><h1 id="coachName">No client open</h1>
         <div class="sub" id="coachSub"><span class="mono">Pick a visited client from the table above</span></div>
         <div class="cbadges" id="coachBadges"></div></div>
-      <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: —</span><button class="btn bp" id="coachCallBtn"><svg class="icon"><use href="#i-phone"/></svg> <span>Call</span></button><button class="btn bwa"><svg class="icon"><use href="#i-msg"/></svg> WA</button></div>
+      <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: —</span><button class="btn bp" id="coachCallBtn"><svg class="icon"><use href="#i-phone"></use></svg> <span>Call</span></button><button class="btn bwa"><svg class="icon"><use href="#i-msg"></use></svg> WA</button></div>
     </div>
     <div class="rtabs" id="cTabs">
       <button data-t="recep2">Walk-in Receptionist</button><button data-t="sales2">Walk-in Sales</button><button class="on" data-t="health2">Walk-in Health</button>
@@ -311,7 +311,7 @@ export function getMainContent(): string {
     </div>
     <div class="c-p" data-p="health2">
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"></use></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="crSugar">Sugar level</label><input  class="input" id="crSugar" readonly></div>
           <div class="fld"><label class="lbl" for="crFasting">Fasting / PP</label><input  class="input mono" id="crFasting" readonly></div>
@@ -322,7 +322,7 @@ export function getMainContent(): string {
           <div class="fld fw"><label class="lbl" for="crRemarks">Remarks</label><textarea  class="area" rows="2" id="crRemarks"></textarea></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Screening results — clinic floor <span class="chipb warn" id="scrChip" style="margin-left:8px">Awaiting screening</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Screening results — clinic floor <span class="chipb warn" id="scrChip" style="margin-left:8px">Awaiting screening</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="stub" id="scrEmpty" style="margin-top:12px">Client is at reception / screening. The moment the screening desk saves the M0 baseline, the vitals appear here automatically — read-only, locked as baseline.</div>
           <div class="g4" id="scrData" style="display:none;margin-top:2px">
@@ -338,7 +338,7 @@ export function getMainContent(): string {
             <div class="fld" style="grid-column:span 3"><label class="lbl">Captured by</label><input class="input" value="Screening desk · M0 baseline · locked" readonly></div>
           </div>
         </div></div>
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="aud" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
             <div class="fld fw"><label class="lbl" for="haChief">Chief complaint</label><input  class="input" id="haChief"></div>
@@ -364,7 +364,7 @@ export function getMainContent(): string {
           <button class="btn bp" style="margin-top:12px" onclick="window._coachSaveRecord()">Save health assessment</button>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-stetho"/></svg> Consultation status &amp; program <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-stetho"></use></svg> Consultation status &amp; program <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
             <div class="fld"><label class="lbl" for="haAttendedBy">Attended by (HC)</label><input  class="input" id="haAttendedBy" readonly></div>
@@ -372,7 +372,7 @@ export function getMainContent(): string {
             <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="date" id="haReviewDate" data-future="1"></div>
             <div class="fld"><label class="lbl">Recording status</label><div class="pills" id="recStatusPills"><button class="pill p-vio on" onclick="window._recStatusSet('open')">Open</button><button class="pill p-ok" onclick="window._recStatusSet('done')">Done</button><button class="pill p-al" onclick="window._recStatusSet('notdone')">Not Done</button></div></div>
           </div>
-          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"/></svg></button>
+          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"></use></svg></button>
             <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
             <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
             <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop Recording</button>
@@ -394,7 +394,7 @@ export function getMainContent(): string {
               <button class="pill p-al" onclick="consAct('refund',this)">Refund</button>
             </div></div>
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
-            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"/></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
+            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1" onchange="window._fuCommitSync()" oninput="window._fuCommitSync()"></div>
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuOwner">Owner</label><select  class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
@@ -409,7 +409,7 @@ export function getMainContent(): string {
             <div style="font-size:11.5px;font-weight:500">Auto-touch plan: ① WA summary + program PDF today · ② call T+2 days · ③ WA offer-reminder T+5 · ④ call on commitment date − 1 · ⑤ missed → Deviation + ABM. Every touch logged.</div>
           </div>
           <div class="banner bad hideblock" id="refundPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
-            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-coin"/></svg><b>Refund request — routes through ABM → BM → Accounts (rule-enforced)</b></div>
+            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-coin"></use></svg><b>Refund request — routes through ABM → BM → Accounts (rule-enforced)</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--alert-ink)" for="refReason">Reason *</label><select class="select" id="refReason" style="height:36px"><option value="">-- Select --</option><option>Medical — cannot continue</option><option>Relocation</option><option>Dissatisfied with program</option><option>Financial difficulty</option><option>Duplicate payment</option><option>Others</option></select></div>
               <div><label class="lbl" style="color:var(--alert-ink)" for="refPaid">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refPaid" readonly></div>
@@ -434,11 +434,11 @@ export function getMainContent(): string {
           </div>
         </div></div>
 
-      <div class="sec hideblock" id="paySec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-wallet"/></svg> Payment — <span id="payFlowLbl">standard</span> collection flow <span class="arr">▾</span></div>
+      <div class="sec hideblock" id="paySec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-wallet"></use></svg> Payment — <span id="payFlowLbl">standard</span> collection flow <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div id="coachPaySummary"></div>
           <div class="steps"><div class="step on"><span class="n">1</span> Quote (auto from price master)</div><div class="step on"><span class="n">2</span> Collect — Reception desk / Razorpay link / EMI provider</div><div class="step"><span class="n">3</span> Attach proof *</div><div class="step"><span class="n">4</span> Accounts verifies vs bank</div><div class="step"><span class="n">5</span> Auto receipt + GST invoice</div></div>
-          <div class="banner good" style="margin-top:10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-check"/></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
+          <div class="banner good" style="margin-top:10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-check"></use></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
           <div class="g3" style="margin-top:6px">
             <div class="fld"><label class="lbl" for="payMethod">Payment method</label>
               <select  class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2x)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
@@ -446,29 +446,29 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills" id="payVerify"><button class="pill p-warn on" onclick="window._payVerify('pending',this)">Pending</button><button class="pill p-ok" onclick="window._payVerify('verified',this)">Verified</button></div></div>
           </div>
           <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
-            <button class="btn bsm bp" id="sendCollectBtn" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"/></svg> Send collection request to Reception</button>
+            <button class="btn bsm bp" id="sendCollectBtn" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"></use></svg> Send collection request to Reception</button>
             <span style="font-size:11.5px;color:var(--muted)">Appears instantly in <b>Reception → Collect payment</b> queue with client, plan &amp; amount</span>
           </div>
 
-          <div class="payblk on" id="pb-full"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Full payment</div>
+          <div class="payblk on" id="pb-full"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Full payment</div>
             <div class="g4">
               <div class="fld"><label class="lbl" for="payAmtDue">Amount due <span class="ab">AUTO</span></label><input  class="input mono" id="payAmtDue" readonly></div>
               <div class="fld"><label class="lbl" for="payFullRcvd">Amount received (₹) <span class="req">*</span></label><input  class="input mono" id="payFullRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#payAmtDue','#payFullRcvdErr');window._payCalcFull()"><div id="payFullRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="payFullMode">Mode <span class="req">*</span></label><select  class="select" id="payFullMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="payFullRef">Txn ref / UTR *</label><input  class="input mono" id="payFullRef" placeholder="Mandatory"></div>
               <div class="fld"><label class="lbl" for="payFullDate">Actual paid date</label><input  class="input" type="date" id="payFullDate"></div>
-              <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach screenshot / receipt</span></div></div>
+              <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach screenshot / receipt</span></div></div>
               <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Payment Done</option><option selected>In Process</option><option>Pending</option></select><div class="pills" style="display:none"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
             </div></div>
 
-          <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Installment (2x) — balance never untracked</div>
+          <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl" for="i2Total">Total <span class="ab">AUTO</span></label><input  class="input mono" id="i2Total" placeholder="Auto from L2 price" inputmode="decimal" readonly></div>
               <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="i2Inst1Mode">Mode <span class="req">*</span></label><select  class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="i2Inst1Date">Inst-1 date</label><input  class="input" type="date" id="i2Inst1Date" onchange="window._syncI2BalDue()"></div>
               <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR *</label><input  class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
               <div class="fld"><label class="lbl" for="i2BalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="i2BalDue" readonly></div>
@@ -477,12 +477,12 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="i2BalMode">Mode</label><select  class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="i2BalDate">Balance paid date</label><input  class="input" type="date" id="i2BalDate"></div>
               <div class="fld"><label class="lbl" for="i2BalRef">Txn ref / UTR *</label><input  class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>1st Paid</option><option>2nd Paid</option><option>Both Paid</option><option>In Process</option><option selected>Pending</option></select><div class="pills" style="display:none"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
             </div>
 
-          <div class="payblk" id="pb-emi"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> EMI (BFL / SaveIn) — client pays financier; we track down payment &amp; disbursement</div>
+          <div class="payblk" id="pb-emi"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> EMI (BFL / SaveIn) — client pays financier; we track down payment &amp; disbursement</div>
             <div class="g4">
               <div class="fld"><label class="lbl">Provider</label><select class="select"><option selected>BFL (Bajaj Finserv)</option><option>SaveIn</option></select></div>
               <div class="fld"><label class="lbl">Eligibility (provider tool)</label><div class="pills"><button class="pill p-ok on">Eligible</button><button class="pill p-al">Not Eligible</button></div></div>
@@ -497,17 +497,17 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Documentation date</label><input class="input" type="date"></div>
               <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date" data-future="1"></div>
               <div class="fld"><label class="lbl" for="emiNet">Net after subvention <span class="ab">AUTO</span></label><input  class="input mono" id="emiNet" readonly></div>
-              <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"/></svg> Attach credit proof</span></div></div>
+              <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"></use></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"></use></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"></use></svg> Attach credit proof</span></div></div>
               <div class="fld fw"><label class="lbl">EMI payment collection — status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option selected>Open</option><option>EMI Received</option><option>EMI Process</option></select><div class="pills" style="display:none"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
             </div></div>
 
-          <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> Advance booking — locks the price, starts the clock</div>
+          <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Advance booking — locks the price, starts the clock</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Advance (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl" for="advAmt">Advance (₹2K–5K) <span class="req">*</span></label><input  class="input mono" id="advAmt" placeholder="e.g. 2000" inputmode="numeric" maxlength="9" oninput="window._numOnly(this);window._payCalcAdv()"></div>
               <div class="fld"><label class="lbl" for="advMode">Mode <span class="req">*</span></label><select  class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="advDate">Advance date</label><input  class="input" type="date" id="advDate"></div>
               <div class="fld"><label class="lbl" for="advRef">Txn ref / UTR *</label><input  class="input mono" id="advRef" placeholder="Mandatory"></div>
-              <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
               <div class="fld"><label class="lbl" for="advBalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="advBalDue" readonly></div>
@@ -516,13 +516,13 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="advBalMode">Mode</label><select  class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="advBalDate">Balance paid date</label><input  class="input" type="date" id="advBalDate"></div>
               <div class="fld"><label class="lbl" for="advBalRef">Txn ref / UTR *</label><input  class="input mono" id="advBalRef" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg class="icon"><use href="#i-clip"/></svg> Attach proof</span></div></div>
+              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Advance Paid</option><option selected>Balance Pending</option><option>Fully Paid</option><option>Cancelled</option></select><div class="pills" style="display:none"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
             </div>
         </div></div>
 
-      <div class="sec" id="enrollStatusSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"/></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec" id="enrollStatusSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"></use></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g2">
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO — set from payment</span></label>
             <div><span id="payEnrollChip" class="chipb neu">Not enrolled</span></div>
@@ -530,7 +530,7 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl" for="payEnrollAt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="payEnrollAt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"/></svg> Feedback call <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"></use></svg> Feedback call <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="fld"><label class="lbl">Call outcome</label>
             <div class="pills"><button class="pill p-ok">Attended — Feedback Collected</button><button class="pill p-warn">Not Attended — Rescheduled</button><button class="pill p-info">Call Back Requested</button><button class="pill p-al">Switched Off</button><button class="pill p-vio on">Open</button></div></div>
@@ -538,9 +538,9 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Feedback notes</label><textarea class="area"></textarea></div>
         </div></div>
 
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"/></svg> <span>Follow-up &amp; collection sections removed from this screen — committed-not-paid runs through the <b>strong follow-up flow</b> above; balance chasing lives in <b>Accounts → Outstanding</b> with auto-reminders.</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> <span>Follow-up &amp; collection sections removed from this screen — committed-not-paid runs through the <b>strong follow-up flow</b> above; balance chasing lives in <b>Accounts → Outstanding</b> with auto-reminders.</span></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-gift"/></svg> Welcome kit <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-gift"></use></svg> Welcome kit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="haAttendedBy3">Attended by <span class="ab">AUTO</span></label><input  class="input" id="haAttendedBy3" readonly></div>
           <div class="fld" style="grid-column:span 2"><label class="lbl">Welcome kit status</label>
@@ -549,29 +549,29 @@ export function getMainContent(): string {
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._coachSaveRecord()">Save health record</button><button class="btn" style="height:45px" onclick="window._coachPrint()">📋 Print prescription</button></div>
     </div>
-    <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody id="coachRecepBody"><tr><td style="color:var(--muted)">Visited</td><td class="mono">—</td><td style="color:var(--muted)">Registered</td><td class="mono">—</td><td style="color:var(--muted)">Consent</td><td>—</td></tr></tbody></table></div></div></div>
+    <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody id="coachRecepBody"><tr><td style="color:var(--muted)">Visited</td><td class="mono">—</td><td style="color:var(--muted)">Registered</td><td class="mono">—</td><td style="color:var(--muted)">Consent</td><td>—</td></tr></tbody></table></div></div></div>
     <div class="c-p" data-p="sales2" style="display:none">
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span><b>View only.</b> This sales record is owned by the Health advisor — coaches can read the full journey but edit nothing.</span></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Basic &amp; pipeline <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> This sales record is owned by the Health advisor — coaches can read the full journey but edit nothing.</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Basic &amp; pipeline <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><table class="tbl"><tbody id="roBasic">
           <tr><td style="color:var(--muted)">Occupation</td><td>—</td><td style="color:var(--muted)">Language</td><td>—</td><td style="color:var(--muted)">Source · campaign</td><td>—</td></tr>
           <tr><td style="color:var(--muted)">Location</td><td>—</td><td style="color:var(--muted)">Salesperson</td><td style="font-weight:600">—</td><td style="color:var(--muted)">Priority · probability</td><td>—</td></tr>
         </tbody></table></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Sugar profile &amp; eligibility <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Sugar profile &amp; eligibility <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><table class="tbl"><tbody id="roSugar">
           <tr><td style="color:var(--muted)">Sugar level</td><td>—</td><td style="color:var(--muted)">Fasting / PP</td><td class="mono">—</td><td style="color:var(--muted)">HbA1c</td><td class="mono" style="font-weight:700">—</td></tr>
           <tr><td style="color:var(--muted)">Treatment</td><td>—</td><td style="color:var(--muted)">Managing now</td><td>—</td><td style="color:var(--muted)">Eligibility</td><td>—</td></tr>
         </tbody></table></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"/></svg> Call journey &amp; appointment <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"></use></svg> Call journey &amp; appointment <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><table class="tbl"><tbody id="roCalls">
           <tr><td style="color:var(--muted)">Call status</td><td>—</td><td style="color:var(--muted)">Appointment</td><td class="mono">—</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">—</td></tr>
           <tr><td style="color:var(--muted)">Last call note</td><td colspan="5">—</td></tr>
         </tbody></table></div></div>
     </div>
-    <div class="c-p" data-p="pay2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Payment history</div><div class="sec-bd"><div id="coachPayHist"><div class="stub">No payment records for this client yet.</div></div></div></div></div>
+    <div class="c-p" data-p="pay2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div id="coachPayHist"><div class="stub">No payment records for this client yet.</div></div></div></div></div>
     <div class="c-p" data-p="notes2" style="display:none"><div class="stub">Internal notes.</div></div>
     <div class="c-p" data-p="extra2" style="display:none"><div class="stub">Extra info.</div></div>
-    <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-phone"/></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div></div>
+    <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div></div>
   </div></section>
 
   <!-- LEAD IMPORT -->
@@ -593,7 +593,7 @@ export function getMainContent(): string {
       </div>
     </div>
     <div class="metrics kpigrid" id="impMetrics" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))"></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bolt"/></svg> Source connections <span class="arr">▾</span></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bolt"></use></svg> Source connections <span class="arr">▾</span></div>
       <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:1100px" id="srcConnTable"><thead><tr><th style="width:36px"><input type="checkbox" id="srcSelAll" style="accent-color:var(--brand)"></th><th>Total leads</th><th>Lead source</th><th>Status</th><th>Today</th><th>Last lead</th><th>Mode</th><th>Valid</th><th>Unique</th><th>Duplicate</th><th>Assigned</th><th>Unassigned</th></tr></thead><tbody id="srcTableBody"></tbody></table></div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
         <select class="select" id="srcBulkAction" style="height:32px;font-size:12px;width:250px"><option value="pool">Send unassigned leads → assignment</option><option value="export">Export leads (CSV)</option></select>
@@ -602,7 +602,7 @@ export function getMainContent(): string {
       </div>
       <div class="rb" id="metaLeadAlert" style="margin-top:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px">
         <span id="metaLeadAlertText" style="font-size:12.5px;font-weight:600;color:var(--ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok" id="metaLeadAlertChip">Monitoring</span></div></div></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"/></svg> Live incoming feed <span style="font-size:11px;color:var(--faint);margin-left:8px" id="metaFeedStatus">Connecting to Meta…</span> <span class="arr">▾</span></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-inbox"></use></svg> Live incoming feed <span style="font-size:11px;color:var(--faint);margin-left:8px" id="metaFeedStatus">Connecting to Meta…</span> <span class="arr">▾</span></div>
       <div class="sec-bd">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
         <div class="tabs" id="feedViewTabs" style="margin-bottom:0">
@@ -627,7 +627,7 @@ export function getMainContent(): string {
         <button class="btn bsm" id="metaLastBtn" onclick="window._metaPage('last')">Last »</button>
       </div>
       <div style="display:flex;gap:9px;margin-top:12px;align-items:center;flex-wrap:wrap"><button class="btn bsm bp" onclick="window._sendToAssignment()">Send to assignment →</button><span style="font-size:12px;font-weight:700;color:var(--brand-600)" id="feedSelCount"></span><button class="btn bsm bp" id="metaSyncBtn" onclick="window._syncFromMeta()" style="margin-left:auto">⟳ Sync from Meta</button><button class="btn bsm" onclick="window._refreshMetaFeed()">↻ Reload</button><span style="font-size:11px;color:var(--faint)" id="metaFeedCount"></span></div></div></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clip"/></svg> Bulk CSV import — wizard <span class="arr">▾</span></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clip"></use></svg> Bulk CSV import — wizard <span class="arr">▾</span></div>
       <div class="sec-bd">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
           <div class="steps" style="flex:1;min-width:240px"><div class="step on"><span class="n">✓</span> Upload</div><div class="step on"><span class="n">2</span> Map columns</div><div class="step"><span class="n">3</span> De-dupe &amp; import</div></div>
@@ -733,7 +733,7 @@ export function getMainContent(): string {
     <!-- KPI drill-down: the rows behind whichever Lead-import KPI card was clicked. Hidden until
          a card is clicked (window._impDrill), then filled + scrolled into view. -->
     <div class="sec" id="impDrillWrap" style="display:none;margin-bottom:14px">
-      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> <span id="impDrillTitle">Leads</span> <span class="chipb ok" id="impDrillCount" style="margin-left:8px">0</span>
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"></use></svg> <span id="impDrillTitle">Leads</span> <span class="chipb ok" id="impDrillCount" style="margin-left:8px">0</span>
         <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <button class="btn bsm" onclick="window._impDrillDownload()">⬇ Download</button>
           <button class="btn bsm" onclick="window._impDrillClose()">Close</button>
@@ -770,7 +770,7 @@ export function getMainContent(): string {
     </div>
     <div class="tabs" id="abmTabs"><button class="on" data-t="assign">Assignment</button><button data-t="dev">Deviation <span class="mini" id="devTabCount">0</span></button><button data-t="appr">Approvals <span class="mini" id="apprTabCount">0</span></button><button data-t="rules">Auto-assign rules</button></div>
     <div class="abm-p" data-p="assign">
-      <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
+      <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"></use></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
         <div class="sec-bd">
           <div style="margin-bottom:10px"><input class="input" id="poolSearch" placeholder="Search lead / number…" style="height:30px;font-size:12px;width:250px" oninput="window._poolSearch()"></div>
           <div class="tscroll"><table class="tbl"><thead><tr id="poolHead"><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Leads Number</th><th>Date &amp; Time</th><th>Source · lang</th><th>Service(s)</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
@@ -791,9 +791,9 @@ export function getMainContent(): string {
           <button class="btn bsm bp" style="margin-top:0" onclick="window._assignSelected()">Assign selected</button>
           <button class="btn bsm" id="poolRRBtn" style="margin-top:0" onclick="window._assignSelectedRR()" disabled title="Select 2 or more advisors to round-robin">Assign selected (round-robin)</button>
         </div></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor load <span style="font-size:11px;color:var(--faint);font-weight:500;margin-left:6px">— click an advisor to see their leads below</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Advisor load <span style="font-size:11px;color:var(--faint);font-weight:500;margin-left:6px">— click an advisor to see their leads below</span></div>
         <div class="sec-bd"><div class="tscroll"><table class="tbl"><thead><tr id="advLoadHead"><th>Advisor</th><th>Role</th><th>Branch</th><th>Active leads</th><th>Status</th></tr></thead><tbody id="advisorLoadBody"></tbody></table></div></div></div>
-      <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Advisor Load Leads <span id="advLeadsWho" style="font-size:11.5px;font-weight:600;color:var(--faint);margin-left:6px">— all advisors</span> <span class="chipb neu" id="advLeadsCount" style="margin-left:auto">0</span></div>
+      <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Advisor Load Leads <span id="advLeadsWho" style="font-size:11.5px;font-weight:600;color:var(--faint);margin-left:6px">— all advisors</span> <span class="chipb neu" id="advLeadsCount" style="margin-left:auto">0</span></div>
         <div class="sec-bd">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
             <div style="display:flex;flex-direction:column;gap:3px">
@@ -829,7 +829,7 @@ export function getMainContent(): string {
         <button data-dt="lead" onclick="window._devSubTab('lead')">Leads Deviation <span class="mini" id="leadDevCount">0</span></button>
       </div>
       <div class="dev-sub" data-dtp="call">
-        <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Call Deviation — in the system 4h+ with no call activity</div>
+        <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"></use></svg> Call Deviation — in the system 4h+ with no call activity</div>
           <div class="sec-bd">
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Clears once a call status is set (beyond New/Open) or a call recording is logged.</span>
@@ -850,7 +850,7 @@ export function getMainContent(): string {
           </div></div>
       </div>
       <div class="dev-sub" data-dtp="lead" style="display:none">
-        <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Leads Deviation — assigned but not called within 4h</div>
+        <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"></use></svg> Leads Deviation — assigned but not called within 4h</div>
           <div class="sec-bd">
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Cleared once the assigned advisor logs a call (status beyond New/Open or a recording).</span>
@@ -871,12 +871,12 @@ export function getMainContent(): string {
           </div></div>
       </div></div>
     <div class="abm-p" data-p="appr" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Pending approvals</div><div class="sec-bd">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"></use></svg> Pending approvals</div><div class="sec-bd">
         <table class="tbl"><thead><tr><th>Type</th><th>Detail</th><th>Chain</th><th></th></tr></thead><tbody id="approvalsBody"></tbody></table>
-        <div class="banner plan" style="margin-top:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"/></svg> <span>Approvals (discounts, refunds) will appear here once the approvals workflow is connected to a data source.</span></div>
+        <div class="banner plan" style="margin-top:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span>Approvals (discounts, refunds) will appear here once the approvals workflow is connected to a data source.</span></div>
         <div class="fld" style="max-width:320px;margin-top:12px"><label class="lbl">Delegate while away</label><select class="select"><option>— Off —</option><option>Branch manager</option></select></div></div></div></div>
     <div class="abm-p" data-p="rules" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Auto-assign rules</div><div class="sec-bd"><div class="g3">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"></use></svg> Auto-assign rules</div><div class="sec-bd"><div class="g3">
         <div class="fld"><label class="lbl">Mode</label><div class="pills"><button class="pill p-vio on">Manual</button><button class="pill p-info">Round-robin</button><button class="pill p-ok">Rule-based</button></div></div>
         <div class="fld"><label class="lbl">Max leads / advisor</label><input class="input mono" value="40"></div>
         <div class="fld"><label class="lbl">First-contact SLA</label><input class="input mono" value="4h 00m"></div>
@@ -887,7 +887,7 @@ export function getMainContent(): string {
   <section class="screen" id="s-reception"><div style="padding:10px 14px 60px;max-width:100%">
     <div class="inbound" id="inboundBar" style="display:none"><span style="font-size:22px">📞</span><div><b id="inboundName">Incoming call</b><div style="font-size:12px;opacity:.85" id="inboundSub"></div></div><button class="btn bsm" style="background:#fff;color:var(--brand-600);margin-left:auto" onclick="hideInbound()">Dismiss</button></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;align-items:center;gap:9px"><svg class="icon" style="stroke:#fff;width:18px;height:18px"><use href="#i-coin"/></svg><div><div style="font-size:9px;opacity:.8;font-weight:600;letter-spacing:.06em">REVENUE</div><div style="font-family:var(--disp);font-size:20px;font-weight:700" id="revTotal">₹0</div></div></div>
+      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;align-items:center;gap:9px"><svg class="icon" style="stroke:#fff;width:18px;height:18px"><use href="#i-coin"></use></svg><div><div style="font-size:9px;opacity:.8;font-weight:600;letter-spacing:.06em">REVENUE</div><div style="font-family:var(--disp);font-size:20px;font-weight:700" id="revTotal">₹0</div></div></div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:14px" id="revSvc"></div>
       <div style="margin-left:auto;display:flex;gap:7px"><button class="btn bp" onclick="nwToggle()">+ New walk-in</button></div>
     </div>
@@ -904,14 +904,14 @@ export function getMainContent(): string {
       <div id="scCards" class="metrics" style="margin:0;grid-template-columns:repeat(4,1fr)"></div>
       <div id="svcFlows" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"></div>
     </div>
-    <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-cal"/></svg> Appointments <span class="chipb info" style="margin-left:6px" id="apptCount">0</span> <span style="margin-left:auto;font-size:11px;color:var(--faint)">Click row → full record</span> <input class="input" id="apptSearch" placeholder="Search lead number…" onclick="event.stopPropagation()" oninput="window._apptSearch(this.value)" style="height:32px;max-width:220px;margin-left:12px;font-size:12px"> <span class="arr">▾</span></div>
+    <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-cal"></use></svg> Appointments <span class="chipb info" style="margin-left:6px" id="apptCount">0</span> <span style="margin-left:auto;font-size:11px;color:var(--faint)">Click row → full record</span> <input class="input" id="apptSearch" placeholder="Search lead number…" onclick="event.stopPropagation()" oninput="window._apptSearch(this.value)" style="height:32px;max-width:220px;margin-left:12px;font-size:12px"> <span class="arr">▾</span></div>
       <div class="ftable-wrap" id="apptWrap" style="max-height:380px"></div>
     </div>
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:10px;align-items:start">
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-user"/></svg> Client cross-check <span class="arr">▾</span></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-user"></use></svg> Client cross-check <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div style="display:flex;gap:7px"><input class="input" id="ccQ" style="height:35px" placeholder="Try: 98412 or 99999 or Prasad"><button class="btn bsm bp" onclick="ccSearch()">Search</button></div><div id="ccRes" style="margin-top:8px"></div></div></div>
-        <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> CLIENT REGISTRATION FORM</div>
+        <div class="sec hideblock" id="nwPanel" style="display:none"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> CLIENT REGISTRATION FORM</div>
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="nwStep" data-step="1">
               <div class="nwGrpHd">Personal details</div>
@@ -964,7 +964,7 @@ export function getMainContent(): string {
           </div></div>
       </div>
       <div>
-        <div class="sec" style="margin-top:0" id="checkinSec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Check-in <span id="ciName">—</span> <span class="arr">▾</span></div>
+        <div class="sec" style="margin-top:0" id="checkinSec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Check-in <span id="ciName">—</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="g2" style="gap:8px">
               <div class="fld"><label class="lbl" for="ciSearch">Search</label><input  class="input" style="height:34px" id="ciSearch" placeholder="Client ID, name or phone" oninput="window._ciLookup()"></div>
@@ -976,11 +976,11 @@ export function getMainContent(): string {
             <div class="consent" style="font-size:12px"><label><input type="checkbox" checked> DPDP data use</label><label><input type="checkbox" checked> Health data</label><label><input type="checkbox" checked> Recording</label><label><input type="checkbox"> WA follow-ups</label></div>
             <button class="btn bp bsm" style="margin-top:8px" id="ciConfirmBtn" onclick="recRegDone()">Confirm → screening</button>
           </div></div>
-        <div class="sec" id="zoomCiSecRec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:6px">0</span> <span class="arr">▾</span></div>
+        <div class="sec" id="zoomCiSecRec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:6px">0</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
             <div class="tscroll"><table class="tbl" style="min-width:440px"><thead><tr><th>Client</th><th>Phone</th><th>Appointment Fixed Date &amp; Time</th><th>Status</th><th>Action</th></tr></thead><tbody id="zoomCiListRec"></tbody></table></div>
           </div></div>
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-coin"/></svg> Collect payment <span class="arr">▾</span></div>
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-coin"></use></svg> Collect payment <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
             <div id="recWb" class="hideblock" style="display:none;border:1.5px solid var(--brand-line);border-radius:11px;padding:11px 13px;margin-top:8px;background:linear-gradient(180deg,#F7FCFA,#fff)">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b id="recWbName" style="font-family:var(--disp);font-size:14px">—</b><span class="chipb info" id="recWbPlan">—</span></div>
@@ -998,7 +998,7 @@ export function getMainContent(): string {
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Collect payment</h1>
       <button class="btn" style="margin-left:auto" onclick="window._cpBack()">↩ Back to Reception</button>
     </div>
-    <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Client information</div>
+    <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Client information</div>
       <div class="sec-bd">
         <div class="g3" style="gap:10px 14px">
           <div class="fld"><label class="lbl">Name</label><input  class="input" style="height:38px" id="cpName" readonly></div>
@@ -1008,12 +1008,12 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Selected service</label><input  class="input" style="height:38px" id="cpSvc" readonly></div>
         </div>
       </div></div>
-    <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)">Tick every test / panel the client is paying for</span></div>
+    <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)">Tick every test / panel the client is paying for</span></div>
       <div class="sec-bd">
         <!-- Rendered live from the Blood Test Pricing Master (bt_tests) by _cpRenderTests(). -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap"></div>
       </div></div>
-    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Payment</div>
+    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Payment</div>
       <div class="sec-bd">
         <div class="fld" style="margin-bottom:8px"><label class="lbl">Selected blood test panel(s)</label><input  class="input" style="height:38px" id="cpPanels" readonly placeholder="Tick a test / panel above"></div>
         <div class="g3" style="gap:10px 14px;margin-bottom:8px">
@@ -1043,12 +1043,12 @@ export function getMainContent(): string {
       <input type="date" class="input" id="scFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="scTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="scApplyBtn" style="display:none;height:30px" onclick="window._scApplyDate()">Apply</button>
-      <button class="btn" style="margin-left:auto" onclick="window._scExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
+      <button class="btn" style="margin-left:auto" onclick="window._scExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="scMetrics"></div>
     <div style="display:grid;grid-template-columns:1fr 310px;gap:14px">
       <div>
-        <div class="sec" id="scAssessPanel" style="margin-top:0;display:none"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Assessment — <span id="scAssessName">Select a client</span> <span class="chipb info" style="margin-left:8px" id="scAssessChip">Baseline · M0</span>
+        <div class="sec" id="scAssessPanel" style="margin-top:0;display:none"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"></use></svg> Assessment — <span id="scAssessName">Select a client</span> <span class="chipb info" style="margin-left:8px" id="scAssessChip">Baseline · M0</span>
           <button class="btn bsm" style="margin-left:auto" onclick="window._scCloseAssess()">Close</button></div>
           <div class="sec-bd">
             <div class="g4">
@@ -1069,19 +1069,19 @@ export function getMainContent(): string {
             </div>
             <div class="fld"><label class="lbl" for="sc_notes">Notes</label><textarea  class="area" id="sc_notes"></textarea></div>
             <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-              <button class="btn bsm bp" onclick="screeningDone()"><svg class="icon" style="width:14px;height:14px"><use href="#i-check"/></svg> Save &amp; send to HC</button>
+              <button class="btn bsm bp" onclick="screeningDone()"><svg class="icon" style="width:14px;height:14px"><use href="#i-check"></use></svg> Save &amp; send to HC</button>
               <button class="btn bsm" onclick="window._scPrint()">🖨 Print</button>
             </div>
           </div></div>
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"/></svg> Previous screenings — same client <span class="arr">▾</span></div>
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"></use></svg> Previous screenings — same client <span class="arr">▾</span></div>
           <div class="sec-bd" id="scHistoryWrap"><div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">Open a client to see history.</div></div></div>
       </div>
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Queue <span class="chipb info" style="margin-left:6px" id="scQueueCount">0</span></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Queue <span class="chipb info" style="margin-left:6px" id="scQueueCount">0</span></div>
           <div class="sec-bd" id="scQueueList"><div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No clients in screening queue.</div></div></div>
-        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> Breakdown</div>
+        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Breakdown</div>
           <div class="sec-bd" id="scBreakdown"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">—</div></div></div>
-        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Quick test order</div>
+        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Quick test order</div>
           <div class="sec-bd"><div class="pills" id="scTestPills"><button type="button" class="pill p-ok on" onclick="window._scTogTest(this)">HbA1c</button><button type="button" class="pill p-ok on" onclick="window._scTogTest(this)">FBS</button><button type="button" class="pill" onclick="window._scTogTest(this)">Lipid</button><button type="button" class="pill" onclick="window._scTogTest(this)">Thyroid</button></div>
             <button class="btn bp bsm" style="margin-top:10px" onclick="window._scOrderTests()">Order &amp; print</button></div></div>
       </div>
@@ -1097,7 +1097,7 @@ export function getMainContent(): string {
       <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="btApplyBtn" style="display:none;height:30px" onclick="window._btApplyDate()">Apply</button>
       <button class="btn bp" style="margin-left:auto" onclick="window._btIntakeOpen()">+ New walk-in</button>
-      <button class="btn" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
+      <button class="btn" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap" id="btRevCards">
       <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div></div></div>
@@ -1108,7 +1108,7 @@ export function getMainContent(): string {
     <!-- ===== Stage 1 — Reception: intake → tests → coupon → contact → payment → order → sample.
          Collapsed until "New walk-in" is clicked so the worklist stays the default view. ===== -->
     <div class="sec" id="btIntakeSec" style="display:none">
-      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"/></svg> New blood-test walk-in
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> New blood-test walk-in
         <button class="btn bsm" style="margin-left:auto" onclick="window._btIntakeClose()">Cancel</button></div>
       <div class="sec-bd">
         <!-- FR-1.1 / FR-1.2: phone lookup first; an existing lead/client skips re-entry. -->
@@ -1146,7 +1146,7 @@ export function getMainContent(): string {
       </div>
     </div>
 
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"/></svg> Appointment-linked records <span class="arr">▾</span></div>
+    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"></use></svg> Appointment-linked records <span class="arr">▾</span></div>
       <div class="sec-bd">
         <!-- Search + status filters (static so typing never loses focus on re-render) -->
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
@@ -1164,7 +1164,7 @@ export function getMainContent(): string {
 
     <!-- Blood test detail panel (hidden by default) -->
     <div id="btDetailPanel" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Blood test record — <span id="btDetailName">Client</span>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Blood test record — <span id="btDetailName">Client</span>
         <button class="btn bsm" style="margin-left:auto" onclick="window._btCloseDetail()">Close</button></div>
         <div class="sec-bd">
           <!-- Tests / panels multi-select (spec-fixed catalogue) -->
@@ -1182,10 +1182,10 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="btdOurPrice">Our price (₹)</label><input  class="input mono" id="btdOurPrice" type="number" placeholder="e.g. 800"></div>
           </div>
           <div class="fld fw" style="margin-top:6px"><label class="lbl">Report attachment</label>
-            <div id="btdAtts" style="display:flex;gap:8px;flex-wrap:wrap"><span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span></div></div>
+            <div id="btdAtts" style="display:flex;gap:8px;flex-wrap:wrap"><span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"></use></svg> Upload report</span></div></div>
           <div style="display:flex;gap:8px;margin-top:12px">
-            <button class="btn bp" onclick="window._btSaveDetail()"><svg class="icon"><use href="#i-check"/></svg> Save</button>
-            <button class="btn" onclick="window._btShareWA()"><svg class="icon"><use href="#i-msg"/></svg> Share via WA</button>
+            <button class="btn bp" onclick="window._btSaveDetail()"><svg class="icon"><use href="#i-check"></use></svg> Save</button>
+            <button class="btn" onclick="window._btShareWA()"><svg class="icon"><use href="#i-msg"></use></svg> Share via WA</button>
             <button class="btn" onclick="window._btCollectPay()">💰 Collect payment</button>
           </div>
         </div></div>
@@ -1202,12 +1202,12 @@ export function getMainContent(): string {
       <button class="btn bsm bp" id="phApplyBtn" style="display:none;height:30px" onclick="window._phApplyDate()">Apply</button>
       <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Revenue</span>
       <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)" id="phRevenue">₹0</span>
-      <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"/></svg> Export</button>
+      <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
     <div style="display:grid;grid-template-columns:1fr 340px;gap:14px">
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"/></svg> Sessions <span class="chipb neu" id="phSessCount" style="margin-left:6px">0</span></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"></use></svg> Sessions <span class="chipb neu" id="phSessCount" style="margin-left:6px">0</span></div>
           <div class="sec-bd">
             <!-- Search + consultation-status filters (static markup so typing never loses focus) -->
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
@@ -1225,7 +1225,7 @@ export function getMainContent(): string {
         <!-- Assessment / SOAP panel (hidden until a patient record is opened) -->
         <div id="phSoapPanel" style="display:none">
         <!-- Carried over from the Health Advisor's Physiotherapy panel — read-only here. -->
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Patient — from Health Advisor <span id="phAdvWho" class="chipb info" style="margin-left:6px">—</span> <span class="arr">▾</span></div>
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"></use></svg> Patient — from Health Advisor <span id="phAdvWho" class="chipb info" style="margin-left:6px">—</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g4">
               <div class="fld"><label class="lbl" for="phAdvName">Name</label><input class="input" id="phAdvName" readonly></div>
@@ -1242,7 +1242,7 @@ export function getMainContent(): string {
         <!-- Patient assessment — the physiotherapist's own record for this consultation. Everything
              here is stored in appointments.physio_data.assessment (JSONB), so reopening the patient
              restores exactly what was entered. -->
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Patient assessment — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"></use></svg> Patient assessment — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="nwGrpHd">Lifestyle information</div>
             <div class="g4">
@@ -1270,11 +1270,11 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="phCondition">Health condition</label><input class="input" id="phCondition" placeholder="Shown in the Sessions table"></div>
               <div class="fld"><label class="lbl" for="phNextDate">Next session</label><input class="input" type="date" id="phNextDate" data-future="1"></div>
             </div>
-            <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"/></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Complete consultation</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
+            <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"></use></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"></use></svg> Complete consultation</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
             <p style="font-size:11px;color:var(--faint);margin-top:6px">Completing the consultation sends this patient to Reception &rarr; Collect payment. The payment status then shows on both pages.</p>
           </div></div>
 
-        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Physiotherapy Session Details — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Physiotherapy Session Details — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g4">
               <div class="fld"><label class="lbl" for="phTpTherapist">Physiotherapist name</label><select class="select" id="phTpTherapist"><option value="">— Select —</option><option>Karuna</option><option>Swathi</option></select></div>
@@ -1295,12 +1295,12 @@ export function getMainContent(): string {
             <div class="fld fw" style="margin-top:6px"><label class="lbl" for="phTpNotes">Session notes</label><textarea class="area" id="phTpNotes" rows="2" placeholder="Optional therapist notes…"></textarea></div>
             <div class="fld fw"><label class="lbl">Visit history</label>
               <div id="phVisitHistory"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">Open a patient to see visit history.</div></div></div>
-            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"/></svg> Save session details</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
+            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"></use></svg> Save session details</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
           </div></div>
         </div>
       </div>
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Active patients <span id="phPatientCount">(0)</span></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Active patients <span id="phPatientCount">(0)</span></div>
           <div class="sec-bd" id="phPatientList"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No patients yet.</div></div></div>
         <!-- The pricing card that used to sit here moved to Settings & masters → Physiotherapy
              pricing (the physio_pricing master). Payment amounts on this page still read the same
@@ -1312,7 +1312,7 @@ export function getMainContent(): string {
   <!-- ACCOUNTS -->
   <section class="screen" id="s-accounts"><div class="wrap">
     <div class="ph"><div><h1>Accounts &amp; finance</h1><p>Gross vs net always two numbers. Verification closes the loop.</p></div>
-      <div class="pha"><button class="btn" onclick="window._accExport()"><svg class="icon"><use href="#i-dl"/></svg> Export Excel</button></div></div>
+      <div class="pha"><button class="btn" onclick="window._accExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export Excel</button></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Accounts</span>
     <div class="sec" style="margin-top:10px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div class="fld" style="margin:0"><label class="lbl">From date &amp; time</label><input  class="input" type="datetime-local" id="accFrom" style="height:34px;width:190px;font-size:12px"></div>
@@ -1327,20 +1327,20 @@ export function getMainContent(): string {
     <div class="metrics" id="accMetrics"></div>
     <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
     <div class="acc-p" data-p="tx">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Transactions</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"></use></svg> Transactions</div>
         <div class="sec-bd" id="accTxBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading transactions…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="ver" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Verify transactions — pending verification (nothing counts as received until verified)</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"></use></svg> Verify transactions — pending verification (nothing counts as received until verified)</div>
         <div class="sec-bd" id="accVerBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
       <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
-        <span><svg class="icon"><use href="#i-wallet"/></svg> Transaction history — verified payments</span>
+        <span><svg class="icon"><use href="#i-wallet"></use></svg> Transaction history — verified payments</span>
         <input class="input" id="accHistSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:230px;font-size:12px;font-weight:400" oninput="window._accHistSearch()"></div>
         <div class="sec-bd" id="accHistBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="out" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Outstanding — balance chasing lives here</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"></use></svg> Outstanding — balance chasing lives here</div>
         <div class="sec-bd" id="accOutBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="ref" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Refund console</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Refund console</div>
         <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
   </div></section>
 
@@ -1394,11 +1394,11 @@ export function getMainContent(): string {
         <input type="text" class="search-input" id="rpcSearch" placeholder="Search..." oninput="window._rpcRenderBody()">
         <div style="margin-left:auto;display:flex;gap:5px">
           <button class="btn-s" onclick="window._rpcToggleColPanel()" id="rpcColPanelBtn">
-            <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/></svg>
+            <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line></svg>
             Columns
           </button>
           <button class="btn-s green" onclick="window._rpcExport()">
-            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Export
           </button>
         </div>
@@ -1471,7 +1471,7 @@ export function getMainContent(): string {
     <div class="ph"><div><h1>Recordings</h1><p id="recSubtitle">All in-clinic office-visit audio and Zoom consultation recordings across customers.</p></div></div>
 
     <div class="sec" style="margin-bottom:16px" id="ovrTblSec">
-      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"/></svg> Office Visit Recordings <span class="chipb ok" id="ovrTblCount" style="margin-left:8px">0</span>
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"></use></svg> Office Visit Recordings <span class="chipb ok" id="ovrTblCount" style="margin-left:8px">0</span>
         <input class="input" id="ovrTblSearch" placeholder="Search name / recorded by…" style="height:30px;font-size:12px;width:220px;margin-left:auto" oninput="window._ovrTblSearch()">
         <button class="btn bsm" style="margin-left:8px" onclick="window._ovrTblDownload()">⬇ Download</button></div>
       <div class="sec-bd">
@@ -1495,7 +1495,7 @@ export function getMainContent(): string {
     </div>
 
     <div class="sec" id="zoomTblSec">
-      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"/></svg> Zoom Meeting Recordings <span class="chipb ok" id="zoomTblCount" style="margin-left:8px">0</span>
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"></use></svg> Zoom Meeting Recordings <span class="chipb ok" id="zoomTblCount" style="margin-left:8px">0</span>
         <input class="input" id="zoomTblSearch" placeholder="Search name / link…" style="height:30px;font-size:12px;width:220px;margin-left:auto" oninput="window._zoomTblSearch()">
         <button class="btn bsm" style="margin-left:8px" onclick="window._zoomTblDownload()">⬇ Download</button></div>
       <div class="sec-bd">
@@ -1519,7 +1519,7 @@ export function getMainContent(): string {
     </div>
 
     <div class="sec" id="callRecSec" style="margin-bottom:16px;display:none">
-      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"/></svg> Call Recordings <span class="chipb ok" id="callRecCount" style="margin-left:8px">0</span>
+      <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"></use></svg> Call Recordings <span class="chipb ok" id="callRecCount" style="margin-left:8px">0</span>
         <input class="input" id="callRecSearch" placeholder="Search customer / number / status…" style="height:30px;font-size:12px;width:240px;margin-left:auto" oninput="window._callRecSearch()">
         <button class="btn bsm" style="margin-left:8px" onclick="window._callRecDownload()">⬇ Download</button></div>
       <div class="sec-bd">
@@ -1550,7 +1550,7 @@ export function getMainContent(): string {
 
 
     <div class="st-p" data-p="st-svc">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Service pricing — all services, all variations · dynamic</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Service pricing — all services, all variations · dynamic</div>
         <div class="sec-bd">
           <div class="aud" style="background:#fff;margin-top:0"><div class="ahd" style="color:var(--brand-600)">🩺 Diabetes reversal</div>
             <table class="tbl"><thead><tr><th>Item</th><th>Price</th><th>Status</th><th></th></tr></thead><tbody>
@@ -1572,7 +1572,7 @@ export function getMainContent(): string {
 
     <!-- BLOOD TEST & PRICING MASTER — dynamic CRUD on bt_tests (single source of truth) -->
     <div class="st-p" data-p="st-btm" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"/></svg> Blood Test &amp; Pricing Master — the single source of truth for every blood-test price</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Blood Test &amp; Pricing Master — the single source of truth for every blood-test price</div>
         <div class="sec-bd">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
             <div class="fld" style="margin:0"><label class="lbl" for="btmName">Test / panel</label><input  class="input" id="btmName" placeholder="e.g. HbA1c" style="height:34px;width:220px"></div>
@@ -1590,7 +1590,7 @@ export function getMainContent(): string {
 
     <!-- PHYSIOTHERAPY PRICING MASTER — dynamic CRUD on physio_pricing (single source of truth) -->
     <div class="st-p" data-p="st-php" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Physiotherapy Pricing Master — the single source of truth for every physiotherapy price</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"></use></svg> Physiotherapy Pricing Master — the single source of truth for every physiotherapy price</div>
         <div class="sec-bd">
           <p style="font-size:12px;color:var(--muted);margin:6px 2px 10px">Live source of truth for the Physiotherapy page's payment amounts. Sessions: 0 = consultation, 1 = per-session rate, 6/8/12 = packs (auto-fills the pack price on a matching treatment plan).</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
@@ -1606,7 +1606,7 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-fld" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Screen field configuration — add/remove/reorder fields per tab</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"></use></svg> Screen field configuration — add/remove/reorder fields per tab</div>
         <div class="sec-bd">
           <div class="g3">
             <div class="fld"><label class="lbl" for="fldScreen">Select screen</label><select  class="select" id="fldScreen"><option selected>Screening</option><option>Health advisor · Basic info</option><option>Health advisor · Sugar profile</option><option>Health coach · Assessment</option><option>Blood test · Worklist</option><option>Physio · Session record</option><option>Reception · Check-in</option></select></div>
@@ -1628,10 +1628,10 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-usr" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Users &amp; Assignees — one record per person: login, role, branch and telephony</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Users &amp; Assignees — one record per person: login, role, branch and telephony</div>
         <div class="sec-bd">
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-            <button class="btn bp" onclick="window._usrOpenModal()" style="height:36px"><svg class="icon"><use href="#i-user"/></svg> + Add User</button>
+            <button class="btn bp" onclick="window._usrOpenModal()" style="height:36px"><svg class="icon"><use href="#i-user"></use></svg> + Add User</button>
             <input class="input" id="usrSearch" placeholder="Search name / email / role…" oninput="window._usrSearch()" style="height:36px;font-size:12.5px;max-width:280px;margin-left:auto">
           </div>
           <div class="tscroll stick1"><table class="tbl" style="min-width:1280px"><thead><tr id="usrHead"><th>Email</th><th>Name</th><th>Role</th><th>Service</th><th>Branch</th><th>Phone</th><th>DID</th><th>Ext</th><th>Active leads</th><th>Status</th><th>Actions</th></tr></thead><tbody id="usrBody"></tbody></table></div>
@@ -1640,7 +1640,7 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-org" style="display:none">
-      <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-split"/></svg> Services — the lines your clinic runs</div>
+      <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-split"></use></svg> Services — the lines your clinic runs</div>
         <div class="sec-bd">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
             <div class="fld" style="margin:0"><label class="lbl" for="svcNew">New service</label><input class="input" id="svcNew" placeholder="e.g. Nutrition" style="height:34px;width:220px"></div>
@@ -1650,7 +1650,7 @@ export function getMainContent(): string {
           <p style="font-size:11.5px;color:var(--faint);margin-top:10px">A deactivated service stays on existing user records but is no longer offered when adding someone.</p>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Roles — what a person can do, and where they appear</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Roles — what a person can do, and where they appear</div>
         <div class="sec-bd">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
             <div class="fld" style="margin:0"><label class="lbl" for="roleNew">New role</label><input class="input" id="roleNew" placeholder="e.g. Nutritionist" style="height:34px;width:190px"></div>
@@ -1665,12 +1665,12 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-rbac" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Roles &amp; permissions — editable module access matrix</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Roles &amp; permissions — editable module access matrix</div>
         <div class="sec-bd" id="rbacMatrixBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading RBAC matrix…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
     </div>
 
     <div class="st-p" data-p="st-drop" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-doc"/></svg> Dropdown masters — admin-managed, not hard-coded</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-doc"></use></svg> Dropdown masters — admin-managed, not hard-coded</div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Eligibility exclusions</label><textarea class="area">Cancer, Brain Tumor, Recent Heart Surgery, Organ Transplant, Pregnancy, Age Above 75, Already Paid, Other Language, Others</textarea></div>
           <div class="fld"><label class="lbl">Occupations</label><textarea class="area">Private Job, Govt Job, Business, Self-employed, Homemaker, Retired, Student, Daily Wage, Others</textarea></div>
@@ -1682,7 +1682,7 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-int" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bolt"/></svg> Integrations &amp; audit</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bolt"></use></svg> Integrations &amp; audit</div>
         <div class="sec-bd"><div class="split">
           <div><div class="li"><div style="flex:1">Meta lead feed</div><span class="chipb ok"><span class="cd"></span> Connected</span></div>
             <div class="li"><div style="flex:1">Tata Tele (calls + recording)</div><span class="chipb ok"><span class="cd"></span> Connected</span></div>
@@ -1698,7 +1698,7 @@ export function getMainContent(): string {
     </div>
 
     <div class="st-p" data-p="st-msg" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-msg"/></svg> Automated messages — WhatsApp / SMS triggers</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-msg"></use></svg> Automated messages — WhatsApp / SMS triggers</div>
         <div class="sec-bd"><table class="tbl"><thead><tr><th>Event trigger</th><th>WhatsApp</th><th>SMS</th><th>Template</th></tr></thead><tbody>
           <tr><td style="font-weight:600">Payment done (verified)</td><td><button class="chipb ok" onclick="togMsg(this)">On</button></td><td><button class="chipb ok" onclick="togMsg(this)">On</button></td><td class="mono" style="font-size:11.5px">receipt_gst_v2</td></tr>
           <tr><td style="font-weight:600">Appointment fixed</td><td><button class="chipb ok" onclick="togMsg(this)">On</button></td><td><button class="chipb neu" onclick="togMsg(this)">Off</button></td><td class="mono" style="font-size:11.5px">appt_details_v1</td></tr>
@@ -1717,7 +1717,7 @@ export function getMainContent(): string {
     <div class="umodal-card">
       <div class="umodal-hd">
         <h2 id="usrModalTitle">Add User</h2>
-        <button class="umodal-x" aria-label="Close" onclick="window._usrCloseModal()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"/></svg></button>
+        <button class="umodal-x" aria-label="Close" onclick="window._usrCloseModal()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
       </div>
       <div class="umodal-bd">
         <div class="umodal-sec">Identity</div>

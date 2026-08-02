@@ -95,7 +95,13 @@ export default function Home() {
           </nav>
           <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
         </aside>
-        <main className="main" id="main" dangerouslySetInnerHTML={{__html: getMainContent()}}/>
+        {/* suppressHydrationWarning: the template is a hand-written HTML string, and the browser's
+            parser normalizes it (self-closing SVG tags, attribute whitespace, bare boolean attrs,
+            entity escapes) — so the server-parsed DOM can never byte-match the raw string and React
+            reported a hydration mismatch on every load (the dev overlay's permanent "1 Issue"),
+            regenerating the whole tree client-side. The parsed DOM is structurally identical, so
+            adopting it as-is is correct — and skips the throwaway re-render. */}
+        <main className="main" id="main" suppressHydrationWarning dangerouslySetInnerHTML={{__html: getMainContent()}}/>
       </div>
 
       {/* Full-screen splash shown between sign-in and the first COMPLETE data load — the dashboard
