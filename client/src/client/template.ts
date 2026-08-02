@@ -1159,7 +1159,7 @@ export function getMainContent(): string {
         </div>
         <!-- Bulk-action toolbar (shown only when rows are selected) -->
         <div id="btBulkBar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;background:var(--brand-tint);border:1px solid var(--line);border-radius:9px;padding:8px 12px;margin-bottom:8px;font-size:12px"></div>
-        <div class="tscroll" id="btWorklistWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test data…</div></div>
+        <div class="tscroll" id="btWorklistWrap"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading blood test data…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div>
       </div></div>
 
     <!-- Blood test detail panel (hidden by default) -->
@@ -1219,7 +1219,7 @@ export function getMainContent(): string {
                 <button class="pill" onclick="window._phStatusF('cancelled')">Cancelled</button>
               </div>
             </div>
-            <div class="tscroll" id="phSessionsWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading physiotherapy data…</div></div>
+            <div class="tscroll" id="phSessionsWrap"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading physiotherapy data…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div>
           </div></div>
 
         <!-- Assessment / SOAP panel (hidden until a patient record is opened) -->
@@ -1329,20 +1329,20 @@ export function getMainContent(): string {
     <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
     <div class="acc-p" data-p="tx">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"/></svg> Transactions</div>
-        <div class="sec-bd" id="accTxBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading transactions…</div></div></div></div>
+        <div class="sec-bd" id="accTxBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading transactions…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="ver" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"/></svg> Verify transactions — pending verification (nothing counts as received until verified)</div>
-        <div class="sec-bd" id="accVerBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div>
+        <div class="sec-bd" id="accVerBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
       <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg class="icon"><use href="#i-wallet"/></svg> Transaction history — verified payments</span>
         <input class="input" id="accHistSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:230px;font-size:12px;font-weight:400" oninput="window._accHistSearch()"></div>
-        <div class="sec-bd" id="accHistBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
+        <div class="sec-bd" id="accHistBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="out" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"/></svg> Outstanding — balance chasing lives here</div>
-        <div class="sec-bd" id="accOutBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
+        <div class="sec-bd" id="accOutBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="ref" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Refund console</div>
-        <div class="sec-bd" id="accRefBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
+        <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
   </div></section>
 
   <!-- REPORTS (Admin Report redesign — all styling scoped under .rpc) -->
@@ -1658,7 +1658,7 @@ export function getMainContent(): string {
 
     <div class="st-p" data-p="st-rbac" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Roles &amp; permissions — editable module access matrix</div>
-        <div class="sec-bd" id="rbacMatrixBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading RBAC matrix…</div></div></div>
+        <div class="sec-bd" id="rbacMatrixBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading RBAC matrix…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
     </div>
 
     <div class="st-p" data-p="st-drop" style="display:none">

@@ -717,3 +717,62 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .rpc .cfd-btn{padding:2px 9px;border-radius:7px;font-size:9px;cursor:pointer;border:none;background:#6D28D9;color:#fff;height:22px}
 .rpc .cfd-clear{background:transparent;color:#6B7280;border:0.5px solid #D1D5DB}
 
+
+/* ===================================================================================
+   MICRO-INTERACTION SYSTEM — presentation only, layered on the existing tokens.
+   Everything here animates transform/opacity/background only (compositor-friendly),
+   and the global prefers-reduced-motion rule above (line ~524) collapses ALL of it,
+   including the JS-injected .ripple span, to effectively zero duration.
+   =================================================================================== */
+html{scroll-behavior:smooth}
+
+/* --- Pointer-located ripple (span injected by a delegated pointerdown in app.ts) --- */
+.pill,.rpc .tog-btn,.rpc .sv-tag,.rpc .btn-s{position:relative;overflow:hidden}
+.ripple{position:absolute;border-radius:50%;pointer-events:none;z-index:0;
+  background:radial-gradient(circle,color-mix(in srgb,currentColor 26%,transparent),transparent 62%);
+  transform:scale(0);opacity:.9;animation:rippleGo .5s var(--ease) forwards}
+@keyframes rippleGo{to{transform:scale(1);opacity:0}}
+
+/* --- KPI / metric cards: staggered entrance + hover lift (count-up is JS) --- */
+.metrics .metric,.rpc .sum-grid .mc{animation:fadeUp .3s var(--ease) backwards}
+.metrics .metric:nth-child(2),.rpc .sum-grid .mc:nth-child(2){animation-delay:.03s}
+.metrics .metric:nth-child(3),.rpc .sum-grid .mc:nth-child(3){animation-delay:.06s}
+.metrics .metric:nth-child(4),.rpc .sum-grid .mc:nth-child(4){animation-delay:.09s}
+.metrics .metric:nth-child(5),.rpc .sum-grid .mc:nth-child(5){animation-delay:.12s}
+.metrics .metric:nth-child(6),.rpc .sum-grid .mc:nth-child(6){animation-delay:.15s}
+.metrics .metric:nth-child(7),.rpc .sum-grid .mc:nth-child(7){animation-delay:.18s}
+.metrics .metric:nth-child(n+8),.rpc .sum-grid .mc:nth-child(n+8){animation-delay:.2s}
+.metric:hover{transform:translateY(-2px);box-shadow:var(--sh-lg);border-color:var(--brand-line)}
+.metric:active{transform:translateY(0) scale(.985)}
+.rpc .sum-grid .mc{transition:transform .18s var(--ease),box-shadow .18s var(--ease)}
+.rpc .sum-grid .mc:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(17,24,39,.08)}
+
+/* --- Dropdowns / popovers: pop on open (display toggles replay the animation) --- */
+.csel-list,.ci-dd-menu,#poolAssignMenu,#callDevAssignMenu,#leadDevAssignMenu,#btdPanelDD,
+#rpcCfd,.rpc .col-panel{animation:menuPop .16s var(--ease-pop)}
+@keyframes menuPop{from{opacity:0;transform:translateY(-4px) scale(.985)}}
+
+/* --- Accordion (.sec closed toggle) + drawer tab panels --- */
+.sec:not(.closed)>.sec-bd{animation:accOpen .22s var(--ease)}
+@keyframes accOpen{from{opacity:0;transform:translateY(-4px)}}
+.d-p{animation:fadeUp .24s var(--ease)}
+
+/* --- Skeleton / shimmer loaders (replace the plain "Loading…" placeholder text) --- */
+.ldwrap{padding:16px 6px;display:flex;flex-direction:column;gap:11px}
+.skel{position:relative;overflow:hidden;height:13px;border-radius:7px;
+  background:color-mix(in srgb,var(--line) 55%,var(--surface))}
+.skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);
+  animation:skelSweep 1.2s var(--ease) infinite}
+@keyframes skelSweep{to{transform:translateX(100%)}}
+.skel.w30{width:30%}.skel.w55{width:55%}.skel.w75{width:75%}.skel.w90{width:90%}
+.ldwrap .ldcap{font-size:11.5px;color:var(--faint);font-weight:600}
+
+/* --- Table rows: selection flash for freshly updated rows (added by JS where used) --- */
+@keyframes rowFlash{from{background:var(--brand-tint)}}
+.row-flash{animation:rowFlash 1.1s var(--ease)}
+
+/* --- Long-running sync: indeterminate sweep under the status label --- */
+.syncing{background-image:linear-gradient(90deg,transparent,var(--brand-tint),transparent);
+  background-size:180px 100%;background-repeat:no-repeat;animation:syncSweep 1.15s linear infinite}
+@keyframes syncSweep{from{background-position:-180px 0}to{background-position:calc(100% + 180px) 0}}

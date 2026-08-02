@@ -422,7 +422,7 @@ export function initApp(root: HTMLElement) {
     // the splash forever.
     let _initReadyResolve:((v?:any)=>void)|null=null;
     const _initDataReady=new Promise((res)=>{ _initReadyResolve=res; });
-    function _markInitialDataReady(){ _haFeedDone=true; try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){} if(_initReadyResolve){ const r=_initReadyResolve; _initReadyResolve=null; r(); } }
+    function _markInitialDataReady(){ _haFeedDone=true; try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){} try{ (w as any)._uiCountUpActive&&(w as any)._uiCountUpActive(); }catch(_){} if(_initReadyResolve){ const r=_initReadyResolve; _initReadyResolve=null; r(); } }
     // ---- "Is the lead book actually loaded yet?" ------------------------------------------------
     // The Advisor dashboard counts an IN-MEMORY book (_metaLeads + _assignedExtras). Every render
     // before those arrive produced a confident "Total Leads 0 / Enrolled 0" — with 4,000+ leads in
@@ -11329,12 +11329,12 @@ export function initApp(root: HTMLElement) {
       {key:"emi",label:"EMI",group:"PAYMENT",gcls:"g-pay"},
       {key:"alrPaid",label:"Alr. Paid",group:"PAYMENT",gcls:"g-pay"},
       {key:"payCol",label:"Pay Collected",group:"PAYMENT",gcls:"g-pay"},
-      {key:"rev",label:"Revenue (₹)",group:"REVENUE & ROAS",gcls:"g-roas",isMoney:true},
-      {key:"revL1",label:"L1 Revenue",group:"REVENUE & ROAS",gcls:"g-roas",isMoney:true},
-      {key:"revL2",label:"L2 Revenue",group:"REVENUE & ROAS",gcls:"g-roas",isMoney:true},
-      {key:"avgTicket",label:"Avg Ticket",group:"REVENUE & ROAS",gcls:"g-roas",isMoney:true},
-      {key:"spent",label:"Ads Spent (₹)",group:"REVENUE & ROAS",gcls:"g-roas",isMoney:true},
-      {key:"roasAll",label:"ROAS",group:"REVENUE & ROAS",gcls:"g-roas",isRoas:true},
+      // "Ads Spent" and "ROAS" were removed: nothing in this system records ad spend, so both were
+      // permanent placeholders (spend hardcoded to 0, ROAS rendering a literal "—" for every row).
+      {key:"rev",label:"Revenue (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"revL1",label:"L1 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"revL2",label:"L2 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"avgTicket",label:"Avg Ticket",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"l1fp",label:"L1 FP",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
       {key:"l1tot",label:"L1 Total",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
       {key:"l2fp",label:"L2 FP",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
@@ -11346,8 +11346,8 @@ export function initApp(root: HTMLElement) {
       {key:"m_v2fp",label:"Visit→FP%",group:"CONVERSION METRICS",gcls:"g-metric",isPct:true},
       {key:"m_l2v",label:"Lead→Visit%",group:"CONVERSION METRICS",gcls:"g-metric",isPct:true},
       {key:"m_l2c",label:"Lead→Conv%",group:"CONVERSION METRICS",gcls:"g-metric",isPct:true},
-      {key:"selfAudit",label:"Self Audit",group:"AUDIT",gcls:"g-audit",isText:true},
-      {key:"bdmScore",label:"BDM Score",group:"AUDIT",gcls:"g-audit",isText:true},
+      // "Self Audit" and "BDM Score" were removed too — neither was ever populated by _rpcAgg, so both
+      // printed "—" on every row of every view.
       {key:"fuSched",label:"FU Scheduled",group:"FOLLOW-UP",gcls:"g-fu"},
       {key:"chen",label:"Chennai",group:"LOCATION",gcls:"g-info"},
       {key:"oth",label:"Others",group:"LOCATION",gcls:"g-info"},
@@ -11358,10 +11358,10 @@ export function initApp(root: HTMLElement) {
       all:null,
       sales:["period","leads","svc","src","loc","fu","cb","lb","rnr","dnd","so","oos","wn","open","blank","ni","nosugar","callTot","apptD","apptZ","apptTot","conf","vis","m_l2a","m_a2v","m_l2v","m_l2c"],
       health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","enr","fp","pp","inst","emi","payCol"],
-      roas:["period","leads","enr","fp","pp","inst","emi","rev","revL1","revL2","avgTicket","spent","roasAll"],
+      roas:["period","leads","enr","fp","pp","inst","emi","rev","revL1","revL2","avgTicket","payCol"],
       metric:["period","leads","apptD","apptZ","conf","vis","enr","fp","pp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
       l1l2:["period","leads","enr","fp","pp","inst","l1fp","l1tot","l2fp","l2pp","l2tot","rev","revL1","revL2"],
-      audit:["period","leads","vis","enr","selfAudit","bdmScore","fuSched","payCol"],
+      audit:["period","leads","vis","enr","hafDone","recDone","fuSched","payCol"],
     };
 
     async function loadReportsData(){
@@ -11494,8 +11494,8 @@ export function initApp(root: HTMLElement) {
     function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>){
       const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,nosugar:0,callTot:0,
         apptD:0,apptZ:0,apptTot:0,conf:0,vis:0,sugarHi:0,sugarMid:0,sugarNo:0,hafDone:0,consWJ:0,consTW:0,consNW:0,consTM:0,consQD:0,recDone:0,
-        progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revL1:0,revL2:0,avgTicket:0,spent:0,roasAll:0,
-        l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,selfAudit:"—",bdmScore:"—",fuSched:0,chen:0,oth:0};
+        progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revL1:0,revL2:0,avgTicket:0,
+        l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,fuSched:0,chen:0,oth:0};
       const srcCnt:Record<string,number>={}, svcCnt:Record<string,number>={};
       let payingLeads=0;
       L.forEach((l:any)=>{
@@ -11544,14 +11544,17 @@ export function initApp(root: HTMLElement) {
       const top=(m:Record<string,number>)=>{ const e=Object.entries(m).sort((a,b)=>b[1]-a[1])[0]; return e?e[0]:""; };
       r.src=top(srcCnt)||"—"; r.svc=top(svcCnt)||"—";
       r.loc=r.chen>=r.oth?(r.chen?"Chennai":"—"):"Others";
-      const pctN=(n:number,d:number)=>d>0?Math.round((n/d)*100):0;
-      r.m_l2a=pctN(r.apptTot,r.leads); r.m_a2v=pctN(r.vis,r.apptTot); r.m_v2e=pctN(r.enr,r.vis);
-      r.m_v2fp=pctN(r.fp,r.vis); r.m_l2v=pctN(r.vis,r.leads); r.m_l2c=pctN(r.enr,r.leads);
+      // Keep one decimal below 10%: rounding to whole numbers reported a real conversion (1 enrolled
+      // out of 292 leads) as a flat "0%", which reads as "nothing converted".
+      r.m_l2a=_rpcPct(r.apptTot,r.leads); r.m_a2v=_rpcPct(r.vis,r.apptTot); r.m_v2e=_rpcPct(r.enr,r.vis);
+      r.m_v2fp=_rpcPct(r.fp,r.vis); r.m_l2v=_rpcPct(r.vis,r.leads); r.m_l2c=_rpcPct(r.enr,r.leads);
       return r;
     }
 
     // ---- rows for the current period / view ----
+    let _rpcTrunc=0;   // client view: how many leads were capped away (0 = nothing dropped)
     function _rpcBuildRows(){
+      _rpcTrunc=0;
       const apptsBy=_rpcIndex(_rpcAppts,"lead_id"), paysBy=_rpcIndex(_rpcPays,"lead_id"), recsBy=_rpcIndex(_rpcRecs,"lead_id");
       const win=_rpcWindow();
       const leads=_rpcFilteredLeads(apptsBy,paysBy);
@@ -11570,7 +11573,9 @@ export function initApp(root: HTMLElement) {
         _rpcAppts.forEach((a:any)=>{ const h=(a.hc_pt||"").trim(); if(!h)return; const lid=String(a.lead_id||""); if(!leadById[lid])return; (byHc[h]=byHc[h]||new Set()).add(lid); });
         Object.keys(byHc).sort().forEach(h=>{ rows.push(_rpcAgg(h+" (HC/PT)",Array.from(byHc[h]).map(id=>leadById[id]),apptsBy,paysBy,recsBy)); });
       } else {
-        // client view — one row per lead in the window (newest first, capped for render weight)
+        // client view — one row per lead in the window (newest first, capped for render weight).
+        // _rpcTrunc carries the real count so the cap is stated instead of silently swallowing rows.
+        _rpcTrunc=inWin.length>400?inWin.length:0;
         rows=inWin.slice(0,400).map((l:any)=>{
           const r=_rpcAgg(l.name||l.phone||"Lead",[l],apptsBy,paysBy,recsBy);
           r.doi=l.enrolled_at?new Date(l.enrolled_at).getDate()+" "+_RPC_MN[new Date(l.enrolled_at).getMonth()]+" "+new Date(l.enrolled_at).getFullYear():"—";
@@ -11585,6 +11590,9 @@ export function initApp(root: HTMLElement) {
     const _rpcVisCols=()=>RPC_COLS.filter((c:any)=>_rpcColVis[c.key]);
     const _rpcEsc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
     const _rpcMoney=(n:number)=>n?"₹"+(Number(n)||0).toLocaleString("en-IN"):"—";
+    // Percentages: whole numbers at 10%+, one decimal below that so a small-but-real conversion is
+    // never displayed as 0%.
+    function _rpcPct(n:number,d:number){ if(!(d>0)) return 0; const v=(n/d)*100; return v>=10?Math.round(v):Math.round(v*10)/10; }
     function _rpcPctCell(v:number){
       const cls=v>=50?"phi":v>=20?"pmd":"plo"; const bc=v>=50?"#059669":v>=20?"#D97706":"#DC2626";
       return '<td><div class="pct-cell"><span class="pct-val '+cls+'">'+v+'%</span><div class="pct-bar" style="width:'+Math.min(v,100)+'%;background:'+bc+'"></div></div></td>';
@@ -11600,30 +11608,45 @@ export function initApp(root: HTMLElement) {
       });
       const th=root.querySelector("#rpcThead"); if(th) th.innerHTML=grp+"</tr>"+col+"</tr>";
     }
+    // A summary card is "active" when the table carries its ≥1 filter. Derived from _rpcColFilters
+    // rather than a separate variable, so the cards, the column-header markers and the export can
+    // never drift apart.
+    const _rpcCardOn=(k:string)=>!!k&&!!_rpcColFilters[k]&&_rpcColFilters[k].op==="gte"&&_rpcColFilters[k].val==="1";
+    // Click a card → show only the rows that contributed to it (metric ≥ 1). Clicking the active
+    // card again, or "Total Leads", clears the filter. Reuses the existing per-column filter
+    // mechanism, so the header marker, the totals row and Export all follow automatically.
+    w._rpcCardClick=(key:string)=>{
+      if(!key) _rpcColFilters={};
+      else if(_rpcCardOn(key)) delete _rpcColFilters[key];
+      else _rpcColFilters[key]={op:"gte",val:"1"};
+      _rpcSummary(_rpcRows); w._rpcRenderBody();
+      try{ (root.querySelector("#rpcTblWrap") as HTMLElement|null)?.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(_){}
+    };
     function _rpcSummary(rows:any[]){
       const t:any={leads:0,apptD:0,apptZ:0,conf:0,vis:0,enr:0,fp:0,pp:0,inst:0,rev:0,ni:0,fu:0,chen:0,oth:0};
       rows.forEach((r:any)=>{Object.keys(t).forEach(k=>{t[k]+=(r[k]||0);});});
-      const appt=t.apptD+t.apptZ; const pctN=(n:number,d:number)=>d>0?Math.round((n/d)*100):0;
+      const appt=t.apptD+t.apptZ;
+      // k = the row metric this card filters the table by ("" = the card clears every filter).
       const cards=[
-        {l:"Total Leads",v:t.leads.toLocaleString("en-IN"),cls:""},
-        {l:"Appt Fixed",v:appt,cls:"green",s:"D:"+t.apptD+" Z:"+t.apptZ},
-        {l:"Confirmed",v:t.conf,cls:"green"},
-        {l:"Visited",v:t.vis,cls:"green"},
-        {l:"Enrolled",v:t.enr,cls:"pink"},
-        {l:"Full Paid",v:t.fp,cls:""},
-        {l:"Part Paid",v:t.pp,cls:"amber"},
-        {l:"Instalment",v:t.inst,cls:"blue"},
-        {l:"Revenue",v:_rpcMoney(t.rev),cls:"green"},
-        {l:"Lead→Conv%",v:pctN(t.enr,t.leads)+"%",cls:""},
-        {l:"Lead→Visit%",v:pctN(t.vis,t.leads)+"%",cls:"blue"},
-        {l:"Visit→Enrol%",v:pctN(t.enr,t.vis)+"%",cls:"green"},
-        {l:"Not Interested",v:t.ni,cls:"red"},
-        {l:"Follow Up",v:t.fu,cls:""},
-        {l:"Chennai",v:t.chen,cls:"blue"},
-        {l:"Others",v:t.oth,cls:""},
+        {l:"Total Leads",v:t.leads.toLocaleString("en-IN"),cls:"",k:""},
+        {l:"Appt Fixed",v:appt,cls:"green",s:"D:"+t.apptD+" Z:"+t.apptZ,k:"apptTot"},
+        {l:"Confirmed",v:t.conf,cls:"green",k:"conf"},
+        {l:"Visited",v:t.vis,cls:"green",k:"vis"},
+        {l:"Enrolled",v:t.enr,cls:"pink",k:"enr"},
+        {l:"Full Paid",v:t.fp,cls:"",k:"fp"},
+        {l:"Part Paid",v:t.pp,cls:"amber",k:"pp"},
+        {l:"Instalment",v:t.inst,cls:"blue",k:"inst"},
+        {l:"Revenue",v:_rpcMoney(t.rev),cls:"green",k:"rev"},
+        {l:"Lead→Conv%",v:_rpcPct(t.enr,t.leads)+"%",cls:"",k:"m_l2c"},
+        {l:"Lead→Visit%",v:_rpcPct(t.vis,t.leads)+"%",cls:"blue",k:"m_l2v"},
+        {l:"Visit→Enrol%",v:_rpcPct(t.enr,t.vis)+"%",cls:"green",k:"m_v2e"},
+        {l:"Not Interested",v:t.ni,cls:"red",k:"ni"},
+        {l:"Follow Up",v:t.fu,cls:"",k:"fu"},
+        {l:"Chennai",v:t.chen,cls:"blue",k:"chen"},
+        {l:"Others",v:t.oth,cls:"",k:"oth"},
       ];
       const el=root.querySelector("#rpcSumGrid");
-      if(el) el.innerHTML=cards.map((c:any)=>'<div class="mc '+c.cls+'"><div class="ml">'+c.l+'</div><div class="mv">'+c.v+'</div>'+(c.s?'<div class="ms">'+c.s+'</div>':'')+'</div>').join("");
+      if(el) el.innerHTML=cards.map((c:any)=>'<div class="mc '+c.cls+(_rpcCardOn(c.k)?" on":"")+'" style="cursor:pointer'+(_rpcCardOn(c.k)?";outline:2px solid #6D28D9;outline-offset:-1px":"")+'" title="'+(c.k?"Show only rows with "+c.l:"Clear all filters")+'" onclick="window._rpcCardClick(\''+c.k+'\')"><div class="ml">'+c.l+'</div><div class="mv">'+c.v+'</div>'+(c.s?'<div class="ms">'+c.s+'</div>':'')+'</div>').join("");
     }
     function _rpcBody(win:any){
       const vis=_rpcVisCols();
@@ -11632,10 +11655,12 @@ export function initApp(root: HTMLElement) {
       let rows=_rpcRows.slice();
       if(sortKey!=="none") rows.sort((a:any,b:any)=>(b[sortKey]||0)-(a[sortKey]||0));
       const totals:any={}; RPC_COLS.forEach((c:any)=>{totals[c.key]=0;});
-      let html="";
+      let html=""; let shown=0;
       rows.forEach((r:any)=>{
-        let hide=!!srch&&JSON.stringify(r).toLowerCase().indexOf(srch)<0;
-        RPC_COLS.forEach((c:any)=>{ if(typeof r[c.key]==="number") totals[c.key]+=(r[c.key]||0); });
+        // Search the VISIBLE cell values, not JSON.stringify(row): that also matched internal keys
+        // and hidden columns, so "l1" or "rev" matched every row.
+        const hay=vis.map((c:any)=>String(r[c.key]??"")).join(" ").toLowerCase();
+        let hide=!!srch&&hay.indexOf(srch)<0;
         Object.keys(_rpcColFilters).forEach(k=>{
           const f=_rpcColFilters[k], v=r[k], fv=parseFloat(f.val);
           if(f.op==="gte"&&!(Number(v)>=fv)) hide=true;
@@ -11643,11 +11668,14 @@ export function initApp(root: HTMLElement) {
           if(f.op==="eq"&&String(v)!==String(f.val)) hide=true;
           if(f.op==="contains"&&String(v).toLowerCase().indexOf(f.val.toLowerCase())<0) hide=true;
         });
+        // Totals must describe what the user is LOOKING AT. They used to accumulate every row
+        // including the ones hidden by search / column filters, so the TOTAL row contradicted the
+        // rows above it the moment any filter was applied.
+        if(!hide){ shown++; RPC_COLS.forEach((c:any)=>{ if(typeof r[c.key]==="number") totals[c.key]+=(r[c.key]||0); }); }
         html+="<tr"+(hide?' style="display:none"':"")+">";
         vis.forEach((c:any)=>{
           const val=r[c.key];
           if(c.isPct){ html+=_rpcPctCell(Number(val)||0); return; }
-          if(c.isRoas){ html+='<td class="zero">—</td>'; return; }
           if(c.key==="period"){ html+='<td class="sl"><span class="pl '+(_rpcRowView!=="period"?"pl-d":win.plc)+'">'+_rpcEsc(val)+'</span></td>'; return; }
           if(c.key==="leads"){ html+='<td class="sl2 num-hi">'+(val||0)+"</td>"; return; }
           if(c.isMoney){ html+=val?'<td style="color:#059669;font-weight:500">'+_rpcMoney(val)+"</td>":'<td class="zero">—</td>'; return; }
@@ -11666,7 +11694,6 @@ export function initApp(root: HTMLElement) {
           const m:any={m_l2a:pctN(totals.apptTot,totals.leads),m_a2v:pctN(totals.vis,totals.apptTot),m_v2e:pctN(totals.enr,totals.vis),m_v2fp:pctN(totals.fp,totals.vis),m_l2v:pctN(totals.vis,totals.leads),m_l2c:pctN(totals.enr,totals.leads)};
           html+=_rpcPctCell(m[c.key]||0); return;
         }
-        if(c.isRoas){ html+='<td class="zero">—</td>'; return; }
         if(c.key==="period"){ html+='<td class="sl" style="color:#5B21B6">TOTAL / AVG</td>'; return; }
         if(c.key==="leads"){ html+='<td class="sl2 num-hi">'+totals.leads.toLocaleString("en-IN")+"</td>"; return; }
         if(c.key==="avgTicket"){ html+='<td style="color:#059669;font-weight:500">'+_rpcMoney(totals.payCol?Math.round(totals.rev/totals.payCol):0)+"</td>"; return; }
@@ -11675,7 +11702,14 @@ export function initApp(root: HTMLElement) {
         html+='<td style="font-weight:500">'+(totals[c.key]||0)+"</td>";
       });
       html+="</tr>";
-      const tb=root.querySelector("#rpcTbody"); if(tb) tb.innerHTML=html||'<tr><td style="padding:20px;color:#6B7280">No data for this period.</td></tr>';
+      const tb=root.querySelector("#rpcTbody"); if(tb) tb.innerHTML=(shown?html:'<tr><td colspan="'+vis.length+'" style="padding:20px;color:#6B7280">No rows match the current search / filters.</td></tr>');
+      // Say what the table is showing: the cohort basis, how many rows survived the filters, and any
+      // truncation — silent capping reads as "that's all there is".
+      const sub=root.querySelector("#rpcSecSub");
+      if(sub) sub.textContent="Live data · rows are leads by their created date"
+        +" · showing "+shown+" of "+rows.length+" row"+(rows.length===1?"":"s")
+        +(_rpcTrunc?" (capped from "+_rpcTrunc+" leads)":"")
+        +" · click a card or a column header to filter";
     }
     function _rpcRenderAll(){
       const {rows,win}=_rpcBuildRows(); _rpcRows=rows;
@@ -11763,7 +11797,11 @@ export function initApp(root: HTMLElement) {
       const vis=_rpcVisCols();
       const srch=((root.querySelector("#rpcSearch")as HTMLInputElement)?.value||"").toLowerCase();
       let rows=_rpcRows.slice();
-      if(srch) rows=rows.filter((r:any)=>JSON.stringify(r).toLowerCase().indexOf(srch)>=0);
+      // Export what the table shows, in the order it shows it — the sort used to be ignored, and the
+      // search matched raw JSON rather than the visible cells.
+      const sortKey=(root.querySelector("#rpcSort")as HTMLSelectElement)?.value||"none";
+      if(sortKey!=="none") rows.sort((a:any,b:any)=>(b[sortKey]||0)-(a[sortKey]||0));
+      if(srch) rows=rows.filter((r:any)=>vis.map((c:any)=>String(r[c.key]??"")).join(" ").toLowerCase().indexOf(srch)>=0);
       Object.keys(_rpcColFilters).forEach(k=>{ const f=_rpcColFilters[k]; const fv=parseFloat(f.val);
         rows=rows.filter((r:any)=>{ const v=r[k];
           if(f.op==="gte")return Number(v)>=fv; if(f.op==="lte")return Number(v)<=fv;
@@ -11802,6 +11840,50 @@ export function initApp(root: HTMLElement) {
       // and loadUsers() so the "People" headcount column is current.
       const orgTabBtn=root.querySelector('#settTabs button[data-t="st-org"]')as HTMLButtonElement|null;
       if(orgTabBtn) orgTabBtn.addEventListener("click",()=>{ loadUsers(); loadOrgMaster().then(()=>renderServicesRoles()); });
+
+      // ===== Micro-interactions (presentation ONLY — no state, no handlers changed) =====
+      const _uiReduced=!!(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      // Pointer-located ripple on buttons/pills. Delegated from the root so innerHTML re-renders
+      // keep working; the injected span has no text, so every handler that reads a button's
+      // textContent (pill labels, pay-model toggles, preset tags) is unaffected, and the span dies
+      // with the animation (or with the next re-render, whichever comes first).
+      root.addEventListener("pointerdown",(e:any)=>{
+        if(_uiReduced) return;
+        const b=e.target&&e.target.closest?e.target.closest(".btn,.pill,.rpc .tog-btn,.rpc .sv-tag,.rpc .btn-s"):null;
+        if(!b||b.disabled) return;
+        const r=b.getBoundingClientRect(); const d=Math.max(r.width,r.height)*2;
+        const s=document.createElement("span"); s.className="ripple"; s.setAttribute("aria-hidden","true");
+        s.style.width=s.style.height=d+"px";
+        s.style.left=(e.clientX-r.left-d/2)+"px"; s.style.top=(e.clientY-r.top-d/2)+"px";
+        b.appendChild(s); setTimeout(()=>{ try{s.remove();}catch(_){} },550);
+      });
+      w._uiCountUpActive=()=>{ try{ _uiCountUp(root.querySelector(".screen.active") as HTMLElement|null); }catch(_){} };
+      // Count-up runs on NAVIGATION (once per screen visit), never on data re-renders — re-renders
+      // replace the .mv nodes anyway, which safely cancels any animation still in flight.
+      const navBox=root.querySelector("#nav");
+      if(navBox) navBox.addEventListener("click",()=>setTimeout(()=>(w as any)._uiCountUpActive(),140));
+    }
+    // Animate numeric KPI values (.mv) of the just-activated screen from 0 → final. Presentation
+    // only: nothing reads .mv back, the FINAL frame restores the exact rendered string, and a node
+    // replaced mid-animation simply stops (isConnected check). Values with unit suffixes ("2h 5m",
+    // "0s") and non-numbers ("—") are left alone.
+    function _uiCountUp(scope:HTMLElement|null){
+      if(!scope||(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
+      const els=Array.from(scope.querySelectorAll(".metric .mv, .mc .mv")).slice(0,48) as HTMLElement[];
+      els.forEach(el=>{
+        const raw=(el.textContent||"").trim();
+        const m=/^([^0-9\-]*)([\d,]+)([^a-zA-Z]*)$/.exec(raw); if(!m) return;
+        const target=Number(m[2].replace(/,/g,""));
+        if(!isFinite(target)||target<=1||target>10000000) return;
+        const pre=m[1],suf=m[3],t0=performance.now(),dur=480;
+        const step=(t:number)=>{
+          if(!el.isConnected) return;   // re-render replaced the node — stop silently
+          const p=Math.min(1,(t-t0)/dur), eased=1-Math.pow(1-p,3);
+          el.textContent=p<1?(pre+Math.round(target*eased).toLocaleString("en-IN")+suf):raw;
+          if(p<1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
     }
     // ---- Build-version watch: prompt an already-open client to reload after a new deploy ----
     // The bundle bakes its commit SHA (BUILD_VERSION); the server reports the deployed SHA at
