@@ -934,15 +934,9 @@ export function getMainContent(): string {
               </div>
               <div class="nwGrpHd">Service selected today</div>
               <div style="font-size:12px;color:var(--muted);margin:-2px 0 10px">Please tick all the services the client is visiting for today.</div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px" id="nwSvcGrid">
-                <label class="nwChk"><input type="checkbox" data-svc2="Diabetes Counselling"> Diabetes Counselling</label>
-                <label class="nwChk"><input type="checkbox" data-svc2="Weight Loss Counselling"> Weight Loss Counselling</label>
-                <label class="nwChk"><input type="checkbox" data-svc2="Sauna Bath"> Sauna Bath</label>
-                <label class="nwChk"><input type="checkbox" data-svc2="Cold Plunge"> Cold Plunge</label>
-                <label class="nwChk"><input type="checkbox" data-svc2="Physiotherapy"> Physiotherapy</label>
-                <label class="nwChk"><input type="checkbox" data-svc2="Blood Test"> Blood Test</label>
-                <label class="nwChk"><input type="checkbox" data-svc2="HBOT (Hyperbaric Oxygen Therapy)"> HBOT (Hyperbaric Oxygen Therapy)</label>
-              </div>
+              <!-- Filled by _nwRenderSvcGrid() from the FULL service master (app.ts) — a walk-in can
+                   be booked for any service, unlike the rest of Reception (RECEPTION_SERVICES). -->
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px" id="nwSvcGrid"></div>
               <div class="nwGrpHd">How did you hear about us?</div>
               <div style="display:flex;flex-wrap:wrap;gap:8px 10px">
                 <label class="nwChk"><input type="checkbox" data-hear="Doctor"> Doctor</label>
@@ -1213,11 +1207,38 @@ export function getMainContent(): string {
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
     <div style="display:grid;grid-template-columns:1fr 340px;gap:14px">
       <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"/></svg> Sessions</div>
-          <div class="sec-bd" id="phSessionsWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading physiotherapy data…</div></div></div>
+        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"/></svg> Sessions <span class="chipb neu" id="phSessCount" style="margin-left:6px">0</span></div>
+          <div class="sec-bd">
+            <!-- Search + consultation-status filters (static markup so typing never loses focus) -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+              <input class="input" id="phSearch" placeholder="Search patient name or phone…" oninput="window._phSearch(this.value)" style="max-width:240px;height:34px;font-size:12px">
+              <div class="pills" id="phStatusFilt">
+                <button class="pill on" onclick="window._phStatusF('all')">All</button>
+                <button class="pill" onclick="window._phStatusF('waiting')">Waiting</button>
+                <button class="pill" onclick="window._phStatusF('completed')">Completed</button>
+                <button class="pill" onclick="window._phStatusF('cancelled')">Cancelled</button>
+              </div>
+            </div>
+            <div class="tscroll" id="phSessionsWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading physiotherapy data…</div></div>
+          </div></div>
 
-        <!-- SOAP notes panel (hidden until a session is opened) -->
+        <!-- Assessment / SOAP panel (hidden until a patient record is opened) -->
         <div id="phSoapPanel" style="display:none">
+        <!-- Carried over from the Health Advisor's Physiotherapy panel — read-only here. -->
+        <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"/></svg> Patient — from Health Advisor <span id="phAdvWho" class="chipb info" style="margin-left:6px">—</span> <span class="arr">▾</span></div>
+          <div class="sec-bd">
+            <div class="g4">
+              <div class="fld"><label class="lbl" for="phAdvName">Name</label><input class="input" id="phAdvName" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvPhone">Phone number</label><input class="input mono" id="phAdvPhone" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvAppt">Appointment</label><input class="input" id="phAdvAppt" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvPt">Physiotherapist</label><input class="input" id="phAdvPt" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvCondition">Health condition</label><input class="input" id="phAdvCondition" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvReferral">Referral details</label><input class="input" id="phAdvReferral" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvMode">Mode / preferred slot</label><input class="input" id="phAdvMode" readonly></div>
+              <div class="fld"><label class="lbl" for="phAdvReports">Reports available</label><input class="input" id="phAdvReports" readonly></div>
+            </div>
+            <div class="fld fw" style="margin-top:6px"><label class="lbl" for="phAdvNotes">Previous notes / remarks</label><textarea class="area" id="phAdvNotes" rows="2" readonly></textarea></div>
+          </div></div>
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"/></svg> Session record — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
             <div class="g2">
@@ -1232,7 +1253,8 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="phExercises">Exercises prescribed</label><input  class="input" id="phExercises" placeholder="e.g. stretches, resistance band"></div>
               <div class="fld"><label class="lbl" for="phNextDate">Next session</label><input  class="input" type="date" id="phNextDate" data-future="1"></div>
             </div>
-            <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Save &amp; mark complete</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"/></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"/></svg> Complete consultation &rarr; Reception</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
+            <p style="font-size:11px;color:var(--faint);margin-top:6px">Completing the consultation sends this patient to Reception &rarr; Collect payment. The payment status then shows on both pages.</p>
           </div></div>
 
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"/></svg> Treatment plan — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
@@ -1301,29 +1323,126 @@ export function getMainContent(): string {
         <div class="sec-bd" id="accRefBody"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div></div>
   </div></section>
 
-  <!-- REPORTS -->
-  <section class="screen" id="s-reports"><div class="wrap">
-    <div class="ph"><div><h1>Reports centre</h1><p>Every report = a slice of the same event stream.</p></div>
-      <div class="pha"><button class="btn" onclick="window._repExport('csv')"><svg class="icon"><use href="#i-dl"/></svg> Excel</button><button class="btn" onclick="window._repExport('pdf')"><svg class="icon"><use href="#i-doc"/></svg> PDF</button></div></div>
-    <span class="viewing"><span class="vd"></span> Viewing as <span id="repViewRole">Management</span></span>
-    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cog"/></svg> Filters</div>
-      <div class="sec-bd"><div class="g4">
-        <div class="fld"><label class="lbl" for="repPeriod">Period</label><select  class="select" id="repPeriod" onchange="window._repLoad()"><option value="today">Today</option><option value="month" selected>This month</option><option value="quarter">Quarter</option><option value="all">All time</option></select></div>
-        <div class="fld"><label class="lbl" for="repSource">Source</label><select  class="select" id="repSource" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
-        <div class="fld"><label class="lbl" for="repLang">Language</label><select  class="select" id="repLang" onchange="window._repLoad()"><option value="all" selected>All</option></select></div>
-        <div class="fld"><label class="lbl" for="repService">Service</label><select  class="select" id="repService" onchange="window._repLoad()"><option value="all" selected>All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
-      </div></div></div>
-    <div class="rep-pick">
-      <button class="rep on" onclick="window._repTab('lead')"><svg class="icon"><use href="#i-inbox"/></svg> Lead report</button>
-      <button class="rep" onclick="window._repTab('funnel')"><svg class="icon"><use href="#i-split"/></svg> Conversion</button>
-      <button class="rep" onclick="window._repTab('revenue')"><svg class="icon"><use href="#i-coin"/></svg> Revenue</button>
-      <button class="rep" onclick="window._repTab('appt')"><svg class="icon"><use href="#i-cal"/></svg> Appointments</button>
+  <!-- REPORTS (Admin Report redesign — all styling scoped under .rpc) -->
+  <section class="screen" id="s-reports"><div class="wrap" style="max-width:1600px">
+    <div class="rpc">
+      <!-- TOP BAR -->
+      <div class="topbar">
+        <span class="tb-logo">MHS</span>
+        <span class="tb-title">Admin Report</span>
+        <span class="tb-badge" id="rpcRoleBadge">Full Access</span>
+        <div class="tb-right"><span class="tb-date" id="rpcLiveDate"></span></div>
+      </div>
+      <!-- CONTROL BAR 1 — Period + Row View -->
+      <div class="ctrl1">
+        <span class="ctrl-label">Period:</span>
+        <div class="tog" id="rpcPeriodTog">
+          <button class="tog-btn on" data-p="daily" onclick="window._rpcSetPeriod('daily',this)">Daily</button>
+          <button class="tog-btn" data-p="weekly" onclick="window._rpcSetPeriod('weekly',this)">Weekly</button>
+          <button class="tog-btn" data-p="monthly" onclick="window._rpcSetPeriod('monthly',this)">Monthly</button>
+          <button class="tog-btn" data-p="yearly" onclick="window._rpcSetPeriod('yearly',this)">Yearly</button>
+          <button class="tog-btn" data-p="custom" onclick="window._rpcSetPeriod('custom',this)">Custom</button>
+        </div>
+        <div class="custom-range" id="rpcCustomRange">
+          <span class="ctrl-label">From</span>
+          <input type="date" class="date-input" id="rpcFrom">
+          <span class="ctrl-label">To</span>
+          <input type="date" class="date-input" id="rpcTo">
+          <button class="btn-s purple" onclick="window._rpcRender()">Apply</button>
+        </div>
+        <button class="btn-s" id="rpcNavPrev" onclick="window._rpcNav(-1)" style="padding:3px 8px">&#8592;</button>
+        <span style="font-size:10px;font-weight:500;color:#111827;min-width:130px;text-align:center" id="rpcPeriodLabel"></span>
+        <button class="btn-s" id="rpcNavNext" onclick="window._rpcNav(1)" style="padding:3px 8px">&#8594;</button>
+        <button class="btn-s" onclick="window._rpcNavToday()" style="font-size:10px">Today</button>
+        <div style="width:0.5px;height:16px;background:#E5E7EB;margin:0 4px"></div>
+        <span class="ctrl-label">View by:</span>
+        <div class="tog" id="rpcRowviewTog">
+          <button class="tog-btn on blue" data-v="period" onclick="window._rpcSetRowView('period',this)">Period</button>
+          <button class="tog-btn" data-v="person" onclick="window._rpcSetRowView('person',this)">Person</button>
+          <button class="tog-btn" data-v="client" onclick="window._rpcSetRowView('client',this)">Client</button>
+        </div>
+      </div>
+      <!-- CONTROL BAR 2 — Filters -->
+      <div class="ctrl2">
+        <select class="filter-sel" id="rpcFService" onchange="window._rpcRender()"><option value="all">All Services</option></select>
+        <select class="filter-sel" id="rpcFLang" onchange="window._rpcRender()"><option value="all">All Languages</option></select>
+        <select class="filter-sel" id="rpcFSales" onchange="window._rpcRender()"><option value="all">All Salespersons</option></select>
+        <select class="filter-sel" id="rpcFHc" onchange="window._rpcRender()"><option value="all">All HCs</option></select>
+        <select class="filter-sel" id="rpcFSource" onchange="window._rpcRender()"><option value="all">All Sources</option></select>
+        <select class="filter-sel" id="rpcFProg" onchange="window._rpcRender()"><option value="all">All Programs</option><option>L1</option><option>L2</option><option>L1 + L2</option></select>
+        <input type="text" class="search-input" id="rpcSearch" placeholder="Search..." oninput="window._rpcRenderBody()">
+        <div style="margin-left:auto;display:flex;gap:5px">
+          <button class="btn-s" onclick="window._rpcToggleColPanel()" id="rpcColPanelBtn">
+            <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/></svg>
+            Columns
+          </button>
+          <button class="btn-s green" onclick="window._rpcExport()">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
+        </div>
+      </div>
+      <!-- SAVED VIEWS BAR -->
+      <div class="saved-bar" id="rpcSavedBar">
+        <span class="sv-lbl">Saved Views:</span>
+        <span class="sv-tag on" onclick="window._rpcPreset(this,'all')">All Columns</span>
+        <span class="sv-tag sales" onclick="window._rpcPreset(this,'sales')">Sales Only</span>
+        <span class="sv-tag health" onclick="window._rpcPreset(this,'health')">Health Only</span>
+        <span class="sv-tag roas" onclick="window._rpcPreset(this,'roas')">Revenue View</span>
+        <span class="sv-tag" onclick="window._rpcPreset(this,'metric')">Conversion Metrics</span>
+        <span class="sv-tag" onclick="window._rpcPreset(this,'l1l2')">L1 / L2 View</span>
+        <span class="sv-tag" onclick="window._rpcPreset(this,'audit')">Audit View</span>
+      </div>
+      <!-- SUMMARY CARDS -->
+      <div class="sum-wrap"><div class="sum-grid" id="rpcSumGrid"></div></div>
+      <!-- SECTION HEADER -->
+      <div class="sec-hd2">
+        <div>
+          <div class="sec-title" id="rpcSecTitle">Daily Report — Period View</div>
+          <div class="sec-sub" id="rpcSecSub">Live data · Click column header to filter</div>
+        </div>
+        <select class="filter-sel" id="rpcSort" onchange="window._rpcRenderBody()">
+          <option value="leads">Sort: Leads</option>
+          <option value="apptTot">Sort: Appt Fixed</option>
+          <option value="vis">Sort: Visited</option>
+          <option value="enr">Sort: Enrolled</option>
+          <option value="rev">Sort: Revenue</option>
+          <option value="none">Sort: Natural</option>
+        </select>
+      </div>
+      <!-- TABLE -->
+      <div class="tbl-wrap" id="rpcTblWrap">
+        <table><thead id="rpcThead"></thead><tbody id="rpcTbody"><tr><td style="padding:20px;color:#6B7280">Loading report data…</td></tr></tbody></table>
+      </div>
+      <!-- COL FILTER DROP -->
+      <div class="col-filter-drop" id="rpcCfd">
+        <div class="cfd-title" id="rpcCfdTitle">Filter: Column</div>
+        <div class="cfd-row">
+          <select id="rpcCfdOp"><option value="gte">&ge; Min</option><option value="lte">&le; Max</option><option value="eq">= Equal</option><option value="contains">Contains</option></select>
+        </div>
+        <input class="cfd-input" type="text" id="rpcCfdVal" placeholder="Value...">
+        <div class="cfd-row">
+          <button class="cfd-btn cfd-clear" onclick="window._rpcCfdClear()">Clear</button>
+          <button class="cfd-btn" onclick="window._rpcCfdApply()">Apply</button>
+        </div>
+      </div>
+      <!-- COLUMN PANEL -->
+      <div class="col-panel" id="rpcColPanel">
+        <div class="cp-hd">
+          <span class="cp-hd-title">Manage Columns</span>
+          <button class="cp-close" onclick="window._rpcToggleColPanel()">&#10005;</button>
+        </div>
+        <div class="cp-search"><input type="text" placeholder="Search columns..." oninput="window._rpcCpFilter(this.value)"></div>
+        <div class="cp-actions">
+          <button class="cp-act" onclick="window._rpcAllCols(true)">Show All</button>
+          <button class="cp-act" onclick="window._rpcAllCols(false)">Hide All</button>
+          <button class="cp-act" onclick="window._rpcPreset(null,'sales')">Sales</button>
+          <button class="cp-act" onclick="window._rpcPreset(null,'health')">Health</button>
+          <button class="cp-act" onclick="window._rpcPreset(null,'roas')">Revenue</button>
+        </div>
+        <div class="cp-list" id="rpcCpList"></div>
+      </div>
     </div>
-    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"/></svg> <span id="repTitle">Lead report</span></div>
-      <div class="sec-bd">
-        <div class="metrics" style="margin-top:6px" id="repKpis"></div>
-        <div id="repTableWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading report data…</div></div>
-      </div></div>
   </div></section>
 
   <!-- RECORDINGS -->
