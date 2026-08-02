@@ -4205,7 +4205,7 @@ export function initApp(root: HTMLElement) {
     // on demand (Enrolled card click) and reused across renders. Same builder as Reception → identical labels.
     let _advProgPay:Record<string,any>={}; let _advProgPayLoading=false;
     async function _advLoadEnrollProgress(){
-      try{ const {data}=await supabase.from("payments").select("lead_id,program,amount,status,payment_type,installment_number"); _advProgPay=_buildProgPay(data||[]); }catch(_){}
+      try{ const {data}=await supabase.from("payments").select("lead_id,program,amount,status,payment_type,installment_number,service,refund_amount"); _advProgPay=_buildProgPay(data||[]); }catch(_){}
     }
     function renderHaResults(){
       const wrap=root.querySelector("#haResultsWrap")as HTMLElement;
@@ -5592,6 +5592,28 @@ export function initApp(root: HTMLElement) {
     let _progPayByLead: Record<string,Record<string,{type:string;inst1Paid:boolean;inst2Paid:boolean;instPaid:number;anyPaid:boolean;anyDue:boolean}>> = {};
     function _recSvcCode(s:string){ s=(s||"").toLowerCase(); if(s.indexOf("blood")>=0)return "bt"; if(s.indexOf("phys")>=0)return "physio"; return "dia"; }
     function _recSvcLabel(s:string,session:string){ const c=_recSvcCode(s); if(c==="bt")return "🩸 Blood test"; if(c==="physio")return "💪 Physio"+(session?(" "+session):""); return "🩺 Diabetes"; }
+    // Which single-service JOURNEY the Appointments-table Stage chip narrates for a (possibly
+    // combined) service string. _recSvcCode tests "blood" first, so a combined "Diabetes Counselling
+    // + Blood Test" walk-in resolved to "bt" — its whole row read as a Blood-Test-only visit and the
+    // Diabetes side (screening → screened → enrolled) never surfaced; CADREL sat at stage "enrolled"
+    // while the chip said "Blood Test Completed". Consultation journeys outrank the one-shots here:
+    // any non-blood/non-physio part → "dia"; else physio; else blood-test only.
+    function _recSvcDisplayCode(s:string){
+      const parts=String(s||"").split(/[+,/&]| and /i).map(p=>p.trim()).filter(Boolean);
+      if(parts.some(p=>!/blood/i.test(p)&&!/phys/i.test(p))) return "dia";
+      if(parts.some(p=>/phys/i.test(p))) return "physio";
+      return "bt";
+    }
+    // Service-column label listing EVERY service on the appointment ("🩺 Diabetes + 🩸 Blood test") —
+    // the single-code label made a combined walk-in look like a Blood-Test-only booking.
+    function _recSvcLabelMulti(s:string,session:string){
+      const seen=new Set<string>(); const out:string[]=[];
+      String(s||"").split(/[+,/&]| and /i).map(p=>p.trim()).filter(Boolean).forEach(p=>{
+        const l=_recSvcLabel(p,/phys/i.test(p)?session:"");
+        if(!seen.has(l)){ seen.add(l); out.push(l); }
+      });
+      return out.length?out.join(" + "):_recSvcLabel(s,session);
+    }
     // Payment-type label for the Reception Collect queue — tells Reception exactly which payment is
     // due (e.g. "L2 – 1st Installment", "L2 – 2nd Installment", "L1 – Full Payment",
     // "L1 + L2 – Full Payment"), so they never confuse installment 1 vs 2 / full vs installment.
@@ -5626,11 +5648,21 @@ export function initApp(root: HTMLElement) {
     // a bare "Enrolled – L1/L2" when nothing has been paid yet, or "Enrolled" if no level is known.
     // Build the per-lead, per-program payment-progress map from payment rows. Shared by the Reception
     // queue and the Advisor Enrolled table so both show the SAME detailed enrollment stage.
+    // Only rows that belong to the DIABETES ledger count toward the L1/L2 program logic (enrollment
+    // labels, payment locks, refund panel). A row explicitly tagged with another service (Blood
+    // test / Physio / …) is that service's one-shot fee — the program normalizers below default a
+    // null program to "L1", so without this guard a plain Blood-Test payment faked an "Enrolled –
+    // L1 / L1 Completed" state on Reception, Advisor AND the Health Coach page (reported: a
+    // combined Diabetes + Blood Test check-in showed the lead Enrolled (L1) right after the
+    // blood-test payment, before any enrollment happened). Legacy rows with no service tag are
+    // Diabetes by construction and stay counted.
+    function _isDiaProgRow(p:any):boolean{ const s=String((p&&p.service)||"").trim(); return !s||normService(s)==="Diabetes Counselling"; }
     function _buildProgPay(payRows:any[]):Record<string,any>{
       const map:Record<string,any>={};
       const norm=(v:any)=>{ const s=String(v==null?"":v); if(/l1\s*\+\s*l2/i.test(s)) return "L1 + L2"; const h1=/l1/i.test(s),h2=/l2/i.test(s); if(h1&&h2) return "L1 + L2"; if(h2&&!h1) return "L2"; return "L1"; };
       (payRows||[]).forEach((p:any)=>{
         const lid=String(p.lead_id||""); if(!lid) return;
+        if(!_isDiaProgRow(p)) return;   // Blood Test / Physio fees never count as a program payment
         const prog=norm(p.program);
         const byLead=(map[lid]=map[lid]||{});
         const o=(byLead[prog]=byLead[prog]||{type:p.payment_type||"full",inst1Paid:false,inst2Paid:false,instPaid:0,anyPaid:false,anyDue:false});
@@ -5738,11 +5770,14 @@ export function initApp(root: HTMLElement) {
           // show the L1/L2 enrollment line on the Diabetes appointment; other services must fall back
           // to their own appointments.stage text (e.g. "Blood Test Completed" — see recConfirm's
           // _svcDoneStage), or a stale Diabetes enrollment would mislabel every one-shot service too.
-          const enrollLine=(_isEnrolled&&_recSvcCode(a.service)==="dia")?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
+          // Enrollment line + Stage chip follow the DISPLAY journey (see _recSvcDisplayCode): a
+          // combined Diabetes + Blood Test row narrates its Diabetes progression, not the BT one.
+          const _dispCode=_recSvcDisplayCode(a.service);
+          const enrollLine=(_isEnrolled&&_dispCode==="dia")?_enrollStatusLine(String(a.lead_id||""),_consById[String(a.lead_id)]||""):"";
           // Service-aware Stage chip for the Appointments table. Blood Test / Physiotherapy are
           // STANDALONE services → they show their OWN completed stage and NEVER a Diabetes stage
           // (enrolled / L1 / L2), even if a Diabetes enrollment previously stamped this row.
-          const _svcCode=_recSvcCode(a.service); let stageChip:{t:string;c:string};
+          const _svcCode=_dispCode; let stageChip:{t:string;c:string};
           if(_svcCode==="bt"){ const done=payStatus==="paid"||/complet/i.test(a.stage||"")||a.stage==="billed"||a.stage==="report"; stageChip=done?{t:"Blood Test Completed",c:"ok"}:(a.stage==="sample"?{t:"Sample collected",c:"info"}:{t:"Blood test",c:"info"}); }
           else if(_svcCode==="physio"){
             // The physio flow has one more step than Blood Test: the consultation finishes on the
@@ -5755,7 +5790,7 @@ export function initApp(root: HTMLElement) {
           }
           else{ stageChip=enrollLine?{t:enrollLine,c:"ok"}:(a.stage?{t:String(a.stage),c:"info"}:{t:"",c:"neu"}); }
           return {
-          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabel(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
+          id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabelMulti(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
@@ -5764,8 +5799,8 @@ export function initApp(root: HTMLElement) {
           // There is no "due" payments row for physio — creating one would be picked up by the
           // Diabetes collection-request path and wrongly enrol the lead — so the amount rides on the
           // appointment instead, and Collect/renderPay fall back to it.
-          physioDue:(_svcCode==="physio"&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||_phpPerSession()):0,
-          physioConsultDone:(_svcCode==="physio"&&!!((a.physio_data||{}).consult_status==="completed")),
+          physioDue:(_recSvcCode(a.service)==="physio"&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||_phpPerSession()):0,
+          physioConsultDone:(_recSvcCode(a.service)==="physio"&&!!((a.physio_data||{}).consult_status==="completed")),
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
@@ -6081,7 +6116,7 @@ export function initApp(root: HTMLElement) {
           svcNames=[k];
           rowsBySvc[k]=pays.filter((p:any)=>{ const s=normService(String(p.service||"")); return s?s===k:true; });
         }
-        const svcName=svcNames.join(" + ");
+        let svcName=svcNames.join(" + ");
         const isDia=svcNames.length===1&&svcNames[0]==="Diabetes Counselling";
         const HSN="999249";
         // Line items are GST-INCLUSIVE (`incl`); the tax-exclusive base is back-computed at 18% below.
@@ -6115,9 +6150,13 @@ export function initApp(root: HTMLElement) {
           else { const withDue=order.filter(k=>byProg[k]&&byProg[k].due>0); keys=withDue.length?withDue:order.filter(k=>byProg[k]&&byProg[k].paid>0); }
           // One program line per selected program; fee = paid + due for that program.
           const items:{prog:string;incl:number;paid:number;due:number}[]=keys.map(k=>({prog:k,incl:byProg[k].paid+byProg[k].due,paid:byProg[k].paid,due:byProg[k].due})).filter(it=>it.incl>0);
-          // Fallback (nothing matched): single line from what this lead has actually paid.
+          // Fallback (nothing matched): single line from what this lead has actually paid FOR
+          // DIABETES. r.payAmt is the lead-level aggregate across every service, so it may only be
+          // used when the lead has NO payment rows at all — otherwise a Blood-Test-only payment was
+          // billed here as "Program Fees – Diabetes Counselling" (reported: the ⬇ on an old Diabetes
+          // booking printed a Diabetes invoice for the ₹ collected on the blood test).
           if(!items.length){
-            const amt=diaPays.filter((p:any)=>p.status==="paid").reduce((s:number,p:any)=>s+(Number(p.amount)||0),0)||(svcNames.length===1?Number(r.payAmt)||0:0);
+            const amt=diaPays.filter((p:any)=>p.status==="paid").reduce((s:number,p:any)=>s+(Number(p.amount)||0),0)||(pays.length?0:(svcNames.length===1?Number(r.payAmt)||0:0));
             if(amt>0) items.push({prog:consP,incl:amt,paid:amt,due:0});
           }
           // Description = the ACTUAL payment item: "L2 Program", "L1 + L2 Program", plus the
@@ -6182,6 +6221,20 @@ export function initApp(root: HTMLElement) {
         total=round2(total); amountPaid=round2(amountPaid); balanceDue=round2(balanceDue);
         // Earliest outstanding balance due date (for the "Balance Due (by …)" line).
         if(dueDates.length) balDueDate=fmtISTDate(dueDates.slice().sort()[0]);
+        // Last-resort safety net: the appointment's service resolution found no money (e.g. the ⬇ was
+        // clicked on a booking whose service line doesn't match where the lead's money actually sits).
+        // Bill by the payment rows' OWN service tags, so the invoice always reflects what was paid for.
+        if(total<=0){
+          const paidRowsAll=pays.filter((p:any)=>p.status==="paid");
+          if(paidRowsAll.length){
+            lines.length=0; invPays.length=0; invPays.push(...paidRowsAll);
+            const by:Record<string,number>={};
+            paidRowsAll.forEach((p:any)=>{ const k=normService(String(p.service||""))||"Service"; by[k]=(by[k]||0)+(Number(p.amount)||0); });
+            Object.keys(by).forEach(k=>{ const amt=round2(by[k]); lines.push({desc:k,hsn:HSN,incl:amt,base:round2(amt/1.18)}); total+=amt; amountPaid+=amt; });
+            total=round2(total); amountPaid=round2(amountPaid); balanceDue=0; balDueDate="";
+            svcName=Object.keys(by).join(" + ");
+          }
+        }
         if(!lines.length||total<=0){ toastErr("No amount on record for this client — cannot generate invoice"); return; }
         const baseTotal=round2(total/1.18);
         const cgst=round2(baseTotal*0.09);
@@ -6430,6 +6483,7 @@ export function initApp(root: HTMLElement) {
       // from the Today-filtered Appointments table. Reset it to today so the record shows immediately.
       { const _d=root.querySelector("#nwDate")as HTMLInputElement|null; if(_d && (!_d.value || _d.value<_todayLocal())) _d.value=_todayLocal(); }
       { const _pv=root.querySelector("#nwProv")as HTMLSelectElement|null; if(_pv) delete _pv.dataset.manual; }   // fresh form → provider auto-fills from service
+      _nwFillProviders();   // live Health Coaches / Physiotherapists from the staff master
       _nwUpdateProvVis();
     }
     // "Service selected today" tick-list — deliberately the FULL service master, not the narrowed
@@ -6488,6 +6542,33 @@ export function initApp(root: HTMLElement) {
     // Current wall-clock time as an appointment slot label ("11:47 AM") — Blood Test uses this
     // automatically instead of a manually chosen slot.
     function _nowApptTime(){ const d=new Date(); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12; return h+":"+String(d.getMinutes()).padStart(2,"0")+" "+ap; }
+    // Provider options come from the LIVE staff list (assignees master), not hardcoded names:
+    // Health Coaches for the consultation services, Physiotherapists for Physio. The legacy
+    // placeholder names ("Dr. Suresh" / "Ganesh (PT)") survive only as fallbacks when a group has
+    // no real staff yet, so the form never renders an empty dropdown.
+    function _nwFillProviders(){
+      const sel=root.querySelector("#nwProv")as HTMLSelectElement|null; if(!sel) return;
+      const cur=sel.value;
+      const act=_assignees.filter((a:any)=>a.is_active!==false);
+      const uniq=(ns:string[])=>Array.from(new Set(ns.filter(Boolean)));
+      const hcs=uniq(act.filter((a:any)=>String(a.role||"")==="Health Coach").map((a:any)=>String(a.name).trim()));
+      const pts=uniq(act.filter((a:any)=>/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name).trim()));
+      const grp=(label:string,names:string[],kind:string)=>'<optgroup label="'+_attr(label)+'">'
+        +names.map(n=>'<option data-kind="'+kind+'" value="'+_attr(n)+'">'+_attr(n)+'</option>').join("")+'</optgroup>';
+      sel.innerHTML=grp("Health Coaches",hcs.length?hcs:["Dr. Suresh","Dr. Priya"],"hc")
+        +grp("Physiotherapists",pts.length?pts:["Ganesh (PT)"],"pt");
+      if(cur&&Array.from(sel.options).some(o=>o.value===cur)) sel.value=cur;
+    }
+    // Auto-refresh the slot board (debounced) whenever the booking inputs change — the receptionist
+    // shouldn't have to press "Check slot" to see the chosen provider's availability.
+    let _nwSlotT:any=null;
+    function _nwAutoSlots(){
+      if(_nwBloodTestOnly()) return;
+      const p=root.querySelector("#nwPanel")as HTMLElement|null; if(!p||p.style.display==="none") return;
+      if(_nwSlotT) clearTimeout(_nwSlotT);
+      _nwSlotT=setTimeout(()=>{ try{ nwCheckSlot(); }catch(_){} },300);
+    }
+    w._nwProvChange=(el:any)=>{ if(el&&el.dataset) el.dataset.manual="1"; _nwAutoSlots(); };
     function _nwUpdateProvVis(){
       // Hide the slot-booking block (and Provider) ONLY for a Blood-Test-ONLY visit — that uses the
       // current date/time automatically. A COMBINED visit (e.g. Diabetes + Blood Test) KEEPS the slot
@@ -6496,14 +6577,18 @@ export function initApp(root: HTMLElement) {
       const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=btOnly?"none":"";
       const book=root.querySelector("#nwBookingSec")as HTMLElement|null; if(book) book.style.display=btOnly?"none":"";
       const note=root.querySelector("#nwBtBookNote")as HTMLElement|null; if(note) note.style.display=btOnly?"":"none";
-      // Auto-fill the Provider from the selected (non-blood) service — Physiotherapy → the PT, any
-      // consultation → the doctor — unless the receptionist has manually chosen one.
+      // Auto-fill the Provider from the selected (non-blood) service — Physiotherapy → the first
+      // real Physiotherapist, any consultation → the first real Health Coach — unless the
+      // receptionist has manually chosen one.
       const prov=root.querySelector("#nwProv")as HTMLSelectElement|null;
       if(prov && !btOnly && !prov.dataset.manual){
+        if(!prov.options.length) _nwFillProviders();
         const wantPT=_nwSelectedSvcs().some((s:string)=>s!=="Blood Test"&&/phys/i.test(s));
-        const target=wantPT?"Ganesh (PT)":"Dr. Suresh";
-        const opt=Array.from(prov.options).find((o:any)=>o.value===target||(o.text||"").trim()===target); if(opt) prov.value=opt.value;
+        const kind=wantPT?"pt":"hc";
+        const opt=Array.from(prov.options).find((o:any)=>o.dataset&&o.dataset.kind===kind);
+        if(opt) prov.value=opt.value;
       }
+      if(!btOnly) _nwAutoSlots();   // provider/service/date changed → show that provider's day live
     }
     // Primary button "Save & Proceed": if Blood Test is selected (alone OR with other services) →
     // dedicated Collect Payment page for the blood-test payment FIRST; the remaining services are
@@ -6541,14 +6626,17 @@ export function initApp(root: HTMLElement) {
       const sr=root.querySelector("#nwSlotRes")as HTMLElement; if(!sr) return;
       const date=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||_todayLocal();
       sr.innerHTML='<div style="color:var(--faint);font-size:12px;padding:6px 2px">Loading slot occupancy…</div>';
-      // Real occupancy for this date (all HCs) — count non-cancelled appointments per time.
+      // Occupancy for this date, scoped to the CHOSEN provider when one is selected (the slot board
+      // must answer "when is THIS doctor/coach free", not "how busy is the clinic") — falling back
+      // to clinic-wide counts when no provider applies. Count non-cancelled appointments per time.
+      const prov=(!_nwBloodTestOnly()&&((root.querySelector("#nwProv")as HTMLSelectElement|null)?.value))||"";
       const occ:Record<string,number>={}; TIMES.forEach(t=>occ[t]=0);
-      try{ const _r:any=await supabase.from("appointments").select("appt_time,status").eq("appt_date",date).neq("status","cancelled");
-        if(!(_r&&_r.error)) (_r?.data||[]).forEach((a:any)=>{ const t=a.appt_time; if(t&&occ[t]!=null) occ[t]++; });
+      try{ const _r:any=await supabase.from("appointments").select("appt_time,status,hc_pt").eq("appt_date",date).neq("status","cancelled");
+        if(!(_r&&_r.error)) (_r?.data||[]).forEach((a:any)=>{ if(prov&&String(a.hc_pt||"").trim()!==prov) return; const t=a.appt_time; if(t&&occ[t]!=null) occ[t]++; });
       }catch(_){ /* leave counts at 0 on a failed read */ }
       const sel=((root.querySelector("#nwTime")as HTMLSelectElement)?.value)||"";
-      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-      sr.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 2px">Day view — slot occupancy · '+esc(_recFmtDate(date))+' · '+NW_SLOT_CAP+' / slot</div>'
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      sr.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 2px">'+(prov?esc(prov)+"’s slots":"Day view — slot occupancy")+' · '+esc(_recFmtDate(date))+' · '+NW_SLOT_CAP+' / slot</div>'
         +'<div class="slotgrid">'+TIMES.map((t)=>{
           const n=occ[t]||0; const full=n>=NW_SLOT_CAP;
           const cls=(full?"s3 full":"s0")+(sel===t?" sel":"");
@@ -7694,7 +7782,7 @@ export function initApp(root: HTMLElement) {
     function _refreshRefundPanel(){
       const id=_coachLeadId; if(!id) return;
       const prog=_curProgram();
-      const rows=(_coachPayRows||[]).filter((r:any)=>r.status==="paid"&&String(r.program||"L1")===prog&&!r.refund_status);
+      const rows=(_coachPayRows||[]).filter((r:any)=>_isDiaProgRow(r)&&r.status==="paid"&&String(r.program||"L1")===prog&&!r.refund_status);
       const paid=rows.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
       const lastPaidAt=rows.reduce((latest:string,r:any)=>(r.paid_at&&(!latest||r.paid_at>latest))?r.paid_at:latest,"");
       const days=lastPaidAt?Math.max(0,Math.floor((Date.now()-new Date(lastPaidAt).getTime())/86400000)):0;
@@ -7713,7 +7801,7 @@ export function initApp(root: HTMLElement) {
       const reason=reasonEl?.value||"";
       if(!reason){ toastErr("Select a refund reason"); return; }
       const prog=_curProgram();
-      const rows=(_coachPayRows||[]).filter((r:any)=>r.status==="paid"&&String(r.program||"L1")===prog&&!r.refund_status);
+      const rows=(_coachPayRows||[]).filter((r:any)=>_isDiaProgRow(r)&&r.status==="paid"&&String(r.program||"L1")===prog&&!r.refund_status);
       if(!rows.length){ toastErr("Nothing paid for "+prog+" yet — no refund to request"); return; }
       _refundBusy=true;
       try{
@@ -7758,7 +7846,7 @@ export function initApp(root: HTMLElement) {
     // the live consultation status. STRICTLY scoped to the selected program — it never shows another
     // program's status. Returns "" when the selected program has no enrollment/payment (→ "Not enrolled").
     function _coachEnrolledLabel():string{
-      const rows=_coachPayRows||[];
+      const rows=(_coachPayRows||[]).filter(_isDiaProgRow);   // BT/Physio fees are not program payments
       const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
       const agg:Record<string,{paid:number;due:number;instPaid:number;i1:boolean;i2:boolean;full:boolean}>={};
       rows.forEach((r:any)=>{ const p=norm(r.program); const o=(agg[p]=agg[p]||{paid:0,due:0,instPaid:0,i1:false,i2:false,full:false}); if(r.status==="paid"){ o.paid++; if(r.payment_type==="installment"){ o.instPaid++; if(Number(r.installment_number)===1) o.i1=true; if(Number(r.installment_number)===2) o.i2=true; } else o.full=true; } else if(r.status==="due") o.due++; });
@@ -9272,7 +9360,7 @@ export function initApp(root: HTMLElement) {
       // Locks are PER PROGRAM (L1 / L2 / L1 + L2): only payments for the currently-selected program
       // count, so an L1-enrolled client can still collect for L2. Legacy rows (no program) = L1.
       const prog=_curProgram();
-      const paid=(rows||[]).filter((r:any)=>r.status==="paid"&&(String(r.program||"L1")===prog));
+      const paid=(rows||[]).filter((r:any)=>_isDiaProgRow(r)&&r.status==="paid"&&(String(r.program||"L1")===prog));
       const fullPaid=paid.some((r:any)=>(r.payment_type||"full")==="full");
       const inst1Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===1);
       const inst2Paid=paid.some((r:any)=>r.payment_type==="installment"&&Number(r.installment_number)===2);
@@ -9350,7 +9438,7 @@ export function initApp(root: HTMLElement) {
       if(String(_coachLeadId)!==String(id)){ el.innerHTML=""; return; }
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const prog=_curProgram();
-      const mine=(rows||[]).filter((r:any)=>String(r.program||"L1")===prog);
+      const mine=(rows||[]).filter((r:any)=>_isDiaProgRow(r)&&String(r.program||"L1")===prog);
       const paid=mine.filter((r:any)=>r.status==="paid"); const due=mine.filter((r:any)=>r.status==="due");
       if(!paid.length&&!due.length){ el.innerHTML=""; return; }   // nothing collected for this program yet
       const money=(n:any)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
@@ -9398,7 +9486,7 @@ export function initApp(root: HTMLElement) {
       try{
         const norm=(v:any)=>{ const s=String(v||"L1"); if(/l1\s*\+\s*l2/i.test(s))return "L1 + L2"; const l1=/l1/i.test(s),l2=/l2/i.test(s); return (l1&&l2)?"L1 + L2":l2?"L2":"L1"; };
         const stat:Record<string,{paid:number;due:number;i1:boolean;i2:boolean}>={};
-        (rows||[]).forEach((r:any)=>{ const p=norm(r.program); const o=(stat[p]=stat[p]||{paid:0,due:0,i1:false,i2:false}); if(r.status==="paid"){o.paid++; if(r.payment_type==="installment"){ if(Number(r.installment_number)===1)o.i1=true; if(Number(r.installment_number)===2)o.i2=true; }} else if(r.status==="due")o.due++; });
+        (rows||[]).filter(_isDiaProgRow).forEach((r:any)=>{ const p=norm(r.program); const o=(stat[p]=stat[p]||{paid:0,due:0,i1:false,i2:false}); if(r.status==="paid"){o.paid++; if(r.payment_type==="installment"){ if(Number(r.installment_number)===1)o.i1=true; if(Number(r.installment_number)===2)o.i2=true; }} else if(r.status==="due")o.due++; });
         const progs=Object.keys(stat);
         let cliProg=progs.find(p=>stat[p].due>0||(stat[p].i1&&!stat[p].i2))||"";   // 1) still needs collection
         if(!cliProg){ const hasL1=progs.some(p=>/L1/.test(p)), hasL2=progs.some(p=>/L2/.test(p)); cliProg=(hasL1&&hasL2)?"L1 + L2":hasL2?"L2":hasL1?"L1":""; }

@@ -953,7 +953,9 @@ export function getMainContent(): string {
               <div class="g4" style="gap:10px 12px;margin-top:10px">
                 <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
                 <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>12:00 PM</option><option>12:30 PM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option><option>3:30 PM</option><option>4:00 PM</option><option>4:30 PM</option><option>5:00 PM</option><option>5:30 PM</option><option>6:00 PM</option><option>6:30 PM</option></select></div>
-                <div class="fld" id="nwProvFld"><label class="lbl" for="nwProv">Provider <span class="ab">auto</span></label><select  class="select" style="height:38px" id="nwProv" onchange="this.dataset.manual='1'"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
+                <!-- Options are filled live by _nwFillProviders() (Health Coaches + Physiotherapists from the
+                     staff master); changing it marks the choice manual and refreshes that provider's slots. -->
+                <div class="fld" id="nwProvFld"><label class="lbl" for="nwProv">Provider <span class="ab">auto</span></label><select  class="select" style="height:38px" id="nwProv" onchange="window._nwProvChange(this)"></select></div>
                 <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
               </div>
               <div id="nwSlotRes" style="margin-top:8px"></div>
