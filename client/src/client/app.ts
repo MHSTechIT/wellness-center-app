@@ -10522,28 +10522,20 @@ export function initApp(root: HTMLElement) {
       return [null,null];
     }
     // ===== Physiotherapy pricing master (physio_pricing) =====
-    // Replaces the HARDCODED pricing card + the static Settings inputs (both said "from Settings"
-    // while nothing read from Settings). Same pattern as the Blood Test master (bt_tests): one
-    // editable row per price item; the Physio page card, the per-visit default and the pack-price
-    // prefill all read THIS list live.
+    // Managed centrally in Settings & masters → Physiotherapy pricing (its own tab, after Blood
+    // Test pricing — same pattern as the Blood Test master bt_tests). The Physio page carries no
+    // pricing card any more; its per-visit default and pack-price prefill read THIS list live.
     let _phpList:any[]=[];
     let _phpEditId:any=null;
     async function loadPhysioPricing(){
       try{ const {data,error}=await supabase.from("physio_pricing").select("*").order("sort"); if(error) throw error; _phpList=data||[]; }
       catch(_){ _phpList=[]; }
-      _phpRenderCard(); _phpRenderSettings();
+      _phpRenderSettings();
     }
     function _phpActive(){ return _phpList.filter((p:any)=>p.is_active); }
     // The live per-session rate (sessions=1). Falls back to the legacy constant until the master loads.
     function _phpPerSession():number{ const p=_phpActive().find((x:any)=>Number(x.sessions)===1); return p?(Number(p.price)||PHYSIO_DEFAULT_PRICE):PHYSIO_DEFAULT_PRICE; }
     function _phpPackFor(n:number){ return n>1?(_phpActive().find((x:any)=>Number(x.sessions)===n)||null):null; }
-    function _phpRenderCard(){
-      const el=root.querySelector("#phPricingBody"); if(!el) return;
-      const rows=_phpActive();
-      el.innerHTML=rows.length
-        ?rows.map((p:any)=>'<tr><td>'+_orgEsc(p.label)+'</td><td class="mono" style="text-align:right;font-weight:700">₹'+(Number(p.price)||0).toLocaleString("en-IN")+'</td></tr>').join("")
-        :'<tr><td colspan="2" style="color:var(--faint)">No pricing configured — add items in Settings → Service pricing.</td></tr>';
-    }
     function _phpRenderSettings(){
       const body=root.querySelector("#phpBody"); if(!body) return;
       body.innerHTML=_phpList.length?_phpList.map((p:any)=>'<tr'+(p.is_active?'':' style="opacity:.55"')+'><td style="font-weight:600">'+_orgEsc(p.label)+'</td><td class="mono">'+(Number(p.sessions)||0)+'</td><td class="mono" style="font-weight:700">₹'+(Number(p.price)||0).toLocaleString("en-IN")+'</td><td><span class="chipb '+(p.is_active?'ok':'neu')+'">'+(p.is_active?'Active':'Off')+'</span></td><td><div style="display:flex;gap:4px"><button class="btn bsm" onclick="window._phpEdit(\''+_orgEsc(p.id)+'\')">Edit</button><button class="btn bsm" onclick="window._phpToggle(\''+_orgEsc(p.id)+'\')">'+(p.is_active?'Disable':'Enable')+'</button><button class="btn bsm" onclick="window._phpDelete(\''+_orgEsc(p.id)+'\')">🗑</button></div></td></tr>').join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">No items yet — add the first one above.</td></tr>';
@@ -11836,6 +11828,9 @@ export function initApp(root: HTMLElement) {
       if(usrTabBtn) usrTabBtn.addEventListener("click",()=>{ loadAssignees(); loadUsers(); });
       const rbacTabBtn=root.querySelector('#settTabs button[data-t="st-rbac"]')as HTMLButtonElement|null;
       if(rbacTabBtn) rbacTabBtn.addEventListener("click",()=>{ renderRbacMatrix(); });
+      // Physiotherapy pricing: refetch on open so an edit from another tab/session shows current rows.
+      const phpTabBtn=root.querySelector('#settTabs button[data-t="st-php"]')as HTMLButtonElement|null;
+      if(phpTabBtn) phpTabBtn.addEventListener("click",()=>{ loadPhysioPricing(); });
       // Services & Roles: refetch the master on open so a change made in another tab/session shows,
       // and loadUsers() so the "People" headcount column is current.
       const orgTabBtn=root.querySelector('#settTabs button[data-t="st-org"]')as HTMLButtonElement|null;

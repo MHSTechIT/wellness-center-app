@@ -1302,10 +1302,9 @@ export function getMainContent(): string {
       <div>
         <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"/></svg> Active patients <span id="phPatientCount">(0)</span></div>
           <div class="sec-bd" id="phPatientList"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No patients yet.</div></div></div>
-        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"/></svg> Pricing <span class="ab">from Settings</span></div>
-          <div class="sec-bd"><table class="tbl"><tbody id="phPricingBody">
-            <tr><td colspan="2" style="color:var(--faint)">Loading pricing…</td></tr>
-          </tbody></table><p style="font-size:11px;color:var(--faint);margin-top:6px">Configurable in Settings → Service pricing</p></div></div>
+        <!-- The pricing card that used to sit here moved to Settings & masters → Physiotherapy
+             pricing (the physio_pricing master). Payment amounts on this page still read the same
+             master live (_phpPerSession/_phpPackFor) — only the display card moved. -->
       </div>
     </div>
   </div></section>
@@ -1547,7 +1546,7 @@ export function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
 
     <div class="st-p" data-p="st-svc">
@@ -1564,17 +1563,9 @@ export function getMainContent(): string {
               <tr><td>L2 · EMI</td><td><input class="input mono" style="height:32px;max-width:120px" value="32000"></td><td><span class="chipb ok">Active</span></td><td></td></tr>
             </tbody></table></div>
           <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--info-ink)">🩸 Blood test (Thyrocare partnership)</div>
-            <p style="font-size:12.5px;color:var(--muted);margin:6px 2px">Blood-test panels &amp; pricing are now managed in the dedicated <b><a href="#" onclick="event.preventDefault();document.querySelector('#settTabs button[data-t=\'st-btm\']').click()" style="color:var(--brand-600)">Blood Test pricing</a></b> tab — the single dynamic source of truth (service amount, Thyrocare cost, auto margin) reflected across Reception, Collect Payment and the Blood Test module.</p></div>
-          <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--vio-ink)">💪 Physiotherapy — dynamic pricing master</div>
-            <p style="font-size:12px;color:var(--muted);margin:6px 2px 10px">Live source of truth for the Physiotherapy page's pricing card and payment amounts. Sessions: 0 = consultation, 1 = per-session rate, 6/8/12 = packs (auto-fills the pack price on a matching treatment plan).</p>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
-              <div class="fld" style="margin:0"><label class="lbl" for="phpName">Item</label><input class="input" id="phpName" placeholder="e.g. 6-session pack" style="height:34px;width:220px"></div>
-              <div class="fld" style="margin:0"><label class="lbl" for="phpSessions">Sessions</label><input class="input mono" id="phpSessions" type="number" min="0" placeholder="0" style="height:34px;width:110px"></div>
-              <div class="fld" style="margin:0"><label class="lbl" for="phpPrice">Price (₹)</label><input class="input mono" id="phpPrice" type="number" min="0" style="height:34px;width:130px"></div>
-              <button class="btn bp" id="phpAddBtn" onclick="window._phpSave()" style="height:34px">+ Add item</button>
-              <button class="btn bsm" id="phpCancelBtn" onclick="window._phpCancel()" style="height:34px;display:none">Cancel</button>
-            </div>
-            <div class="tscroll"><table class="tbl" style="min-width:560px"><thead><tr><th>Item</th><th>Sessions</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead><tbody id="phpBody"><tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div></div>
+            <p style="font-size:12.5px;color:var(--muted);margin:6px 2px">Blood-test panels &amp; pricing are now managed in the dedicated <b><a href="#" onclick="event.preventDefault();document.querySelector('#settTabs button[data-t=st-btm]').click()" style="color:var(--brand-600)">Blood Test pricing</a></b> tab — the single dynamic source of truth (service amount, Thyrocare cost, auto margin) reflected across Reception, Collect Payment and the Blood Test module.</p></div>
+          <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--vio-ink)">💪 Physiotherapy</div>
+            <p style="font-size:12.5px;color:var(--muted);margin:6px 2px">Physiotherapy consultation, per-session and pack pricing is managed in the dedicated <b><a href="#" onclick="event.preventDefault();document.querySelector('#settTabs button[data-t=st-php]').click()" style="color:var(--brand-600)">Physiotherapy pricing</a></b> tab — the single dynamic source of truth for the Physiotherapy page's payment amounts.</p></div>
           <button class="btn bp" style="margin-top:12px" onclick="toast('All service pricing saved — reflected across all screens')">Save pricing</button>
         </div></div>
     </div>
@@ -1594,6 +1585,23 @@ export function getMainContent(): string {
           </div>
           <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th>Test / panel</th><th>Service amount</th><th>Thyrocare cost</th><th>Margin</th><th>Status</th><th>Actions</th></tr></thead><tbody id="btmBody"></tbody></table></div>
           <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Add, edit, delete or (de)activate any panel. Changes take effect live across Reception intake, Collect Payment and the Blood Test module — no code change or redeploy needed.</p>
+        </div></div>
+    </div>
+
+    <!-- PHYSIOTHERAPY PRICING MASTER — dynamic CRUD on physio_pricing (single source of truth) -->
+    <div class="st-p" data-p="st-php" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-heart"/></svg> Physiotherapy Pricing Master — the single source of truth for every physiotherapy price</div>
+        <div class="sec-bd">
+          <p style="font-size:12px;color:var(--muted);margin:6px 2px 10px">Live source of truth for the Physiotherapy page's payment amounts. Sessions: 0 = consultation, 1 = per-session rate, 6/8/12 = packs (auto-fills the pack price on a matching treatment plan).</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+            <div class="fld" style="margin:0"><label class="lbl" for="phpName">Item</label><input class="input" id="phpName" placeholder="e.g. 6-session pack" style="height:34px;width:220px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="phpSessions">Sessions</label><input class="input mono" id="phpSessions" type="number" min="0" placeholder="0" style="height:34px;width:110px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="phpPrice">Price (₹)</label><input class="input mono" id="phpPrice" type="number" min="0" style="height:34px;width:130px"></div>
+            <button class="btn bp" id="phpAddBtn" onclick="window._phpSave()" style="height:34px">+ Add item</button>
+            <button class="btn bsm" id="phpCancelBtn" onclick="window._phpCancel()" style="height:34px;display:none">Cancel</button>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:560px"><thead><tr><th>Item</th><th>Sessions</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead><tbody id="phpBody"><tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Add, edit, delete or (de)activate any item. Changes take effect live on the Physiotherapy page's treatment-plan and payment amounts — no code change or redeploy needed.</p>
         </div></div>
     </div>
 
