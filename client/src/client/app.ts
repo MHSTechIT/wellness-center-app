@@ -453,6 +453,7 @@ export function initApp(root: HTMLElement) {
       seed();
       loadReceptionData();
       try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
+      try{ loadPhysioPricing(); }catch(_){}   // Physio pricing master (Settings CRUD + Physio page card + payment defaults)
       setTimeout(()=>{ try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){} },4000);
     }
 
@@ -2128,6 +2129,27 @@ export function initApp(root: HTMLElement) {
         const g=(t:string)=>parts.find(p=>p.type===t)?.value||"";
         return g("day")+" "+g("month")+" "+g("year");
       }catch(e){ return String(iso).slice(0,10); }
+    }
+    // Time-only IST formatter (e.g. "12:30 PM") — the time half of fmtIST, used where the date is
+    // shown separately.
+    function fmtISTTime(iso:string){
+      if(!iso) return "";
+      try{
+        const parts=new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit",hour12:true}).formatToParts(new Date(iso));
+        const g=(t:string)=>parts.find(p=>p.type===t)?.value||"";
+        return g("hour")+":"+g("minute")+" "+g("dayPeriod").toUpperCase();
+      }catch(e){ return ""; }
+    }
+    // The date the CLINIC-FLOOR modules (Blood Test / Physiotherapy) run on: when the patient
+    // actually checked in (appointments.visited_at), NOT when the appointment was booked or the lead
+    // was created. An existing lead booked weeks ago and checked in today must read TODAY on those
+    // pages and be found by their "Today" filter — the same visit date & time Reception shows in its
+    // "Visited at" column. Falls back to the booked date/time until the patient is checked in.
+    function _visitStamp(a:any):{key:string;date:string;time:string}{
+      const v=(a&&a.visited_at)?String(a.visited_at):"";
+      if(v) return {key:v,date:fmtISTDate(v),time:fmtISTTime(v)};
+      const d=(a&&a.appt_date)?String(a.appt_date):"";
+      return {key:d,date:d?fmtISTDate(d):"",time:(a&&a.appt_time)||""};
     }
     function fmtIST(iso:string){
       if(!iso) return "—";
@@ -4741,6 +4763,13 @@ export function initApp(root: HTMLElement) {
       }
       if(scr==="reception"&&(table==="appointments"||table==="payments"||table==="leads")){ try{ loadReceptionData(); }catch(_){} }
       if(scr==="coach"&&(table==="leads"||table==="payments")){ try{ loadCoachClients(); }catch(_){} }
+      // Physio + Blood Test pages were the LAST screens with no live refresh — a check-in at
+      // Reception or a payment collected elsewhere never appeared until the nav was re-clicked
+      // ("page still not updating"). Same pattern as Reception above: re-read when active.
+      if(scr==="physio"&&(table==="appointments"||table==="payments"||table==="leads")){ try{ loadPhysioData(); }catch(_){} }
+      if(scr==="bloodtest"&&(table==="appointments"||table==="payments"||table==="bt_orders"||table==="bt_tests")){ try{ loadBloodTestData(); }catch(_){} }
+      // Pricing-master edits propagate to every device (card + payment defaults), whatever screen is up.
+      if(table==="physio_pricing"){ try{ loadPhysioPricing(); }catch(_){} }
     };
     let _sse:any=null; const _sseT:Record<string,any>={};
     try{
@@ -5702,7 +5731,7 @@ export function initApp(root: HTMLElement) {
           // There is no "due" payments row for physio — creating one would be picked up by the
           // Diabetes collection-request path and wrongly enrol the lead — so the amount rides on the
           // appointment instead, and Collect/renderPay fall back to it.
-          physioDue:(_svcCode==="physio"&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||PHYSIO_DEFAULT_PRICE):0,
+          physioDue:(_svcCode==="physio"&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||_phpPerSession()):0,
           physioConsultDone:(_svcCode==="physio"&&!!((a.physio_data||{}).consult_status==="completed")),
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
@@ -10155,7 +10184,9 @@ export function initApp(root: HTMLElement) {
           const clientReportStatus=(bt.client_report_status==="shared"||bt.shared||bt.report_status==="shared")?"shared":"yet_to_share";
           // panels: prefer the new array; fall back to the legacy free-text panel string.
           const panels:string[]=Array.isArray(bt.panels)?bt.panels:[];
-          return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
+          // Dates on this page are the VISIT (check-in), not the booked/lead date — see _visitStamp.
+          const vs=_visitStamp(a);
+          return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:vs.key, date:vs.date, time:vs.time,
             status:a.status||"expected", stage:a.stage||"", session:a.session||"",
             panels, panelText:panels.length?panels.map(_btPanelName).join(", "):(bt.panel||""),
             sampleStatus, labStatus, labReportStatus, clientReportStatus, reportUrl:bt.report_url||"",
@@ -10439,7 +10470,84 @@ export function initApp(root: HTMLElement) {
       if(_phDate==="cust"){ const f=(root.querySelector("#phFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#phTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
       return [null,null];
     }
+    // ===== Physiotherapy pricing master (physio_pricing) =====
+    // Replaces the HARDCODED pricing card + the static Settings inputs (both said "from Settings"
+    // while nothing read from Settings). Same pattern as the Blood Test master (bt_tests): one
+    // editable row per price item; the Physio page card, the per-visit default and the pack-price
+    // prefill all read THIS list live.
+    let _phpList:any[]=[];
+    let _phpEditId:any=null;
+    async function loadPhysioPricing(){
+      try{ const {data,error}=await supabase.from("physio_pricing").select("*").order("sort"); if(error) throw error; _phpList=data||[]; }
+      catch(_){ _phpList=[]; }
+      _phpRenderCard(); _phpRenderSettings();
+    }
+    function _phpActive(){ return _phpList.filter((p:any)=>p.is_active); }
+    // The live per-session rate (sessions=1). Falls back to the legacy constant until the master loads.
+    function _phpPerSession():number{ const p=_phpActive().find((x:any)=>Number(x.sessions)===1); return p?(Number(p.price)||PHYSIO_DEFAULT_PRICE):PHYSIO_DEFAULT_PRICE; }
+    function _phpPackFor(n:number){ return n>1?(_phpActive().find((x:any)=>Number(x.sessions)===n)||null):null; }
+    function _phpRenderCard(){
+      const el=root.querySelector("#phPricingBody"); if(!el) return;
+      const rows=_phpActive();
+      el.innerHTML=rows.length
+        ?rows.map((p:any)=>'<tr><td>'+_orgEsc(p.label)+'</td><td class="mono" style="text-align:right;font-weight:700">₹'+(Number(p.price)||0).toLocaleString("en-IN")+'</td></tr>').join("")
+        :'<tr><td colspan="2" style="color:var(--faint)">No pricing configured — add items in Settings → Service pricing.</td></tr>';
+    }
+    function _phpRenderSettings(){
+      const body=root.querySelector("#phpBody"); if(!body) return;
+      body.innerHTML=_phpList.length?_phpList.map((p:any)=>'<tr'+(p.is_active?'':' style="opacity:.55"')+'><td style="font-weight:600">'+_orgEsc(p.label)+'</td><td class="mono">'+(Number(p.sessions)||0)+'</td><td class="mono" style="font-weight:700">₹'+(Number(p.price)||0).toLocaleString("en-IN")+'</td><td><span class="chipb '+(p.is_active?'ok':'neu')+'">'+(p.is_active?'Active':'Off')+'</span></td><td><div style="display:flex;gap:4px"><button class="btn bsm" onclick="window._phpEdit(\''+_orgEsc(p.id)+'\')">Edit</button><button class="btn bsm" onclick="window._phpToggle(\''+_orgEsc(p.id)+'\')">'+(p.is_active?'Disable':'Enable')+'</button><button class="btn bsm" onclick="window._phpDelete(\''+_orgEsc(p.id)+'\')">🗑</button></div></td></tr>').join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">No items yet — add the first one above.</td></tr>';
+    }
+    w._phpSave=async()=>{
+      const name=((root.querySelector("#phpName")as HTMLInputElement)?.value||"").trim();
+      const sess=Math.max(0,Math.round(Number((root.querySelector("#phpSessions")as HTMLInputElement)?.value||0)||0));
+      const price=Math.round(Number((root.querySelector("#phpPrice")as HTMLInputElement)?.value||0)||0);
+      if(!name){ toastErr("Enter the item name"); return; }
+      if(!(price>0)){ toastErr("Enter a valid price"); return; }
+      if(_phpEditId){
+        if(!(await _dbOk(supabase.from("physio_pricing").update({label:name,sessions:sess,price}).eq("id",_phpEditId),"Update physio pricing"))) return;
+        toast("Pricing updated — reflected on the Physiotherapy page");
+      } else {
+        if(_phpList.some((p:any)=>String(p.label).toLowerCase()===name.toLowerCase())){ toastErr("That item already exists"); return; }
+        const sort=(_phpList.reduce((m:number,p:any)=>Math.max(m,Number(p.sort)||0),0))+10;
+        if(!(await _dbOk(supabase.from("physio_pricing").insert({label:name,sessions:sess,price,sort}),"Add physio pricing"))) return;
+        toast("Pricing item added");
+      }
+      w._phpCancel(); await loadPhysioPricing();
+    };
+    w._phpEdit=(id:any)=>{
+      const p=_phpList.find((x:any)=>String(x.id)===String(id)); if(!p) return; _phpEditId=p.id;
+      const set=(i:string,v:any)=>{ const el=root.querySelector("#"+i)as HTMLInputElement|null; if(el) el.value=String(v??""); };
+      set("phpName",p.label); set("phpSessions",p.sessions); set("phpPrice",p.price);
+      const b=root.querySelector("#phpAddBtn"); if(b) b.textContent="Save changes";
+      const c=root.querySelector("#phpCancelBtn")as HTMLElement|null; if(c) c.style.display="";
+    };
+    w._phpCancel=()=>{
+      _phpEditId=null;
+      ["phpName","phpSessions","phpPrice"].forEach(i=>{ const el=root.querySelector("#"+i)as HTMLInputElement|null; if(el) el.value=""; });
+      const b=root.querySelector("#phpAddBtn"); if(b) b.textContent="+ Add item";
+      const c=root.querySelector("#phpCancelBtn")as HTMLElement|null; if(c) c.style.display="none";
+    };
+    w._phpToggle=async(id:any)=>{
+      const p=_phpList.find((x:any)=>String(x.id)===String(id)); if(!p) return;
+      if(!(await _dbOk(supabase.from("physio_pricing").update({is_active:!p.is_active}).eq("id",id),"Update physio pricing"))) return;
+      toast(p.is_active?"Item disabled":"Item enabled"); await loadPhysioPricing();
+    };
+    w._phpDelete=async(id:any)=>{
+      const p=_phpList.find((x:any)=>String(x.id)===String(id)); if(!p) return;
+      if(!window.confirm('Remove "'+p.label+'" from the pricing master? Past payments keep their stored amounts.')) return;
+      if(!(await _dbOk(supabase.from("physio_pricing").delete().eq("id",id),"Remove physio pricing"))) return;
+      toast("Removed"); await loadPhysioPricing();
+    };
+    // Treatment-plan helper: typing a "Sessions planned" that matches a pack (6/8/12…) pre-fills the
+    // pack price from the master. Manual edits after that stand — this only fills on a match.
+    w._phPlanMatch=()=>{
+      const n=Math.round(Number((root.querySelector("#phPlanned")as HTMLInputElement)?.value||0));
+      const pack=_phpPackFor(n); if(!pack) return;
+      const pp=root.querySelector("#phPackPrice")as HTMLInputElement|null; if(pp) pp.value=String(Number(pack.price)||0);
+    };
+
     async function loadPhysioData(){
+      if(!_phpList.length){ try{ loadPhysioPricing(); }catch(_){} }   // pricing card + defaults ride along
       try{
         // "%phys%" (not "%physio%") also catches the legacy "Physio" / "Physiotherapy" spellings and
         // combined service strings ("Diabetes Counselling + Physiotherapy"), the same way _recSvcCode
@@ -10469,10 +10577,12 @@ export function initApp(root: HTMLElement) {
           const info=_phLeadInfo[String(a.lead_id)]||{}; const adv=info.physio||{};
           const consult=_phConsult(a,pd);
           const planned=Number(pd.sessions_planned)||0, done=Number(pd.sessions_completed)||0;
-          return { id:a.id, lead_id:a.lead_id, name:a.client_name||info.name||"Client", ph:a.phone||info.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
+          // Dates on this page are the VISIT (check-in), not the booked/lead date — see _visitStamp.
+          const vs=_visitStamp(a);
+          return { id:a.id, lead_id:a.lead_id, name:a.client_name||info.name||"Client", ph:a.phone||info.phone||"", _date:vs.key, date:vs.date, time:vs.time,
             status:a.status||"expected", stage:a.stage||"", session:a.session||"", pt:a.hc_pt||"",
             condition:pd.condition||adv.condition||"", sessionsPlanned:planned, sessionsCompleted:done,
-            payModel:pd.payment_model||"per_visit", packPrice:Number(pd.pack_price)||PHYSIO_DEFAULT_PRICE,
+            payModel:pd.payment_model||"per_visit", packPrice:Number(pd.pack_price)||_phpPerSession(),
             soap:pd.soap||{}, painLevel:pd.pain_level, visits:pd.visits||[],
             nextDate:pd.next_session||"", consult,
             // Straight from the advisor's Physiotherapy panel (leads.advisor_profile.physio).
@@ -10523,7 +10633,7 @@ export function initApp(root: HTMLElement) {
       // status, progress, payment and the next visit.
       const vis=_phVisibleRows();
       const cntEl=el("phSessCount"); if(cntEl)(cntEl as HTMLElement).textContent=String(vis.length);
-      let tbl='<table class="tbl" style="min-width:1180px"><thead><tr><th>Date &amp; time</th><th>Patient</th><th>Phone</th><th>Health condition</th><th>Physiotherapist</th><th>Session / plan</th><th>Consultation</th><th>Progress</th><th>Payment</th><th>Next session</th><th>Actions</th></tr></thead><tbody>';
+      let tbl='<table class="tbl" style="min-width:1180px"><thead><tr><th>Visit date &amp; time</th><th>Patient</th><th>Phone</th><th>Health condition</th><th>Physiotherapist</th><th>Session / plan</th><th>Consultation</th><th>Progress</th><th>Payment</th><th>Next session</th><th>Actions</th></tr></thead><tbody>';
       if(!vis.length) tbl+='<tr><td colspan="11" style="text-align:center;color:var(--faint);padding:20px">No physiotherapy records match.</td></tr>';
       else vis.forEach((r:any)=>{
         const cs=_PH_CONSULT[r.consult]||{l:r.consult,c:"neu"};
@@ -10661,7 +10771,7 @@ export function initApp(root: HTMLElement) {
     };
     // Export exactly what the table shows (same rows, same columns, same filters).
     w._phExport=()=>{ const vis=_phVisibleRows(); if(!vis.length){toast("Nothing to export");return;}
-      const out:string[][]=[["Date & time","Patient","Phone","Health condition","Physiotherapist","Session / plan","Consultation","Progress","Payment","Method","Amount","Next session"]];
+      const out:string[][]=[["Visit date & time","Patient","Phone","Health condition","Physiotherapist","Session / plan","Consultation","Progress","Payment","Method","Amount","Next session"]];
       vis.forEach((r:any)=>out.push([r.date+(r.time?" "+r.time:""),r.name,r.ph,r.condition,r.pt,
         (r.sessionsPlanned?((r.payModel==="pack"?"Pack · ":"")+r.sessionsPlanned+" sessions"):(r.payModel==="pack"?"Pack":"Per visit")),
         (_PH_CONSULT[r.consult]||{l:r.consult}).l, r.sessionsCompleted+"/"+(r.sessionsPlanned||"—"),

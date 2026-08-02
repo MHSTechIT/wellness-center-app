@@ -21,6 +21,9 @@ const TABLES = new Set([
   // write here would let any authenticated user grant themselves the admin screen. See
   // validateOrgWrite in routes/data.ts, which limits mutations to the admin roles.
   'org_services', 'org_roles', 'org_role_services',
+  // Physiotherapy pricing master (db/migration-physio-pricing.sql) — read by every client for the
+  // Physio page's pricing card and payment amounts; edited from Settings → Service pricing.
+  'physio_pricing',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 // A caller with no limit at all (or an absurdly large one) could pull an entire table in one
