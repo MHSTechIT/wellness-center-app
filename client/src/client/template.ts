@@ -8,7 +8,7 @@ export function getMainContent(): string {
       <span style="color:var(--faint);font-size:12px">→</span>
       <input class="input" type="date" id="asnTo" style="height:30px;font-size:12px;width:150px" title="To date">
       <select class="select" id="asnSource" style="height:30px;font-size:12px;width:160px"><option value="all">All sources</option></select>
-      <select class="select" id="asnService" style="height:30px;font-size:12px;width:160px"><option value="all">All services</option></select>
+      <select class="select" id="asnService" style="height:30px;font-size:12px;width:160px" onchange="window._asnServiceChange()"><option value="all">All services</option></select>
       <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px"><option value="all">All advisors</option></select>
       <button class="btn bsm bp" onclick="window._topFilterApply()">Apply</button>
       <button class="btn bsm" onclick="window._topFilterClear()">Clear</button>
@@ -773,10 +773,14 @@ export function getMainContent(): string {
       <div class="sec" style="overflow:visible"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"/></svg> Unassigned pool (<span id="poolCount">0</span>)</div>
         <div class="sec-bd">
           <div style="margin-bottom:10px"><input class="input" id="poolSearch" placeholder="Search lead / number…" style="height:30px;font-size:12px;width:250px" oninput="window._poolSearch()"></div>
-          <div class="tscroll"><table class="tbl"><thead><tr id="poolHead"><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Leads Number</th><th>Date &amp; Time</th><th>Source · lang</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
+          <div class="tscroll"><table class="tbl"><thead><tr id="poolHead"><th style="width:34px"><input type="checkbox" id="poolSelAll" style="accent-color:var(--brand)"></th><th>Lead</th><th>Leads Number</th><th>Date &amp; Time</th><th>Source · lang</th><th>Service(s)</th><th>Sugar</th><th>Waiting</th><th style="width:150px">Action</th></tr></thead><tbody id="unassignedPoolBody">
         </tbody></table></div>
         <div style="display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;align-items:flex-start">
           <span style="font-size:12px;font-weight:600;color:var(--ink);padding-top:8px">Assign to:</span>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <select class="select" id="poolAssignSvc" style="height:34px;font-size:12px;width:185px" onchange="window._poolAssignSvcChange()" title="Pick a service to load its advisors"><option value="">— Select service —</option></select>
+            <span style="font-size:10.5px;color:var(--faint)">Service first — loads its advisors</span>
+          </div>
           <div style="display:flex;flex-direction:column;gap:3px">
             <div id="poolAssignWrap" style="position:relative;width:230px">
               <button type="button" id="poolAssignBtn" class="btn bsm" style="width:100%;justify-content:space-between;font-weight:500;height:34px" onclick="window._poolAdvToggleMenu(event)"><span id="poolAssignLabel" style="color:var(--muted)">— Select advisor(s) —</span><span style="color:var(--faint);font-size:11px">▾</span></button>
@@ -830,6 +834,7 @@ export function getMainContent(): string {
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Clears once a call status is set (beyond New/Open) or a call recording is logged.</span>
               <div style="margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <select class="select" id="callDevAssignSvc" style="height:32px;font-size:12px;width:170px" onchange="window._devAssignSvcChange('call')" title="Pick a service to load its advisors"><option value="">— Select service —</option></select>
                 <div id="callDevAssignWrap" style="position:relative">
                   <button type="button" id="callDevAssignBtn" class="btn bsm" style="min-width:150px;justify-content:space-between;font-weight:500" onclick="window._devAssignToggle('call',event)"><span id="callDevAssignLabel" style="color:var(--muted)">Assign to…</span><span style="color:var(--faint);font-size:11px">▾</span></button>
                   <div id="callDevAssignMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:200px;max-height:210px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(17,34,27,.14);z-index:30;padding:4px"></div>
@@ -850,6 +855,7 @@ export function getMainContent(): string {
             <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
               <span style="font-size:12px;color:var(--faint)">Cleared once the assigned advisor logs a call (status beyond New/Open or a recording).</span>
               <div style="margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <select class="select" id="leadDevAssignSvc" style="height:32px;font-size:12px;width:170px" onchange="window._devAssignSvcChange('lead')" title="Pick a service to load its advisors"><option value="">— Select service —</option></select>
                 <div id="leadDevAssignWrap" style="position:relative">
                   <button type="button" id="leadDevAssignBtn" class="btn bsm" style="min-width:150px;justify-content:space-between;font-weight:500" onclick="window._devAssignToggle('lead',event)"><span id="leadDevAssignLabel" style="color:var(--muted)">Assign to…</span><span style="color:var(--faint);font-size:11px">▾</span></button>
                   <div id="leadDevAssignMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:200px;max-height:210px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(17,34,27,.14);z-index:30;padding:4px"></div>
@@ -953,7 +959,7 @@ export function getMainContent(): string {
               <div class="g4" style="gap:10px 12px;margin-top:10px">
                 <div class="fld"><label class="lbl" for="nwDate">Date</label><input  class="input" type="date" style="height:38px" id="nwDate"></div>
                 <div class="fld"><label class="lbl" for="nwTime">Time</label><select  class="select" style="height:38px" id="nwTime"><option>9:00 AM</option><option>9:30 AM</option><option selected>10:00 AM</option><option>10:30 AM</option><option>11:00 AM</option><option>11:30 AM</option><option>12:00 PM</option><option>12:30 PM</option><option>2:00 PM</option><option>2:30 PM</option><option>3:00 PM</option><option>3:30 PM</option><option>4:00 PM</option><option>4:30 PM</option><option>5:00 PM</option><option>5:30 PM</option><option>6:00 PM</option><option>6:30 PM</option></select></div>
-                <div class="fld" id="nwProvFld"><label class="lbl" for="nwProv">Provider</label><select  class="select" style="height:38px" id="nwProv"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
+                <div class="fld" id="nwProvFld"><label class="lbl" for="nwProv">Provider <span class="ab">auto</span></label><select  class="select" style="height:38px" id="nwProv" onchange="this.dataset.manual='1'"><option>Dr. Suresh</option><option>Dr. Priya</option><option>Ganesh (PT)</option></select></div>
                 <div class="fld"><label class="lbl">&nbsp;</label><button class="btn bsm bp" onclick="nwCheckSlot()" style="width:100%;height:38px">Check slot</button></div>
               </div>
               <div id="nwSlotRes" style="margin-top:8px"></div>
@@ -974,7 +980,7 @@ export function getMainContent(): string {
             </div>
             <div id="ciResults" style="margin-top:10px"></div>
             <div class="consent" style="font-size:12px"><label><input type="checkbox" checked> DPDP data use</label><label><input type="checkbox" checked> Health data</label><label><input type="checkbox" checked> Recording</label><label><input type="checkbox"> WA follow-ups</label></div>
-            <button class="btn bp bsm" style="margin-top:8px" onclick="recRegDone()">Confirm → screening</button>
+            <button class="btn bp bsm" style="margin-top:8px" id="ciConfirmBtn" onclick="recRegDone()">Confirm → screening</button>
           </div></div>
         <div class="sec" id="zoomCiSecRec"><div class="sec-hd" onclick="togSec(this)" style="padding:10px 14px"><svg class="icon"><use href="#i-door"/></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:6px">0</span> <span class="arr">▾</span></div>
           <div class="sec-bd" style="padding:4px 14px 14px">
@@ -1161,8 +1167,6 @@ export function getMainContent(): string {
         <div id="btBulkBar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;background:var(--brand-tint);border:1px solid var(--line);border-radius:9px;padding:8px 12px;margin-bottom:8px;font-size:12px"></div>
         <div class="tscroll" id="btWorklistWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading blood test data…</div></div>
       </div></div>
-    <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-bell"/></svg> Outcome reminders <span class="arr">▾</span></div>
-      <div class="sec-bd" id="btRemindersWrap"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">Loading…</div></div></div>
 
     <!-- Blood test detail panel (hidden by default) -->
     <div id="btDetailPanel" style="display:none">

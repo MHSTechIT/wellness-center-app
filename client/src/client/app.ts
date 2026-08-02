@@ -636,10 +636,24 @@ export function initApp(root: HTMLElement) {
     // User management
     let _usrList:any[]=[];
 
+    // email(lowercased) → app_users.service (the explicit service line). Loaded app-wide (not just
+    // when the Settings tab is open, which is the only place _usrList loads) so the Advisor-assignment
+    // service filter can scope the advisor dropdown to the selected service on any screen. Only two
+    // columns are fetched — no password_hash / telephony — so every role can read it safely.
+    let _svcByEmail:Record<string,string>={};
+    function _setSvcByEmail(rows:any[]){ const m:Record<string,string>={}; (rows||[]).forEach((u:any)=>{ const e=String(u&&u.email||"").trim().toLowerCase(); if(e) m[e]=String(u.service||""); }); _svcByEmail=m; }
+    async function loadAdvisorServices(){
+      try{ const {data}=await supabase.from("app_users").select("email,service"); _setSvcByEmail(data||[]); }catch(_){ /* leave map as-is; advisors fall back to visible-everywhere */ }
+      try{ renderAssignedLeads(); }catch(_){}
+      try{ _poolRenderAssignMenu(); }catch(_){}       // service-gated Assign-to menus depend on this map
+      try{ _populateDevAssignMenus(); }catch(_){}
+    }
+
     async function loadUsers(){
       try{
         const {data}=await supabase.from("app_users").select("*").order("created_at",{ascending:false});
         _usrList=data||[];
+        _setSvcByEmail(_usrList);   // keep the app-wide service map fresh whenever the full list reloads
       }catch(e:any){ _usrList=[]; toastErr("Could not load users — check your connection"); }
       renderUsers();
     }
@@ -1398,6 +1412,25 @@ export function initApp(root: HTMLElement) {
     function _svcCanonMatch(recordSvc:string, selectedLabel:string){
       if(!selectedLabel||selectedLabel==="all") return true;
       return String(recordSvc||"").split(/[+,/&]| and /i).some(p=>{ const t=p.trim(); return !!t&&normService(t)===selectedLabel; });
+    }
+    // An assignee's explicit service line (app_users.service), canonicalised to a SERVICE_MASTER label.
+    // "" when the person has no service set — treated as unclassified. Keyed by email (the same link
+    // _asgSyncUser uses between the assignees mirror and the app_users login row).
+    function _assigneeService(a:any):string{
+      const em=String(a&&a.email||"").trim().toLowerCase();
+      const raw=em?(_svcByEmail[em]||""):"";
+      return raw?normService(raw):"";
+    }
+    // Should this advisor appear when `svcLabel` (a SERVICE_MASTER label, or "all") is selected in the
+    // Advisor-assignment service filter? Explicit-service-per-user is the source of truth: an advisor
+    // shows only under their own service. Advisors with NO service set stay visible under every service
+    // (so un-migrated advisors remain assignable) — the same "untagged stays visible" rule as
+    // _serviceAllows. Assign a Service in Settings → Users to scope a person to one line.
+    function _advisorInService(a:any, svcLabel:string):boolean{
+      if(!svcLabel||svcLabel==="all") return true;
+      const s=_assigneeService(a);
+      if(!s) return true;                       // unclassified → available to every line
+      return s===normService(svcLabel);         // explicit line must match the selected service
     }
     function leadPasses(dateObj:Date,source:string,service?:string){
       if(!dateObj||isNaN(dateObj.getTime())) return false;
@@ -2197,6 +2230,7 @@ export function initApp(root: HTMLElement) {
       {key:"phone",label:"Leads Number",filter:true,text:(p:any)=>p.phone||""},
       {key:"dt",label:"Date & Time",filter:true,text:(p:any)=>fmtIST(p.createdAt||p.ts)},
       {key:"src",label:"Source · lang",filter:true,text:(p:any)=>p.src||""},
+      {key:"svc",label:"Service(s)",filter:true,text:(p:any)=>p.service||""},
       {key:"sugar",label:"Sugar",filter:true,text:(p:any)=>String(p.sugar||"").replace(/<[^>]*>/g,"").trim()},
       {key:"waiting",label:"Waiting",filter:true,text:(p:any)=>p.waiting||""},
       {key:"_act",label:"Action",filter:false,thStyle:"width:150px"},
@@ -2455,7 +2489,7 @@ export function initApp(root: HTMLElement) {
       _unassignedPool=[
         ...pooled.map((ld:any)=>({
           id:ld.id,name:ld.name,phone:ld.phone||"",src:(ld.source||"Meta")+" · "+(ld.lang||"Tamil"),
-          sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",assignedTo:"",
+          service:ld.service||"",sugar:'<span class="chipb neu">—</span>',waiting:ld.received||"now",assignedTo:"",
           createdAt:ld.createdAt,ts:ld.poolAddedAt||ld.createdAt
         })),
         ..._poolExtras.map((p:any)=>({...p,ts:p.poolAddedAt||p.createdAt}))
@@ -2465,7 +2499,7 @@ export function initApp(root: HTMLElement) {
     let _poolQuery=""; let _poolSearchT:any=null;
     function poolMatchesQuery(p:any){
       const q=_poolQuery.trim().toLowerCase(); if(!q) return true;
-      return [p.name,p.phone,p.src].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
+      return [p.name,p.phone,p.src,p.service].some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0);
     }
     w._poolSearch=()=>{ if(_poolSearchT)clearTimeout(_poolSearchT); _poolSearchT=setTimeout(()=>{ _poolQuery=(root.querySelector("#poolSearch")as HTMLInputElement)?.value||""; renderUnassignedPool(); },180); };
     function renderUnassignedPool(){
@@ -2480,7 +2514,6 @@ export function initApp(root: HTMLElement) {
       if(cnt) cnt.textContent=String(poolAll.length);
       if(!body) return;
       const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      const activeNames=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
       body.innerHTML=pool.length?pool.map((p:any)=>{
         const isNew=String(p.id).indexOf("seed-")!==0;
         return '<tr><td><input type="checkbox" class="poolChk" data-id="'+esc(String(p.id))+'" checked style="accent-color:var(--brand)"></td>'
@@ -2488,17 +2521,14 @@ export function initApp(root: HTMLElement) {
           +'<td class="mono">'+esc(p.phone||"—")+'</td>'
           +'<td class="mono" style="font-size:11px;white-space:nowrap">'+esc(fmtIST(p.createdAt||p.ts))+'</td>'
           +'<td><span class="tag">'+esc(p.src)+'</span></td>'
+          +'<td>'+(String(p.service||"").split(/\s*\+\s*|\s*,\s*/).filter(Boolean).map((s:string)=>'<span class="tag" style="margin:1px 2px 1px 0;display:inline-block">'+esc(s)+'</span>').join("")||'<span class="chipb neu">—</span>')+'</td>'
           +'<td>'+(p.sugar||'<span class="chipb neu">—</span>')+'</td>'
           +'<td class="mono">'+esc(p.waiting)+'</td>'
           +'<td><button class="btn bsm" title="Return this lead to its original source table (Live Incoming Feed or Bulk CSV Import Wizard) and remove it from the pool" onclick="window._poolReturnToSource(\''+esc(String(p.id))+'\')">↩ Return to Source</button></td></tr>';
-      }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
-      // Populate the "Assign to" checkbox multi-select from active assignees (preserve ticks).
-      const asgMenu=root.querySelector("#poolAssignMenu")as HTMLElement|null;
-      if(asgMenu){
-        const prev=new Set(Array.from(asgMenu.querySelectorAll(".poolAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
-        asgMenu.innerHTML=activeNames.length?activeNames.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="poolAdvChk" data-adv="'+esc(n)+'" style="accent-color:var(--brand)" onchange="window._poolAdvSelChange()"'+(prev.has(n)?" checked":"")+'>'+esc(n)+'</label>').join(""):'<div style="font-size:11.5px;color:var(--faint);padding:8px">No active advisors</div>';
-        try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){}
-      }
+      }).join(""):'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:18px">No unassigned leads in the pool</td></tr>';
+      // Populate the "Assign to" checkbox multi-select — gated on the Service dropdown and scoped to
+      // that service's advisors (see _poolRenderAssignMenu).
+      _poolRenderAssignMenu();
       const psa=root.querySelector("#poolSelAll")as HTMLInputElement|null;
       if(psa) psa.onchange=()=>{ root.querySelectorAll(".poolChk").forEach((c:any)=>{c.checked=psa.checked;}); };
       renderDeviation();
@@ -2832,9 +2862,12 @@ export function initApp(root: HTMLElement) {
         } else {
           fsel.disabled=false; fsel.title="";
           const cur=fsel.value;
-          const names=_assignees.map((a:any)=>a.name);
+          // Scope the advisor list to the SELECTED service (live #asnService value, so it narrows the
+          // moment the service changes — before Apply). Advisors with no service set stay listed.
+          const selSvc=(root.querySelector("#asnService")as HTMLSelectElement|null)?.value||"all";
+          const names=_assignees.filter((a:any)=>_advisorInService(a,selSvc)).map((a:any)=>a.name);
           fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
-          if(Array.from(fsel.options).some(o=>o.value===cur)) fsel.value=cur;
+          fsel.value=Array.from(fsel.options).some(o=>o.value===cur)?cur:"all";   // drop a selection no longer in the new service
         }
       }
       // populate service + source filters from the whole assigned set (preserve selection)
@@ -3982,6 +4015,17 @@ export function initApp(root: HTMLElement) {
         return true;
       });
     }
+    // Service filter changed → re-narrow the advisor dropdown to that service immediately (before the
+    // user clicks Apply). Only touches the advisor <select>; the dashboard/table still wait for Apply.
+    w._asnServiceChange=()=>{
+      if(_advisorScope()) return;   // Advisor role: dropdown is locked to self — nothing to narrow
+      const fsel=root.querySelector("#assignedFilter")as HTMLSelectElement|null; if(!fsel) return;
+      const selSvc=(root.querySelector("#asnService")as HTMLSelectElement|null)?.value||"all";
+      const cur=fsel.value;
+      const names=_assignees.filter((a:any)=>_advisorInService(a,selSvc)).map((a:any)=>a.name);
+      fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
+      fsel.value=Array.from(fsel.options).some(o=>o.value===cur)?cur:"all";
+    };
     // Apply the staged top-filter selections → refresh dashboard AND assigned leads together.
     w._topFilterApply=()=>{
       _asnApplied={
@@ -4237,6 +4281,44 @@ export function initApp(root: HTMLElement) {
       await _afterAssign();
       toast(ids.length+" lead"+(ids.length===1?"":"s")+" assigned to "+advisor);
     }
+    // ---- Service-scoped "Assign to" (Unassigned pool + Deviation panels) ----
+    // A Service dropdown gates each Assign-to control: the advisor menu stays DISABLED until a
+    // service is chosen, then lists only that service's advisors (explicit app_users.service via
+    // _advisorInService; advisors with no service set stay listed under every service so
+    // un-migrated people remain assignable). Purely a filter — the assignment writes are untouched.
+    function _assignSvcVal(selId:string):string{ return (root.querySelector("#"+selId)as HTMLSelectElement|null)?.value||""; }
+    function _fillAssignSvcSel(selId:string){
+      const el=root.querySelector("#"+selId)as HTMLSelectElement|null; if(!el) return;
+      const cur=el.value;
+      el.innerHTML='<option value="">— Select service —</option>'+SERVICE_MASTER.map(s=>'<option>'+s+'</option>').join("");
+      if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur;
+    }
+    // Lock/unlock an Assign-to trigger button according to whether its service is chosen.
+    function _gateAssignBtn(btnId:string, svc:string){
+      const btn=root.querySelector("#"+btnId)as HTMLButtonElement|null; if(!btn) return;
+      btn.disabled=!svc;
+      btn.style.opacity=svc?"":"0.55"; btn.style.cursor=svc?"":"not-allowed";
+      btn.title=svc?"":"Select a service first — its advisors will load here";
+    }
+    // Rebuild the pool "Assign to" advisor menu for the currently selected service. Ticks survive a
+    // rebuild only for advisors still in the list, so switching service silently drops stale picks.
+    function _poolRenderAssignMenu(){
+      const menu=root.querySelector("#poolAssignMenu")as HTMLElement|null; if(!menu) return;
+      _fillAssignSvcSel("poolAssignSvc");
+      const svc=_assignSvcVal("poolAssignSvc");
+      _gateAssignBtn("poolAssignBtn",svc);
+      if(!svc){
+        menu.style.display="none";
+        menu.innerHTML='<div style="font-size:11.5px;color:var(--faint);padding:8px">Select a service first</div>';
+        try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){}
+        return;
+      }
+      const prev=new Set(Array.from(menu.querySelectorAll(".poolAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
+      const names=_assignees.filter((a:any)=>a.is_active&&_advisorInService(a,svc)).map((a:any)=>a.name);
+      menu.innerHTML=names.length?names.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="poolAdvChk" data-adv="'+_orgEsc(n)+'" style="accent-color:var(--brand)" onchange="window._poolAdvSelChange()"'+(prev.has(n)?" checked":"")+'>'+_orgEsc(n)+'</label>').join(""):'<div style="font-size:11.5px;color:var(--faint);padding:8px">No active advisors for '+_orgEsc(svc)+'</div>';
+      try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){}
+    }
+    w._poolAssignSvcChange=()=>_poolRenderAssignMenu();
     // Advisors currently ticked in the "Assign to" checkbox dropdown.
     function _poolSelectedAdvisors():string[]{
       return Array.from(root.querySelectorAll("#poolAssignMenu .poolAdvChk:checked")).map((c:any)=>String(c.getAttribute("data-adv"))).filter(Boolean);
@@ -4256,6 +4338,7 @@ export function initApp(root: HTMLElement) {
     document.addEventListener("click",(e:any)=>{ const wrap=root.querySelector("#poolAssignWrap"); const m=root.querySelector("#poolAssignMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; });
     // Assign selected → all ticked leads to the (single) selected advisor.
     w._assignSelected=async()=>{
+      if(!_assignSvcVal("poolAssignSvc")){ toast("Select a service first — its advisors will load in 'Assign to'"); return; }
       const advs=_poolSelectedAdvisors();
       if(!advs.length){ toast("Select an advisor in 'Assign to' first"); return; }
       const ids=_poolCheckedIds();
@@ -4264,6 +4347,7 @@ export function initApp(root: HTMLElement) {
     };
     // Round-robin the ticked leads across ONLY the selected advisors (2+ required).
     w._assignSelectedRR=async()=>{
+      if(!_assignSvcVal("poolAssignSvc")){ toast("Select a service first — its advisors will load in 'Assign to'"); return; }
       const advs=_poolSelectedAdvisors();
       if(advs.length<2){ toast("Select 2 or more advisors for round-robin"); return; }
       const ids=_poolCheckedIds();
@@ -4365,6 +4449,7 @@ export function initApp(root: HTMLElement) {
     bindFeedSelAll();
     renderUnassignedPool();
     loadAssignees();   // load the assignee master (Assign-to dropdown + advisor load + settings)
+    loadAdvisorServices();   // app-wide email→service map so the advisor dropdown can scope by service
 
     let _metaFetchInFlight=false;
     let _metaFetchRetries=0;
@@ -6113,6 +6198,7 @@ export function initApp(root: HTMLElement) {
       // from a restored draft) leak through: it would date the appointment in the past and hide it
       // from the Today-filtered Appointments table. Reset it to today so the record shows immediately.
       { const _d=root.querySelector("#nwDate")as HTMLInputElement|null; if(_d && (!_d.value || _d.value<_todayLocal())) _d.value=_todayLocal(); }
+      { const _pv=root.querySelector("#nwProv")as HTMLSelectElement|null; if(_pv) delete _pv.dataset.manual; }   // fresh form → provider auto-fills from service
       _nwUpdateProvVis();
     }
     // Show/hide keeps every field mounted, so switching steps never loses entered data.
@@ -6164,12 +6250,21 @@ export function initApp(root: HTMLElement) {
     // automatically instead of a manually chosen slot.
     function _nowApptTime(){ const d=new Date(); let h=d.getHours(); const ap=h>=12?"PM":"AM"; h=h%12; if(h===0)h=12; return h+":"+String(d.getMinutes()).padStart(2,"0")+" "+ap; }
     function _nwUpdateProvVis(){
-      const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=_nwBloodTestOnly()?"none":"";
-      // Blood Test uses the current date/time — hide the whole slot-booking block whenever Blood Test
-      // is selected (alone or combined); other-service-only visits keep the Check-slot flow unchanged.
-      const bt=_nwHasBloodTest();
-      const book=root.querySelector("#nwBookingSec")as HTMLElement|null; if(book) book.style.display=bt?"none":"";
-      const note=root.querySelector("#nwBtBookNote")as HTMLElement|null; if(note) note.style.display=bt?"":"none";
+      // Hide the slot-booking block (and Provider) ONLY for a Blood-Test-ONLY visit — that uses the
+      // current date/time automatically. A COMBINED visit (e.g. Diabetes + Blood Test) KEEPS the slot
+      // board so the non-blood service can be booked as usual; Blood Test follows its own flow on top.
+      const btOnly=_nwBloodTestOnly();
+      const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=btOnly?"none":"";
+      const book=root.querySelector("#nwBookingSec")as HTMLElement|null; if(book) book.style.display=btOnly?"none":"";
+      const note=root.querySelector("#nwBtBookNote")as HTMLElement|null; if(note) note.style.display=btOnly?"":"none";
+      // Auto-fill the Provider from the selected (non-blood) service — Physiotherapy → the PT, any
+      // consultation → the doctor — unless the receptionist has manually chosen one.
+      const prov=root.querySelector("#nwProv")as HTMLSelectElement|null;
+      if(prov && !btOnly && !prov.dataset.manual){
+        const wantPT=_nwSelectedSvcs().some((s:string)=>s!=="Blood Test"&&/phys/i.test(s));
+        const target=wantPT?"Ganesh (PT)":"Dr. Suresh";
+        const opt=Array.from(prov.options).find((o:any)=>o.value===target||(o.text||"").trim()===target); if(opt) prov.value=opt.value;
+      }
     }
     // Primary button "Save & Proceed": if Blood Test is selected (alone OR with other services) →
     // dedicated Collect Payment page for the blood-test payment FIRST; the remaining services are
@@ -6250,17 +6345,21 @@ export function initApp(root: HTMLElement) {
       const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
       const svcStr=_nwSelectedSvcs().join(" + ")||"Diabetes";   // service(s) from the single-page selection grid
       const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";   // read the Language field by id (robust to layout changes)
+      // in_pool:true → the walk-in lands in Assign & Approve → Unassigned Pool automatically, so an
+      // advisor can be assigned for its service(s). loadAssignmentExtras picks up any non-Meta lead
+      // flagged in_pool, so no new pipeline — this rides the exact same pool → assign flow as CSV leads.
       try{
-        await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
-      }catch(_){ /* lead insert best-effort */ }
+        await _dbOk(supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:svcStr,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,in_pool:true,pool_added_at:nowIso,call_status:"Visited",visited_at:nowIso,created_at:nowIso}),"Walk-in lead");
+      }catch(_){ /* lead insert best-effort — booking continues either way */ }
       try{
         await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
       _nwClearDraft();   // registration completed → discard the saved draft
       nwToggle(); await loadReceptionData();
       _recRevealAppt(apptDate);   // ensure the new appointment shows in the Appointments table immediately
+      try{ await loadAssignmentExtras(); rebuildPoolFromDB(); renderUnassignedPool(); }catch(_){}   // surface it in the Unassigned Pool now
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
-      toast("Created + booked + checked in → screening");
+      toast("Created + booked + checked in → screening · added to Unassigned Pool");
     }
     w.nwBook = nwBook;
 
@@ -6285,18 +6384,25 @@ export function initApp(root: HTMLElement) {
       const sel=_nwSelectedSvcs();                      // every ticked service (incl. Blood Test)
       const nonBT=sel.filter(s=>s!=="Blood Test");       // the "remaining services" that follow the normal flow
       const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
-      // Blood Test uses the CURRENT date & time automatically — no manual slot (the booking UI is hidden).
-      const time=_nowApptTime();
-      const apptDate=today;
+      // Blood-Test-ONLY uses the CURRENT date & time (its slot UI is hidden). A COMBINED visit keeps the
+      // slot board, so honour the chosen Date/Time for the (non-blood) appointment.
+      const _btOnly=!nonBT.length;
+      const time=_btOnly?_nowApptTime():(((root.querySelector("#nwTime")as HTMLSelectElement)?.value||"").trim()||_nowApptTime());
+      const apptDate=_btOnly?today:(((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||today);
       const langVal=((root.querySelector("#nwLang")as HTMLSelectElement|null)?.value)||"Tamil";
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
       let clientId=((root.querySelector("#nwClientId")as HTMLInputElement)?.value||"").trim();
       if(!/^WC\d{6}$/.test(clientId) || !(await _cidFree(clientId))){ clientId=await _genClientId(); let g=0; while(!(await _cidFree(clientId))&&g++<5) clientId=await _genClientId(); }
       const cidEl=root.querySelector("#nwClientId")as HTMLInputElement|null; if(cidEl) cidEl.value=clientId;
       const leadSvc=sel.join(" + ")||"Blood test";       // lead reflects every service the person came for
+      // Pool the lead for advisor assignment ONLY when it carries an assignable (non-Blood-Test)
+      // service — Blood-Test-ONLY has nothing for an advisor, it just follows Collect Payment. A
+      // combined visit (e.g. Diabetes + Blood Test) is pooled AND still runs the blood-test payment
+      // flow below — the two are independent.
+      const _poolIt=nonBT.length>0;
       try{
-        await supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:leadSvc,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,call_status:"Visited",visited_at:nowIso,created_at:nowIso});
-      }catch(_){ /* lead insert best-effort */ }
+        await _dbOk(supabase.from("leads").insert({meta_lead_id:leadId,client_id:clientId,name,phone:ph,email:email||null,source:"Walk-in / Referral / Telecalling",language:langVal,service:leadSvc,lead_date:today,is_valid:!!ph,is_duplicate:false,is_assigned:false,in_pool:_poolIt,pool_added_at:_poolIt?nowIso:null,call_status:"Visited",visited_at:nowIso,created_at:nowIso}),"Walk-in lead");
+      }catch(_){ /* lead insert best-effort — booking continues either way */ }
       // ONE combined appointment for ALL selected services — no split. It flows to Screening for the
       // non-blood services AND is picked up by the Blood Test module for the blood part; the Collect
       // Payment step below handles the blood-test payment. Blood-Test-ONLY → stage "blood_test"
@@ -6314,8 +6420,9 @@ export function initApp(root: HTMLElement) {
       try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).order("id",{ascending:false}).limit(1); apptId=data&&data[0]&&data[0].id; }catch(_){}
       _nwClearDraft(); nwToggle(); try{ await loadReceptionData(); }catch(_){}
       try{ _recRevealAppt(apptDate); }catch(_){}   // so the Appointments table shows it when the user returns from Collect Payment
+      if(_poolIt){ try{ await loadAssignmentExtras(); rebuildPoolFromDB(); renderUnassignedPool(); }catch(_){} }   // combined visit → surface in the Unassigned Pool now
       _cpOpen({apptId,leadId,name,phone:ph,email,addr,service:leadSvc});
-      toast(nonBT.length?("Registered · "+sel.join(", ")+" → screening. Collect blood-test payment first"):"Client registered — collect blood-test payment");
+      toast(nonBT.length?("Registered · "+sel.join(", ")+" → screening + Unassigned Pool. Collect blood-test payment first"):"Client registered — collect blood-test payment");
     }
 
     // ---- Collect Payment page ----
@@ -6393,6 +6500,14 @@ export function initApp(root: HTMLElement) {
       const ctx=_cpCtx;
       try{
         const nowIso=new Date().toISOString();
+        // Duplicate-payment guard: a Blood Test is a one-shot service, so once a "paid" payment row
+        // exists for this appointment we must NOT insert a second. This blocks the path where the same
+        // lead is re-searched in Check-In and Collect Payment is opened again. A refund/re-payment is a
+        // deliberate Accounts action, not an accidental double-collect at Reception.
+        if(ctx.apptId){
+          const ex=await supabase.from("payments").select("id").eq("appointment_id",ctx.apptId).eq("service","Blood test").eq("status","paid").limit(1);
+          if(ex&&Array.isArray(ex.data)&&ex.data.length){ toastErr("Blood Test payment already collected for this appointment — process a refund/re-payment from Accounts if needed"); return; }
+        }
         // Blood Test is a one-shot service (no L1/L2 program). Mirror recConfirm's one-shot insert
         // (tagged service "Blood test") so revenue buckets correctly and Accounts can verify. The
         // /db gateway resolves {error} rather than throwing — check it via _dbOk, never assume success.
@@ -6792,6 +6907,26 @@ export function initApp(root: HTMLElement) {
       const nameEl=root.querySelector("#ciName"); if(nameEl) nameEl.textContent=_ciMatch?_ciMatch.name:(q?"No match":"—");
       const dd=root.querySelector("#ciDedup")as HTMLInputElement|null; if(!q){ if(dd) dd.value=""; } else { _ciSetDedup(_ciMatch); }
       _ciHighlight();
+      _ciUpdateConfirmBtn();
+    }
+    // Blood-Test flags for the selected check-in row: btOnly (no other service) drives the "Confirm"
+    // vs "Confirm → screening" label; btPaid means the Blood Test payment is already collected.
+    function _ciBtState(m:any){
+      const raw=String((m&&(m.serviceRaw||m.svcLabel))||"");
+      const parts=raw.split(/\s*\+\s*|\s*,\s*/).map((s:string)=>s.trim()).filter(Boolean);
+      const hasBT=/blood/i.test(raw);
+      const btOnly=hasBT && parts.length>0 && !parts.some((p:string)=>!/blood/i.test(p));
+      const btPaid=hasBT && (m&&(m.payStatus==="paid"|| /complet/i.test(String(m.stage||""))));
+      return {hasBT,btOnly,btPaid};
+    }
+    // Confirm button: "Confirm" for a Blood-Test-ONLY visit (no Screening), "Confirm → screening"
+    // otherwise; and locked to "Blood Test Payment Completed" once a BT-only visit is already paid.
+    function _ciUpdateConfirmBtn(){
+      const btn=root.querySelector("#ciConfirmBtn")as HTMLButtonElement|null; if(!btn) return;
+      if(!_ciMatch){ btn.textContent="Confirm → screening"; btn.disabled=false; btn.style.opacity=""; btn.style.cursor=""; return; }
+      const {btOnly,btPaid}=_ciBtState(_ciMatch);
+      if(btOnly&&btPaid){ btn.textContent="✓ Blood Test Payment Completed"; btn.disabled=true; btn.style.opacity="0.6"; btn.style.cursor="not-allowed"; btn.title="Payment already collected — start a refund/re-payment from Accounts if needed"; }
+      else { btn.textContent=btOnly?"Confirm":"Confirm → screening"; btn.disabled=false; btn.style.opacity=""; btn.style.cursor=""; btn.title=""; }
     }
     function _ciHighlight(){
       const box=root.querySelector("#ciResults"); if(!box) return;
@@ -6804,7 +6939,7 @@ export function initApp(root: HTMLElement) {
     // Search input → re-render rows for the current term (dynamic filter as the user types).
     w._ciLookup=_ciRenderTable;
     // Click a row to make that appointment the Check-in target (dropdown clicks are excluded above).
-    w._ciSelect=(id:any)=>{ const r=_recAll.find((x:any)=>String(x.id)===String(id)); if(!r) return; _ciMatch=r; const nameEl=root.querySelector("#ciName"); if(nameEl)nameEl.textContent=r.name||"—"; _ciSetDedup(r); _ciHighlight(); };
+    w._ciSelect=(id:any)=>{ const r=_recAll.find((x:any)=>String(x.id)===String(id)); if(!r) return; _ciMatch=r; const nameEl=root.querySelector("#ciName"); if(nameEl)nameEl.textContent=r.name||"—"; _ciSetDedup(r); _ciHighlight(); _ciUpdateConfirmBtn(); };
     // Multi-select change on a row → update the tags shown AND persist to the appointment's `service`
     // field through the EXISTING appointments update (no new API; the same field every other view reads).
     w._ciSvcChange=async (id:any)=>{
@@ -6829,6 +6964,10 @@ export function initApp(root: HTMLElement) {
       const parts=raw.split(/\s*\+\s*|\s*,\s*/).map((s:string)=>s.trim()).filter(Boolean);
       const hasBT=/blood/i.test(raw);
       const nonBT=parts.filter((s:string)=>!/blood/i.test(s));
+      // A Blood-Test-ONLY visit whose payment is already collected is DONE — re-confirming would only
+      // re-open Collect Payment (duplicate risk) and overwrite the "Blood Test Completed" stage back to
+      // "blood_test". The Confirm button is already disabled for this case; this is the hard guard.
+      if(hasBT&&!nonBT.length&&_ciBtState(m).btPaid){ toast("✓ Blood Test payment already completed for "+(m.name||"this client")); return; }
       try{
         // No split — ONE appointment keeps ALL its services. Blood-Test-ONLY skips Screening and lands
         // in the Blood Test → Collect Payment queue; anything with a non-blood service goes to Screening
@@ -6853,10 +6992,11 @@ export function initApp(root: HTMLElement) {
       _recRevealAppt(m._date||_todayLocal());   // surface the just-checked-in appointment in the Appointments table
       try{ loadZoomCheckins(); }catch(_){}
       try{ loadBloodTestData(); }catch(_){}   // a Blood-Test (or combined) appointment shows in its module by service
-      // Consistency fix: an EXISTING lead checked in for Blood Test must open the Blood Test Collect
-      // Payment page immediately — exactly like a new walk-in (_nwBloodTestProceed). Previously the
-      // check-in ended at "visited" with no route, so clicking Collect Payment went nowhere.
-      if(hasBT){ try{ _cpOpen({apptId:m.id, leadId:String(m.lead_id||""), name:m.name||"", phone:m.ph||"", email:m.email||"", addr:"", service:m.serviceRaw||raw||"Blood test"}); }catch(_){} }
+      // A Blood Test check-in opens the Collect Payment page — BUT never re-opens it once the payment
+      // is already collected (that's what let a second payment be taken). A paid record just confirms.
+      const {btPaid}=_ciBtState(m);
+      if(hasBT&&btPaid){ toast("✓ Blood Test payment already completed for "+(m.name||"this client")); }
+      else if(hasBT){ try{ _cpOpen({apptId:m.id, leadId:String(m.lead_id||""), name:m.name||"", phone:m.ph||"", email:m.email||"", addr:"", service:m.serviceRaw||raw||"Blood test"}); }catch(_){} }
     }
     w.recRegDone = recRegDone;
     // ===== Zoom check-in (Appointment Fixed – Zoom) — Advisor list + Reception action =====
@@ -9245,16 +9385,28 @@ export function initApp(root: HTMLElement) {
     w._devSelAll=(wk:string,on:boolean)=>{ root.querySelectorAll('.devChk[data-w="'+wk+'"]').forEach((c:any)=>{c.checked=on;}); _devSyncSel(); };
 
     // ---- Deviation "Assign to" controls (same behavior as the Unassigned Pool) ----
+    // Service-gated like the pool: each panel's Assign-to button stays disabled until its Service
+    // dropdown is set, then lists only that service's advisors (_advisorInService).
     function _populateDevAssignMenus(){
       const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      const names=_assignees.filter((a:any)=>a.is_active).map((a:any)=>a.name);
       (["call","lead"] as const).forEach(wk=>{
         const menu=root.querySelector("#"+wk+"DevAssignMenu")as HTMLElement|null; if(!menu) return;
+        _fillAssignSvcSel(wk+"DevAssignSvc");
+        const svc=_assignSvcVal(wk+"DevAssignSvc");
+        _gateAssignBtn(wk+"DevAssignBtn",svc);
+        if(!svc){
+          menu.style.display="none";
+          menu.innerHTML='<div style="font-size:11.5px;color:var(--faint);padding:8px">Select a service first</div>';
+          try{ w._devAssignSelChange(wk); }catch(_){}
+          return;
+        }
+        const names=_assignees.filter((a:any)=>a.is_active&&_advisorInService(a,svc)).map((a:any)=>a.name);
         const prev=new Set(Array.from(menu.querySelectorAll(".devAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
-        menu.innerHTML=names.length?names.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="devAdvChk" data-w="'+wk+'" data-adv="'+esc(n)+'" style="accent-color:var(--brand)" onchange="window._devAssignSelChange(\''+wk+'\')"'+(prev.has(n)?" checked":"")+'>'+esc(n)+'</label>').join(""):'<div style="font-size:11.5px;color:var(--faint);padding:8px">No active advisors</div>';
+        menu.innerHTML=names.length?names.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="devAdvChk" data-w="'+wk+'" data-adv="'+esc(n)+'" style="accent-color:var(--brand)" onchange="window._devAssignSelChange(\''+wk+'\')"'+(prev.has(n)?" checked":"")+'>'+esc(n)+'</label>').join(""):'<div style="font-size:11.5px;color:var(--faint);padding:8px">No active advisors for '+esc(svc)+'</div>';
         try{ w._devAssignSelChange(wk); }catch(_){}
       });
     }
+    w._devAssignSvcChange=(_wk:string)=>_populateDevAssignMenus();
     function _devSelectedAdvisors(wk:string):string[]{
       return Array.from(root.querySelectorAll("#"+wk+"DevAssignMenu .devAdvChk:checked")).map((c:any)=>String(c.getAttribute("data-adv"))).filter(Boolean);
     }
@@ -9267,6 +9419,7 @@ export function initApp(root: HTMLElement) {
       if(rr){ rr.disabled=advs.length<2; rr.style.opacity=advs.length<2?"0.5":"1"; rr.style.cursor=advs.length<2?"not-allowed":"pointer"; }
     };
     w._devAssignSelected=async(wk:string)=>{
+      if(!_assignSvcVal(wk+"DevAssignSvc")){ toast("Select a service first — its advisors will load in 'Assign to'"); return; }
       const advs=_devSelectedAdvisors(wk);
       if(!advs.length){ toast("Select an advisor in 'Assign to' first"); return; }
       _devSyncSel(); const ids=Array.from(_devSel[wk as "call"|"lead"]);
@@ -9275,6 +9428,7 @@ export function initApp(root: HTMLElement) {
       try{ wk==="call"?w._renderCallDeviation():w._renderLeadsDeviation(); }catch(_){}
     };
     w._devAssignRR=async(wk:string)=>{
+      if(!_assignSvcVal(wk+"DevAssignSvc")){ toast("Select a service first — its advisors will load in 'Assign to'"); return; }
       const advs=_devSelectedAdvisors(wk);
       if(advs.length<2){ toast("Select 2 or more advisors for round-robin"); return; }
       _devSyncSel(); const ids=Array.from(_devSel[wk as "call"|"lead"]);
@@ -9870,42 +10024,6 @@ export function initApp(root: HTMLElement) {
       wl+='</tbody></table>';
       const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
       _btRenderBulkBar();
-      _btRenderReminders();
-    }
-    // Outcome reminders — the actionable next step for each blood-test record (auto-derived from its
-    // milestone statuses), plus panel-cadence re-test reminders from bt_orders.next_due_date. Was a
-    // static placeholder; now generated live from the same data the worklist shows.
-    function _btRenderReminders(){
-      const rw=root.querySelector("#btRemindersWrap")as HTMLElement|null; if(!rw) return;
-      const rank:Record<string,number>={al:0,warn:1,info:2};
-      const rows:{name:string;ph:string;when:string;kind:string;c:string;_o:number}[]=[];
-      // One "next action" per appointment-linked record (whichever stage it's stuck at) + payment.
-      _btFiltered.forEach((r:any)=>{
-        const when=(r.date||"")+(r.time?" · "+r.time:"");
-        if(r.sampleStatus!=="collected") rows.push({name:r.name,ph:r.ph,when,kind:"Collect blood sample",c:"warn",_o:1});
-        else if(r.labStatus!=="sent") rows.push({name:r.name,ph:r.ph,when,kind:"Send sample to lab",c:"warn",_o:1});
-        else if(r.labReportStatus!=="received") rows.push({name:r.name,ph:r.ph,when,kind:"Chase lab report",c:"info",_o:2});
-        else if(r.clientReportStatus!=="shared") rows.push({name:r.name,ph:r.ph,when,kind:"Share report with client",c:"info",_o:2});
-        if(r.payStatus!=="paid"&&r.payStatus!=="free") rows.push({name:r.name,ph:r.ph,when,kind:"Collect payment",c:"al",_o:0});
-      });
-      // Panel-cadence re-test reminders (overdue or due within 45 days) from the stored orders.
-      const today=_todayLocal(); const nowT=new Date(today+"T00:00:00").getTime();
-      (_btOrders||[]).forEach((o:any)=>{
-        const due=o.next_due_date?String(o.next_due_date).slice(0,10):""; if(!due) return;
-        const days=Math.round((new Date(due+"T00:00:00").getTime()-nowT)/86400000);
-        if(days>45) return;
-        const overdue=days<0;
-        rows.push({name:o.client_name||"Client",ph:_btMask(o.phone),when:fmtISTDate(due),
-          kind:overdue?("Re-test overdue by "+Math.abs(days)+"d"):(days===0?"Re-test due today":("Re-test due in "+days+"d")),
-          c:overdue?"al":"warn",_o:overdue?0:1});
-      });
-      if(!rows.length){ rw.innerHTML='<div style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No outcome reminders — every blood-test record for this period is up to date.</div>'; return; }
-      rows.sort((a,b)=>(a._o-b._o)||(rank[a.c]-rank[b.c]));
-      const cap=100; const shown=rows.slice(0,cap);
-      rw.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;margin:2px 0 8px">'+rows.length+' reminder'+(rows.length===1?"":"s")+' · next action per record + upcoming re-tests</div>'
-        +'<div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr><th>Client</th><th>Phone</th><th>Visit / due</th><th>Reminder</th></tr></thead><tbody>'
-        +shown.map(x=>'<tr><td style="font-weight:600">'+_btE(x.name)+'</td><td class="mono">'+_btE(x.ph)+'</td><td class="mono" style="font-size:11.5px;white-space:nowrap">'+_btE(x.when||"—")+'</td><td><span class="chipb '+x.c+'">'+_btE(x.kind)+'</span></td></tr>').join("")
-        +'</tbody></table></div>'+(rows.length>cap?'<div style="font-size:11px;color:var(--faint);margin-top:6px">Showing first '+cap+' of '+rows.length+'.</div>':'');
     }
     // Bulk-action toolbar: one-click set of any status across every selected record (spec §6).
     function _btRenderBulkBar(){
@@ -10345,7 +10463,8 @@ export function initApp(root: HTMLElement) {
       const outstandingAmt=outstanding.reduce((s:number,p:any)=>s+(p.amount||0),0);
       const refunds=pays.filter((p:any)=>p.refund_status&&p.refund_status!=="processed");
       const emiSub=pays.reduce((s:number,p:any)=>s+(p.emi_subvention||0),0);
-      const fmtL=(n:number)=>n>=100000?"₹"+(n/100000).toFixed(1)+"L":n>=1000?"₹"+(n/1000).toFixed(1)+"K":"₹"+n.toLocaleString("en-IN");
+      // Full Indian-formatted amount (₹13,60,000) — no K/L/Cr abbreviation.
+      const fmtL=(n:number)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
       // KPI cards — Pending Verification + Outstanding each show BOTH a count and an amount, and are
       // click-to-filter. All reflect the applied filters (they read the same _accFilteredPays()).
       const metrics=[
@@ -10606,7 +10725,8 @@ export function initApp(root: HTMLElement) {
       const visited=appts.filter((a:any)=>a.status==="visited"||a.visited_at);
       const enrolled=appts.filter((a:any)=>a.stage==="enrolled");
       const pct=(n:number,d:number)=>d?((n/d)*100).toFixed(1)+"%":"0%";
-      const fmtL=(n:number)=>n>=100000?"₹"+(n/100000).toFixed(1)+"L":n>=1000?"₹"+(n/1000).toFixed(0)+"K":"₹"+n.toLocaleString("en-IN");
+      // Full Indian-formatted amount (₹13,60,000) — no K/L/Cr abbreviation.
+      const fmtL=(n:number)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
       if(_repTab==="lead"){
         if(titleEl) titleEl.textContent="Lead report";
         if(kpiEl) kpiEl.innerHTML=[{l:"Leads",v:leads.length.toLocaleString(),c:"g"},{l:"Lead → Appt",v:pct(appts.length,leads.length),c:"g"},{l:"Lead → Enrol",v:pct(enrolled.length,leads.length),c:enrolled.length/Math.max(leads.length,1)<0.06?"a":"g"},{l:"Revenue",v:fmtL(totalRev),c:"g"}]
