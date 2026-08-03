@@ -115,12 +115,17 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="advpReferral">Referral details</label><select class="select" id="advpReferral" data-nocap><option value="">— Select —</option><option>MHS Student</option><option>Google</option><option>Friend &amp; Family</option><option>Social Media</option><option>Doctor Referral</option><option>Walk-in</option></select></div>
           </div>
           <div class="fld fw" style="margin-top:8px"><label class="lbl">Reports available <span class="ab">if any</span></label>
+            <!-- No onclick here on purpose: initApp binds every ".chips > .chip-o" to toggle "on"
+                 (see app.ts, the root.querySelectorAll(".chips") pass). These five used to ALSO carry
+                 onclick="this.classList.toggle('on')", so each click toggled twice — on, then straight
+                 back off — and the chips could never be selected. Every other chip group in this file
+                 relies on that shared binding; keep it that way. -->
             <div class="chips" id="advpReports">
-              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">X-ray</button>
-              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">MRI</button>
-              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">CT Scan</button>
-              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">Blood Reports</button>
-              <button type="button" class="chip-o" data-nocap onclick="this.classList.toggle('on')">NCV &amp; EMG</button>
+              <button type="button" class="chip-o" data-nocap>X-ray</button>
+              <button type="button" class="chip-o" data-nocap>MRI</button>
+              <button type="button" class="chip-o" data-nocap>CT Scan</button>
+              <button type="button" class="chip-o" data-nocap>Blood Reports</button>
+              <button type="button" class="chip-o" data-nocap>NCV &amp; EMG</button>
             </div>
             <div id="advpAtts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"></use></svg> Upload report</span></div></div>
           <div class="fld fw" style="margin-top:8px"><label class="lbl" for="advpRemarks">Remarks <span class="ab">if any</span></label><textarea class="area" id="advpRemarks" data-nocap rows="3" placeholder="Condition, pain area, doctor's note, referral notes…"></textarea></div>

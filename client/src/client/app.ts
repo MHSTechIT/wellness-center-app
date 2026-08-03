@@ -3520,14 +3520,26 @@ export function initApp(root: HTMLElement) {
     // service-scoped team later: add its <option> to #salesTeamSel in template.ts and map it here.
     const PHYSIO_SALES_TEAM="Physiotherapy Telecaller Team";
     let _advLayoutPhysio=false;
+    // Every physiotherapy PROVIDER, from BOTH staff sources — the same union _nwFillProviders uses
+    // for Reception's Provider dropdown. The `assignees` mirror only receives assignable roles, and
+    // "Physiotherapist" is not assignable, so a real PT (karuna) exists in app_users alone: filtering
+    // `assignees` by itself listed Swathi ("Physio advisor") and silently dropped her. Dedup is
+    // case-insensitive so one person can't appear twice from the two sources.
+    function _physioProviderNames():string[]{
+      const seen=new Set<string>(); const out:string[]=[];
+      const add=(n:any)=>{ const t=String(n||"").trim(); const k=t.toLowerCase(); if(!t||seen.has(k))return; seen.add(k); out.push(t); };
+      _assignees.filter((a:any)=>a.is_active!==false&&/physio/i.test(String(a.role||""))).forEach((a:any)=>add(a.name));
+      _usrLite.filter((u:any)=>u.active!==false&&/physio/i.test(String(u.role||""))).forEach((u:any)=>add(u.name));
+      return out;
+    }
     function _advApplyPhysioStaffing(){
       const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Label: "HC assigned" ↔ "Physiotherapy Advisor"
       const lbl=root.querySelector('label[for="hcSel"]')as HTMLElement|null;
-      if(lbl) lbl.innerHTML=_advLayoutPhysio?'Physiotherapy Advisor <span class="nb">NEW</span>':'HC assigned <span class="nb">NEW</span>';
+      if(lbl) lbl.innerHTML=_advLayoutPhysio?'Provider <span class="nb">NEW</span>':'HC assigned <span class="nb">NEW</span>';
       // Options: physio-role staff for physio leads; populateAdvisorDropdowns owns the default list.
       if(_advLayoutPhysio){
-        const pts=_assignees.filter((a:any)=>a.is_active&&/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name));
+        const pts=_physioProviderNames();
         const fill=(sel:HTMLSelectElement|null)=>{ if(!sel) return; const cur=sel.value;
           const names=Array.from(new Set(cur?[...pts,cur]:pts));   // keep a stored selection even if that person was deactivated
           sel.innerHTML='<option value="">— Select —</option>'+names.map(n=>'<option>'+esc(n)+'</option>').join("");
@@ -3749,6 +3761,11 @@ export function initApp(root: HTMLElement) {
       const _missing:string[]=[]; let _firstBad:HTMLElement|null=null;
       for(const [sel,lbl] of _reqAdv){
         const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
+        // A PHYSIOTHERAPY lead hides every ".adv-nonphysio" field (Occupation, Language, Email,
+        // Lead-gen, Batch), so those can't be mandatory for it — the save was being blocked on
+        // "Occupation", a field the physio layout never renders and the user cannot fill. Scoped to
+        // the physio layout, so every other service keeps its rules exactly as they were.
+        if(_advLayoutPhysio&&el&&typeof el.closest==="function"&&el.closest(".adv-nonphysio")) continue;
         const v=((el&&el.value)||"").trim();
         let bad=!v||/^--\s*select\s*--$/i.test(v);
         if(!bad&&sel==="#advfOcc"&&/^others$/i.test(v)){
@@ -7040,7 +7057,7 @@ export function initApp(root: HTMLElement) {
     //      register the NON-blood-test services into the normal screening/Health-Coach flow (so they
     //      continue automatically), create the Blood Test appointment, then open the dedicated Collect
     //      Payment page for the blood-test payment FIRST. Mirrors nwBook's create logic. ----
-    let _cpCtx:{apptId:any,leadId:string,name:string}|null=null;
+    let _cpCtx:{apptId:any,leadId:string,name:string,service:string}|null=null;
     async function _nwBloodTestProceed(){
       const name=((root.querySelector("#nwName")as HTMLInputElement)?.value||"").trim();
       const ph=((root.querySelector("#nwPhone")as HTMLInputElement)?.value||"").trim();
@@ -7101,7 +7118,7 @@ export function initApp(root: HTMLElement) {
     // ---- Collect Payment page ----
     let _cpCoupon:any=null;   // validated bt_coupons row applied on the Collect Payment page
     async function _cpOpen(c:{apptId:any,leadId:string,name:string,phone:string,email:string,addr:string,service:string}){
-      _cpCtx={apptId:c.apptId,leadId:c.leadId,name:c.name};
+      _cpCtx={apptId:c.apptId,leadId:c.leadId,name:c.name,service:c.service||"Blood test"};
       const setV=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
       setV("cpName",c.name||""); setV("cpPhone",c.phone||""); setV("cpEmail",c.email||"—"); setV("cpAddr",c.addr||"—"); setV("cpSvc",c.service||"Blood test");
       // Render the test checkboxes LIVE from the pricing master (bt_tests), then reset selection.
@@ -7188,13 +7205,21 @@ export function initApp(root: HTMLElement) {
         // Persist the selected panels + pricing onto the appointment so the Blood Test dashboard cards
         // (Total billed / Thyrocare cost / Our margin) and the detail panel reflect the REAL numbers —
         // previously only the payment row was written, leaving blood_test_data pricing at 0.
+        // Stage: "Blood Test Completed" ONLY for a blood-test-ONLY visit. A COMBINED visit
+        // ("Diabetes Counselling + Blood Test") is at stage "screening" when this payment is taken —
+        // stamping it "Blood Test Completed" here silently pulled the lead OUT of the Screening
+        // queue (it filters stage==="screening"), so the diabetes half of the visit never surfaced
+        // for screening (reported for yusuf). The blood-test module tracks its own completion from
+        // the paid payment row + blood_test_data, so the combined visit's stage stays untouched.
+        const _cpBtOnly=!String(ctx.service||"").split(/[+,/&]| and /i).map(s=>s.trim()).filter(Boolean).some(s=>!/blood/i.test(s));
         if(ctx.apptId){ try{
           const {data:_cur}=await supabase.from("appointments").select("blood_test_data").eq("id",ctx.apptId).limit(1);
           const _bt:any={...((_cur&&_cur[0]&&_cur[0].blood_test_data)||{})};
           _bt.panels=tests.map((t:any)=>t.name); _bt.panel=tests.map((t:any)=>t.name).join(", ");
           _bt.our_price=total; _bt.thyrocare_cost=_cpThyroCost();
-          await supabase.from("appointments").update({blood_test_data:_bt,stage:"Blood Test Completed"}).eq("id",ctx.apptId);
-        }catch(_){ try{ await supabase.from("appointments").update({stage:"Blood Test Completed"}).eq("id",ctx.apptId); }catch(__){} } }
+          const _patch:any={blood_test_data:_bt}; if(_cpBtOnly) _patch.stage="Blood Test Completed";
+          await supabase.from("appointments").update(_patch).eq("id",ctx.apptId);
+        }catch(_){ if(_cpBtOnly) try{ await supabase.from("appointments").update({stage:"Blood Test Completed"}).eq("id",ctx.apptId); }catch(__){} } }
         if(ctx.leadId){ try{ await supabase.from("leads").update({call_status:"Payment Done"}).eq("meta_lead_id",ctx.leadId); }catch(_){} }
         toast("₹"+amt.toLocaleString("en-IN")+" collected → Accounts verification");
         try{ ach("🩸","Blood test payment collected",ctx.name+" · ₹"+amt.toLocaleString("en-IN")); }catch(_){}
@@ -7236,17 +7261,29 @@ export function initApp(root: HTMLElement) {
     // standard collect modal. The non-blood services keep their normal collect flow.
     w._recCollectRoute=(id:any)=>{
       const r=_recAll.find((x:any)=>String(x.id)===String(id)); if(!r){ toastErr("Appointment not found"); return; }
-      if(/blood/i.test(String(r.serviceRaw||"")) || r.svc==="bt"){
+      // Blood-test Collect Payment page ONLY while the blood-test share is still unpaid. This used
+      // to test the service STRING alone, so a combined visit ("Diabetes Counselling + Blood Test")
+      // whose ₹150 blood payment was already collected STILL routed back to the Blood Test page when
+      // Reception went to collect the remaining Diabetes due (reported for yusuf: the outstanding
+      // L2 installment could never be collected from the queue).
+      const _hasBt=/blood/i.test(String(r.serviceRaw||""))||r.svc==="bt";
+      const _btPaid=_recPays.some((p:any)=>String(p.appointment_id||"")===String(r.id)&&/blood/i.test(String(p.service||""))&&p.status==="paid");
+      if(_hasBt&&!_btPaid){
         _cpOpen({apptId:r.id, leadId:r.lead_id||"", name:r.name||"", phone:r.ph||"", email:r.email||"", addr:"", service:r.serviceRaw||"Blood test"});
         return;
       }
+      // Blood test settled (or never part of the visit) → the normal collect flow, coded by the
+      // REMAINING service: _recSvcDisplayCode gives the consultation part of a combined string
+      // precedence ("dia" for Diabetes + Blood Test), while r.svc/_recSvcCode tests "blood" first
+      // and would mis-tag the Diabetes collection as a Blood-test payment.
+      const _routeSvc=_hasBt?_recSvcDisplayCode(r.serviceRaw||""):(r.svc||"dia");
       // Physio has no due row — fall back to the treatment plan's price (physioDue) so Reception
       // isn't asked to re-key an amount the physiotherapist already set.
       const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||Number(r.physioDue)||0;
       // A physio patient whose therapist never set a plan price now resolves to 0 rather than the
       // old hardcoded ₹800. Say so instead of opening the dialog on a figure nobody agreed.
-      if(!(amt>0)&&r.svc==="physio"){ toastErr("No amount set for "+(r.name||"this patient")+" — the physiotherapist must save the session amount first"); return; }
-      recOpen(r.id, r.name||"Client", amt, r.lead_id||"", r.svc||"dia");
+      if(!(amt>0)&&_routeSvc==="physio"){ toastErr("No amount set for "+(r.name||"this patient")+" — the physiotherapist must save the session amount first"); return; }
+      recOpen(r.id, r.name||"Client", amt, r.lead_id||"", _routeSvc);
     };
     // Resolve a LEAD's program from its own payment rows — never from _curProgram() (the coach's
     // on-screen program dropdown), which reflects whoever is open in the Health Coach view, not
@@ -8168,7 +8205,7 @@ export function initApp(root: HTMLElement) {
       // Selecting Installment (2×): seed the Total from the program price so the L2 price flows into the
       // plan (overwriting any stray value). Skipped when the client already has recorded installment
       // payments — _applyPaymentLocks (run just below) reconstructs the real Total from the paid rows.
-      if(v==="i2"){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; const _hasInst=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment"); if(te&&!_hasInst){ const pr=_payGetPrice(); if(pr>0){ te.value=String(pr); try{ _payCalcI2(); }catch(_){} } } }
+      if(v==="i2"){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; const _hasInst=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment"&&r.status==="paid"); if(te&&!_hasInst){ const pr=_payGetPrice(); if(pr>0){ te.value=String(pr); try{ _payCalcI2(); }catch(_){} } } }
       try{ if(w._coachApplyPayLocks) w._coachApplyPayLocks(); }catch(_){}   // re-apply paid-stage locks for the chosen method
     }
     w.payBlk = payBlk;
@@ -8305,7 +8342,11 @@ export function initApp(root: HTMLElement) {
       // the client already has RECORDED installment payments, where the Total is reconstructed from the
       // actual paid rows (in _applyPaymentLocks) and must not be overwritten. Balance = Total − Inst-1.
       const i2Active=!!root.querySelector("#pb-i2")?.classList.contains("on");
-      const _hasInstPay=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment");
+      // PAID rows only. This used to match any installment row including an unpaid `due` placeholder,
+      // so the moment a collection request existed the Total stopped mirroring the configured L2/L1
+      // price and was reconstructed by summing the due rows instead — showing ₹45,000 on a ₹30,000
+      // programme with ₹0 received. The comment above states the intent: reconstruct from ACTUAL paid rows.
+      const _hasInstPay=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment"&&r.status==="paid");
       const i2r=parseInt((root.querySelector("#i2Inst1Rcvd")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
       let i2t=_payNum("#i2Total");
       if(i2Active && !_hasInstPay && price>0){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te){ te.value=String(price); i2t=price; } }
@@ -9637,8 +9678,8 @@ export function initApp(root: HTMLElement) {
         // lookup can't detect a failed check — a failed request silently reads as "nothing paid
         // yet" and re-inserts rows on top of Reception's, doubling every total. Check `.error`
         // explicitly and ABORT (like the delete-failure guards below) rather than guess.
-        let recInst1Paid=false, recInst2Paid=false, recInst2Any=false;
-        const _recCheck:any=await supabase.from("payments").select("status,collected_by,installment_number,program").eq("lead_id",id).eq("payment_type","installment");
+        let recInst1Paid=false, recInst2Paid=false, recInst2Any=false, _inst1Outstanding=0;
+        const _recCheck:any=await supabase.from("payments").select("status,collected_by,installment_number,program,amount").eq("lead_id",id).eq("payment_type","installment");
         if(_recCheck&&_recCheck.error){ toastErr("Payment check failed: "+(_recCheck.error.message||"database error")+" — save aborted to avoid duplicate rows"); return; }
         { const data=_recCheck?.data;
           const recRows=(n:number)=>(data||[]).filter((r:any)=>Number(r.installment_number)===n&&/reception|pos/i.test(String(r.collected_by||""))&&(String(r.program||"")===_prog||!r.program));
@@ -9646,6 +9687,13 @@ export function initApp(root: HTMLElement) {
           const r2=recRows(2);
           recInst2Paid=r2.some((r:any)=>r.status==="paid");
           recInst2Any=r2.length>0;   // Reception already has a row (paid OR due) for inst-2 — don't add a second placeholder
+          // An installment-1 request ALREADY SENT to Reception and not yet collected is money the
+          // plan has committed but not received. `balance` below is total − received, so with
+          // nothing received it equalled the WHOLE plan and was written as installment 2 — sitting
+          // beside Reception's own inst-1 due row. A ₹30,000 L2 then read ₹15,000 + ₹30,000 =
+          // ₹45,000 with ₹0 received (reported for yusuf). Subtract what inst-1 is already carrying.
+          _inst1Outstanding=(data||[]).filter((r:any)=>Number(r.installment_number)===1&&r.status==="due"&&(String(r.program||"")===_prog||!r.program))
+            .reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
         }
         if(!p1&&!p2&&balance<=0) return;
         const rows:any[]=[];
@@ -9663,7 +9711,8 @@ export function initApp(root: HTMLElement) {
         // "Send collection request" click, so persisting the auto +30d balance due date would be a
         // premature commitment (it also drives the Accounts reminders). The date is stamped only when
         // the request is actually sent — see sendToReception's companion row.
-        if(balance>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:balance,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,collected_by:"Health Coach"});
+        const _balRow=Math.max(0,balance-_inst1Outstanding);   // don't re-book what inst-1 is already asking for
+        if(_balRow>0&&!recInst2Paid&&!recInst2Any) rows.push({lead_id:id,amount:_balRow,status:"due",payment_type:"installment",installment_number:2,total_installments:2,service:"Diabetes",program:_prog,collected_by:"Health Coach"});
         // The coach can collect an installment Reception only STAGED as "due" (never actually
         // collected) — that's legitimate, but Reception's due placeholder for that installment
         // must then be cleared, or it lingers forever and the balance double-counts it (found
@@ -9748,7 +9797,12 @@ export function initApp(root: HTMLElement) {
           const bal=(r2&&r2.status!=="paid")?p2amt:0;                 // balance = the unpaid installment 2
           const tot=p1amt+p2amt;
           const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null; if(i1e&&p1amt) i1e.value=String(p1amt);
-          const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&tot) te.value=String(tot);
+          // Only a plan with an ACTUAL paid installment reconstructs its Total from the rows
+          // (paid + outstanding balance = plan value). With nothing paid, the rows are just
+          // placeholders and the Total must keep mirroring the configured programme price — summing
+          // them here is what put ₹45,000 on a ₹30,000 L2.
+          const _anyInstPaid=r1?.status==="paid"||r2?.status==="paid";
+          const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&tot&&_anyInstPaid) te.value=String(tot);
           const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");   // #i2BalDue is otherwise the live-computed Total−Inst1 (installment-2 amount); don't clobber it
           const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null; if(bre&&bal>0&&!inst2Paid&&!bre.value) bre.value=String(bal);   // default the pending balance
           // Each installment's Txn Ref / UTR comes from ITS OWN payment row — never copy installment-1's
