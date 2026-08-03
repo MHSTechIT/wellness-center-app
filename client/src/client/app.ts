@@ -453,8 +453,12 @@ export function initApp(root: HTMLElement) {
         // (dropdowns / advisor filter). _advCallLoaded is set BEFORE renderAll so the dashboard's
         // own lazy loader doesn't fire a duplicate fetch.
         _advCallLoaded=true;
+        // Kick the feed's first fetch NOW (post-auth). It used to start pre-auth at init, burn its
+        // 8-retry backoff on 401s, and leave _initDataReady in whatever state that race ended in.
+        _metaFetchRetries=0; _metaFetchInFlight=false;
+        try{ fetchMetaLiveFeed(); }catch(_){}
         const ready=Promise.allSettled([_initDataReady,_loadAdvCallStats(),loadAssignees()]);
-        const timeout=new Promise((res)=>setTimeout(res,45000));   // safety NET only: a stuck sync/DB can't trap the user past 45s. Normal loads lift via the data promise (incl. the initial Meta sync) well before this, so it adds no delay in the happy path.
+        const timeout=new Promise((res)=>setTimeout(res,20000));   // safety NET only: a stuck DB can't trap the user past 20s. The splash no longer waits for a Meta crawl (see fetchMetaLiveFeed — existing DB data lifts it immediately; the sync refreshes in the background), so the normal path lifts in a few seconds.
         Promise.race([ready,timeout]).then(()=>{
           try{ renderAll(); renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           if(splash){ splash.classList.add("done"); setTimeout(()=>{ splash.style.display="none"; },400); }
@@ -667,12 +671,18 @@ export function initApp(root: HTMLElement) {
     // service filter can scope the advisor dropdown to the selected service on any screen. Only two
     // columns are fetched — no password_hash / telephony — so every role can read it safely.
     let _svcByEmail:Record<string,string>={};
+    // Light app-wide user list ({email,name,role,service,active}) — no credentials/telephony. The
+    // provider dropdowns need it because NOT every provider is in the `assignees` mirror: only
+    // assignable roles sync there, and Physiotherapist is not assignable — so a real PT (karuna)
+    // exists in app_users only and would otherwise never appear as a bookable provider.
+    let _usrLite:any[]=[];
     function _setSvcByEmail(rows:any[]){ const m:Record<string,string>={}; (rows||[]).forEach((u:any)=>{ const e=String(u&&u.email||"").trim().toLowerCase(); if(e) m[e]=String(u.service||""); }); _svcByEmail=m; }
     async function loadAdvisorServices(){
-      try{ const {data}=await supabase.from("app_users").select("email,service"); _setSvcByEmail(data||[]); }catch(_){ /* leave map as-is; advisors fall back to visible-everywhere */ }
+      try{ const {data}=await supabase.from("app_users").select("email,name,role,service,active"); _usrLite=data||[]; _setSvcByEmail(_usrLite); }catch(_){ /* leave map as-is; advisors fall back to visible-everywhere */ }
       try{ renderAssignedLeads(); }catch(_){}
       try{ _poolRenderAssignMenu(); }catch(_){}       // service-gated Assign-to menus depend on this map
       try{ _populateDevAssignMenus(); }catch(_){}
+      try{ _nwFillProviders(); }catch(_){}            // walk-in Provider dropdown unions app_users staff
     }
 
     async function loadUsers(){
@@ -680,6 +690,8 @@ export function initApp(root: HTMLElement) {
         const {data}=await supabase.from("app_users").select("*").order("created_at",{ascending:false});
         _usrList=data||[];
         _setSvcByEmail(_usrList);   // keep the app-wide service map fresh whenever the full list reloads
+        _usrLite=_usrList;          // …and the provider source, so a role/name edit shows up immediately
+        try{ _nwFillProviders(); }catch(_){}
       }catch(e:any){ _usrList=[]; toastErr("Could not load users — check your connection"); }
       renderUsers();
     }
@@ -2099,9 +2111,31 @@ export function initApp(root: HTMLElement) {
           .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,assigned_at,call_status")
           .neq("source","Meta Ads");
         const rows=data||[];
+        // KPI source attribution: leads promoted from the CSV wizard ("csv-<id>") are stored with
+        // source "Manual" (the send payload's label), which made the "Bulk CSV import" source filter
+        // miss them — the wizard's own sent rows didn't count as CSV imports. Remapped HERE only
+        // (the KPI dataset); the Live Feed / assignment views keep showing their stored source.
         _otherLeads=rows.map((r:any)=>({id:r.meta_lead_id,name:r.name,
-          source:(r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source,service:r.service||"Diabetes",
+          source:String(r.meta_lead_id||"").indexOf("csv-")===0?"Bulk CSV import":((r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source),
+          service:r.service||"Diabetes",
           date:new Date(r.created_at||r.lead_date),isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned}));
+        // Bulk CSV Wizard rows that HAVEN'T been promoted into `leads` yet. "Send to assignment"
+        // upserts a csv-<id> leads row and flips the wizard row to "sent", so promoted rows are
+        // already counted above — including them here would double-count. Everything else (valid,
+        // duplicate, invalid) exists ONLY in csv_leads, and the Lead-import KPI cards claimed 5
+        // leads while the wizard had just imported 9 (reported): the cards must reflect every
+        // imported lead, dated by the file's own lead date so the page's date filter applies.
+        try{
+          const {data:cw}=await supabase.from("csv_leads")
+            .select("id,lead_name,name,service,date_time,status,created_at")
+            .neq("status","sent").neq("status","assigned");
+          (cw||[]).forEach((r:any)=>{
+            const d=parseFlexDate(r.date_time);
+            _otherLeads.push({id:"csvw-"+r.id,name:r.lead_name||r.name||"Lead",source:"Bulk CSV import",
+              service:r.service||"Diabetes",date:(d&&!isNaN(d.getTime()))?d:new Date(r.created_at),
+              isValid:r.status==="valid",isDuplicate:r.status==="duplicate",isAssigned:false});
+          });
+        }catch(_){ /* wizard table may be absent — KPI falls back to promoted leads only */ }
         // Full feed-shaped objects for the Live Incoming Feed.
         _otherFeedLeads=rows.map((r:any)=>{
           const createdAt=r.created_at||r.lead_date;
@@ -2801,6 +2835,7 @@ export function initApp(root: HTMLElement) {
         _assignees=data||[];
       }catch(e){ _assignees=[]; }
       renderAssigneesTable();renderAdvisorLoad();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();populateAdvisorDropdowns();
+      try{ _nwFillProviders(); }catch(_){}   // walk-in Provider dropdown follows the live staff list
     }
     // Fill the lead-profile Salesperson + HC dropdowns from the live Assignees master.
     // Salesperson = active staff (any role except Health Coach); HC = active Health Coaches.
@@ -2813,11 +2848,13 @@ export function initApp(root: HTMLElement) {
         sales.innerHTML='<option value="">— Select —</option>'+ppl.map((a:any)=>'<option>'+esc(a.name)+'</option>').join("");
         if(cur)sales.value=cur; }
       const docs=active.filter((a:any)=>a.role==="Health Coach");
-      if(hc){ const cur=hc.value;
+      // While a PHYSIOTHERAPY lead is open, #hcSel/#apptHc list physio-line staff instead (see
+      // _advApplyPhysioStaffing) — an assignees reload must not clobber that list with coaches.
+      if(hc&&!_advLayoutPhysio){ const cur=hc.value;
         hc.innerHTML='<option value="">— Select —</option>'+docs.map((a:any)=>'<option>'+esc(a.name)+'</option>').join("");
         if(cur)hc.value=cur; }
       const apptHc=root.querySelector("#apptHc")as HTMLSelectElement|null;
-      if(apptHc){ const cur=apptHc.value;
+      if(apptHc&&!_advLayoutPhysio){ const cur=apptHc.value;
         apptHc.innerHTML='<option value="">— Select —</option>'+docs.map((a:any)=>'<option>'+esc(a.name)+'</option>').join("");
         if(cur)apptHc.value=cur; }
       // Follow-up plan Owner (Consultation status & program → Strong follow-up flow) = ANY active
@@ -3357,14 +3394,19 @@ export function initApp(root: HTMLElement) {
     // Physiotherapy-specific fields — captured/restored BY ID (separate from the positional array),
     // so they never affect any other service's profile.
     let _advpAtts:any[]=[];
+    // Preferred date / time slot / mode were removed from the panel on request (booking happens on
+    // the slot board / at Reception). Values saved BEFORE the removal are preserved on re-save (the
+    // spread of the previously stored object below) — they just no longer have inputs.
     function _advCollectPhysio(){
       const g=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement|null)?.value)||"";
       const reports=Array.from(root.querySelectorAll("#advpReports .chip-o.on")).map((c:any)=>(c.textContent||"").trim()).filter(Boolean);
-      return { apptDate:g("advpApptDate"), timeSlot:g("advpTimeSlot"), mode:g("advpMode"), referral:g("advpReferral"), reports, remarks:g("advpRemarks"), atts:_advpAtts.slice() };
+      const _lead=_advLeadId?_advFindLead(String(_advLeadId)):null;
+      const _prevPh=(_lead&&_lead.advisorProfile&&_lead.advisorProfile.physio)||{};
+      return { ..._prevPh, referral:g("advpReferral"), reports, remarks:g("advpRemarks"), atts:_advpAtts.slice() };
     }
     function _advApplyPhysio(ph:any){
       ph=ph||{}; const s=(id:string,v:string)=>{ const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=v||""; };
-      s("advpApptDate",ph.apptDate||""); s("advpTimeSlot",ph.timeSlot||""); s("advpMode",ph.mode||""); s("advpReferral",ph.referral||""); s("advpRemarks",ph.remarks||"");
+      s("advpReferral",ph.referral||""); s("advpRemarks",ph.remarks||"");
       const set=new Set((ph.reports||[]) as string[]);
       root.querySelectorAll("#advpReports .chip-o").forEach((c:any)=>c.classList.toggle("on",set.has((c.textContent||"").trim())));
       _advpAtts=Array.isArray(ph.atts)?ph.atts.slice():[]; _advpRenderAtts();
@@ -3425,6 +3467,48 @@ export function initApp(root: HTMLElement) {
       show("#advSugarSec",!physio);
       show("#advEnrolledSec",!physio);
       root.querySelectorAll("#advBasicSec .adv-nonphysio").forEach((el:any)=>{ el.style.display=physio?"none":""; });
+      _advLayoutPhysio=physio;
+      _advApplyPhysioStaffing();
+    }
+    // ---- Physiotherapy staffing (Assignment & pipeline) ----------------------------------------
+    // For a PHYSIOTHERAPY lead: the Sales team auto-fills with the physio telecalling desk, and the
+    // "HC assigned" control becomes "Physiotherapy Advisor", listing only physio-line staff (role
+    // matching /physio/ in the assignees master — e.g. Swathi, "Physio advisor"). Every other
+    // service keeps the Health-Coach list and the original labels. The same physio names are pushed
+    // into the slot board's mirror select (#apptHc) so _hcAssignedChange's mirroring and slot
+    // booking (hc_pt) keep working unchanged.
+    // The physiotherapy sales team (auto-selected for physio leads). Sales teams are display-level
+    // in this app — the roster itself (who is in the team) lives with the people in Settings &
+    // masters → Users & Assignees (e.g. Noorjahan, service Physiotherapy). To add another
+    // service-scoped team later: add its <option> to #salesTeamSel in template.ts and map it here.
+    const PHYSIO_SALES_TEAM="Physiotherapy Telecaller Team";
+    let _advLayoutPhysio=false;
+    function _advApplyPhysioStaffing(){
+      const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      // Label: "HC assigned" ↔ "Physiotherapy Advisor"
+      const lbl=root.querySelector('label[for="hcSel"]')as HTMLElement|null;
+      if(lbl) lbl.innerHTML=_advLayoutPhysio?'Physiotherapy Advisor <span class="nb">NEW</span>':'HC assigned <span class="nb">NEW</span>';
+      // Options: physio-role staff for physio leads; populateAdvisorDropdowns owns the default list.
+      if(_advLayoutPhysio){
+        const pts=_assignees.filter((a:any)=>a.is_active&&/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name));
+        const fill=(sel:HTMLSelectElement|null)=>{ if(!sel) return; const cur=sel.value;
+          const names=Array.from(new Set(cur?[...pts,cur]:pts));   // keep a stored selection even if that person was deactivated
+          sel.innerHTML='<option value="">— Select —</option>'+names.map(n=>'<option>'+esc(n)+'</option>').join("");
+          sel.value=cur&&names.indexOf(cur)>=0?cur:""; };
+        fill(root.querySelector("#hcSel")as HTMLSelectElement|null);
+        fill(root.querySelector("#apptHc")as HTMLSelectElement|null);
+      } else {
+        populateAdvisorDropdowns();   // restore the Health-Coach lists for every other service
+      }
+      // Sales team AUTO: physio → the physio telecalling desk (option added once, kept for restores).
+      const st=root.querySelector("#salesTeamSel")as HTMLSelectElement|null;
+      if(st){
+        if(!Array.from(st.options).some(o=>o.value===PHYSIO_SALES_TEAM)){
+          const o=document.createElement("option"); o.textContent=PHYSIO_SALES_TEAM; st.appendChild(o);
+        }
+        if(_advLayoutPhysio) st.value=PHYSIO_SALES_TEAM;
+        else if(st.value===PHYSIO_SALES_TEAM) st.value="Walkin Callers Team";
+      }
     }
     function _advpRenderAtts(){
       const box=root.querySelector("#advpAtts"); if(!box) return;
@@ -4559,6 +4643,7 @@ export function initApp(root: HTMLElement) {
     // automatic 5-minute sync; updates the timestamp on success and shows the error
     // states on failure — all without a manual page refresh.
     async function runAutoSync(){
+      if(!_currentUser) return;   // pre-auth tick: /api/meta/sync would just 401 and trip the fail banners
       if(_autoSyncInFlight||_syncing) return;
       _autoSyncInFlight=true;
       const statusEl=root.querySelector("#metaFeedStatus");
@@ -4667,12 +4752,15 @@ export function initApp(root: HTMLElement) {
         // Connection monitor: leads loaded → connected (unless the last sync errored).
         setMetaConn((data.lastSync&&data.lastSync.status==="error")?"disconnected":"connected",data.lastSync&&data.lastSync.error);
         updateMetaAlert();
-        // If the DB is stale, pull fresh leads from Meta. When a sync WILL run, keep the splash up
-        // until its re-fetch completes so the dashboard reveals the FINAL counts, not the pre-sync
-        // intermediate (the cause of the 0 → 62 → 213 flicker on first load).
-        const _willSync=_shouldAutoSync(data.lastSync);
-        maybeAutoSync(data.lastSync);
-        if(!_willSync) _markInitialDataReady();   // fresh data → lift now; else the sync's re-fetch lifts it
+        // The DATABASE's leads are on screen — that IS the essential data, so lift the startup
+        // splash NOW, unconditionally. This used to wait for a stale-data Meta sync to finish
+        // first, and with AUTO_SYNC_STALE_MS at 5 minutes that meant nearly EVERY login sat on the
+        // splash while a full Meta crawl ran (~2 min, capped only by the safety timeout) — the bulk
+        // of the reported 70–90s startup. The old 0 → 62 → 213 flicker this gating prevented can't
+        // return: the dashboard now renders honest data (not zeros) and simply re-renders when the
+        // background sync's re-fetch lands.
+        _markInitialDataReady();
+        maybeAutoSync(data.lastSync);   // stale → refresh from Meta in the BACKGROUND
       }catch(e:any){
         // Transient failure (e.g. Supabase "fetch failed" on a cold start / network
         // blip). NEVER wipe already-loaded data — just retry with backoff so the
@@ -4739,7 +4827,10 @@ export function initApp(root: HTMLElement) {
     // Placed here so the dashboard/HA_* constants it touches are already initialised.
     restoreOpenLeads();
 
-    fetchMetaLiveFeed();
+    // The feed's FIRST fetch is kicked from showApp() AFTER sign-in — it used to fire here,
+    // pre-auth, where every call 401'd through the full 8-retry backoff (~45s), leaving the
+    // startup gate in a poisoned "gave up" state by the time the user had even typed their
+    // password. That was a third of the reported 70–90s startup.
     // AUTOMATIC SYNC every 5 minutes: pull fresh leads from Meta and update the
     // "Last Synced" timestamp — no manual refresh needed. runAutoSync re-reads the
     // feed on success, so the dashboard + label always reflect the newest sync.
@@ -5756,6 +5847,13 @@ export function initApp(root: HTMLElement) {
         _recAll=(ar.data||[]).map((a:any)=>{
           const _cs=_csById[String(a.lead_id)]||"";
           const _def=a.status==="cancelled"?"refunded":((a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free");
+          // Physiotherapy: payment is generated ONLY after the physiotherapist completes the
+          // consultation (stage "Physio Consultation Completed" / physio_data.consult_status) and
+          // the treatment plan fixes the amount. A freshly checked-in physio patient must NOT show
+          // an auto-generated due — that was the reported bug. Until completion the row reads Free.
+          const _physioRow=_recSvcCode(a.service)==="physio";
+          const _physioDone=_physioRow&&(((a.physio_data||{}).consult_status==="completed")||a.stage==="done"||/complet/i.test(a.stage||""));
+          const _defSvc=(_physioRow&&!_physioDone&&_def==="due")?"free":_def;
           const _leadPay=paysByLead[String(a.lead_id)]||{paid:0,due:0,anyPaid:false};
           // Amounts come from the lead's payment rows (paid + due), regardless of whether they
           // were linked to this appointment — coach/installment/Accounts rows carry lead_id only.
@@ -5763,7 +5861,7 @@ export function initApp(root: HTMLElement) {
           const toCollect=_leadPay.due;      // OUTSTANDING (due) → the amount Reception must collect
           const hasPaid=_leadPay.anyPaid;    // invoice available once anything is paid
           const payAmt=collected;
-          const payStatus = collected>0 ? (toCollect>0?"due":"paid") : (toCollect>0?"due":_def);
+          const payStatus = collected>0 ? (toCollect>0?"due":"paid") : (toCollect>0?"due":_defSvc);
           const _isEnrolled=/enrol/i.test(_cs)||a.stage==="enrolled"||!!_enrAtById[String(a.lead_id)];   // canonical enrolled_at drives it too
           // enrolled_at/call_status live on the LEAD, not this appointment — a lead who enrolled in
           // Diabetes still has separate Blood Test/Physio appointment rows for the same person. Only
@@ -5799,8 +5897,10 @@ export function initApp(root: HTMLElement) {
           // There is no "due" payments row for physio — creating one would be picked up by the
           // Diabetes collection-request path and wrongly enrol the lead — so the amount rides on the
           // appointment instead, and Collect/renderPay fall back to it.
-          physioDue:(_recSvcCode(a.service)==="physio"&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||_phpPerSession()):0,
-          physioConsultDone:(_recSvcCode(a.service)==="physio"&&!!((a.physio_data||{}).consult_status==="completed")),
+          // Only a COMPLETED consultation generates a collectable amount — the finalized treatment
+          // plan's price (physio_data.pack_price), never an auto-charge at check-in.
+          physioDue:(_physioDone&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||_phpPerSession()):0,
+          physioConsultDone:_physioDone,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
@@ -6549,14 +6649,34 @@ export function initApp(root: HTMLElement) {
     function _nwFillProviders(){
       const sel=root.querySelector("#nwProv")as HTMLSelectElement|null; if(!sel) return;
       const cur=sel.value;
+      // Union of BOTH staff sources: the assignees mirror (assignable roles) and the light app_users
+      // list (_usrLite) — the latter is what surfaces a Physiotherapist, whose role is not
+      // assignable and therefore never reaches `assignees`. Case-insensitive dedup ("karuna" vs
+      // "Karuna") keeps one entry per person.
+      const uniqCI=(ns:string[])=>{ const seen=new Set<string>(); const out:string[]=[]; ns.forEach(n=>{ const t=String(n||"").trim(); const k=t.toLowerCase(); if(!t||seen.has(k))return; seen.add(k); out.push(t); }); return out; };
       const act=_assignees.filter((a:any)=>a.is_active!==false);
-      const uniq=(ns:string[])=>Array.from(new Set(ns.filter(Boolean)));
-      const hcs=uniq(act.filter((a:any)=>String(a.role||"")==="Health Coach").map((a:any)=>String(a.name).trim()));
-      const pts=uniq(act.filter((a:any)=>/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name).trim()));
+      const liveU=_usrLite.filter((u:any)=>u.active!==false);
+      const hcs=uniqCI([
+        ...act.filter((a:any)=>String(a.role||"")==="Health Coach").map((a:any)=>String(a.name||"")),
+        ...liveU.filter((u:any)=>String(u.role||"")==="Health Coach").map((u:any)=>String(u.name||"")),
+      ]);
+      const pts=uniqCI([
+        ...act.filter((a:any)=>/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name||"")),
+        ...liveU.filter((u:any)=>/physio/i.test(String(u.role||""))).map((u:any)=>String(u.name||"")),
+      ]);
       const grp=(label:string,names:string[],kind:string)=>'<optgroup label="'+_attr(label)+'">'
         +names.map(n=>'<option data-kind="'+kind+'" value="'+_attr(n)+'">'+_attr(n)+'</option>').join("")+'</optgroup>';
-      sel.innerHTML=grp("Health Coaches",hcs.length?hcs:["Dr. Suresh","Dr. Priya"],"hc")
-        +grp("Physiotherapists",pts.length?pts:["Ganesh (PT)"],"pt");
+      // Only the group(s) matching the ticked service(s): Diabetes/other counselling → Health
+      // Coaches, Physiotherapy → Physiotherapists. Both appear only for a mixed visit (or before
+      // any service is ticked, so the dropdown is never empty on a fresh form).
+      const svcSel=_nwSelectedSvcs().filter((s:string)=>s!=="Blood Test");
+      const wantPT=svcSel.some((s:string)=>/phys/i.test(s));
+      const wantHC=svcSel.some((s:string)=>!/phys/i.test(s));
+      const both=!svcSel.length;
+      let html="";
+      if(wantHC||both) html+=grp("Health Coaches",hcs.length?hcs:["Dr. Suresh","Dr. Priya"],"hc");
+      if(wantPT||both) html+=grp("Physiotherapists",pts.length?pts:["Karuna","Swathi"],"pt");
+      sel.innerHTML=html;
       if(cur&&Array.from(sel.options).some(o=>o.value===cur)) sel.value=cur;
     }
     // Auto-refresh the slot board (debounced) whenever the booking inputs change — the receptionist
@@ -6582,7 +6702,10 @@ export function initApp(root: HTMLElement) {
       // receptionist has manually chosen one.
       const prov=root.querySelector("#nwProv")as HTMLSelectElement|null;
       if(prov && !btOnly && !prov.dataset.manual){
-        if(!prov.options.length) _nwFillProviders();
+        // ALWAYS refill (it preserves the current selection): filling only-when-empty baked in the
+        // fallback names when the panel opened before the staff lists had loaded, and the phantom
+        // "Ganesh (PT)" then stuck for the whole session — the reported provider bug.
+        _nwFillProviders();
         const wantPT=_nwSelectedSvcs().some((s:string)=>s!=="Blood Test"&&/phys/i.test(s));
         const kind=wantPT?"pt":"hc";
         const opt=Array.from(prov.options).find((o:any)=>o.dataset&&o.dataset.kind===kind);
@@ -7265,16 +7388,19 @@ export function initApp(root: HTMLElement) {
       const hasBT=/blood/i.test(raw);
       const btOnly=hasBT && parts.length>0 && !parts.some((p:string)=>!/blood/i.test(p));
       const btPaid=hasBT && (m&&(m.payStatus==="paid"|| /complet/i.test(String(m.stage||""))));
-      return {hasBT,btOnly,btPaid};
+      // Physiotherapy-ONLY visit → no Screening step either (mirrors recRegDone's stage routing).
+      const physioOnly=/phys/i.test(raw)&&!hasBT&&parts.length>0&&!parts.some((p:string)=>!/phys/i.test(p));
+      return {hasBT,btOnly,btPaid,physioOnly};
     }
-    // Confirm button: "Confirm" for a Blood-Test-ONLY visit (no Screening), "Confirm → screening"
-    // otherwise; and locked to "Blood Test Payment Completed" once a BT-only visit is already paid.
+    // Confirm button: plain "Confirm" for visits with NO Screening step (Blood-Test-only,
+    // Physiotherapy-only), "Confirm → screening" otherwise; and locked to "Blood Test Payment
+    // Completed" once a BT-only visit is already paid.
     function _ciUpdateConfirmBtn(){
       const btn=root.querySelector("#ciConfirmBtn")as HTMLButtonElement|null; if(!btn) return;
       if(!_ciMatch){ btn.textContent="Confirm → screening"; btn.disabled=false; btn.style.opacity=""; btn.style.cursor=""; return; }
-      const {btOnly,btPaid}=_ciBtState(_ciMatch);
+      const {btOnly,btPaid,physioOnly}=_ciBtState(_ciMatch);
       if(btOnly&&btPaid){ btn.textContent="✓ Blood Test Payment Completed"; btn.disabled=true; btn.style.opacity="0.6"; btn.style.cursor="not-allowed"; btn.title="Payment already collected — start a refund/re-payment from Accounts if needed"; }
-      else { btn.textContent=btOnly?"Confirm":"Confirm → screening"; btn.disabled=false; btn.style.opacity=""; btn.style.cursor=""; btn.title=""; }
+      else { btn.textContent=(btOnly||physioOnly)?"Confirm":"Confirm → screening"; btn.disabled=false; btn.style.opacity=""; btn.style.cursor=""; btn.title=physioOnly?"Physiotherapy visits go straight to the Physiotherapy page — no Screening":""; }
     }
     function _ciHighlight(){
       const box=root.querySelector("#ciResults"); if(!box) return;
@@ -10869,13 +10995,15 @@ export function initApp(root: HTMLElement) {
       // already stored on the appointment (so a legacy value like "Ganesh (PT)" still shows selected).
       const thSel=el("phTpTherapist");
       if(thSel){
-        const names=Array.from(new Set([
-          ..._assignees.filter((a:any)=>a.is_active&&/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name||"").trim()),
+        const seenTh=new Set<string>(); const names:string[]=[];
+        [
+          ..._assignees.filter((a:any)=>a.is_active&&/physio/i.test(String(a.role||""))).map((a:any)=>String(a.name||"")),
+          ..._usrLite.filter((u:any)=>u.active!==false&&/physio/i.test(String(u.role||""))).map((u:any)=>String(u.name||"")),
           "Karuna","Swathi",
-          ...(r.pt?[String(r.pt).trim()]:[])
-        ].filter(Boolean)));
+          ...(r.pt?[String(r.pt)]:[])
+        ].forEach(n=>{ const t=String(n||"").trim(); const k=t.toLowerCase(); if(!t||seenTh.has(k))return; seenTh.add(k); names.push(t); });
         thSel.innerHTML='<option value="">— Select —</option>'+names.map((n:string)=>'<option>'+_orgEsc(n)+'</option>').join("");
-        if(r.pt) thSel.value=String(r.pt).trim();
+        if(r.pt){ const cur=String(r.pt).trim().toLowerCase(); const m=Array.from(thSel.options).find((o:any)=>o.value.trim().toLowerCase()===cur); if(m) thSel.value=(m as HTMLOptionElement).value; }
       }
       const planSel=el("phTpPlan"); const nPl=Number(r.sessionsPlanned)||0;
       if(planSel) planSel.value=[5,8,10].indexOf(nPl)>=0?String(nPl):(nPl>0?"custom":"");
@@ -11019,14 +11147,21 @@ export function initApp(root: HTMLElement) {
     let _accPays:any[]=[], _accAppts:Record<string,any>={};
     async function loadAccountsData(){
       try{
-        const [pr,ar]=await Promise.all([
+        const [pr,ar,lr]=await Promise.all([
           supabase.from("payments").select("*").order("created_at",{ascending:false}).limit(1000),
-          supabase.from("appointments").select("id,client_name,phone,service").limit(2000)
+          supabase.from("appointments").select("id,client_name,phone,service").limit(2000),
+          supabase.from("leads").select("meta_lead_id,name,phone").limit(10000)
         ]);
         _accAppts={}; (ar.data||[]).forEach((a:any)=>{ _accAppts[a.id]=a; });
+        const leadBy:Record<string,any>={}; (lr.data||[]).forEach((l:any)=>{ leadBy[String(l.meta_lead_id)]=l; });
         _accPays=(pr.data||[]).map((p:any)=>{
           const appt=_accAppts[p.appointment_id]||{};
-          return { ...p, clientName:appt.client_name||"Client", clientPhone:appt.phone||"", service:p.service||appt.service||"", dateFmt:_recFmtDate(p.paid_at?p.paid_at.substring(0,10):p.created_at?.substring(0,10)||"") };
+          // Coach-collected rows carry lead_id ONLY (no appointment link), so the appointment join
+          // resolved them ALL to "Client" with no phone — distinct clients rendered as identical
+          // "Client · Installment · Cash" rows, which read as duplicate transactions (reported).
+          // Fall back to the LEAD's name/phone so every row identifies its real client.
+          const lead=leadBy[String(p.lead_id||"")]||{};
+          return { ...p, clientName:appt.client_name||lead.name||"Client", clientPhone:appt.phone||lead.phone||"", service:p.service||appt.service||"", dateFmt:_recFmtDate(p.paid_at?p.paid_at.substring(0,10):p.created_at?.substring(0,10)||"") };
         });
       }catch(_){ _accPays=[]; }
       _accRenderAll();
@@ -11035,9 +11170,32 @@ export function initApp(root: HTMLElement) {
     //      filtered set (kept in sync). Filters apply only on the Apply button; search is live. ----
     let _accApplied:{from:string;to:string;service:string;method:string;status:string}={from:"",to:"",service:"all",method:"all",status:"all"};
     let _accQuery=""; let _accSearchT:any=null; let _accTxPageN=1; const ACC_PER=15; const _accTxSel=new Set<string>();
+    // Multi-select for the Verify / Outstanding / Refunds tables — same pattern as the Transactions
+    // and History tables (checkbox column, header select-all, "X selected" counter). Selections
+    // survive re-renders and are pruned against the CURRENT filtered rows on each render, so a
+    // filtered-away row can't be bulk-actioned invisibly.
+    const _accVerSel=new Set<string>(); const _accOutSel=new Set<string>(); const _accRefSel=new Set<string>();
     // Verify-proofs tab → "Transaction history" table (verified payments only) has its OWN
     // pagination / selection / search state so it never collides with the Transactions tab.
     let _accHistPageN=1; const _accHistSel=new Set<string>(); let _accHistQuery=""; let _accHistSearchT:any=null;
+    // Per-table search boxes (Transactions / Verify / Outstanding / Refunds) — each table filters
+    // independently on name / phone / txn ref (+ service / reason where shown). The inputs live in
+    // the STATIC section headers so a re-render never steals focus mid-typing.
+    let _accTxQuery="",_accVerQuery="",_accOutQuery="",_accRefQuery=""; let _accTblSearchT:any=null;
+    function _accTblMatch(p:any,q:string):boolean{
+      if(!q) return true;
+      const qd=q.replace(/\D/g,"");
+      const key=((p.clientName||"")+" "+(p.clientPhone||"")+" "+(p.txn_ref||"")+" "+(p.service||"")+" "+(p.refund_reason||"")+" "+(p.refund_status||"")).toLowerCase();
+      const phd=String(p.clientPhone||"").replace(/\D/g,"");
+      return key.indexOf(q)>=0||(!!qd&&phd.indexOf(qd)>=0);
+    }
+    const _accTblSearch=(inputId:string,set:(v:string)=>void)=>{ if(_accTblSearchT) clearTimeout(_accTblSearchT); _accTblSearchT=setTimeout(()=>{
+      set(((root.querySelector("#"+inputId)as HTMLInputElement)?.value||"").trim().toLowerCase()); _accRenderAll();
+    },220); };
+    w._accTxSearch=()=>_accTblSearch("accTxSearch",v=>{ _accTxQuery=v; _accTxPageN=1; });
+    w._accVerSearch=()=>_accTblSearch("accVerSearch",v=>{ _accVerQuery=v; });
+    w._accOutSearch=()=>_accTblSearch("accOutSearch",v=>{ _accOutQuery=v; });
+    w._accRefSearch=()=>_accTblSearch("accRefSearch",v=>{ _accRefQuery=v; });
     function _accSvcMatch(paySvc:string, filter:string):boolean{
       const s=(paySvc||"").toLowerCase(); const f=(filter||"").toLowerCase();
       const tok=/blood/.test(f)?"blood":/phys/.test(f)?"phys":/weight/.test(f)?"weight":/sauna/.test(f)?"sauna":/cold/.test(f)?"cold":/hbot|hyperbaric/.test(f)?"hbot":/diabet/.test(f)?"diabet":"";
@@ -11065,17 +11223,19 @@ export function initApp(root: HTMLElement) {
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
       {key:"phone",label:"Phone",filter:true,text:(p:any)=>p.clientPhone||""},
       {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
-      {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+" · "+(p.method||"")},
+      {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+(p.installment_number?(" "+p.installment_number+(p.total_installments?"/"+p.total_installments:"")):"")+" · "+(p.method||"")},
       {key:"ref",label:"Txn Ref / UTR",filter:true,text:(p:any)=>p.txn_ref||""},
       {key:"subv",label:"Subvention",filter:true,text:(p:any)=>{const x=p.emi_subvention||0;return x?"−₹"+x.toLocaleString("en-IN"):"—";}},
       {key:"net",label:"Net",filter:true,text:(p:any)=>"₹"+((p.amount||0)-(p.emi_subvention||0)).toLocaleString("en-IN")},
-      {key:"status",label:"Status",filter:true,text:(p:any)=>p.verified?"Verified":"Unverified"},
+      {key:"status",label:"Status",filter:true,text:(p:any)=>p.status==="due"?"Due · not collected":(p.verified?"Verified":"Unverified")},
       {key:"vby",label:"Verified By",filter:true,text:(p:any)=>p.verified_by||""},
       {key:"vat",label:"Verified Date & Time",filter:true,text:(p:any)=>p.verified_at?fmtIST(p.verified_at):""},
       {key:"act",label:"Actions",filter:false,head:'<th>Actions</th>'},
     ];
     const _accVerCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:30px"><input type="checkbox" id="accVerSelAll" onclick="window._accVerSelAll(this.checked)" style="accent-color:var(--brand)"></th>'},
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"phone",label:"Phone Number",filter:true,text:(p:any)=>p.clientPhone||""},
       {key:"claimed",label:"Claimed",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
       {key:"mode",label:"Mode",filter:true,text:(p:any)=>p.method||"—"},
       {key:"ref",label:"Ref",filter:true,text:(p:any)=>p.txn_ref||"—"},
@@ -11083,6 +11243,7 @@ export function initApp(root: HTMLElement) {
       {key:"act",label:"",filter:false,head:'<th></th>'},
     ];
     const _accOutCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:30px"><input type="checkbox" id="accOutSelAll" onclick="window._accOutSelAll(this.checked)" style="accent-color:var(--brand)"></th>'},
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
       {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
       {key:"due",label:"Due",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
@@ -11090,6 +11251,7 @@ export function initApp(root: HTMLElement) {
       {key:"act",label:"",filter:false,head:'<th></th>'},
     ];
     const _accRefCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:30px"><input type="checkbox" id="accRefSelAll" onclick="window._accRefSelAll(this.checked)" style="accent-color:var(--brand)"></th>'},
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
       {key:"paid",label:"Paid",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
       {key:"refund",label:"Refund",filter:true,text:(p:any)=>"₹"+(p.refund_amount||0).toLocaleString("en-IN")},
@@ -11105,7 +11267,7 @@ export function initApp(root: HTMLElement) {
       {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
       {key:"phone",label:"Phone",filter:true,text:(p:any)=>p.clientPhone||""},
       {key:"service",label:"Service",filter:true,text:(p:any)=>p.service||""},
-      {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+" · "+(p.method||"")},
+      {key:"method",label:"Method",filter:true,text:(p:any)=>(p.payment_type||"full")+(p.installment_number?(" "+p.installment_number+(p.total_installments?"/"+p.total_installments:"")):"")+" · "+(p.method||"")},
       {key:"ref",label:"Txn Ref / UTR",filter:true,text:(p:any)=>p.txn_ref||""},
       {key:"subv",label:"Subvention",filter:true,text:(p:any)=>{const x=p.emi_subvention||0;return x?"−₹"+x.toLocaleString("en-IN"):"—";}},
       {key:"net",label:"Net",filter:true,text:(p:any)=>"₹"+((p.amount||0)-(p.emi_subvention||0)).toLocaleString("en-IN")},
@@ -11156,7 +11318,7 @@ export function initApp(root: HTMLElement) {
       const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
       // ---- Transactions tab: filtered + paginated, multi-select + download; sticky header via .tscroll ----
       const allPaid=pays.filter((p:any)=>p.status==="paid"||p.amount>0);
-      const _txF=gridApply("accTx",allPaid);
+      const _txF=gridApply("accTx",allPaid.filter((p:any)=>_accTblMatch(p,_accTxQuery)));
       _accTxSel.forEach(id=>{ if(!_txF.some((p:any)=>String(p.id)===id)) _accTxSel.delete(id); });   // drop selections that filtered out
       const pages=Math.max(1,Math.ceil(_txF.length/ACC_PER)); if(_accTxPageN>pages)_accTxPageN=pages; if(_accTxPageN<1)_accTxPageN=1;
       const pageRows=_txF.slice((_accTxPageN-1)*ACC_PER,(_accTxPageN-1)*ACC_PER+ACC_PER);
@@ -11166,19 +11328,25 @@ export function initApp(root: HTMLElement) {
       if(!pageRows.length) txH+='<tr><td colspan="'+cc+'" style="text-align:center;color:var(--faint);padding:20px">No transactions match the filters.</td></tr>';
       else pageRows.forEach((p:any)=>{
         const sub=p.emi_subvention||0; const net=(p.amount||0)-sub; const sel=_accTxSel.has(String(p.id));
-        const verChip=p.verified?'<span class="chipb ok">Verified</span>':'<span class="chipb warn">Unverified</span>';
-        const act=p.verified?'—':'<button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button>';
-        txH+='<tr>'
+        // Paid vs DUE must be unmistakable: an installment plan is TWO rows (installment 1 paid +
+        // installment 2 outstanding, same amount & minute), and rendering them alike was reported
+        // as a "duplicate payment". Due rows get an amber "Due" chip and an outlined amount; the
+        // Method cell carries the installment number so the pair reads 1-of-2 / 2-of-2.
+        const isDue=p.status==="due";
+        const stChip=isDue?'<span class="chipb warn">Due · not collected</span>':(p.verified?'<span class="chipb ok">Verified</span>':'<span class="chipb warn">Unverified</span>');
+        const act=isDue?'—':(p.verified?'—':'<button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button>');
+        const methodLbl=(p.payment_type||"full")+(p.installment_number?(" "+p.installment_number+(p.total_installments?"/"+p.total_installments:"")):"")+" · "+(p.method||"—");
+        txH+='<tr'+(isDue?' style="background:var(--warn-bg,#FFF9EC)"':'')+'>'
           +'<td><input type="checkbox" class="accTxChk" data-id="'+p.id+'"'+(sel?" checked":"")+' onchange="window._accTxRowSel(this)" style="accent-color:var(--brand)"></td>'
           +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_accDT(p))+'</td>'
           +'<td style="font-weight:600">'+e(p.clientName)+'</td>'
           +'<td class="mono">'+e(p.clientPhone||"—")+'</td>'
           +'<td>'+e(p.service||"—")+'</td>'
-          +'<td>'+e((p.payment_type||"full")+" · "+(p.method||"—"))+'</td>'
+          +'<td>'+e(methodLbl)+'</td>'
           +'<td class="mono">'+e(p.txn_ref||"—")+'</td>'
           +'<td class="mono"'+(sub?' style="color:var(--alert-ink)"':'')+'>'+(sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td>'
-          +'<td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td>'
-          +'<td>'+verChip+'</td>'
+          +'<td class="mono" style="font-weight:700'+(isDue?';color:var(--warn-ink,#8a5a00)':'')+'">'+(isDue?'₹'+net.toLocaleString("en-IN")+' due':'₹'+net.toLocaleString("en-IN"))+'</td>'
+          +'<td>'+stChip+'</td>'
           +'<td>'+e(p.verified_by||"—")+'</td>'
           +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+(p.verified_at?e(fmtIST(p.verified_at)):"—")+'</td>'
           +'<td>'+act+'</td></tr>';
@@ -11187,17 +11355,25 @@ export function initApp(root: HTMLElement) {
       txH+='<div style="display:flex;gap:10px;margin-top:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="btn bsm" onclick="window._accTxPage(\'first\')">« First</button><button class="btn bsm" onclick="window._accTxPage(-1)">← Prev</button><span style="font-size:12px;font-weight:600">Page '+_accTxPageN+' of '+pages+'</span><button class="btn bsm" onclick="window._accTxPage(1)">Next →</button><button class="btn bsm" onclick="window._accTxPage(\'last\')">Last »</button></div>';
       const txEl=root.querySelector("#accTxBody"); if(txEl){ txEl.innerHTML=txH; const _th=root.querySelector("#accTxHead"); if(_th)_th.innerHTML=gridHead("accTx"); const sa=root.querySelector("#accTxSelAll")as HTMLInputElement|null; if(sa){ const vis=pageRows.map((p:any)=>String(p.id)); sa.checked=vis.length>0&&vis.every(id=>_accTxSel.has(id)); } const si=root.querySelector("#accTxSelInfo"); if(si) si.textContent=_accTxSel.size?(_accTxSel.size+" selected"):""; }
       // Verify proofs tab
-      const _verF=gridApply("accVer",unverified);
-      let vH='<table class="tbl"><thead><tr id="accVerHead"></tr></thead><tbody>';
-      if(!_verF.length) vH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">All payments verified ✓</td></tr>';
+      const _verF=gridApply("accVer",unverified.filter((p:any)=>_accTblMatch(p,_accVerQuery)));
+      _accVerSel.forEach(id=>{ if(!_verF.some((p:any)=>String(p.id)===id)) _accVerSel.delete(id); });
+      let vH='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:12px;color:var(--muted)">'+_verF.length+' pending</span>'
+        +'<button class="btn bsm bp" onclick="window._accVerifySelected()">✓ Verify selected</button>'
+        +'<span id="accVerSelInfo" style="font-size:11px;color:var(--muted)"></span></div>';
+      vH+='<table class="tbl"><thead><tr id="accVerHead"></tr></thead><tbody>';
+      if(!_verF.length) vH+='<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:20px">All payments verified ✓</td></tr>';
       else _verF.forEach((p:any)=>{
-        vH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td>'+e(p.method||"—")+'</td><td class="mono">'+e(p.txn_ref||"—")+'</td>'
+        vH+='<tr><td><input type="checkbox" class="accVerChk" data-id="'+p.id+'"'+(_accVerSel.has(String(p.id))?" checked":"")+' onchange="window._accVerRowSel(this)" style="accent-color:var(--brand)"></td>'
+          +'<td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">'+e(p.clientPhone||"—")+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td>'+e(p.method||"—")+'</td><td class="mono">'+e(p.txn_ref||"—")+'</td>'
           +'<td>'+(p.proof_url?'<a href="'+e(_safeHref(p.proof_url))+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button></td></tr>';
       });
       vH+='</tbody></table>';
-      const vEl=root.querySelector("#accVerBody"); if(vEl){ vEl.innerHTML=vH; const _vh=root.querySelector("#accVerHead"); if(_vh)_vh.innerHTML=gridHead("accVer"); }
-      // ---- Transaction history (verified only), shown BELOW the Verify table on the same tab ----
+      const vEl=root.querySelector("#accVerBody"); if(vEl){ vEl.innerHTML=vH; const _vh=root.querySelector("#accVerHead"); if(_vh)_vh.innerHTML=gridHead("accVer");
+        const vsa=root.querySelector("#accVerSelAll")as HTMLInputElement|null; if(vsa){ const vis=_verF.map((p:any)=>String(p.id)); vsa.checked=vis.length>0&&vis.every(id=>_accVerSel.has(id)); }
+        const vsi=root.querySelector("#accVerSelInfo"); if(vsi) vsi.textContent=_accVerSel.size?(_accVerSel.size+" selected"):""; }
+      // ---- Transaction history (verified only), shown on the TRANSACTIONS tab below the main
+      //      table (moved there from the Verify tab on request) ----
       // Rows land here automatically the moment they're verified (Verify → loadAccountsData → re-render).
       const _histF=gridApply("accHist",_accHistList());
       _accHistSel.forEach(id=>{ if(!_histF.some((p:any)=>String(p.id)===id)) _accHistSel.delete(id); });
@@ -11215,7 +11391,7 @@ export function initApp(root: HTMLElement) {
           +'<td style="font-weight:600">'+e(p.clientName)+'</td>'
           +'<td class="mono">'+e(p.clientPhone||"—")+'</td>'
           +'<td>'+e(p.service||"—")+'</td>'
-          +'<td>'+e((p.payment_type||"full")+" · "+(p.method||"—"))+'</td>'
+          +'<td>'+e((p.payment_type||"full")+(p.installment_number?(" "+p.installment_number+(p.total_installments?"/"+p.total_installments:"")):"")+" · "+(p.method||"—"))+'</td>'
           +'<td class="mono">'+e(p.txn_ref||"—")+'</td>'
           +'<td class="mono"'+(sub?' style="color:var(--alert-ink)"':'')+'>'+(sub?'−₹'+sub.toLocaleString("en-IN"):'—')+'</td>'
           +'<td class="mono" style="font-weight:700">₹'+net.toLocaleString("en-IN")+'</td>'
@@ -11226,30 +11402,70 @@ export function initApp(root: HTMLElement) {
       hH+='<div style="display:flex;gap:10px;margin-top:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="btn bsm" onclick="window._accHistPage(\'first\')">« First</button><button class="btn bsm" onclick="window._accHistPage(-1)">← Prev</button><span style="font-size:12px;font-weight:600">Page '+_accHistPageN+' of '+hPages+'</span><button class="btn bsm" onclick="window._accHistPage(1)">Next →</button><button class="btn bsm" onclick="window._accHistPage(\'last\')">Last »</button></div>';
       const hEl=root.querySelector("#accHistBody"); if(hEl){ hEl.innerHTML=hH; const _hh=root.querySelector("#accHistHead"); if(_hh)_hh.innerHTML=gridHead("accHist"); const hsa=root.querySelector("#accHistSelAll")as HTMLInputElement|null; if(hsa){ const vis=hRows.map((p:any)=>String(p.id)); hsa.checked=vis.length>0&&vis.every(id=>_accHistSel.has(id)); } const hsi=root.querySelector("#accHistSelInfo"); if(hsi) hsi.textContent=_accHistSel.size?(_accHistSel.size+" selected"):""; }
       // Outstanding tab
-      const _outF=gridApply("accOut",outstanding);
-      let oH='<table class="tbl"><thead><tr id="accOutHead"></tr></thead><tbody>';
-      if(!_outF.length) oH+='<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:20px">No outstanding balances ✓</td></tr>';
+      const _outF=gridApply("accOut",outstanding.filter((p:any)=>_accTblMatch(p,_accOutQuery)));
+      _accOutSel.forEach(id=>{ if(!_outF.some((p:any)=>String(p.id)===id)) _accOutSel.delete(id); });
+      let oH='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:12px;color:var(--muted)">'+_outF.length+' outstanding</span>'
+        +'<span id="accOutSelInfo" style="font-size:11px;color:var(--muted)"></span></div>';
+      oH+='<table class="tbl"><thead><tr id="accOutHead"></tr></thead><tbody>';
+      if(!_outF.length) oH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No outstanding balances ✓</td></tr>';
       else _outF.forEach((p:any)=>{
-        oH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">'+e(p.dateFmt)+'</td>'
+        oH+='<tr><td><input type="checkbox" class="accOutChk" data-id="'+p.id+'"'+(_accOutSel.has(String(p.id))?" checked":"")+' onchange="window._accOutRowSel(this)" style="accent-color:var(--brand)"></td>'
+          +'<td style="font-weight:600">'+e(p.clientName)+'</td><td>'+e(p.service)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">'+e(p.dateFmt)+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._accCollect('+p.id+',\''+e(p.clientName).replace(/'/g,"")+'\','+(p.amount||0)+',\''+e(p.lead_id||"")+'\')">Collect</button></td></tr>';
       });
       oH+='</tbody></table>';
-      const oEl=root.querySelector("#accOutBody"); if(oEl){ oEl.innerHTML=oH; const _oh=root.querySelector("#accOutHead"); if(_oh)_oh.innerHTML=gridHead("accOut"); }
+      const oEl=root.querySelector("#accOutBody"); if(oEl){ oEl.innerHTML=oH; const _oh=root.querySelector("#accOutHead"); if(_oh)_oh.innerHTML=gridHead("accOut");
+        const osa=root.querySelector("#accOutSelAll")as HTMLInputElement|null; if(osa){ const vis=_outF.map((p:any)=>String(p.id)); osa.checked=vis.length>0&&vis.every(id=>_accOutSel.has(id)); }
+        const osi=root.querySelector("#accOutSelInfo"); if(osi) osi.textContent=_accOutSel.size?(_accOutSel.size+" selected"):""; }
       // Refunds tab
-      const _refF=gridApply("accRef",refunds);
-      let rH='<table class="tbl"><thead><tr id="accRefHead"></tr></thead><tbody>';
-      if(!_refF.length) rH+='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:20px">No pending refunds.</td></tr>';
+      const _refF=gridApply("accRef",refunds.filter((p:any)=>_accTblMatch(p,_accRefQuery)));
+      _accRefSel.forEach(id=>{ if(!_refF.some((p:any)=>String(p.id)===id)) _accRefSel.delete(id); });
+      let rH='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:12px;color:var(--muted)">'+_refF.length+' pending refund'+(_refF.length===1?"":"s")+'</span>'
+        +'<span id="accRefSelInfo" style="font-size:11px;color:var(--muted)"></span></div>';
+      rH+='<table class="tbl"><thead><tr id="accRefHead"></tr></thead><tbody>';
+      if(!_refF.length) rH+='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No pending refunds.</td></tr>';
       else _refF.forEach((p:any)=>{
         const sMap:{[k:string]:{l:string;c:string}}={requested:{l:"Requested",c:"warn"},abm_approved:{l:"ABM ✓",c:"info"},bm_approved:{l:"BM ✓",c:"info"}};
         const st=sMap[p.refund_status]||{l:p.refund_status,c:"neu"};
-        rH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">₹'+(p.refund_amount||0).toLocaleString("en-IN")+'</td>'
+        rH+='<tr><td><input type="checkbox" class="accRefChk" data-id="'+p.id+'"'+(_accRefSel.has(String(p.id))?" checked":"")+' onchange="window._accRefRowSel(this)" style="accent-color:var(--brand)"></td>'
+          +'<td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td class="mono">₹'+(p.refund_amount||0).toLocaleString("en-IN")+'</td>'
           +'<td>'+e(p.refund_reason||"—")+'</td><td><span class="chipb '+st.c+'">'+st.l+'</span></td>'
           +'<td><button class="btn bsm bp" onclick="window._accProcessRefund('+p.id+')">Process</button></td></tr>';
       });
       rH+='</tbody></table>';
-      const rEl=root.querySelector("#accRefBody"); if(rEl){ rEl.innerHTML=rH; const _rh=root.querySelector("#accRefHead"); if(_rh)_rh.innerHTML=gridHead("accRef"); }
+      const rEl=root.querySelector("#accRefBody"); if(rEl){ rEl.innerHTML=rH; const _rh=root.querySelector("#accRefHead"); if(_rh)_rh.innerHTML=gridHead("accRef");
+        const rsa=root.querySelector("#accRefSelAll")as HTMLInputElement|null; if(rsa){ const vis=_refF.map((p:any)=>String(p.id)); rsa.checked=vis.length>0&&vis.every(id=>_accRefSel.has(id)); }
+        const rsi=root.querySelector("#accRefSelInfo"); if(rsi) rsi.textContent=_accRefSel.size?(_accRefSel.size+" selected"):""; }
     }
-    w._accVerify=async(id:number)=>{
+    // Generic row-select/select-all factory for the Verify / Outstanding / Refunds tables — the
+    // exact behavior of the Transactions handlers, parameterised by checkbox class + state set.
+    const _accMkSel=(cls:string,set:Set<string>,infoId:string,allId:string)=>({
+      row:(el:HTMLInputElement)=>{ const id=el.getAttribute("data-id")||""; if(el.checked)set.add(id); else set.delete(id);
+        const si=root.querySelector("#"+infoId); if(si) si.textContent=set.size?(set.size+" selected"):"";
+        const sa=root.querySelector("#"+allId) as HTMLInputElement|null; if(sa){ const chks=Array.from(root.querySelectorAll("."+cls)) as HTMLInputElement[]; sa.checked=chks.length>0&&chks.every(c=>c.checked); } },
+      all:(checked:boolean)=>{ const chks=Array.from(root.querySelectorAll("."+cls)) as HTMLInputElement[];
+        chks.forEach(c=>{ const id=c.getAttribute("data-id")||""; c.checked=checked; if(checked)set.add(id); else set.delete(id); });
+        const si=root.querySelector("#"+infoId); if(si) si.textContent=set.size?(set.size+" selected"):""; },
+    });
+    const _verSelH=_accMkSel("accVerChk",_accVerSel,"accVerSelInfo","accVerSelAll");
+    const _outSelH=_accMkSel("accOutChk",_accOutSel,"accOutSelInfo","accOutSelAll");
+    const _refSelH=_accMkSel("accRefChk",_accRefSel,"accRefSelInfo","accRefSelAll");
+    w._accVerRowSel=_verSelH.row; w._accVerSelAll=_verSelH.all;
+    w._accOutRowSel=_outSelH.row; w._accOutSelAll=_outSelH.all;
+    w._accRefRowSel=_refSelH.row; w._accRefSelAll=_refSelH.all;
+    // Bulk verify: runs the SAME per-row verification (update + Diabetes-only enrollment) for every
+    // selected row, then reloads once at the end instead of once per row.
+    w._accVerifySelected=async()=>{
+      const ids=Array.from(_accVerSel);
+      if(!ids.length){ toast("Select one or more payments to verify"); return; }
+      toast("Verifying "+ids.length+" payment"+(ids.length===1?"":"s")+"…");
+      let ok=0;
+      for(const id of ids){ try{ await (w as any)._accVerify(Number(id),false); ok++; }catch(_){} }
+      _accVerSel.clear();
+      await loadAccountsData(); try{ await loadReceptionData(); }catch(_){}
+      toast(ok+" of "+ids.length+" payment"+(ids.length===1?"":"s")+" verified ✓");
+    };
+    w._accVerify=async(id:number,reload:boolean=true)=>{
       try{ const _vby=(_currentUser&&(_currentUser.name||_currentUser.email))||"Accounts"; await supabase.from("payments").update({verified:true,verified_at:new Date().toISOString(),verified_by:_vby}).eq("id",id);
         // Accounts confirming a DIABETES payment ENROLLS the lead automatically (shared record) and
         // syncs Reception + Health Coach + Advisor + dashboards. Blood Test / Physio have no L1/L2
@@ -11262,9 +11478,12 @@ export function initApp(root: HTMLElement) {
         // Enroll at the ACTUAL program of the verified payment (L1 / L2 / L1 + L2), not a
         // hard-coded L1 — keeps Accounts-path enrollment consistent with the coach path.
         if(leadId&&_isDiaPay){ await _enrollLeadShared(String(leadId),"Accounts payment confirmed",(pay&&pay.program)?String(pay.program):"L1"); }
+        // Bulk verify (reload=false) defers the refreshes/toast to the caller — one reload for the
+        // whole batch instead of one per row.
+        if(!reload) return;
         if(leadId){ try{ await loadReceptionData(); }catch(_){} }
         toast(leadId&&_isDiaPay?"Payment verified ✓ — lead Enrolled & synced":"Payment verified ✓"); await loadAccountsData();
-      }catch(e:any){ toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
+      }catch(e:any){ if(!reload) throw e; toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
     };
     w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen("",name,amt,leadId); if(_recCollect) _recCollect.payId=id; };   // settle this outstanding payment row (not a new insert)
     w._accProcessRefund=async(id:number)=>{
@@ -11307,7 +11526,7 @@ export function initApp(root: HTMLElement) {
       const tabBtn=root.querySelector('#accTabs button[data-t="'+tabKey+'"]') as HTMLElement|null; if(tabBtn) tabBtn.click();
     };
     w._accTxPage=(dir:any)=>{
-      const _txF=gridApply("accTx",_accFilteredPays().filter((p:any)=>p.status==="paid"||p.amount>0));
+      const _txF=gridApply("accTx",_accFilteredPays().filter((p:any)=>(p.status==="paid"||p.amount>0)&&_accTblMatch(p,_accTxQuery)));
       const pages=Math.max(1,Math.ceil(_txF.length/ACC_PER));
       if(dir==="first") _accTxPageN=1; else if(dir==="last") _accTxPageN=pages;
       else _accTxPageN=Math.min(pages,Math.max(1,_accTxPageN+Number(dir)));
@@ -11326,6 +11545,32 @@ export function initApp(root: HTMLElement) {
       const out:string[][]=[["Date & Time","Client","Phone","Service","Payment Method","Txn Ref / UTR","EMI Subvention","Net Amount","Status","Verified By","Verified Date & Time"]];
       src.forEach((p:any)=>{ const sub=p.emi_subvention||0; out.push([_accDT(p),p.clientName||"",p.clientPhone||"",p.service||"",(p.payment_type||"full")+" · "+(p.method||""),p.txn_ref||"",String(sub),String((p.amount||0)-sub),p.verified?"Verified":"Unverified",p.verified_by||"",p.verified_at?fmtIST(p.verified_at):""]); });
       _downloadCsv("accounts_transactions.csv",out); toast((rows.length?rows.length:src.length)+" row(s) downloaded"); };
+    // Per-table downloads (Verify / Outstanding / Refunds) — export exactly the rows the table is
+    // showing (its own search + the top-bar filters + the column filters all applied).
+    w._accVerDownload=()=>{
+      const all=gridApply("accVer",_accFilteredPays().filter((p:any)=>p.status==="paid"&&!p.verified&&_accTblMatch(p,_accVerQuery)));
+      const picked=all.filter((p:any)=>_accVerSel.has(String(p.id)));
+      const rows=picked.length?picked:all;   // selected rows when any are ticked, else the whole table
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Client","Phone Number","Claimed","Mode","Txn Ref","Proof URL","Date & Time"]];
+      rows.forEach((p:any)=>out.push([p.clientName||"",p.clientPhone||"",String(p.amount||0),p.method||"",p.txn_ref||"",p.proof_url||"",_accDT(p)]));
+      _downloadCsv("accounts_pending_verification.csv",out); toast(rows.length+" row(s) downloaded"); };
+    w._accOutDownload=()=>{
+      const all=gridApply("accOut",_accFilteredPays().filter((p:any)=>p.status==="due"&&_accTblMatch(p,_accOutQuery)));
+      const picked=all.filter((p:any)=>_accOutSel.has(String(p.id)));
+      const rows=picked.length?picked:all;
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Client","Phone Number","Service","Due Amount","Date"]];
+      rows.forEach((p:any)=>out.push([p.clientName||"",p.clientPhone||"",p.service||"",String(p.amount||0),p.dateFmt||""]));
+      _downloadCsv("accounts_outstanding.csv",out); toast(rows.length+" row(s) downloaded"); };
+    w._accRefDownload=()=>{
+      const all=gridApply("accRef",_accFilteredPays().filter((p:any)=>p.refund_status&&p.refund_status!=="processed"&&_accTblMatch(p,_accRefQuery)));
+      const picked=all.filter((p:any)=>_accRefSel.has(String(p.id)));
+      const rows=picked.length?picked:all;
+      if(!rows.length){ toast("Nothing to download"); return; }
+      const out:string[][]=[["Client","Phone Number","Paid","Refund","Reason","Status"]];
+      rows.forEach((p:any)=>out.push([p.clientName||"",p.clientPhone||"",String(p.amount||0),String(p.refund_amount||0),p.refund_reason||"",p.refund_status||""]));
+      _downloadCsv("accounts_refunds.csv",out); toast(rows.length+" row(s) downloaded"); };
     // ---- Transaction history (verified) table handlers ----
     w._accHistSearch=()=>{ if(_accHistSearchT) clearTimeout(_accHistSearchT); _accHistSearchT=setTimeout(()=>{
       _accHistQuery=((root.querySelector("#accHistSearch") as HTMLInputElement)?.value||"").trim(); _accHistPageN=1; _accRenderAll();

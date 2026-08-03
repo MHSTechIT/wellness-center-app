@@ -109,10 +109,9 @@ export function getMainContent(): string {
            the positional advisor-profile capture, persisted separately so other services are untouched). -->
       <div class="sec" id="advPhysioSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Physiotherapy — basic information <span class="chipb info" style="margin-left:6px">Physio</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
+          <!-- Preferred date / time slot / mode were removed on request — booking happens on the slot
+               board / at Reception, so the advisor panel keeps only referral + reports + remarks. -->
           <div class="g4">
-            <div class="fld"><label class="lbl" for="advpApptDate">Preferred appointment date</label><input class="input" type="date" id="advpApptDate" data-nocap data-future="1"></div>
-            <div class="fld"><label class="lbl" for="advpTimeSlot">Preferred time slot</label><select class="select" id="advpTimeSlot" data-nocap><option value="">— Select —</option><option>Morning (9–12)</option><option>Afternoon (12–3)</option><option>Evening (3–6:30)</option></select></div>
-            <div class="fld"><label class="lbl" for="advpMode">Mode of consultation</label><select class="select" id="advpMode" data-nocap><option value="">— Select —</option><option>Offline</option><option>Online</option></select></div>
             <div class="fld"><label class="lbl" for="advpReferral">Referral details</label><select class="select" id="advpReferral" data-nocap><option value="">— Select —</option><option>MHS Student</option><option>Google</option><option>Friend &amp; Family</option><option>Social Media</option><option>Doctor Referral</option><option>Walk-in</option></select></div>
           </div>
           <div class="fld fw" style="margin-top:8px"><label class="lbl">Reports available <span class="ab">if any</span></label>
@@ -155,7 +154,7 @@ export function getMainContent(): string {
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"></use></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="salesSel">Salesperson <span class="ab">AUTO</span></label><select  class="select auto" id="salesSel" tabindex="-1"><option value="">— Select —</option></select></div>
-          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option></select></div>
+          <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option><option>Physiotherapy Telecaller Team</option></select></div>
           <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
           <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
@@ -586,7 +585,7 @@ export function getMainContent(): string {
         <input class="input mono" id="impDateFrom" type="datetime-local" title="From date &amp; time" style="height:33px;font-size:11.5px;width:182px">
         <span style="color:var(--faint);font-size:12px">to</span>
         <input class="input mono" id="impDateTo" type="datetime-local" title="To date &amp; time" style="height:33px;font-size:11.5px;width:182px">
-        <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option></select>
+        <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option><option>Bulk CSV import</option></select>
         <select class="select" id="impService" style="height:33px;font-size:12px;width:150px"><option value="all">All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select>
         <button class="btn bsm bp" onclick="window._impApplyFilters()">Apply</button>
         <button class="btn bsm" onclick="window._impClearFilters()">Clear</button>
@@ -1207,7 +1206,7 @@ export function getMainContent(): string {
       <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
-    <div style="display:grid;grid-template-columns:1fr 340px;gap:14px">
+    <div class="ph-cols">
       <div>
         <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"></use></svg> Sessions <span class="chipb neu" id="phSessCount" style="margin-left:6px">0</span></div>
           <div class="sec-bd">
@@ -1329,20 +1328,36 @@ export function getMainContent(): string {
     <div class="metrics" id="accMetrics"></div>
     <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
     <div class="acc-p" data-p="tx">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"></use></svg> Transactions</div>
-        <div class="sec-bd" id="accTxBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading transactions…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
-    <div class="acc-p" data-p="ver" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-check"></use></svg> Verify transactions — pending verification (nothing counts as received until verified)</div>
-        <div class="sec-bd" id="accVerBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-wallet"></use></svg> Transactions</span>
+        <input class="input" id="accTxSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:230px;font-size:12px;font-weight:400" oninput="window._accTxSearch()"></div>
+        <div class="sec-bd" id="accTxBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading transactions…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
+      <!-- Verified-payments history lives WITH the transactions (moved here from the Verify tab on
+           request); the Verify tab keeps only the pending-verification queue. -->
       <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg class="icon"><use href="#i-wallet"></use></svg> Transaction history — verified payments</span>
         <input class="input" id="accHistSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:230px;font-size:12px;font-weight:400" oninput="window._accHistSearch()"></div>
         <div class="sec-bd" id="accHistBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
+    <div class="acc-p" data-p="ver" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-check"></use></svg> Verify transactions — pending verification (nothing counts as received until verified)</span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="accVerSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accVerSearch()">
+          <button class="btn bsm" onclick="window._accVerDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd" id="accVerBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="out" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-bell"></use></svg> Outstanding — balance chasing lives here</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-bell"></use></svg> Outstanding — balance chasing lives here</span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="accOutSearch" placeholder="Search name / phone / service…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accOutSearch()">
+          <button class="btn bsm" onclick="window._accOutDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accOutBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="ref" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Refund console</div>
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-coin"></use></svg> Refund console</span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="accRefSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accRefSearch()">
+          <button class="btn bsm" onclick="window._accRefDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
   </div></section>
 
