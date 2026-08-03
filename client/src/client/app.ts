@@ -1442,10 +1442,9 @@ export function initApp(root: HTMLElement) {
     // To bring a service back, add its SERVICE_MASTER label to this list; to show everything again,
     // set it to `SERVICE_MASTER.slice()`. Nothing else needs to change.
     const RECEPTION_SERVICES=["Diabetes Counselling","Physiotherapy","Blood Test"];
-    // Fallback physiotherapy session price, used until the physiotherapist saves a treatment plan
-    // (physio_data.pack_price). Shared by the Physiotherapy table and Reception's collect amount so
-    // the two never quote different figures for the same patient.
-    const PHYSIO_DEFAULT_PRICE=800;
+    // (Removed: PHYSIO_DEFAULT_PRICE=800 — a hardcoded "fallback session price". Physiotherapy
+    // prices come from the physio_pricing master only; see _phpPerSession(). A code constant must
+    // never become the amount a patient is charged.)
     const _recSvcShown=(label:string)=>RECEPTION_SERVICES.indexOf(label)>=0;
     const _recServiceList=()=>SERVICE_MASTER.filter(_recSvcShown);
     // Build the <option> markup for a service <select>. includeAll → prepend an "All services" option.
@@ -1592,11 +1591,16 @@ export function initApp(root: HTMLElement) {
       el.innerHTML=srcRows.map(s=>{
         const sf=f.filter(r=>r.source===s.name);
         const todC=sf.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length;
-        const valid=sf.filter(r=>r.isValid).length;
-        const dup=sf.filter(r=>r.isDuplicate).length;
-        const uniq=Math.max(0,valid-dup);     // Unique = Valid − Duplicate
-        const asgn=sf.filter(r=>r.isAssigned).length;
-        const unasgn=Math.max(0,uniq-asgn);   // Unassigned = Unique − Assigned
+        // Every one of these numbers is CLICKABLE and opens the drill-down, which counts with
+        // _impPreds — so they must be produced by _impPreds too. The old arithmetic (unique =
+        // valid − dup, unassigned = unique − asgn) subtracts assigned leads that were never in
+        // the unique bucket (assigned duplicates/invalids), so it disagreed with the rows it
+        // opened. Same root cause as the Total-Leads mismatch, one table over.
+        const valid=_impBy(sf,"valid").length;
+        const dup=_impBy(sf,"duplicate").length;
+        const uniq=_impBy(sf,"unique").length;
+        const asgn=_impBy(sf,"assigned").length;
+        const unasgn=_impBy(sf,"unassigned").length;
         // Honest, data-driven status/last-lead/mode: a source is "Connected" only
         // if it actually has leads in the database; otherwise "Not connected".
         const allForSrc=IMP.filter(r=>r.source===s.name);
@@ -1629,9 +1633,10 @@ export function initApp(root: HTMLElement) {
       }).join("");
       // TOTAL row — sums every source so the table ties out to the Total Leads card
       // (Total Leads = Meta + Walk-in + …). Uses the SAME filtered dataset (f) as the KPIs.
-      const tTot=f.length, tTod=f.filter(r=>r.date.getFullYear()===td.getFullYear()&&r.date.getMonth()===td.getMonth()&&r.date.getDate()===td.getDate()).length,
-        tVal=f.filter(r=>r.isValid).length, tDup=f.filter(r=>r.isDuplicate).length, tUniq=Math.max(0,tVal-tDup),
-        tAsg=f.filter(r=>r.isAssigned).length, tUna=Math.max(0,tUniq-tAsg);   // Unique = Valid − Dup; Unassigned = Unique − Assigned
+      // Same predicates as the cards, so the TOTAL row equals the card row exactly.
+      const tTot=f.length, tTod=_impBy(f,"today").length,
+        tVal=_impBy(f,"valid").length, tDup=_impBy(f,"duplicate").length, tUniq=_impBy(f,"unique").length,
+        tAsg=_impBy(f,"assigned").length, tUna=_impBy(f,"unassigned").length;
       el.innerHTML+='<tr style="background:var(--surface-2);font-weight:800;border-top:2px solid var(--line)">'
         +'<td></td>'
         +'<td class="mono" style="font-weight:800">'+tTot+'</td>'
@@ -1654,17 +1659,41 @@ export function initApp(root: HTMLElement) {
 
     // ===== Lead-import KPI drill-down =====================================================
     // Clicking any KPI card (or any number in Source Connections) opens the actual rows behind it
-    // in a table under the CSV wizard. Rows come from feedAll() rather than the thin IMP shape so
-    // the table can show phone/campaign/city and export them; both are built from the same query
-    // rows, so the counts still tie out with the cards.
+    // in a table under the CSV wizard.
+    //
+    // The table MUST enumerate the exact population the cards count. It used to be built from
+    // feedAll() while the cards counted IMP, and those two datasets are NOT the same rows:
+    //   • IMP excludes promoted "csv-<id>" leads;   feedAll() includes them.
+    //   • IMP includes the CSV-wizard "csvw-<id>" cohort; feedAll() has no such rows at all.
+    // So a card could count leads the table was structurally incapable of listing — the reported
+    // "Total Leads 5 / table 2" (3 wizard rows counted, none listable). The drill-down now starts
+    // from impFiltered() — literally the same call the cards count — and only borrows the rich
+    // fields (phone/campaign/city/…) from the feed when a matching row exists. Same population,
+    // same filter, same predicates ⇒ the number on the card is always the number of rows below it.
     let _impDrillKey=""; let _impDrillSrcName=""; let _impDrillPg=1; let _impDrillQ=""; let _impDrillT:any=null;
     const IMP_DRILL_PER=15;
-    // Every lead the dashboard filters currently admit, in the rich feed shape (+ a `date` the
-    // shared predicates can read and a display source name).
+    // Every lead the dashboard filters currently admit, in the rich feed shape where one is
+    // available (+ the `date`/flags the shared predicates read, always taken from the KPI row).
     function _impDrillAll(){
-      return feedAll()
-        .filter((l:any)=>leadPasses(new Date(l.createdAt),feedSrcName(l),l.service))
-        .map((l:any)=>Object.assign({},l,{date:new Date(l.createdAt),srcName:feedSrcName(l)}));
+      const rich:Record<string,any>={};
+      feedAll().forEach((l:any)=>{ if(l&&l.id!=null) rich[String(l.id)]=l; });
+      return impFiltered().map((r:any)=>{
+        const f=rich[String(r.id)]||null;
+        return Object.assign({},f||{},{
+          id:r.id,
+          name:r.name||(f&&f.name)||"Lead",
+          service:r.service||(f&&f.service)||"",
+          // Predicate inputs come from the KPI row so the cards and this table can never disagree.
+          date:r.date, isValid:!!r.isValid, isDuplicate:!!r.isDuplicate, isAssigned:!!r.isAssigned,
+          createdAt:(f&&f.createdAt)||(r.date&&!isNaN(r.date.getTime())?r.date.toISOString():""),
+          srcName:r.source||(f?feedSrcName(f):""),
+          phone:(f&&f.phone)||"", campaign:(f&&f.campaign)||"", adName:(f&&f.adName)||"",
+          lang:(f&&f.lang)||"", city:(f&&f.city)||"", street:(f&&f.street)||"",
+          assignedTo:(f&&f.assignedTo)||"",
+          // A CSV-wizard row has no `leads` record behind it yet, so there is no profile to open.
+          _hasProfile:!!f,
+        });
+      });
     }
     function _impDrillRows(){
       let rows=_impBy(_impDrillAll(),_impDrillKey);
@@ -1714,7 +1743,7 @@ export function initApp(root: HTMLElement) {
         +'<td>'+e(r.city||"—")+'</td>'
         +'<td>'+(r.isDuplicate?'<span class="chipb warn">Duplicate</span>':(r.isValid?'<span class="chipb ok">Valid</span>':'<span class="chipb al">Invalid</span>'))+'</td>'
         +'<td>'+(r.assignedTo?e(r.assignedTo):'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
-        +'<td><button class="btn bsm" onclick="window._openLeadProfile(\''+e(String(r.id))+'\')">Open</button></td>'
+        +'<td>'+(r._hasProfile?'<button class="btn bsm" onclick="window._openLeadProfile(\''+e(String(r.id))+'\')">Open</button>':'<span style="color:var(--faint)" title="Not yet sent to assignment — no lead record to open">—</span>')+'</td>'
         +'</tr>').join(""):'<tr><td colspan="12" style="text-align:center;color:var(--faint);padding:18px">No leads match this view</td></tr>';
       const info=root.querySelector("#impDrillPageInfo"); if(info) info.textContent="Page "+_impDrillPg+" of "+pages;
       const dis=(sel:string,off:boolean)=>{ const b=root.querySelector(sel)as HTMLButtonElement|null; if(b){ b.disabled=off; b.style.opacity=off?"0.5":""; } };
@@ -2111,31 +2140,39 @@ export function initApp(root: HTMLElement) {
           .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,assigned_at,call_status")
           .neq("source","Meta Ads");
         const rows=data||[];
-        // KPI source attribution: leads promoted from the CSV wizard ("csv-<id>") are stored with
-        // source "Manual" (the send payload's label), which made the "Bulk CSV import" source filter
-        // miss them — the wizard's own sent rows didn't count as CSV imports. Remapped HERE only
-        // (the KPI dataset); the Live Feed / assignment views keep showing their stored source.
-        _otherLeads=rows.map((r:any)=>({id:r.meta_lead_id,name:r.name,
-          source:String(r.meta_lead_id||"").indexOf("csv-")===0?"Bulk CSV import":((r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source),
-          service:r.service||"Diabetes",
-          date:new Date(r.created_at||r.lead_date),isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned}));
-        // Bulk CSV Wizard rows that HAVEN'T been promoted into `leads` yet. "Send to assignment"
-        // upserts a csv-<id> leads row and flips the wizard row to "sent", so promoted rows are
-        // already counted above — including them here would double-count. Everything else (valid,
-        // duplicate, invalid) exists ONLY in csv_leads, and the Lead-import KPI cards claimed 5
-        // leads while the wizard had just imported 9 (reported): the cards must reflect every
-        // imported lead, dated by the file's own lead date so the page's date filter applies.
+        // KPI dataset (_otherLeads): the "Bulk CSV import" cohort comes EXCLUSIVELY from the wizard's
+        // own csv_leads rows (added below) — promoted "csv-<id>" leads rows are EXCLUDED here to make
+        // the Lead-import KPIs tie out with the wizard's tab counts. Counting both populations was the
+        // reported Total-18-vs-Imported-19 mismatch: promoted rows are dated by PROMOTION time (not the
+        // file's lead date) and survive after their wizard row is deleted (41 promoted vs 4 sent rows
+        // in the live DB), so the two counters could never reconcile. The promoted rows still exist
+        // everywhere else — Live Feed, assignment pool, Advisor — only this KPI slice changes.
+        _otherLeads=rows.filter((r:any)=>String(r.meta_lead_id||"").indexOf("csv-")!==0)
+          .map((r:any)=>({id:r.meta_lead_id,name:r.name,
+            source:(r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source,
+            service:r.service||"Diabetes",
+            date:new Date(r.created_at||r.lead_date),isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned}));
+        // Promoted twins, kept for flag lookups below (a sent wizard row's assigned state lives on
+        // its "csv-<id>" leads row, not on the wizard row).
+        const _csvTwin:Record<string,any>={};
+        rows.forEach((r:any)=>{ const k=String(r.meta_lead_id||""); if(k.indexOf("csv-")===0) _csvTwin[k]=r; });
+        // ALL Bulk CSV Wizard rows — every status, the SAME population the wizard's tabs count
+        // ("Imported leads" = valid+sent+assigned; "Duplicates" = duplicate), dated by the file's own
+        // lead date so the page's date filter buckets them exactly like the wizard's range filter.
+        // One row here per wizard row, promoted or not — no double count, no orphan drift.
         try{
           const {data:cw}=await supabase.from("csv_leads")
-            .select("id,lead_name,name,service,date_time,status,created_at")
-            .neq("status","sent").neq("status","assigned");
+            .select("id,lead_name,name,service,date_time,status,created_at");
           (cw||[]).forEach((r:any)=>{
             const d=parseFlexDate(r.date_time);
+            const twin=_csvTwin["csv-"+r.id];
             _otherLeads.push({id:"csvw-"+r.id,name:r.lead_name||r.name||"Lead",source:"Bulk CSV import",
               service:r.service||"Diabetes",date:(d&&!isNaN(d.getTime()))?d:new Date(r.created_at),
-              isValid:r.status==="valid",isDuplicate:r.status==="duplicate",isAssigned:false});
+              isValid:r.status==="valid"||r.status==="sent"||r.status==="assigned",
+              isDuplicate:r.status==="duplicate",
+              isAssigned:twin?!!twin.is_assigned:r.status==="assigned"});
           });
-        }catch(_){ /* wizard table may be absent — KPI falls back to promoted leads only */ }
+        }catch(_){ /* wizard table absent/unreadable — the CSV cohort is empty until it loads */ }
         // Full feed-shaped objects for the Live Incoming Feed.
         _otherFeedLeads=rows.map((r:any)=>{
           const createdAt=r.created_at||r.lead_date;
@@ -4448,11 +4485,34 @@ export function initApp(root: HTMLElement) {
     // _advisorInService — nobody else, including people with no service set). Purely a filter — the
     // assignment writes are untouched.
     function _assignSvcVal(selId:string):string{ return (root.querySelector("#"+selId)as HTMLSelectElement|null)?.value||""; }
+    // The roles the "Assign to" advisor menus may list. This menu assigns leads to an ADVISOR, so it
+    // lists advisors only — NOT every role the org happens to mark assignable. "Physio advisor" is
+    // configured is_assignable=true (it receives physiotherapy leads elsewhere) and so are "Health
+    // Coach" and "Manager", but none of them belong in an Advisor picker: choosing Physiotherapy was
+    // still listing the Physio advisor alongside the two real Advisors.
+    // To let another advisor grade pick leads here (e.g. "Senior Advisor"), add it to this list —
+    // that is the ONLY place the rule lives.
+    const ADVISOR_ASSIGN_ROLES=["Advisor"];
+    function _isAdvisorAssignRole(role:string):boolean{
+      const r=String(role||"").trim().toLowerCase();
+      return ADVISOR_ASSIGN_ROLES.some(x=>x.toLowerCase()===r);
+    }
+    // Who may RECEIVE leads for `svc` — the single source of truth for every "Assign to" menu.
+    // All four gates required: active, an advisor role, that role still marked assignable by the org
+    // (so Settings → Roles can switch advisor assignment off entirely), and in that service line.
+    // The role gates were missing altogether: the menus filtered on service alone, so anyone carrying
+    // the service showed up as an assignment target — the Physio advisor above, and equally a
+    // Receptionist / Accounts / Physiotherapist / Instructor whose role is explicitly non-assignable.
+    // Note this deliberately does NOT gate the read-only "Assigned leads" advisor FILTER — that one
+    // must still list whoever actually holds leads, including someone since made non-assignable.
+    function _assignTargets(svc:string):string[]{
+      return _assignees.filter((a:any)=>a.is_active&&_isAdvisorAssignRole(a.role)&&_roleIsAssignable(a.role)&&_advisorInService(a,svc)).map((a:any)=>a.name);
+    }
     // Shown when a service has no advisor mapped to it — the list is empty because of configuration,
     // not a loading failure, so say where to fix it.
     function _assignEmptyMsg(svc:string):string{
       return '<div style="font-size:11.5px;color:var(--faint);padding:8px;line-height:1.5">No advisors available for the selected service'
-        +'<div style="margin-top:4px;color:var(--muted)">Set <b>Service = '+_orgEsc(svc)+'</b> for them in Settings &rarr; Users (their role must also receive leads).</div></div>';
+        +'<div style="margin-top:4px;color:var(--muted)">Set <b>Role = Advisor</b> and <b>Service = '+_orgEsc(svc)+'</b> for them in Settings &rarr; Users.</div></div>';
     }
     function _fillAssignSvcSel(selId:string){
       const el=root.querySelector("#"+selId)as HTMLSelectElement|null; if(!el) return;
@@ -4481,7 +4541,7 @@ export function initApp(root: HTMLElement) {
         return;
       }
       const prev=new Set(Array.from(menu.querySelectorAll(".poolAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
-      const names=_assignees.filter((a:any)=>a.is_active&&_advisorInService(a,svc)).map((a:any)=>a.name);
+      const names=_assignTargets(svc);
       menu.innerHTML=names.length?names.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="poolAdvChk" data-adv="'+_orgEsc(n)+'" style="accent-color:var(--brand)" onchange="window._poolAdvSelChange()"'+(prev.has(n)?" checked":"")+'>'+_orgEsc(n)+'</label>').join(""):_assignEmptyMsg(svc);
       try{ w._poolAdvSelChange&&w._poolAdvSelChange(); }catch(_){}
     }
@@ -5982,6 +6042,13 @@ export function initApp(root: HTMLElement) {
     const STATUS_MAP: Record<string,{l:string;c:string}> = { visited:{l:"Visited",c:"ok"}, expected:{l:"Expected",c:"warn"}, noshow:{l:"No show",c:"al"}, rescheduled:{l:"Rescheduled",c:"warn"}, cancelled:{l:"Cancelled",c:"al"} };
     const PAY_MAP: Record<string,{l:string;c:string}> = { paid:{l:"Paid",c:"ok"}, due:{l:"Due",c:"warn"}, free:{l:"Free",c:"neu"}, prepaid:{l:"Prepaid ✓",c:"ok"}, refunded:{l:"Refunded",c:"al"} };
     const TIMES = ["9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM","12:00 PM","12:30 PM","2:00 PM","2:30 PM","3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM","5:30 PM","6:00 PM","6:30 PM"];
+    // ONE capacity rule for the WHOLE app: a provider's time slot holds this many bookings.
+    // The Advisor board and the Reception board both read the same appointments table, but they used
+    // to apply DIFFERENT capacities (advisor 1, reception 4) — so a slot the advisor showed as BOOKED
+    // still rendered as bookable "1/4 · Free" at the desk, which read as the two pages being out of
+    // sync when the underlying data always agreed. Both now derive from this constant; change it here
+    // and both boards move together.
+    const SLOT_CAP=1;
 
     function filtered() {
       let d = [...RX];
@@ -6074,6 +6141,7 @@ export function initApp(root: HTMLElement) {
       {key:"amount",label:"Amount",filter:true,text:(r:any)=>r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—",thStyle:"min-width:70px"},
       {key:"inv",label:"Inv",filter:false,head:'<th style="min-width:60px">Invoice</th>'},
       {key:"stage",label:"Stage",filter:true,text:(r:any)=>r.stage||"—",thStyle:"min-width:90px"},
+      {key:"resch",label:"resch",filter:false,head:'<th style="min-width:76px">Reschedule</th>'},
       {key:"call",label:"call",filter:false,head:'<th style="min-width:56px">📞 Call</th>'},
       {key:"rec",label:"rec",filter:false,head:'<th style="min-width:70px">🎤 Calls</th>'},
     ];
@@ -6096,9 +6164,9 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any,i:number) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—")+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—")+'</td><td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
-      body.innerHTML = rows || '<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
+      body.innerHTML = rows || '<tr><td colspan="15" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
     function renderPay() {
       const el = root.querySelector("#recPayList");
@@ -6741,32 +6809,55 @@ export function initApp(root: HTMLElement) {
     async function _nwFillClientId(){ const el=root.querySelector("#nwClientId")as HTMLInputElement|null; if(!el) return; el.value="…"; try{ el.value=await _genClientId(); }catch(_){ el.value=""; } }
     w.nwToggle = nwToggle;
     // Reception "Check slot" → the SAME slot-board grid the advisor uses (.slotgrid/.slotcard),
-    // covering the full 9:00 AM – 6:30 PM day (TIMES). Occupancy is per time for the CHOSEN date,
-    // capacity 4 per slot (reception rule). Clicking a free card selects that time (drives nwBook,
-    // so the existing create+book flow is unchanged). Full slots are shown red and not selectable.
-    const NW_SLOT_CAP=4;
+    // covering the full 9:00 AM – 6:30 PM day (TIMES), reading the SAME appointments table with the
+    // SAME capacity rule (SLOT_CAP per provider per time). Clicking a free card selects that time
+    // (drives nwBook, so the existing create+book flow is unchanged). Booked slots are red, carry the
+    // client's name like the advisor board, and are not selectable.
+    // Is this provider's time slot still free on this date? Returns NULL when the availability check
+    // itself failed — the caller must treat that as "unknown" and refuse, never as "free".
+    // `ignoreApptId` excludes the appointment being moved, so rescheduling onto its own current slot
+    // (e.g. changing only the date) doesn't collide with itself.
+    async function _slotFree(date:string,time:string,prov:string,ignoreApptId?:any):Promise<boolean|null>{
+      const _r:any=await supabase.from("appointments").select("id,appt_time,hc_pt,status").eq("appt_date",date).neq("status","cancelled");
+      if(_r&&_r.error) return null;
+      const held=(_r?.data||[]).filter((a:any)=>String(a.appt_time||"")===time
+        && String(a.hc_pt||"").trim()===String(prov||"").trim()
+        && (ignoreApptId==null||String(a.id)!==String(ignoreApptId))).length;
+      return held<SLOT_CAP;
+    }
     async function nwCheckSlot() {
       const sr=root.querySelector("#nwSlotRes")as HTMLElement; if(!sr) return;
       const date=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||_todayLocal();
       sr.innerHTML='<div style="color:var(--faint);font-size:12px;padding:6px 2px">Loading slot occupancy…</div>';
       // Occupancy for this date, scoped to the CHOSEN provider when one is selected (the slot board
       // must answer "when is THIS doctor/coach free", not "how busy is the clinic") — falling back
-      // to clinic-wide counts when no provider applies. Count non-cancelled appointments per time.
+      // to clinic-wide occupancy when no provider applies.
       const prov=(!_nwBloodTestOnly()&&((root.querySelector("#nwProv")as HTMLSelectElement|null)?.value))||"";
-      const occ:Record<string,number>={}; TIMES.forEach(t=>occ[t]=0);
-      try{ const _r:any=await supabase.from("appointments").select("appt_time,status,hc_pt").eq("appt_date",date).neq("status","cancelled");
-        if(!(_r&&_r.error)) (_r?.data||[]).forEach((a:any)=>{ if(prov&&String(a.hc_pt||"").trim()!==prov) return; const t=a.appt_time; if(t&&occ[t]!=null) occ[t]++; });
-      }catch(_){ /* leave counts at 0 on a failed read */ }
-      const sel=((root.querySelector("#nwTime")as HTMLSelectElement)?.value)||"";
+      const occ:Record<string,{name:string;hc:string}[]>={}; TIMES.forEach(t=>occ[t]=[]);
       const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      sr.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 2px">'+(prov?esc(prov)+"’s slots":"Day view — slot occupancy")+' · '+esc(_recFmtDate(date))+' · '+NW_SLOT_CAP+' / slot</div>'
+      // The /db gateway RESOLVES {error} rather than throwing, so a bare try/catch cannot tell
+      // "no bookings yet" from "the read failed". Check .error explicitly and surface the failure —
+      // silently showing an empty board is how a double booking gets made at the desk.
+      const _r:any=await supabase.from("appointments").select("client_name,appt_time,status,hc_pt").eq("appt_date",date).neq("status","cancelled");
+      if(_r&&_r.error){
+        sr.innerHTML='<div class="banner al" style="display:flex;align-items:center;gap:8px"><span>Could not load slot availability — no slots are shown rather than showing them all as free.</span><button type="button" class="btn bsm" onclick="nwCheckSlot()">Retry</button></div>';
+        return;
+      }
+      (_r?.data||[]).forEach((a:any)=>{ if(prov&&String(a.hc_pt||"").trim()!==prov) return; const t=a.appt_time; if(t&&occ[t]) occ[t].push({name:a.client_name||"Client",hc:a.hc_pt||"—"}); });
+      const sel=((root.querySelector("#nwTime")as HTMLSelectElement)?.value)||"";
+      sr.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 2px">'+(prov?esc(prov)+"’s slots":"Day view — slot occupancy")+' · '+esc(_recFmtDate(date))+' · '+SLOT_CAP+' booking / slot</div>'
         +'<div class="slotgrid">'+TIMES.map((t)=>{
-          const n=occ[t]||0; const full=n>=NW_SLOT_CAP;
+          const arr=occ[t]||[]; const full=arr.length>=SLOT_CAP;
           const cls=(full?"s3 full":"s0")+(sel===t?" sel":"");
-          const tag=full?("FULL "+n+"/"+NW_SLOT_CAP):(n+"/"+NW_SLOT_CAP);
+          const tag=full?"BOOKED":"Free";
+          // Never print "Free" under a slot that holds a booking — list who holds it, exactly like the
+          // advisor board, so the desk can see WHY a time is unavailable.
+          const body=arr.length
+            ? arr.map((x)=>'<li><span>'+esc(x.name)+'</span><span class="hc">'+esc(x.hc)+'</span></li>').join("")
+            : '<li style="color:var(--ok-ink)">Free</li>';
           return '<button type="button" class="slotcard '+cls+'" data-nwt="'+esc(t)+'"'+(full?' disabled':'')+'>'
             +'<div class="st"><span class="tm">'+esc(t)+'</span><span class="cap">'+tag+'</span></div>'
-            +'<ul><li style="color:'+(full?'var(--alert-ink)':'var(--ok-ink)')+'">'+(full?'Full':'Free')+'</li></ul></button>';
+            +'<ul>'+body+'</ul></button>';
         }).join("")+'</div>';
       sr.querySelectorAll(".slotcard").forEach((c)=>{ (c as HTMLElement).onclick=()=>{
         if((c as HTMLButtonElement).disabled){ c.classList.add("shake"); setTimeout(()=>c.classList.remove("shake"),350); return; }
@@ -6776,6 +6867,103 @@ export function initApp(root: HTMLElement) {
       }; });
     }
     w.nwCheckSlot = nwCheckSlot;
+
+    // ---- Reschedule an existing appointment (Reception) ---------------------------------------
+    // Opens the SAME slot board — same appointments table, same SLOT_CAP, same provider scoping — so
+    // a move made at the desk obeys exactly the availability the Advisor board shows. Reachable from
+    // the Reschedule action on every appointment row AND from the confirmation shown right after
+    // "Save & Proceed". The appointment's OWN slot is marked CURRENT (not BOOKED) so it can be kept
+    // when only the date changes.
+    let _reschCtx:{id:any;lead:string;name:string;prov:string;date:string;time:string;pick:string;origDate:string}|null=null;
+    const _reschEsc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    function _reschOverlay():HTMLElement{
+      let o=root.querySelector("#reschModal")as HTMLElement|null;
+      if(!o){
+        o=document.createElement("div"); o.id="reschModal";
+        o.style.cssText="display:none;position:fixed;inset:0;z-index:600;background:rgba(17,34,27,.42);align-items:center;justify-content:center;padding:20px";
+        o.addEventListener("click",(e:any)=>{ if(e.target===o) w._reschClose(); });
+        root.appendChild(o);
+      }
+      return o;
+    }
+    async function _reschSlots(){
+      const g=root.querySelector("#reschSlots")as HTMLElement|null; const c=_reschCtx; if(!g||!c) return;
+      g.innerHTML='<div style="color:var(--faint);font-size:12px;padding:6px 2px">Loading slot occupancy…</div>';
+      const _r:any=await supabase.from("appointments").select("id,client_name,appt_time,status,hc_pt").eq("appt_date",c.date).neq("status","cancelled");
+      if(_r&&_r.error){ g.innerHTML='<div class="banner al">Could not load availability — close and try again.</div>'; return; }
+      const occ:Record<string,{name:string;hc:string;own:boolean}[]>={}; TIMES.forEach(t=>occ[t]=[]);
+      (_r?.data||[]).forEach((a:any)=>{ if(c.prov&&String(a.hc_pt||"").trim()!==c.prov) return; const t=a.appt_time; if(t&&occ[t]) occ[t].push({name:a.client_name||"Client",hc:a.hc_pt||"—",own:String(a.id)===String(c.id)}); });
+      g.innerHTML='<div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 2px">'+(c.prov?_reschEsc(c.prov)+"’s slots":"Day view — slot occupancy")+' · '+_reschEsc(_recFmtDate(c.date))+' · '+SLOT_CAP+' booking / slot</div>'
+        +'<div class="slotgrid">'+TIMES.map((t)=>{
+          const arr=occ[t]||[]; const own=arr.some((x)=>x.own); const full=arr.length>=SLOT_CAP&&!own;
+          const cls=(own?"s2":(full?"s3 full":"s0"))+(c.pick===t?" sel":"");
+          const tag=own?"CURRENT":(full?"BOOKED":"Free");
+          const body=arr.length?arr.map((x)=>'<li><span>'+_reschEsc(x.name)+'</span><span class="hc">'+_reschEsc(x.hc)+'</span></li>').join(""):'<li style="color:var(--ok-ink)">Free</li>';
+          return '<button type="button" class="slotcard '+cls+'"'+(full?' disabled':' onclick="window._reschPick(\''+_reschEsc(t)+'\')"')+'>'
+            +'<div class="st"><span class="tm">'+_reschEsc(t)+'</span><span class="cap">'+tag+'</span></div><ul>'+body+'</ul></button>';
+        }).join("")+'</div>';
+    }
+    async function _reschRender(){
+      const o=_reschOverlay(); const c=_reschCtx; if(!c) return;
+      o.style.display="flex";
+      o.innerHTML='<div style="background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(17,34,27,.28);width:min(760px,96vw);max-height:90vh;overflow:auto;padding:18px 20px">'
+        +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><b style="font-family:var(--disp);font-size:16px">Reschedule — '+_reschEsc(c.name)+'</b>'
+        +'<span class="chipb info">'+_reschEsc(c.prov||"No provider")+'</span>'
+        +'<button type="button" class="btn bsm" style="margin-left:auto" onclick="window._reschClose()">✕</button></div>'
+        +'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Currently <b>'+_reschEsc(_recFmtDate(c.date))+'</b>'+(c.time?' · <b>'+_reschEsc(c.time)+'</b>':'')+'</div>'
+        +'<div class="fld" style="max-width:220px;margin-bottom:10px"><label class="lbl" for="reschDate">New date</label><input type="date" class="input" id="reschDate" value="'+_reschEsc(c.date)+'" onchange="window._reschDate(this.value)"></div>'
+        +'<div id="reschSlots"></div>'
+        +'<div style="display:flex;gap:9px;margin-top:14px"><button type="button" class="btn bp" onclick="window._reschSave()">Confirm reschedule</button><button type="button" class="btn" onclick="window._reschClose()">Cancel</button></div></div>';
+      await _reschSlots();
+    }
+    // Confirmation bar shown right after "Save & Proceed" — the booking is done, but the desk gets a
+    // direct Reschedule handle while the client is still standing there, instead of having to hunt
+    // for the row in the Appointments table.
+    function _recBookedBar(apptId:any,dateStr:string,timeStr:string,name:string){
+      if(apptId==null) return;
+      let b=root.querySelector("#recBookedBar")as HTMLElement|null;
+      if(!b){ b=document.createElement("div"); b.id="recBookedBar"; b.style.cssText="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:560;background:#fff;border:1.5px solid var(--brand-line);border-radius:12px;box-shadow:0 14px 38px rgba(17,34,27,.22);padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;max-width:min(620px,94vw)"; root.appendChild(b); }
+      b.style.display="flex";
+      b.innerHTML='<span>✅ <b>'+_reschEsc(name)+'</b> booked · <b>'+_reschEsc(_recFmtDate(dateStr))+(timeStr?" · "+_reschEsc(timeStr):"")+'</b></span>'
+        +'<button type="button" class="btn bsm" onclick="window._recReschedule(\''+apptId+'\')">⟳ Reschedule</button>'
+        +'<button type="button" class="btn bsm" onclick="window._recBookedBarClose()">Dismiss</button>';
+      // Long enough to act on, short enough not to sit over the desk's next registration.
+      try{ clearTimeout((b as any)._t); }catch(_){}
+      (b as any)._t=setTimeout(()=>{ try{ w._recBookedBarClose(); }catch(_){} },45000);
+    }
+    w._recBookedBarClose=()=>{ const b=root.querySelector("#recBookedBar")as HTMLElement|null; if(b){ try{ clearTimeout((b as any)._t); }catch(_){} b.style.display="none"; b.innerHTML=""; } };
+    w._reschPick=(t:string)=>{ if(_reschCtx){ _reschCtx.pick=t; _reschSlots(); } };
+    w._reschDate=(v:string)=>{ if(_reschCtx){ _reschCtx.date=String(v||"").slice(0,10)||_reschCtx.date; _reschCtx.pick=""; _reschSlots(); } };
+    w._reschClose=()=>{ _reschCtx=null; const o=root.querySelector("#reschModal")as HTMLElement|null; if(o){ o.style.display="none"; o.innerHTML=""; } };
+    w._recReschedule=(id:any)=>{
+      const r=_recAll.find((x:any)=>String(x.id)===String(id))||RX.find((x:any)=>String(x.id)===String(id));
+      if(!r){ toastErr("Appointment not found — refresh and try again"); return; }
+      if(r.status==="cancelled"){ toastErr("A cancelled appointment can't be rescheduled"); return; }
+      const _d0=String(r._date||"").slice(0,10)||_todayLocal();
+      _reschCtx={id:r.id,lead:String(r.lead_id||""),name:r.name||"Client",prov:(r.hc&&r.hc!=="—")?String(r.hc):"",date:_d0,origDate:_d0,time:r.time||"",pick:""};
+      _reschRender();
+    };
+    w._reschSave=async()=>{
+      const c=_reschCtx; if(!c) return;
+      if(!c.pick){ toastErr("Pick a new slot first"); return; }
+      if(c.date<_todayLocal()){ toastErr("Appointment date can't be in the past"); return; }
+      // Re-verify against the database at write time — the board may be seconds stale.
+      const free=await _slotFree(c.date,c.pick,c.prov,c.id);
+      if(free===null){ toastErr("Could not check slot availability — try again"); return; }
+      if(!free){ toastErr(c.pick+" is already booked for "+(c.prov||"this provider")); await _reschSlots(); return; }
+      const from=_recFmtDate(c.origDate)+(c.time?(" · "+c.time):"");
+      // Move the slot ONLY — never touch status. Flipping a checked-in walk-in ("visited") to
+      // "expected" would drop it out of Reception's pending-payment list (renderPay filters on
+      // status==="visited") and out of the screening queue, losing money owed.
+      if(!(await _dbOk(supabase.from("appointments").update({appt_date:c.date,appt_time:c.pick}).eq("id",c.id),"Reschedule"))) return;
+      try{ logActivity(c.lead,[{action:"Rescheduled",field:"Appointment",old:from,new:_recFmtDate(c.date)+" · "+c.pick}]); }catch(_){}
+      const moved=c.pick; const movedDate=c.date; const leadId=c.lead;
+      w._reschClose();
+      toast("Rescheduled → "+_recFmtDate(movedDate)+" · "+moved);
+      await loadReceptionData(); _recRevealAppt(movedDate);
+      try{ _broadcastLeadSync({leadId:leadId,appointment:true}); }catch(_){}
+    };
+
     async function nwBook() {
       const name=((root.querySelector("#nwName")as HTMLInputElement)?.value||"").trim();
       const ph=((root.querySelector("#nwPhone")as HTMLInputElement)?.value||"").trim();
@@ -6787,6 +6975,14 @@ export function initApp(root: HTMLElement) {
       const apptDate=((root.querySelector("#nwDate")as HTMLInputElement)?.value||"").trim()||today;   // honour the chosen date
       const email=((root.querySelector("#nwEmail")as HTMLInputElement)?.value||"").trim();
       if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); return; }
+      // Same double-booking guard the advisor applies: re-check THIS provider's slot against the
+      // database immediately before inserting. Two receptionists (or a desk + an advisor) can select
+      // the same free card seconds apart; only a re-check at write time catches that.
+      if(time&&prov){
+        const _free=await _slotFree(apptDate,time,prov);
+        if(_free===null){ toastErr("Could not check slot availability — try again"); return; }
+        if(!_free){ toastErr(time+" is already booked for "+prov+" — pick another slot"); try{ await nwCheckSlot(); }catch(_){} return; }
+      }
       const leadId="walkin-"+Date.now()+"-"+Math.floor(Math.random()*1e6);
       // Client ID: use the one shown on the form; re-verify it's unique right before
       // creating (avoids duplicate registrations), regenerating on collision/empty.
@@ -6807,9 +7003,13 @@ export function initApp(root: HTMLElement) {
       try{
         await supabase.from("appointments").insert({lead_id:leadId,client_id:clientId,client_name:name,phone:ph,service:svcStr,hc_pt:prov,appt_date:apptDate,appt_time:time,status:"visited",visited_at:nowIso,stage:_wPhysioOnly?"physio":"screening",source:"Direct Walk-in",language:langVal,notes:"Walk-in registered at reception"});
       }catch(e:any){ toastErr(/appointment|relation|exist|schema/i.test(e.message||"")?"Run supabase-migration-reception.sql first":"Booking failed: "+(e.message||"db error")); return; }
+      // The new appointment's id — the post-booking confirmation bar needs it to offer Reschedule.
+      let _newApptId:any=null;
+      try{ const {data}=await supabase.from("appointments").select("id").eq("lead_id",leadId).order("id",{ascending:false}).limit(1); _newApptId=data&&data[0]&&data[0].id; }catch(_){}
       _nwClearDraft();   // registration completed → discard the saved draft
       nwToggle(); await loadReceptionData();
       _recRevealAppt(apptDate);   // ensure the new appointment shows in the Appointments table immediately
+      _recBookedBar(_newApptId,apptDate,time,name);
       try{ await loadAssignmentExtras(); rebuildPoolFromDB(); renderUnassignedPool(); }catch(_){}   // surface it in the Unassigned Pool now
       if(/phys/i.test(svcStr)) try{ loadPhysioData(); }catch(_){}
       ach("📌","Walk-in registered!",name+(time?(" · "+time):"")); boom(26);
@@ -7028,6 +7228,9 @@ export function initApp(root: HTMLElement) {
       // Physio has no due row — fall back to the treatment plan's price (physioDue) so Reception
       // isn't asked to re-key an amount the physiotherapist already set.
       const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||Number(r.physioDue)||0;
+      // A physio patient whose therapist never set a plan price now resolves to 0 rather than the
+      // old hardcoded ₹800. Say so instead of opening the dialog on a figure nobody agreed.
+      if(!(amt>0)&&r.svc==="physio"){ toastErr("No amount set for "+(r.name||"this patient")+" — the physiotherapist must save the session amount first"); return; }
       recOpen(r.id, r.name||"Client", amt, r.lead_id||"", r.svc||"dia");
     };
     // Resolve a LEAD's program from its own payment rows — never from _curProgram() (the coach's
@@ -7624,7 +7827,7 @@ export function initApp(root: HTMLElement) {
     // The same time is still independently bookable for a different HC. Occupancy is scoped
     // to the currently-selected HC so the board shows only that coach's schedule.
     type SlotBk={name:string;hc:string;leadId:string};
-    const HC_CAP=1; let slots:Record<string,SlotBk[]>={}; let selSlot:string|null=null; let booked:string|null=null; let resch=false;
+    const HC_CAP=SLOT_CAP; let slots:Record<string,SlotBk[]>={}; let selSlot:string|null=null; let booked:string|null=null; let resch=false;
     // The HC that drives the slot board is ALWAYS the "HC assigned" value from Assignment &
     // pipeline (the board's own HC dropdown is locked/read-only and only mirrors it).
     function _apptHcVal():string{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; if(h) return h; return (root.querySelector("#apptHc")as HTMLSelectElement|null)?.value||""; }
@@ -7654,7 +7857,7 @@ export function initApp(root: HTMLElement) {
       const apptHcEl=root.querySelector("#apptHc")as HTMLSelectElement|null;
       if(apptHcEl){ apptHcEl.value=hc; apptHcEl.disabled=true; apptHcEl.title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"; }
       const capEl=root.querySelector("#apptCapRule")as HTMLInputElement|null;
-      if(capEl) capEl.value=hc?("1 booking / slot · "+hc):"Assign an HC first";
+      if(capEl) capEl.value=hc?(SLOT_CAP+" booking / slot · "+hc):"Assign an HC first";
       if(!hc){ g.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--faint);padding:22px 8px">Assign a <b>Health Coach</b> in <b>Assignment &amp; pipeline</b> (HC assigned) — the slot board loads that coach\'s schedule automatically. Each coach has an independent schedule.</div>'; selSlot=null; return; }
       await loadSlotsFromDB();
       g.innerHTML=TIMES.map((t)=>{
@@ -9883,7 +10086,7 @@ export function initApp(root: HTMLElement) {
           try{ w._devAssignSelChange(wk); }catch(_){}
           return;
         }
-        const names=_assignees.filter((a:any)=>a.is_active&&_advisorInService(a,svc)).map((a:any)=>a.name);
+        const names=_assignTargets(svc);
         const prev=new Set(Array.from(menu.querySelectorAll(".devAdvChk:checked")).map((c:any)=>c.getAttribute("data-adv")));
         menu.innerHTML=names.length?names.map((n:string)=>'<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:12.5px" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'\'"><input type="checkbox" class="devAdvChk" data-w="'+wk+'" data-adv="'+esc(n)+'" style="accent-color:var(--brand)" onchange="window._devAssignSelChange(\''+wk+'\')"'+(prev.has(n)?" checked":"")+'>'+esc(n)+'</label>').join(""):_assignEmptyMsg(svc);
         try{ w._devAssignSelChange(wk); }catch(_){}
@@ -10747,8 +10950,15 @@ export function initApp(root: HTMLElement) {
       _phpRenderSettings();
     }
     function _phpActive(){ return _phpList.filter((p:any)=>p.is_active); }
-    // The live per-session rate (sessions=1). Falls back to the legacy constant until the master loads.
-    function _phpPerSession():number{ const p=_phpActive().find((x:any)=>Number(x.sessions)===1); return p?(Number(p.price)||PHYSIO_DEFAULT_PRICE):PHYSIO_DEFAULT_PRICE; }
+    // The live per-visit rate = the pricing master's sessions=1 row. Returns 0 when the org has NOT
+    // configured one, because a chargeable amount must come from the pricing master — never from a
+    // constant in the code.
+    // This used to fall back to PHYSIO_DEFAULT_PRICE (₹800), and since the master carries no
+    // sessions=1 row at all (only Consultation/6/8/12-session rows), EVERY "Per Visit" physio amount
+    // was that hardcoded 800: pre-filled into the therapist's Amount field AND into Reception's
+    // Collect Payment dialog, as a price nobody had ever set. That also contradicted the rule stated
+    // at physioDue below — "never an auto-charge".
+    function _phpPerSession():number{ const p=_phpActive().find((x:any)=>Number(x.sessions)===1); return p?(Number(p.price)||0):0; }
     function _phpPackFor(n:number){ return n>1?(_phpActive().find((x:any)=>Number(x.sessions)===n)||null):null; }
     function _phpRenderSettings(){
       const body=root.querySelector("#phpBody"); if(!body) return;
@@ -10796,6 +11006,36 @@ export function initApp(root: HTMLElement) {
       toast("Removed"); await loadPhysioPricing();
     };
     // ---- Physiotherapy Session Details (treatment-plan section) helpers ----
+    // ===== ONE definition of "which session is this patient on" =====
+    // The same patient was reading 2/8 (assessment header), 1/8 (Session progress) and 1/? (visit
+    // history) because three places each computed it their own way. Everything below now derives
+    // from these two helpers.
+    // `sessions_completed` keeps its stored meaning — sessions actually FINISHED. A patient with 1
+    // finished session is ON session 2, so the displayed progress is completed+1, capped at the plan
+    // total once the course is finished.
+    function _phCurrentSession(done:any,planned:any):number{
+      const d=Math.max(0,Number(done)||0), p=Math.max(0,Number(planned)||0);
+      return p?Math.min(d+1,p):d+1;
+    }
+    function _phProgressText(done:any,planned:any):string{
+      const p=Math.max(0,Number(planned)||0);
+      return p?(_phCurrentSession(done,planned)+" / "+p):String(_phCurrentSession(done,planned));
+    }
+    // Fill the Session progress dropdown with one option per session in the selected package
+    // (1/8 … 8/8), pre-selecting the session the patient is currently on. Replaces the old read-only
+    // text field: the therapist can now correct the count instead of it being unfixable.
+    function _phRenderProgressSel(){
+      const sel=root.querySelector("#phTpProgress")as HTMLSelectElement|null; if(!sel) return;
+      const planned=_phTpSessions();
+      const done=Number(_phOpenAppt&&_phOpenAppt.sessionsCompleted)||0;
+      if(!planned){ sel.innerHTML='<option value="">Select a session / treatment plan first</option>'; sel.disabled=true; return; }
+      sel.disabled=false;
+      const cur=_phCurrentSession(done,planned);
+      let html="";
+      for(let i=1;i<=planned;i++) html+='<option value="'+i+'"'+(i===cur?' selected':'')+'>'+i+' / '+planned+' Sessions</option>';
+      sel.innerHTML=html;
+    }
+    w._phTpProgressChange=()=>{};   // the choice is read on Save session details
     // Sessions from the plan dropdown (5/8/10) or the Custom Package input.
     function _phTpSessions():number{
       const plan=(root.querySelector("#phTpPlan")as HTMLSelectElement)?.value||"";
@@ -10816,8 +11056,17 @@ export function initApp(root: HTMLElement) {
     };
     w._phTpAmtSync=()=>{
       const model=(root.querySelector("#phTpPayType")as HTMLSelectElement)?.value||"pack";
-      const amt=root.querySelector("#phTpAmt")as HTMLInputElement|null; if(amt) amt.value=String(_phTpAutoAmt(_phTpSessions(),model));
-      const prog=root.querySelector("#phTpProgress"); if(prog&&_phOpenAppt) prog.textContent=(_phOpenAppt.sessionsCompleted||0)+" / "+(_phTpSessions()||"—")+" Sessions Completed";
+      const auto=_phTpAutoAmt(_phTpSessions(),model);
+      const amt=root.querySelector("#phTpAmt")as HTMLInputElement|null;
+      if(amt){
+        // Nothing configured for this option → leave the field EMPTY and say why. Pre-filling a
+        // number here means the therapist saves it and Reception collects it, so an unconfigured
+        // rate must look unset, not like a price.
+        amt.value=auto>0?String(auto):"";
+        amt.placeholder=auto>0?"":"No rate configured — set it in Settings → Physiotherapy pricing";
+        amt.title=auto>0?"Auto-filled from the pricing master (pack price, or per-visit rate)":"No price is configured for this option. Add it in Settings → Physiotherapy pricing, or type the amount to charge.";
+      }
+      _phRenderProgressSel();   // package size changed → rebuild 1/N … N/N and keep the current session selected
     };
 
     async function loadPhysioData(){
@@ -10936,7 +11185,9 @@ export function initApp(root: HTMLElement) {
       else vis.forEach((r:any)=>{
         const cs=_PH_CONSULT[r.consult]||{l:r.consult,c:"neu"};
         const planLabel=r.sessionsPlanned?((r.payModel==="pack"?"Pack · ":"")+r.sessionsPlanned+" sessions"):(r.payModel==="pack"?"Pack":"Per visit");
-        const prog=r.sessionsPlanned?(r.sessionsCompleted+' / '+r.sessionsPlanned):(r.sessionsCompleted?String(r.sessionsCompleted):'—');
+        // Same helper as the assessment header and the Session progress dropdown — this column used
+        // to show sessions COMPLETED (1 / 8) while the header showed the CURRENT session (2 / 8).
+        const prog=(r.sessionsPlanned||r.sessionsCompleted)?_phProgressText(r.sessionsCompleted,r.sessionsPlanned):'—';
         const payAmt=r.payStatus==="paid"?r.payAmt:(r.packPrice||0);
         const payLabel=(r.payStatus==="paid"?'₹'+payAmt.toLocaleString("en-IN")+' paid':'₹'+payAmt.toLocaleString("en-IN")+' due')+(r.payMethod?' · '+String(r.payMethod).toUpperCase():'');
         const payC=r.payStatus==="paid"?"ok":"warn";
@@ -10970,7 +11221,7 @@ export function initApp(root: HTMLElement) {
     w._phOpenSession=(id:any)=>{
       const r=_phAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;} _phOpenAppt=r;   // id is BIGSERIAL → gateway returns a string
       const el=(s:string)=>root.querySelector("#"+s) as any;
-      if(el("phSoapTitle")) el("phSoapTitle").textContent=r.name+" · Session "+(r.sessionsCompleted+1)+" / "+(r.sessionsPlanned||"?");
+      if(el("phSoapTitle")) el("phSoapTitle").textContent=r.name+" · Session "+_phProgressText(r.sessionsCompleted,r.sessionsPlanned);
       if(el("phPlanTitle")) el("phPlanTitle").textContent=r.name;
       // ---- Pre-fill from the Health Advisor (read-only) — the physiotherapist fills the rest ----
       const setRO=(id:string,v:string)=>{ const e2=el(id); if(e2) e2.value=v||""; };
@@ -11010,14 +11261,22 @@ export function initApp(root: HTMLElement) {
       const custF=root.querySelector("#phTpCustomFld")as HTMLElement|null; if(custF) custF.style.display=(planSel&&planSel.value==="custom")?"":"none";
       if(el("phTpCustom")) el("phTpCustom").value=(planSel&&planSel.value==="custom")?String(nPl):"";
       if(el("phTpStatus")) el("phTpStatus").value=r.consult==="in_session"?"in_progress":r.consult;
-      const prog=root.querySelector("#phTpProgress"); if(prog) prog.textContent=(r.sessionsCompleted||0)+" / "+(nPl||"—")+" Sessions Completed";
+      _phRenderProgressSel();   // 1/N … N/N for this patient's package, on the session they're now on
       if(el("phTpNext")) el("phTpNext").value=r.nextDate?String(r.nextDate).slice(0,10):"";
       if(el("phTpPayType")) el("phTpPayType").value=r.payModel==="pack"?"pack":"per_visit";
       if(el("phTpPayMode")) el("phTpPayMode").value=(r.phData&&r.phData.payment_mode)||"";
       if(el("phTpAmt")) el("phTpAmt").value=String(r.packPrice||"");
       if(el("phTpNotes")) el("phTpNotes").value=(r.phData&&r.phData.session_notes)||"";
       const vh=el("phVisitHistory"); if(vh){ if(r.visits.length){ vh.innerHTML='<table class="tbl"><thead><tr><th>Session</th><th>Date</th><th>Pain</th><th>Notes</th></tr></thead><tbody>'
-        +r.visits.map((v:any)=>'<tr><td class="mono">'+v.session+'</td><td class="mono">'+v.date+'</td><td class="mono">'+(v.pain!=null?v.pain+'/10':'—')+'</td><td>'+(_btE(v.notes||"—"))+'</td></tr>').join("")+'</tbody></table>';
+        +r.visits.map((v:any)=>{
+          // Render "n / total" LIVE from the current plan instead of the string frozen at completion
+          // time. A session completed before the treatment plan was saved was stamped "1/?" forever —
+          // saving the 8-session plan afterwards never repaired it. `n` is the session number; rows
+          // written before this fix fall back to parsing their stored "1/?" string.
+          const n=Number(v.n)||Number(String(v.session||"").split("/")[0])||0;
+          const label=n?(n+" / "+(Number(r.sessionsPlanned)||"—")):(v.session||"—");
+          return '<tr><td class="mono">'+_btE(label)+'</td><td class="mono">'+v.date+'</td><td class="mono">'+(v.pain!=null?v.pain+'/10':'—')+'</td><td>'+(_btE(v.notes||"—"))+'</td></tr>';
+        }).join("")+'</tbody></table>';
       } else { vh.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px">No visits recorded yet.</div>'; } }
       const sp=root.querySelector("#phSoapPanel") as HTMLElement; if(sp) sp.style.display="block";
       sp?.scrollIntoView({behavior:"smooth"}); _phRenderAll();
@@ -11040,7 +11299,10 @@ export function initApp(root: HTMLElement) {
       // Idempotent: a session counts + logs a visit exactly once (guards double-click and
       // Complete-then-Save both bumping the counter / adding duplicate visit rows).
       if(!pd._completed){ pd._completed=true; pd.sessions_completed=(Number(pd.sessions_completed)||0)+1;
-        const visit={session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level!=null?pd.pain_level:r.painLevel,notes:((pd.assessment&&(pd.assessment.diagnosis||pd.assessment.complaint))?String(pd.assessment.diagnosis||pd.assessment.complaint).substring(0,80):"Completed")};
+        // Store the session NUMBER (`n`). The "n/total" text is kept only so older builds still read
+        // something sensible — the UI renders the total live from the plan, so a visit logged before
+        // the plan existed stops being frozen as "1/?".
+        const visit={n:pd.sessions_completed,session:pd.sessions_completed+"/"+(pd.sessions_planned||"?"),date:_recFmtDate(new Date().toISOString().substring(0,10)),pain:pd.pain_level!=null?pd.pain_level:r.painLevel,notes:((pd.assessment&&(pd.assessment.diagnosis||pd.assessment.complaint))?String(pd.assessment.diagnosis||pd.assessment.complaint).substring(0,80):"Completed")};
         if(!pd.visits) pd.visits=[]; pd.visits.unshift(visit);
       }
       pd.consult_status="completed"; pd.completed_at=new Date().toISOString(); pd.started=true;
@@ -11081,12 +11343,24 @@ export function initApp(root: HTMLElement) {
     w._phSavePlan=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;}
       const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement)?.value||"";
-      const r=_phOpenAppt; const pd=r.phData||{};
+      // ATTACH the object to the row. This was `r.phData||{}`: on a patient with no physio_data yet,
+      // that produced a detached {} and _phFinishConsult below re-read `r.phData||{}` — a SECOND
+      // empty object — so everything set here (sessions_planned, price, payment mode) was silently
+      // dropped when "Completed" was saved in the same click. That is how a visit got stamped "1/?".
+      const r=_phOpenAppt; const pd=r.phData||(r.phData={});
       const sessions=_phTpSessions();
       const status=v("phTpStatus");
       const therapist=v("phTpTherapist").trim();
       // Health condition stays owned by the assessment form above — never written from here.
       pd.sessions_planned=sessions;
+      // Session progress dropdown states which session the patient is ON (1-based), so sessions
+      // COMPLETED is that minus one. Only written when the therapist actually changed it, so a
+      // normal save never rewrites the counter behind their back.
+      const curSel=Number((root.querySelector("#phTpProgress")as HTMLSelectElement|null)?.value||0);
+      if(curSel>0){
+        const wantDone=Math.max(0,Math.min(curSel-1,sessions||curSel));
+        if(wantDone!==(Number(pd.sessions_completed)||0)) pd.sessions_completed=wantDone;
+      }
       pd.payment_model=v("phTpPayType")==="pack"?"pack":"per_visit";
       pd.payment_mode=v("phTpPayMode")||"";
       pd.session_notes=v("phTpNotes")||"";
@@ -11113,7 +11387,12 @@ export function initApp(root: HTMLElement) {
         toast("Physiotherapy session details saved"); await loadPhysioData();
       }catch(e:any){ toastErr(/physio_data|column|schema|exist/i.test(e.message||"")?"Can't save yet — the physio column is missing. Run supabase-migration-module-columns.sql in Supabase.":"Save failed: "+(e.message||"error")); }
     };
-    w._phCollectPay=()=>{ if(!_phOpenAppt)return; recOpen(_phOpenAppt.id,_phOpenAppt.name,_phOpenAppt.packPrice,_phOpenAppt.lead_id,"physio"); };
+    w._phCollectPay=()=>{ if(!_phOpenAppt)return;
+      // Never open the collect dialog on a price nobody set — with no configured rate the amount is
+      // 0, and collecting 0 (or an invented figure) is worse than stopping here.
+      const amt=Number(_phOpenAppt.packPrice)||0;
+      if(!(amt>0)){ toastErr("No amount set — enter the amount and Save session details first, or configure the rate in Settings → Physiotherapy pricing"); return; }
+      recOpen(_phOpenAppt.id,_phOpenAppt.name,amt,_phOpenAppt.lead_id,"physio"); };
     w._phPrintNotes=()=>{ if(!_phOpenAppt){toast("Open a patient first");return;}
       const v=(id:string)=>(root.querySelector("#"+id) as HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement)?.value||"";
       const esc=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -11139,7 +11418,7 @@ export function initApp(root: HTMLElement) {
       const out:string[][]=[["Visit date & time","Patient","Phone","Health condition","Physiotherapist","Session / plan","Consultation","Progress","Payment","Method","Amount","Next session"]];
       vis.forEach((r:any)=>out.push([r.date+(r.time?" "+r.time:""),r.name,r.ph,r.condition,r.pt,
         (r.sessionsPlanned?((r.payModel==="pack"?"Pack · ":"")+r.sessionsPlanned+" sessions"):(r.payModel==="pack"?"Pack":"Per visit")),
-        (_PH_CONSULT[r.consult]||{l:r.consult}).l, r.sessionsCompleted+"/"+(r.sessionsPlanned||"—"),
+        (_PH_CONSULT[r.consult]||{l:r.consult}).l, _phProgressText(r.sessionsCompleted,r.sessionsPlanned),
         r.payStatus, r.payMethod, String(r.payStatus==="paid"?r.payAmt:r.packPrice), r.nextDate?_recFmtDate(r.nextDate):""]));
       _downloadCsv("physio_export.csv",out); toast("Exported"); };
 

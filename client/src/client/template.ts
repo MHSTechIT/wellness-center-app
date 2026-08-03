@@ -1289,7 +1289,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="phTpStatus">Consultation status</label><select class="select" id="phTpStatus"><option value="waiting">Waiting</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
             </div>
             <div class="g4" style="margin-top:6px">
-              <div class="fld"><label class="lbl">Session progress <span class="ab">auto</span></label><div class="input mono auto" id="phTpProgress" style="display:flex;align-items:center">—</div></div>
+              <div class="fld"><label class="lbl" for="phTpProgress">Session progress</label><select class="select mono" id="phTpProgress" onchange="window._phTpProgressChange()"><option value="">Select a session / treatment plan first</option></select></div>
               <div class="fld"><label class="lbl" for="phTpNext">Next session date</label><input class="input" type="date" id="phTpNext" data-future="1"></div>
             </div>
             <div class="nwGrpHd" style="margin-top:12px">Payment details</div>
