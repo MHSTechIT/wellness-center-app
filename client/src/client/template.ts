@@ -1206,7 +1206,9 @@ export function getMainContent(): string {
       <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
-    <div class="ph-cols">
+    <!-- Single-column layout, Sessions FIRST (~80% of the space) with the compact Active-patients
+         strip (~20%, chips with their own scroll — see #phPatientList CSS) directly below it. -->
+    <div>
       <div>
         <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"></use></svg> Sessions <span class="chipb neu" id="phSessCount" style="margin-left:6px">0</span></div>
           <div class="sec-bd">
@@ -1222,6 +1224,9 @@ export function getMainContent(): string {
             </div>
             <div class="tscroll" id="phSessionsWrap"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading physiotherapy data…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div>
           </div></div>
+
+        <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Active patients <span id="phPatientCount">(0)</span></div>
+          <div class="sec-bd" id="phPatientList"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No patients yet.</div></div></div>
 
         <!-- Assessment / SOAP panel (hidden until a patient record is opened) -->
         <div id="phSoapPanel" style="display:none">
@@ -1299,13 +1304,6 @@ export function getMainContent(): string {
             <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"></use></svg> Save session details</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
           </div></div>
         </div>
-      </div>
-      <div>
-        <div class="sec" style="margin-top:0"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Active patients <span id="phPatientCount">(0)</span></div>
-          <div class="sec-bd" id="phPatientList"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">No patients yet.</div></div></div>
-        <!-- The pricing card that used to sit here moved to Settings & masters → Physiotherapy
-             pricing (the physio_pricing master). Payment amounts on this page still read the same
-             master live (_phpPerSession/_phpPackFor) — only the display card moved. -->
       </div>
     </div>
   </div></section>

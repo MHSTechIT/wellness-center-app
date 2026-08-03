@@ -781,18 +781,18 @@ html{scroll-behavior:smooth}
    into horizontal scroll — at high browser zoom the old fixed 1fr+340px columns and rigid 4-col
    field grids pushed content past the left edge, clipping labels ("tient — from Health Advisor").
    minmax(0,*) defeats the grid min-content blowout; auto-fit reflows fields onto new rows. ===== */
-.ph-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,340px);gap:14px}
-@media(max-width:1180px){.ph-cols{grid-template-columns:1fr}}
 #s-physio .g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
 #s-physio .g2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 #s-physio .fld .input,#s-physio .fld .select,#s-physio .fld .area{min-width:0;width:100%}
 #s-physio .sec-bd{overflow-x:visible}
 
-/* Physiotherapy layout balance: a COMPACT Active-patients card (tighter rows, capped height with
-   its own scroll) and a TALLER, denser Sessions table so more records are on screen at once. */
-#s-physio #phPatientList{max-height:200px;overflow:auto}
-#s-physio #phPatientList .li{padding:6px 0;gap:8px}
-#s-physio #phPatientList .avs{width:26px;height:26px;font-size:10px}
+/* Physiotherapy layout balance (single column, Sessions FIRST ~80%): the Active-patients card sits
+   BELOW the sessions table as a compact queue-style list (avatar · name · condition/progress · due
+   chip on the right — the same row treatment as the Screening page's Queue card), capped in height
+   with its own scroll so it never competes with the table for space. */
+#s-physio #phPatientList{max-height:168px;overflow:auto;padding:6px 14px 10px}
+#s-physio #phPatientList .li{padding:8px 0;gap:10px}
+#s-physio #phPatientList .avs{width:30px;height:30px;font-size:10.5px}
 #s-physio #phSessionsWrap{max-height:max(560px,72vh)}
 #s-physio #phSessionsWrap .tbl td{padding:8px 10px;white-space:nowrap}
 #s-physio #phSessionsWrap .tbl th{padding:8px 10px}
