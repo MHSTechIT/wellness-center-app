@@ -1284,7 +1284,7 @@ export function getMainContent(): string {
           <div class="sec-bd">
             <div class="g4">
               <div class="fld"><label class="lbl" for="phTpTherapist">Physiotherapist name</label><select class="select" id="phTpTherapist"><option value="">— Select —</option><option>Karuna</option><option>Swathi</option></select></div>
-              <div class="fld"><label class="lbl" for="phTpPlan">Session / treatment plan</label><select class="select" id="phTpPlan" onchange="window._phTpPlanChange()"><option value="">— Select —</option><option value="5">5 Sessions</option><option value="8">8 Sessions</option><option value="10">10 Sessions</option><option value="custom">Custom Package</option></select></div>
+              <div class="fld"><label class="lbl" for="phTpPlan">Session / treatment plan</label><select class="select" id="phTpPlan" onchange="window._phTpPlanChange()"><option value="">— Select —</option></select></div>
               <div class="fld" id="phTpCustomFld" style="display:none"><label class="lbl" for="phTpCustom">Custom sessions</label><input class="input mono" id="phTpCustom" type="number" min="1" placeholder="e.g. 12" oninput="window._phTpAmtSync()"></div>
               <div class="fld"><label class="lbl" for="phTpStatus">Consultation status</label><select class="select" id="phTpStatus"><option value="waiting">Waiting</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
             </div>

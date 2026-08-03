@@ -10948,6 +10948,9 @@ export function initApp(root: HTMLElement) {
       try{ const {data,error}=await supabase.from("physio_pricing").select("*").order("sort"); if(error) throw error; _phpList=data||[]; }
       catch(_){ _phpList=[]; }
       _phpRenderSettings();
+      // The Physiotherapy page's plan dropdown is generated from this master, so a Settings edit
+      // (and the realtime physio_pricing refresh that calls this) reaches it immediately.
+      try{ _phRenderPlanSel(); }catch(_){}
     }
     function _phpActive(){ return _phpList.filter((p:any)=>p.is_active); }
     // The live per-visit rate = the pricing master's sessions=1 row. Returns 0 when the org has NOT
@@ -11021,14 +11024,44 @@ export function initApp(root: HTMLElement) {
       const p=Math.max(0,Number(planned)||0);
       return p?(_phCurrentSession(done,planned)+" / "+p):String(_phCurrentSession(done,planned));
     }
+    // ===== Session / treatment plan dropdown — built from the pricing master, never hardcoded =====
+    // The options used to be literal markup ("5 / 8 / 10 Sessions"), so the plans configured in
+    // Settings → Physiotherapy pricing (Consultation, 6/8/12-session packs) never reached this page
+    // and editing the master changed nothing here. Options are now generated from the active master
+    // rows — value = that plan's session count, label = the master's own label — so any future
+    // change in Settings appears here with no code change. "Custom Package" is kept as the escape
+    // hatch for a one-off count that isn't in the master.
+    // Rows are de-duplicated by session count because the <option> value IS the count (two plans of
+    // the same length would otherwise be indistinguishable on selection).
+    function _phRenderPlanSel(){
+      const sel=root.querySelector("#phTpPlan")as HTMLSelectElement|null; if(!sel) return;
+      const keep=sel.value;
+      const seen:Record<string,boolean>={};
+      let html='<option value="">— Select —</option>';
+      _phpActive().forEach((p:any)=>{
+        const n=String(Math.max(0,Number(p.sessions)||0));
+        if(seen[n]) return; seen[n]=true;
+        html+='<option value="'+n+'">'+_orgEsc(p.label||(n+" Sessions"))+'</option>';
+      });
+      html+='<option value="custom">Custom Package</option>';
+      sel.innerHTML=html;
+      if(keep&&Array.from(sel.options).some(o=>o.value===keep)) sel.value=keep;   // survive a master refresh
+    }
+    // Does the pricing master define a plan with exactly this session count? Decides whether a saved
+    // sessions_planned maps to a master option or has to fall back to "Custom Package" — this used
+    // to be a hardcoded [5,8,10] membership test.
+    function _phPlanInMaster(n:number):boolean{ return _phpActive().some((p:any)=>Number(p.sessions)===Number(n)); }
     // Fill the Session progress dropdown with one option per session in the selected package
     // (1/8 … 8/8), pre-selecting the session the patient is currently on. Replaces the old read-only
     // text field: the therapist can now correct the count instead of it being unfixable.
     function _phRenderProgressSel(){
       const sel=root.querySelector("#phTpProgress")as HTMLSelectElement|null; if(!sel) return;
       const planned=_phTpSessions();
+      const rawPlan=(root.querySelector("#phTpPlan")as HTMLSelectElement|null)?.value||"";
       const done=Number(_phOpenAppt&&_phOpenAppt.sessionsCompleted)||0;
-      if(!planned){ sel.innerHTML='<option value="">Select a session / treatment plan first</option>'; sel.disabled=true; return; }
+      if(!rawPlan){ sel.innerHTML='<option value="">Select a session / treatment plan first</option>'; sel.disabled=true; return; }
+      // A plan that carries no session count (e.g. a one-off "Consultation") has nothing to step through.
+      if(!planned){ sel.innerHTML='<option value="">Not applicable — this plan has no session count</option>'; sel.disabled=true; return; }
       sel.disabled=false;
       const cur=_phCurrentSession(done,planned);
       let html="";
@@ -11036,7 +11069,19 @@ export function initApp(root: HTMLElement) {
       sel.innerHTML=html;
     }
     w._phTpProgressChange=()=>{};   // the choice is read on Save session details
-    // Sessions from the plan dropdown (5/8/10) or the Custom Package input.
+    // Say so when the counter is ahead of the logged visits instead of quietly showing fewer rows
+    // than the progress claims. That gap is REAL for anyone treated while the sticky `_completed`
+    // flag was suppressing visit logging, and for any count set by hand on the progress dropdown —
+    // those sessions have no date/pain/notes on record, and inventing rows to fill the table would
+    // be inventing clinical history.
+    function _phVisitGapNote(r:any):string{
+      const done=Number(r&&r.sessionsCompleted)||0, logged=((r&&r.visits)||[]).length;
+      if(done<=logged) return "";
+      const miss=done-logged;
+      return '<div style="font-size:11.5px;color:var(--muted);padding:6px 2px;line-height:1.5">⚠ '+miss+' completed session'+(miss===1?"":"s")+' ha'+(miss===1?"s":"ve")+' no visit record.'
+        +'<div style="color:var(--faint)">Counted in progress but never logged — correct the count on <b>Session progress</b> if it is wrong.</div></div>';
+    }
+    // Sessions for the selected plan — the master row's own session count, or the Custom Package input.
     function _phTpSessions():number{
       const plan=(root.querySelector("#phTpPlan")as HTMLSelectElement)?.value||"";
       if(plan==="custom") return Math.max(0,Math.round(Number((root.querySelector("#phTpCustom")as HTMLInputElement)?.value||0)||0));
@@ -11046,6 +11091,10 @@ export function initApp(root: HTMLElement) {
     // per-session rate × sessions when no pack matches); Per Visit → the per-session rate.
     function _phTpAutoAmt(n:number,model:string):number{
       if(model!=="pack") return _phpPerSession();
+      // Price straight from the master row the therapist actually picked. _phpPackFor only matches
+      // n>1, so a zero-session plan (e.g. "Consultation") priced at 0 the moment it became
+      // selectable — its configured price was unreachable.
+      const own=_phpActive().find((x:any)=>Number(x.sessions)===Number(n)); if(own) return Number(own.price)||0;
       const pack=_phpPackFor(n); if(pack) return Number(pack.price)||0;
       return n>0?_phpPerSession()*n:_phpPerSession();
     }
@@ -11256,8 +11305,11 @@ export function initApp(root: HTMLElement) {
         thSel.innerHTML='<option value="">— Select —</option>'+names.map((n:string)=>'<option>'+_orgEsc(n)+'</option>').join("");
         if(r.pt){ const cur=String(r.pt).trim().toLowerCase(); const m=Array.from(thSel.options).find((o:any)=>o.value.trim().toLowerCase()===cur); if(m) thSel.value=(m as HTMLOptionElement).value; }
       }
+      _phRenderPlanSel();   // options come from the pricing master, so build them before selecting
       const planSel=el("phTpPlan"); const nPl=Number(r.sessionsPlanned)||0;
-      if(planSel) planSel.value=[5,8,10].indexOf(nPl)>=0?String(nPl):(nPl>0?"custom":"");
+      // Match the saved count against the MASTER (was a hardcoded [5,8,10] test, which forced every
+      // real plan — 6 / 12 sessions — onto "Custom Package").
+      if(planSel) planSel.value=_phPlanInMaster(nPl)?String(nPl):(nPl>0?"custom":"");
       const custF=root.querySelector("#phTpCustomFld")as HTMLElement|null; if(custF) custF.style.display=(planSel&&planSel.value==="custom")?"":"none";
       if(el("phTpCustom")) el("phTpCustom").value=(planSel&&planSel.value==="custom")?String(nPl):"";
       if(el("phTpStatus")) el("phTpStatus").value=r.consult==="in_session"?"in_progress":r.consult;
@@ -11276,8 +11328,8 @@ export function initApp(root: HTMLElement) {
           const n=Number(v.n)||Number(String(v.session||"").split("/")[0])||0;
           const label=n?(n+" / "+(Number(r.sessionsPlanned)||"—")):(v.session||"—");
           return '<tr><td class="mono">'+_btE(label)+'</td><td class="mono">'+v.date+'</td><td class="mono">'+(v.pain!=null?v.pain+'/10':'—')+'</td><td>'+(_btE(v.notes||"—"))+'</td></tr>';
-        }).join("")+'</tbody></table>';
-      } else { vh.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px">No visits recorded yet.</div>'; } }
+        }).join("")+'</tbody></table>'+_phVisitGapNote(r);
+      } else { vh.innerHTML='<div style="font-size:12px;color:var(--faint);padding:8px">No visits recorded yet.</div>'+_phVisitGapNote(r); } }
       const sp=root.querySelector("#phSoapPanel") as HTMLElement; if(sp) sp.style.display="block";
       sp?.scrollIntoView({behavior:"smooth"}); _phRenderAll();
     };
@@ -11286,6 +11338,9 @@ export function initApp(root: HTMLElement) {
     w._phStartSession=async(id:number)=>{ try{
       const r=_phAll.find((x:any)=>String(x.id)===String(id)); const pd=(r&&r.phData)||{};
       pd.started=true; if(!pd.started_at) pd.started_at=new Date().toISOString();
+      // Starting a session opens a NEW cycle: release the per-session completion guard (and the
+      // completed status it left behind) so finishing this one logs its own visit and increments.
+      delete pd._completed; if(pd.consult_status==="completed") delete pd.consult_status;
       await supabase.from("appointments").update({status:"visited",visited_at:(r&&r.raw&&r.raw.visited_at)||new Date().toISOString(),physio_data:pd}).eq("id",id);
       toast("Consultation started"); await loadPhysioData();
     }catch(e:any){ toastErr("Failed: "+(e.message||"")); } };
@@ -11294,11 +11349,18 @@ export function initApp(root: HTMLElement) {
     // queue already lists a visited patient with nothing collected yet, and _recPhysioDue below
     // gives it the amount to ask for. No new table, no new API.
     async function _phFinishConsult(r:any,extra?:(pd:any)=>void){
-      const pd=r.phData||{};
+      const pd=r.phData||(r.phData={});
       if(extra) extra(pd);
-      // Idempotent: a session counts + logs a visit exactly once (guards double-click and
-      // Complete-then-Save both bumping the counter / adding duplicate visit rows).
-      if(!pd._completed){ pd._completed=true; pd.sessions_completed=(Number(pd.sessions_completed)||0)+1;
+      // A session counts + logs a visit exactly once, but idempotency is PER SESSION, not per
+      // appointment. `_completed` is written into physio_data
+      // and was never cleared again, so after session 1 EVERY later completion was a silent no-op:
+      // no counter increment and — the reported bug — no new visit row, forever. Uban ended up with
+      // sessions_completed=3 and a single visit. The flag now guards only the session in progress
+      // (starting the next one clears it — see _phStartSession / _phSavePlan), and a visit already
+      // logged for this session number is the second guard against a double-click.
+      const _nextN=(Number(pd.sessions_completed)||0)+1;
+      const _alreadyLogged=(pd.visits||[]).some((v:any)=>Number(v.n)===_nextN);
+      if(!pd._completed&&!_alreadyLogged){ pd._completed=true; pd.sessions_completed=_nextN;
         // Store the session NUMBER (`n`). The "n/total" text is kept only so older builds still read
         // something sensible — the UI renders the total live from the plan, so a visit logged before
         // the plan existed stops being frozen as "1/?".
@@ -11373,8 +11435,10 @@ export function initApp(root: HTMLElement) {
         if(await _phFinishConsult(r)) toast("✓ Session details saved & consultation completed — "+r.name+" sent to Reception for payment");
         return;
       }
-      if(status==="in_progress"){ pd.started=true; if(pd.consult_status==="completed") delete pd.consult_status; }
-      if(status==="waiting"){ pd.started=false; delete pd.consult_status; }
+      // Moving OFF "Completed" starts the next session — release the per-session guard here too, or
+      // the following completion would silently log nothing (the bug this pairs with).
+      if(status==="in_progress"){ pd.started=true; delete pd._completed; if(pd.consult_status==="completed") delete pd.consult_status; }
+      if(status==="waiting"){ pd.started=false; delete pd._completed; delete pd.consult_status; }
       const patch:any={physio_data:pd};
       if(therapist) patch.hc_pt=therapist;
       if(status==="cancelled") patch.status="cancelled";
