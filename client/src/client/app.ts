@@ -5030,6 +5030,14 @@ export function initApp(root: HTMLElement) {
 
     // ========== BULK CSV IMPORT ==========
     const CSV_COLS=["Date & Time","Campaign","Ad Name","Lead Name","Phone Number","Sugar Poll","City","Street","Source","Service","Name"];
+    // Batch-level label for a CSV column: the single distinct value when the whole file agrees,
+    // "Mixed" when it doesn't, "—" when the column is empty. Used for the import-history batch row
+    // now that Source/Service are read per lead from the file instead of picked from a dropdown.
+    function _csvSummarise(rows:any[],key:string):string{
+      const vals:string[]=[];
+      (rows||[]).forEach((r:any)=>{ const v=String((r&&r[key])||"").trim(); if(v&&vals.indexOf(v)<0) vals.push(v); });
+      return vals.length===1?vals[0]:(vals.length?"Mixed":"—");
+    }
     let _csvParsed:any[]=[];            // rows parsed from the chosen file (pre-import)
     let _csvLeads:any[]=[];             // all imported rows from DB (valid + duplicate)
     let _csvBatches:any[]=[];           // import history from DB
@@ -5268,8 +5276,15 @@ export function initApp(root: HTMLElement) {
         const sel=(id:string)=>(root.querySelector(id)as HTMLSelectElement)?.value;
         const meta={
           file_name:(root.querySelector("#csvFileName")?.textContent)||"upload.csv",
-          batch_name:sel("#csvBatch")||"—",source:sel("#csvSource")||"Meta",
-          branch:sel("#csvBranch")||"—",service:sel("#csvService")||"Diabetes",
+          batch_name:sel("#csvBatch")||"—",
+          // Source / Service used to come from two dropdowns above the wizard. Those only ever
+          // labelled THIS batch row — the imported leads read source/service from the CSV itself
+          // (see toRow below) and nothing displays the batch-level values — so the dropdowns were
+          // removed as redundant with the Download-template columns. The columns are summarised
+          // from the file rather than dropped, so the batch record stays meaningful.
+          source:_csvSummarise(valid.concat(dup),"source"),
+          branch:sel("#csvBranch")||"—",
+          service:_csvSummarise(valid.concat(dup),"service"),
           imported_by:"ABM / Admin",
           total_records:valid.length+dup.length,valid_records:valid.length,duplicate_records:dup.length
         };
