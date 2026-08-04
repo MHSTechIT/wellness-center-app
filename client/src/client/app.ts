@@ -11813,7 +11813,12 @@ export function initApp(root: HTMLElement) {
       const oc=root.querySelector("#accOutCount"); if(oc) oc.textContent=outstanding.length?" · "+outstanding.length:"";
       const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
       // ---- Transactions tab: filtered + paginated, multi-select + download; sticky header via .tscroll ----
-      const allPaid=pays.filter((p:any)=>p.status==="paid"||p.amount>0);
+      // Transactions = money actually COLLECTED. The old `||p.amount>0` clause also matched `due`
+      // rows, so the installment-2 placeholder appeared here the moment installment 1 was collected —
+      // listed as a transaction on a payment nobody had made yet. Outstanding rows are not lost: the
+      // Outstanding tab renders every due row with its own Collect action, and the Outstanding KPI
+      // card already jumps to that tab.
+      const allPaid=pays.filter((p:any)=>p.status==="paid");
       const _txF=gridApply("accTx",allPaid.filter((p:any)=>_accTblMatch(p,_accTxQuery)));
       _accTxSel.forEach(id=>{ if(!_txF.some((p:any)=>String(p.id)===id)) _accTxSel.delete(id); });   // drop selections that filtered out
       const pages=Math.max(1,Math.ceil(_txF.length/ACC_PER)); if(_accTxPageN>pages)_accTxPageN=pages; if(_accTxPageN<1)_accTxPageN=1;
@@ -12022,7 +12027,7 @@ export function initApp(root: HTMLElement) {
       const tabBtn=root.querySelector('#accTabs button[data-t="'+tabKey+'"]') as HTMLElement|null; if(tabBtn) tabBtn.click();
     };
     w._accTxPage=(dir:any)=>{
-      const _txF=gridApply("accTx",_accFilteredPays().filter((p:any)=>(p.status==="paid"||p.amount>0)&&_accTblMatch(p,_accTxQuery)));
+      const _txF=gridApply("accTx",_accFilteredPays().filter((p:any)=>p.status==="paid"&&_accTblMatch(p,_accTxQuery)));   // paid-only, same rule as the render above
       const pages=Math.max(1,Math.ceil(_txF.length/ACC_PER));
       if(dir==="first") _accTxPageN=1; else if(dir==="last") _accTxPageN=pages;
       else _accTxPageN=Math.min(pages,Math.max(1,_accTxPageN+Number(dir)));
@@ -12036,7 +12041,7 @@ export function initApp(root: HTMLElement) {
       const si=root.querySelector("#accTxSelInfo"); if(si) si.textContent=_accTxSel.size?(_accTxSel.size+" selected"):""; };
     w._accTxDownload=()=>{
       const rows=_accFilteredPays().filter((p:any)=>_accTxSel.has(String(p.id)));
-      const src=rows.length?rows:_accFilteredPays().filter((p:any)=>p.status==="paid"||p.amount>0);
+      const src=rows.length?rows:_accFilteredPays().filter((p:any)=>p.status==="paid");   // the CSV must match what the table shows
       if(!src.length){ toast("Nothing to download"); return; }
       const out:string[][]=[["Date & Time","Client","Phone","Service","Payment Method","Txn Ref / UTR","EMI Subvention","Net Amount","Status","Verified By","Verified Date & Time"]];
       src.forEach((p:any)=>{ const sub=p.emi_subvention||0; out.push([_accDT(p),p.clientName||"",p.clientPhone||"",p.service||"",(p.payment_type||"full")+" · "+(p.method||""),p.txn_ref||"",String(sub),String((p.amount||0)-sub),p.verified?"Verified":"Unverified",p.verified_by||"",p.verified_at?fmtIST(p.verified_at):""]); });
