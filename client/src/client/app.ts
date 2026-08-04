@@ -4971,6 +4971,14 @@ export function initApp(root: HTMLElement) {
       if(scr==="bloodtest"&&(table==="appointments"||table==="payments"||table==="bt_orders"||table==="bt_tests")){ try{ loadBloodTestData(); }catch(_){} }
       // Pricing-master edits propagate to every device (card + payment defaults), whatever screen is up.
       if(table==="physio_pricing"){ try{ loadPhysioPricing(); }catch(_){} }
+      // Screening / Accounts / Lead import / Reports were the remaining screens with NO live refresh —
+      // a save made anywhere (check-in, payment, verification, CSV promotion) only appeared after a
+      // manual reload ("data shows only after refresh"). Same active-screen pattern as the rest:
+      // inactive screens keep re-reading on nav-click as they always did.
+      if(scr==="screening"&&(table==="appointments"||table==="payments"||table==="leads")){ try{ loadScreeningData(); }catch(_){} }
+      if(scr==="accounts"&&(table==="payments"||table==="appointments"||table==="leads")){ try{ loadAccountsData(); }catch(_){} }
+      if(scr==="import"&&(table==="csv_leads"||table==="csv_import_batches"||table==="leads")){ try{ loadCsvData(); }catch(_){} try{ loadOtherSourceLeads().then(()=>{ rebuildIMP(); renderImport(); }); }catch(_){} }
+      if(scr==="reports"&&(table==="payments"||table==="appointments"||table==="leads")){ try{ loadReportsData(); }catch(_){} }
     };
     let _sse:any=null; const _sseT:Record<string,any>={};
     try{
@@ -5908,6 +5916,11 @@ export function initApp(root: HTMLElement) {
     // IST date, robust to both 'YYYY-MM-DD' and full-ISO timestamps (the /db gateway
     // returns DATE columns as UTC ISO). Format: DD MMM YYYY (e.g. 06 Jul 2026).
     function _recFmtDate(d:string){ return fmtISTDate(d); }
+    // Calendar day in IST ("2026-08-04"). slice(0,10) on the raw ISO is the UTC day — wrong for the
+    // appt_date timestamps stored as IST-midnight (…T18:30:00Z is already the NEXT day in IST).
+    const _istDay=(iso:any)=>{ try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(iso)); }catch(_){ return String(iso||"").slice(0,10); } };
+    // Minutes-into-day for a slot label ("2:00 PM" → 840) so same-day rows sort chronologically.
+    const _apptTimeMin=(t:string)=>{ const m=String(t||"").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i); if(!m) return 0; let h=Number(m[1])%12; if(/pm/i.test(m[3])) h+=12; return h*60+Number(m[2]); };
     async function loadReceptionData(){
       try{
         const [ar,pr,cr]=await Promise.all([
@@ -6019,9 +6032,34 @@ export function initApp(root: HTMLElement) {
           const stageChips=_codes.map(_chipFor).filter((x:any)=>x&&x.t);
           // Primary chip stays the DISPLAY journey's one, so anything reading stageChip is unchanged.
           const stageChip:{t:string;c:string}=_chipFor(_dispCode).t?_chipFor(_dispCode):(stageChips[0]||{t:"",c:"neu"});
+          // The row's date (Date·time column AND the page's Today/Week/Between-dates buckets): an
+          // ENROLLED lead is dated by when the enrolling payment landed, not by the earlier visit —
+          // a client who visited 01-08 and paid/enrolled today belongs under Today (reported: the
+          // enrolment was invisible under Today because the row still carried the visit date). Taking
+          // the LATER of the two keeps the normal case intact: a fresh appointment for a long-enrolled
+          // client must not jump back to the old enrolled_at date.
+          const _enrIso=_enrAtById[String(a.lead_id)]||"";
+          const _enrDay=_isEnrolled&&_enrIso?_istDay(_enrIso):"";
+          const _apDay=a.appt_date?_istDay(a.appt_date):"";
+          // Date · time shows when things actually HAPPENED, in this order:
+          //   1. enrolled → the enrolling payment's instant (incl. same-day: "take the paid date");
+          //   2. visited  → the check-in instant (visited_at) — the client already came, so showing
+          //      the booked slot reads as the FUTURE ("3:00 PM" on a Paid row at 2:30, reported for
+          //      renu — 3:00 was her slot, not anything that occurred);
+          //   3. otherwise (expected / future booking) → the booked slot, unchanged.
+          // An enrolment on an EARLIER day than the appointment falls through to the visit instant,
+          // so a new appointment for an already-enrolled client keeps its own timing.
+          const _enrDated=(_enrDay&&_apDay&&_enrDay>=_apDay)?true:false;
+          const _visIso=(a.status==="visited"&&a.visited_at)?String(a.visited_at):"";
+          const _rowIso=_enrDated?_enrIso:_visIso;
+          const _recRowDate=_rowIso||a.appt_date;
+          const _rowTime=_rowIso?fmtISTTime(_rowIso):(a.appt_time||"");
+          // One REAL timestamp per row so the table sorts newest-first (appt_date alone has no time,
+          // which is why same-day rows appeared in arbitrary order).
+          const _sortTs=_rowIso?(Date.parse(_rowIso)||0):(_apDay?((Date.parse(_apDay+"T00:00:00+05:30")||0)+_apptTimeMin(a.appt_time)*60000):0);
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabelMulti(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
-          _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
+          _date:_recRowDate, date:_recFmtDate(_recRowDate), time:_rowTime, _sortTs, hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, stageChips, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           // What Reception should ask a physio patient for once the consultation is done: the pack /
@@ -6035,6 +6073,10 @@ export function initApp(root: HTMLElement) {
           physioConsultDone:_physioDone,
           sugar:"",hba1c:"",priority:"",prob:"",eligibility:"",advisor:"",consultStatus:_cs,bmi:"",bp:"",assessment:"" };
         });
+        // Newest first, by the row's REAL instant (paid time for enrolled-dated rows, day+slot for
+        // the rest). The query's appt_date-only ordering left same-day rows in arbitrary order and
+        // never re-sorted rows that were re-dated by their enrolling payment.
+        _recAll.sort((a:any,b:any)=>(Number(b._sortTs)||0)-(Number(a._sortTs)||0));
       }catch(e:any){ _recAll=[]; toastErr("Reception load failed — check your connection"); }
       applyRecDate();
       try{ loadZoomCheckins(); }catch(_){}
@@ -6145,6 +6187,7 @@ export function initApp(root: HTMLElement) {
         if (curScFilter === "cancelled") return r.status === "cancelled";
         if (curScFilter === "paydue") return r.payStatus === "due";
         if (curScFilter === "enrolled") return r.stage === "enrolled";
+        if (curScFilter === "inst2") return _recInst2Pending(r);   // installment 1 paid, 2 outstanding
         return true;
       });
       return d;
@@ -6172,14 +6215,23 @@ export function initApp(root: HTMLElement) {
       const rs = root.querySelector("#revSvc");
       if (rs) rs.innerHTML = Object.entries(bySvc).map(([k,v]) => '<div><div style="font-size:9px;color:var(--faint);font-weight:600">'+(SVC_LABELS[k]||k).toUpperCase()+'</div><div class="mono" style="font-weight:700">₹'+v.toLocaleString("en-IN")+'</div></div>').join("");
     }
+    // Installment-plan state for a Reception row: installment 1 collected but installment 2 not yet
+    // (the balance Reception still has to chase). Reads the SAME per-lead installment aggregation
+    // (_recInst → r.inst) the drawer's installment block shows, so the card and the drawer agree.
+    function _recInst2Pending(r:any):boolean{
+      const o=r&&r.inst;
+      return !!(o&&o.inst1&&o.inst1.status==="paid"&&!(o.inst2&&o.inst2.status==="paid"));
+    }
     function renderSc() {
       const f = curSvc === "all" ? RX : RX.filter((r) => _recSvcPass(r.serviceRaw, curSvc));
-      const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0 };
+      const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0,inst2:0 };
       const enrolledLeads=new Set<string>();   // Enrolled is a LEAD fact, not an appointment fact — a
       // lead with 2+ appointments (any reschedule) must only count once, same root cause as renderRev.
-      f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)enrolledLeads.add(String(r.lead_id||r.id)); });
+      const inst2Leads=new Set<string>();      // same rule: installment state lives on the LEAD
+      f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)enrolledLeads.add(String(r.lead_id||r.id)); if(_recInst2Pending(r))inst2Leads.add(String(r.lead_id||r.id)); });
       c.enrolled=enrolledLeads.size;
-      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"noshow",l:"No show",v:c.noshow,c:"r"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"}];
+      c.inst2=inst2Leads.size;
+      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"noshow",l:"No show",v:c.noshow,c:"r"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"},{k:"inst2",l:"Instalment 2 pending",v:c.inst2,c:"a"}];
       const el = root.querySelector("#scCards");
       if (el) el.innerHTML = cards.map((x) => '<div class="metric '+x.c+'" style="cursor:pointer;'+(curScFilter===x.k?'outline:2.5px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._scClick(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
     }
@@ -6269,7 +6321,7 @@ export function initApp(root: HTMLElement) {
         // the row the Collect button should attach the payment to).
         const _seenPay=new Set<string>();
         const due=_recAll.slice()
-          .sort((a:any,b:any)=>String(b._date||"").localeCompare(String(a._date||"")))
+          .sort((a:any,b:any)=>(Number(b._sortTs)||0)-(Number(a._sortTs)||0))   // most recent first, same real-instant key as the table
           .filter((r:any)=>{
             if(!(r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"))) return false;
             const k=String(r.lead_id||r.id); if(_seenPay.has(k)) return false; _seenPay.add(k); return true;
@@ -11562,7 +11614,6 @@ export function initApp(root: HTMLElement) {
       PH_ASSESS_FIELDS.forEach(([id,key])=>{ const e2=el(id); if(e2) e2.value=asm[key]||""; });
       if(el("phPain")) el("phPain").value=r.painLevel!=null?String(r.painLevel):"";
       if(el("phCondition")) el("phCondition").value=r.condition;
-      if(el("phNextDate")) el("phNextDate").value=r.nextDate?String(r.nextDate).slice(0,10):"";
       // ---- Physiotherapy Session Details ----
       // Therapist dropdown: active Physiotherapist assignees ∪ the standing names ∪ whatever is
       // already stored on the appointment (so a legacy value like "Ganesh (PT)" still shows selected).
@@ -11661,7 +11712,8 @@ export function initApp(root: HTMLElement) {
       // "Health condition" column and the visit history's Pain column read them there.
       pd.pain_level=Math.max(0,Math.min(10,Number(v("phPain"))||0));   // clamp to the 1–10 scale
       pd.condition=v("phCondition");
-      pd.next_session=v("phNextDate")||"";
+      // next_session is owned by the Session Details panel (#phTpNext, saved in _phSavePlan) —
+      // the assessment form no longer carries the field, so it must not write (or blank) it here.
     }
     w._phSaveNotes=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;}
@@ -11746,7 +11798,7 @@ export function initApp(root: HTMLElement) {
         +grp("Medical assessment")+medical.map(([id,,label])=>row(label,v(id))).join("")
         +row("Pain intensity",v("phPain")?v("phPain")+"/10":"")
         +row("Health condition",v("phCondition"))
-        +row("Next session",v("phNextDate"))
+        +row("Next session",v("phTpNext"))
         +'</table></body></html>');
       win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
     };

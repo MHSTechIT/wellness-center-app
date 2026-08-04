@@ -1278,8 +1278,9 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="phaTreatment">Treatment plan</label><textarea class="area" id="phaTreatment" rows="2" placeholder="Modalities, exercises, home program…"></textarea></div>
             </div>
             <div class="g4" style="margin-top:6px">
+              <!-- "Next session" was removed here on request — the Session Details panel below owns
+                   the next-session date (#phTpNext); two inputs for one field meant the last save won. -->
               <div class="fld"><label class="lbl" for="phCondition">Health condition</label><input class="input" id="phCondition" placeholder="Shown in the Sessions table"></div>
-              <div class="fld"><label class="lbl" for="phNextDate">Next session</label><input class="input" type="date" id="phNextDate" data-future="1"></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"></use></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"></use></svg> Complete consultation</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
             <p style="font-size:11px;color:var(--faint);margin-top:6px">Completing the consultation sends this patient to Reception &rarr; Collect payment. The payment status then shows on both pages.</p>
@@ -1306,7 +1307,7 @@ export function getMainContent(): string {
             <div class="fld fw" style="margin-top:6px"><label class="lbl" for="phTpNotes">Session notes</label><textarea class="area" id="phTpNotes" rows="2" placeholder="Optional therapist notes…"></textarea></div>
             <div class="fld fw"><label class="lbl">Visit history</label>
               <div id="phVisitHistory"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">Open a patient to see visit history.</div></div></div>
-            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"></use></svg> Save session details</button><button class="btn" onclick="window._phCollectPay()">💰 Collect payment</button></div>
+            <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"></use></svg> Save session details</button><!-- "Collect payment" removed on request: collection happens at Reception (the completed consultation surfaces the amount in its Collect queue) — window._phCollectPay stays defined for any stale markup. --></div>
           </div></div>
         </div>
       </div>
