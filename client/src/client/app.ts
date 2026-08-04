@@ -123,14 +123,14 @@ export function initApp(root: HTMLElement) {
 
     const MODULES_LIST=[
       {key:"advisor",label:"Health advisor"},{key:"coach",label:"Health coach"},
-      {key:"import",label:"Lead import"},{key:"abm",label:"Assign & approve"},
+      {key:"import",label:"Lead import"},{key:"metaleads",label:"Meta leads"},{key:"abm",label:"Assign & approve"},
       {key:"reception",label:"Reception"},{key:"screening",label:"Screening"},
       {key:"bloodtest",label:"Blood test"},{key:"physio",label:"Physiotherapy"},
       {key:"recordings",label:"Recordings"},
       {key:"accounts",label:"Accounts"},{key:"reports",label:"Reports"},
       {key:"admin",label:"Settings"}
     ];
-    const FULL_ACCESS=["advisor","coach","import","abm","reception","screening","bloodtest","physio","recordings","accounts","reports","admin"];
+    const FULL_ACCESS=["advisor","coach","import","metaleads","abm","reception","screening","bloodtest","physio","recordings","accounts","reports","admin"];
 
     // ===== Services & roles master (org_services / org_roles / org_role_services) =====
     // These three lists replace what used to be hardcoded arrays here: RBAC_ROLES (the frozen
@@ -4878,7 +4878,10 @@ export function initApp(root: HTMLElement) {
       if(statusEl) statusEl.textContent="Syncing from Meta — crawling forms & filtering to your ad accounts…";
       toast("Meta sync started — this can take ~2 minutes");
       try{
-        const res=await fetch(_api("/api/meta/sync"),{method:"POST",headers:authHeaders()});
+        // force=1: an operator explicitly asked for a sync, so it bypasses the server's shared
+        // minimum interval (which exists to stop the per-tab auto-sync from crawling Meta every
+        // minute and exhausting the app-level API quota).
+        const res=await fetch(_api("/api/meta/sync?force=1"),{method:"POST",headers:authHeaders()});
         const data=await res.json();
         if(data.error){
           toast("Sync failed: "+data.error);
@@ -4979,6 +4982,7 @@ export function initApp(root: HTMLElement) {
       if(scr==="accounts"&&(table==="payments"||table==="appointments"||table==="leads")){ try{ loadAccountsData(); }catch(_){} }
       if(scr==="import"&&(table==="csv_leads"||table==="csv_import_batches"||table==="leads")){ try{ loadCsvData(); }catch(_){} try{ loadOtherSourceLeads().then(()=>{ rebuildIMP(); renderImport(); }); }catch(_){} }
       if(scr==="reports"&&(table==="payments"||table==="appointments"||table==="leads")){ try{ loadReportsData(); }catch(_){} }
+      if(scr==="metaleads"&&table==="leads"){ try{ loadMetaLeadsData(); }catch(_){} }
     };
     let _sse:any=null; const _sseT:Record<string,any>={};
     try{
@@ -9593,6 +9597,7 @@ export function initApp(root: HTMLElement) {
     // Does client c belong in the given dashboard card / kanban column / status-filter value?
     // Exact match, EXCEPT the two Enrolled cards use MEMBERSHIP so an L1 + L2 client counts in BOTH.
     function _coachConsMatch(c:any,label:string){
+      if(label==="Instalment 2 pending") return _coachInst2Pending(c);   // payment state, not a consStatus
       const s=_coachConsOf(c);
       if(/^Enrolled\s*[–-]\s*L/i.test(label)){
         if(!/enrol/i.test(s)) return false;
@@ -9649,8 +9654,26 @@ export function initApp(root: HTMLElement) {
     w._coachCliSearch=()=>{ if(_coachSearchT)clearTimeout(_coachSearchT); _coachSearchT=setTimeout(()=>{ _coachQuery=(root.querySelector("#coCliSearch")as HTMLInputElement)?.value||""; _coachCliPage=1; const top=root.querySelector("#coSearch")as HTMLInputElement|null; if(top)top.value=_coachQuery; renderCoachOpenList(); },180); };
     w._coachToggleView=(v:string)=>{ _coachView=v; renderCoachOpenList(); };
     // ===== Health Coach dashboard cards (by consultation status) + Visited-clients table =====
-    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund"];
+    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund","Instalment 2 pending"];
     let _coachDashSel="";
+    // "Instalment 2 pending" is a PAYMENT state, not a consultation status: installment 1 collected
+    // for some program but installment 2 not yet. Derived from the same guarded per-lead program
+    // aggregation everything else uses (_progPayByLead — BT/Physio fees never count), so this card,
+    // Reception's card and the enrollment labels always agree.
+    function _coachInst2Pending(c:any){
+      const m=_progPayByLead[String(c.id)]||{};
+      return Object.keys(m).some(k=>{ const o=m[k]; return !!(o&&o.inst1Paid&&!o.inst2Paid); });
+    }
+    // The pending detail shown when the card is selected: program(s) awaiting installment 2 plus
+    // the outstanding balance / next due date from the shared installment aggregation (_recInst).
+    function _coachInst2Detail(c:any):string{
+      const m=_progPayByLead[String(c.id)]||{};
+      const progs=Object.keys(m).filter(k=>{ const o=m[k]; return !!(o&&o.inst1Paid&&!o.inst2Paid); });
+      const inst=(_recInst||{})[String(c.id)];
+      const bal=inst&&inst.balance?("₹"+Number(inst.balance).toLocaleString("en-IN")+" due"):"Instalment 2 due";
+      const when=inst&&inst.dueDate?(" by "+fmtISTDate(inst.dueDate)):"";
+      return (progs.join(" + ")||"—")+" · "+bal+when;
+    }
     function renderCoachDash(){
       const el=root.querySelector("#coachDash"); if(!el) return;
       const list=_coachFiltered();   // cards reflect the applied filter bar (NOT the card selection)
@@ -9660,6 +9683,7 @@ export function initApp(root: HTMLElement) {
         if(/^Enrolled\s*[–-]\s*L/i.test(s)){ if(/l1/i.test(s)) counts["Enrolled – L1"]=(counts["Enrolled – L1"]||0)+1; if(/l2/i.test(s)) counts["Enrolled – L2"]=(counts["Enrolled – L2"]||0)+1; }
         else counts[s]=(counts[s]||0)+1;
       });
+      counts["Instalment 2 pending"]=list.filter(_coachInst2Pending).length;   // payment state, orthogonal to consStatus
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       el.innerHTML=_coachStatusCards.map(l=>{
         const on=_coachDashSel===l;
@@ -9674,6 +9698,8 @@ export function initApp(root: HTMLElement) {
     const COACH_CLI_PER=12; let _coachCliPage=1;
     // The Commitment Date column appears only for the follow-up statuses that use it.
     function _showCommitCol(){ return ["This Week","End of Month","Next Month"].indexOf(_coachDashSel)>=0; }
+    // The Pending Installment column appears only while the "Instalment 2 pending" card is selected.
+    function _showInst2Col(){ return _coachDashSel==="Instalment 2 pending"; }
     function _coachCommitOf(c:any){ const d=c&&c.coachProfile&&c.coachProfile.commitDate; return d?fmtISTDate(d):"—"; }
     function _coachCliColsFn(){
       const cols:any[]=[
@@ -9688,6 +9714,8 @@ export function initApp(root: HTMLElement) {
       ];
       // Insert "Commitment Date" immediately AFTER Consultation Status for the three plan statuses.
       if(_showCommitCol()){ const i=cols.findIndex((c:any)=>c.key==="cons"); cols.splice(i+1,0,{key:"commit",label:"Commitment Date",filter:true,text:(c:any)=>_coachCommitOf(c)}); }
+      // Insert "Pending Installment" (program · balance · due date) while that card is selected.
+      if(_showInst2Col()){ const i=cols.findIndex((c:any)=>c.key==="cons"); cols.splice(i+1,0,{key:"inst2",label:"Pending Installment",filter:true,text:(c:any)=>_coachInst2Detail(c)}); }
       return cols;
     }
     regGrid("coachClients",_coachCliColsFn,()=>renderCoachClientsTable());
@@ -9711,9 +9739,10 @@ export function initApp(root: HTMLElement) {
           +'<td>'+e(c.hc||"—")+'</td>'
           +'<td><span class="chipb neu">'+e(_coachConsOf(c))+'</span></td>'
           +(_showCommitCol()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachCommitOf(c))+'</td>'):'')
+          +(_showInst2Col()?('<td style="font-size:11.5px;white-space:nowrap"><span class="chipb warn">'+e(_coachInst2Detail(c))+'</span></td>'):'')
           +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(c.visitedAt))+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._coachOpen(\''+e(String(c.id))+'\')">Open</button></td></tr>';
-      }).join(""):'<tr><td colspan="'+(_showCommitCol()?9:8)+'" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
+      }).join(""):'<tr><td colspan="'+((_showCommitCol()||_showInst2Col())?9:8)+'" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
       const info=root.querySelector("#coachCliPageInfo"); if(info)info.textContent="Page "+_coachCliPage+" of "+pages;
       _pgBtns("coachCli",_coachCliPage,pages);
     }
@@ -12362,6 +12391,92 @@ export function initApp(root: HTMLElement) {
       audit:["period","leads","vis","enr","hafDone","recDone","fuSched","payCol"],
     };
 
+    // ===== META LEADS PAGE =====
+    // Reads the SYNCED Meta leads out of our own `leads` table (source "Meta Ads"/"Meta"), so it
+    // answers "did this account/campaign/form actually deliver?" without another Graph call — the
+    // sync is the single writer, this page is a read-only lens on it. ad_account_name is populated
+    // by the ad-account attribution pass; while that crawl is blocked the Ad-account selector shows
+    // "Unattributed", which is itself the signal that attribution is not running.
+    let _mlAll:any[]=[], _mlPageN=1; const ML_PER=25;
+    async function loadMetaLeadsData(){
+      try{
+        const {data,error}=await supabase.from("leads")
+          .select("meta_lead_id,name,phone,source,service,campaign,ad_name,form_name,ad_account_id,ad_account_name,lead_date,created_at,is_valid,is_duplicate,is_assigned,assigned_to")
+          .in("source",["Meta Ads","Meta"]).order("created_at",{ascending:false}).limit(5000);
+        if(error) throw error;
+        _mlAll=(data||[]).map((r:any)=>({...r, _d:new Date(r.created_at||r.lead_date)}));
+      }catch(_){ _mlAll=[]; }
+      _mlFillSelects(); try{ w._mlRender(); }catch(_){}
+    }
+    const _mlVal=(id:string)=>((root.querySelector("#"+id)as HTMLSelectElement|null)?.value)||"all";
+    function _mlFillSelects(){
+      // Options come from the DATA, so a new campaign/form appears the moment its first lead lands.
+      const fill=(id:string,vals:string[],allLbl:string)=>{ const el=root.querySelector("#"+id)as HTMLSelectElement|null; if(!el) return;
+        const cur=el.value; el.innerHTML='<option value="all">'+allLbl+'</option>'+vals.map(v=>'<option>'+_orgEsc(v)+'</option>').join("");
+        if(cur&&Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
+      const uniq=(f:(r:any)=>string)=>Array.from(new Set(_mlAll.map(f).map(s=>String(s||"").trim()).filter(Boolean))).sort();
+      fill("mlAcct",uniq((r:any)=>r.ad_account_name||(r.ad_account_id?String(r.ad_account_id):"")),"All ad accounts");
+      fill("mlCampaign",uniq((r:any)=>r.campaign),"All campaigns");
+      fill("mlForm",uniq((r:any)=>r.form_name),"All forms");
+    }
+    function _mlFiltered(){
+      const acct=_mlVal("mlAcct"), camp=_mlVal("mlCampaign"), form=_mlVal("mlForm"), rng=_mlVal("mlRange");
+      const q=String(((root.querySelector("#mlSearch")as HTMLInputElement|null)?.value)||"").trim().toLowerCase();
+      const now=Date.now(); const cut=rng==="today"?0:(rng==="7d"?7:rng==="30d"?30:0);
+      const todayIST=_istDay(new Date().toISOString());
+      return _mlAll.filter((r:any)=>{
+        if(acct!=="all"&&String(r.ad_account_name||r.ad_account_id||"").trim()!==acct) return false;
+        if(camp!=="all"&&String(r.campaign||"").trim()!==camp) return false;
+        if(form!=="all"&&String(r.form_name||"").trim()!==form) return false;
+        if(rng==="today"){ if(_istDay(r._d.toISOString())!==todayIST) return false; }
+        else if(cut){ if(!(r._d.getTime()>=now-cut*86400000)) return false; }
+        if(q){ const hay=[r.name,r.phone,r.campaign,r.ad_name,r.form_name,r.service].map((v:any)=>String(v||"").toLowerCase()).join(" "); if(hay.indexOf(q)<0) return false; }
+        return true;
+      });
+    }
+    w._mlRender=()=>{
+      const f=_mlFiltered(); const e=(s:any)=>_orgEsc(String(s??""));
+      const todayIST=_istDay(new Date().toISOString());
+      const today=f.filter((r:any)=>_istDay(r._d.toISOString())===todayIST).length;
+      const valid=f.filter((r:any)=>!!r.is_valid).length, dup=f.filter((r:any)=>!!r.is_duplicate).length;
+      const asg=f.filter((r:any)=>!!r.is_assigned).length;
+      const cards=[{l:"Leads",v:f.length,c:"g"},{l:"Today",v:today,c:"g"},{l:"Valid",v:valid,c:""},{l:"Duplicate",v:dup,c:dup?"a":""},{l:"Assigned",v:asg,c:"g"},{l:"Unassigned",v:Math.max(0,valid-dup-asg),c:"a"}];
+      const mel=root.querySelector("#mlMetrics"); if(mel) mel.innerHTML=cards.map(x=>'<div class="metric '+x.c+'"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
+      const cnt=root.querySelector("#mlCount"); if(cnt) cnt.textContent=String(f.length);
+      const pages=Math.max(1,Math.ceil(f.length/ML_PER)); if(_mlPageN>pages)_mlPageN=pages; if(_mlPageN<1)_mlPageN=1;
+      const rows=f.slice((_mlPageN-1)*ML_PER,_mlPageN*ML_PER);
+      const wrap=root.querySelector("#mlTableWrap");
+      if(wrap) wrap.innerHTML='<div class="tscroll"><table class="tbl" style="min-width:1080px"><thead><tr>'
+        +'<th>Date &amp; time (IST)</th><th>Lead</th><th>Phone</th><th>Ad account</th><th>Campaign</th><th>Ad</th><th>Form</th><th>Service</th><th>Status</th></tr></thead><tbody>'
+        +(rows.length?rows.map((r:any)=>'<tr>'
+          +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(fmtIST(r.created_at||r.lead_date))+'</td>'
+          +'<td style="font-weight:600">'+e(r.name||"—")+'</td><td class="mono">'+e(r.phone||"—")+'</td>'
+          +'<td>'+(r.ad_account_name?e(r.ad_account_name):'<span style="color:var(--faint)">Unattributed</span>')+'</td>'
+          +'<td>'+e(r.campaign||"—")+'</td><td>'+e(r.ad_name||"—")+'</td><td>'+e(r.form_name||"—")+'</td><td>'+e(r.service||"—")+'</td>'
+          +'<td>'+(r.is_duplicate?'<span class="chipb warn">Duplicate</span>':(r.is_valid?'<span class="chipb ok">Valid</span>':'<span class="chipb al">Invalid</span>'))
+          +(r.is_assigned?' <span class="chipb info">Assigned</span>':'')+'</td></tr>').join("")
+          :'<tr><td colspan="9" style="text-align:center;color:var(--faint);padding:20px">No Meta leads match these filters.</td></tr>')
+        +'</tbody></table></div>';
+      const pi=root.querySelector("#mlPageInfo"); if(pi) pi.textContent="Page "+_mlPageN+" of "+pages;
+      // Breakdown — which campaign actually delivered, within the current filters.
+      const by:Record<string,number>={}; f.forEach((r:any)=>{ const k=String(r.campaign||"(no campaign)").trim()||"(no campaign)"; by[k]=(by[k]||0)+1; });
+      const bd=root.querySelector("#mlBreakdown");
+      const ent=Object.entries(by).sort((a,b)=>b[1]-a[1]).slice(0,25);
+      if(bd) bd.innerHTML=ent.length?'<table class="tbl"><tbody>'+ent.map(([k,n])=>'<tr><td style="font-weight:600">'+e(k)+'</td><td class="mono" style="text-align:right">'+n+'</td></tr>').join("")+'</tbody></table>':'<div style="text-align:center;color:var(--faint);padding:10px;font-size:12px">—</div>';
+      // Attribution notice: every row unattributed means the ad-account crawl isn't running.
+      const si=root.querySelector("#mlSyncInfo");
+      if(si){ const noAcct=_mlAll.length&&_mlAll.every((r:any)=>!r.ad_account_name);
+        si.innerHTML=_mlAll.length?(noAcct?'⚠ No ad-account attribution on any lead — the Meta ad-account crawl is not returning data (check the tokens), so the Ad account filter cannot narrow anything yet.':(_mlAll.length+' Meta leads synced')):'No Meta leads synced yet.'; }
+    };
+    w._mlPage=(d:string)=>{ const pages=Math.max(1,Math.ceil(_mlFiltered().length/ML_PER));
+      _mlPageN=d==="first"?1:d==="last"?pages:d==="next"?Math.min(pages,_mlPageN+1):Math.max(1,_mlPageN-1); w._mlRender(); };
+    w._mlReload=()=>{ loadMetaLeadsData(); toast("Refreshed"); };
+    w._mlExport=()=>{
+      const f=_mlFiltered();
+      const out:string[][]=[["Date & time (IST)","Lead","Phone","Ad account","Campaign","Ad","Form","Service","Valid","Duplicate","Assigned","Assigned to"]];
+      f.forEach((r:any)=>out.push([fmtIST(r.created_at||r.lead_date),r.name||"",r.phone||"",r.ad_account_name||"",r.campaign||"",r.ad_name||"",r.form_name||"",r.service||"",r.is_valid?"Yes":"No",r.is_duplicate?"Yes":"No",r.is_assigned?"Yes":"No",r.assigned_to||""]));
+      _downloadCsv("meta_leads.csv",out); toast("Exported "+f.length+" lead"+(f.length===1?"":"s"));
+    };
     async function loadReportsData(){
       try{
         const [lr,ar,pr,rr]=await Promise.all([
@@ -12824,6 +12939,8 @@ export function initApp(root: HTMLElement) {
       if(phNav) phNav.addEventListener("click",()=>{ loadPhysioData(); });
       const accNav=root.querySelector('#nav button[data-s="accounts"]')as HTMLButtonElement|null;
       if(accNav) accNav.addEventListener("click",()=>{ loadAccountsData(); });
+      const mlNav=root.querySelector('#nav button[data-s="metaleads"]')as HTMLButtonElement|null;
+      if(mlNav) mlNav.addEventListener("click",()=>{ loadMetaLeadsData(); });
       const repNav=root.querySelector('#nav button[data-s="reports"]')as HTMLButtonElement|null;
       if(repNav) repNav.addEventListener("click",()=>{ loadReportsData(); });
       const devTabBtn=root.querySelector('#abmTabs button[data-t="dev"]')as HTMLButtonElement|null;

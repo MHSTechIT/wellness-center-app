@@ -343,9 +343,18 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
       if (l.adAccountId) attrMap.set(l.id, { id: l.adAccountId, name: l.adAccountName });
     });
 
-    // Only the allowlisted forms' leads are synced. The ad-account crawl is used
-    // SOLELY for attribution (attrMap above) — it must NOT add leads from other forms.
+    // Leads come from BOTH crawls:
+    //   • the allowlisted page forms (the real-time stream), and
+    //   • every ad in the TARGET ad accounts, whatever lead form it uses.
+    // The ad-account crawl used to be attribution-only, which capped the sync at the four
+    // allowlisted forms: an account whose campaigns run other Instant Forms delivered leads that
+    // never reached the CRM at all (reported — Meta showed 28 leads for MHS Ad Account (2024) on a
+    // day the CRM had 17, the gap being campaigns like "01/08/2026 DW AD" whose forms are not on
+    // the allowlist). Ad-account leads are already scoped to META_TARGET_AD_ACCOUNTS, so this adds
+    // exactly the target accounts' own leads — not every form on every page.
+    // Form-crawl rows win on collision: they carry the richer page-form field data.
     const byId = new Map<string, any>();
+    adCrawl.leads.forEach((l: any) => byId.set(l.id, l));
     formCrawl.leads.forEach((l: any) => byId.set(l.id, l));
 
     // Sort oldest-first so duplicate-phone detection keeps the earliest as unique.
@@ -403,8 +412,13 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     // pruned every never-worked Meta lead in the table. /api/meta/sync is also reachable on demand
     // (now behind requireAuth, but still callable by any signed-in session), so this crawl-health
     // gate is what actually stops a bad run from being destructive, not just unlikely.
+    // The ad-account crawl now CONTRIBUTES leads, so its health gates pruning too. Without this a
+    // blocked/rate-limited ad-account run would look like "those leads are gone" and delete every
+    // never-worked lead that only the ad-account crawl can see.
+    const adCrawlHealthy = adAccountIds.length === 0
+      || (adCrawl.blockedAccounts.length === 0 && adCrawl.adErrors === 0 && adCrawl.accessibleAccounts.length > 0);
     let crawlHealthy = formCrawl.formErrors === 0 && formCrawl.pageErrors.length === 0
-      && pageIds.length > 0 && formCrawl.formsScanned > 0;
+      && pageIds.length > 0 && formCrawl.formsScanned > 0 && adCrawlHealthy;
 
     // COMPLETENESS GATE — the fix for "Total Leads keeps dropping".
     // An error-free crawl is NOT the same as a complete one. Meta's Graph API legitimately returns

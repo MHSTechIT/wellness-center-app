@@ -579,6 +579,34 @@ export function getMainContent(): string {
   </div></section>
 
   <!-- LEAD IMPORT -->
+  <!-- ===== META LEADS — pick an ad account / campaign / form and see exactly what arrived ===== -->
+  <section class="screen" id="s-metaleads"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
+    <div class="ph"><div><h1>Meta leads</h1><p>Every lead captured from Meta — filter by ad account, campaign or form to check what is coming in.</p></div>
+      <div class="pha"><button class="btn" onclick="window._mlExport()">⬇ Export</button><button class="btn bp" onclick="window._mlReload()">↻ Refresh</button></div></div>
+    <div class="sec" style="margin-bottom:12px"><div class="sec-bd">
+      <div class="g4">
+        <div class="fld"><label class="lbl" for="mlAcct">Ad account</label><select class="select" id="mlAcct" onchange="window._mlRender()"><option value="all">All ad accounts</option></select></div>
+        <div class="fld"><label class="lbl" for="mlCampaign">Campaign</label><select class="select" id="mlCampaign" onchange="window._mlRender()"><option value="all">All campaigns</option></select></div>
+        <div class="fld"><label class="lbl" for="mlForm">Form</label><select class="select" id="mlForm" onchange="window._mlRender()"><option value="all">All forms</option></select></div>
+        <div class="fld"><label class="lbl" for="mlRange">Period</label><select class="select" id="mlRange" onchange="window._mlRender()"><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="all">All time</option></select></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <input class="input" id="mlSearch" placeholder="Search name / phone / campaign / ad…" style="max-width:340px;height:34px;font-size:12px" oninput="window._mlRender()">
+        <span id="mlSyncInfo" style="font-size:11.5px;color:var(--muted)"></span>
+      </div>
+    </div></div>
+    <div class="metrics" id="mlMetrics" style="margin:10px 0"></div>
+    <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-target"></use></svg> Leads <span class="chipb info" style="margin-left:6px" id="mlCount">0</span></div>
+      <div class="sec-bd"><div id="mlTableWrap"></div>
+        <div style="display:flex;gap:10px;margin-top:10px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <button class="btn bsm" onclick="window._mlPage('first')">« First</button><button class="btn bsm" onclick="window._mlPage('prev')">← Prev</button>
+          <span id="mlPageInfo" style="font-size:12px;color:var(--muted)"></span>
+          <button class="btn bsm" onclick="window._mlPage('next')">Next →</button><button class="btn bsm" onclick="window._mlPage('last')">Last »</button>
+        </div></div></div>
+    <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Breakdown by campaign</div>
+      <div class="sec-bd" id="mlBreakdown"></div></div>
+  </div></section>
+
   <section class="screen" id="s-import"><div class="wrap">
     <div class="ph"><div><h1>Lead import &amp; intake</h1><p>Real-time Meta capture, every source, bulk CSV fallback — with control.</p></div>
       <div class="pha"><button class="btn bp" onclick="window._addSingleLead()">+ Add single lead</button></div></div>

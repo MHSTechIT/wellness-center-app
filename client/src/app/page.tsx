@@ -80,6 +80,7 @@ export default function Home() {
             <button data-s="coach"><svg className="icon"><use href="#i-stetho"/></svg> Health coach</button>
             <div className="ng">Leads &amp; CRM</div>
             <button data-s="import"><svg className="icon"><use href="#i-inbox"/></svg> Lead import</button>
+            <button data-s="metaleads"><svg className="icon"><use href="#i-target"/></svg> Meta leads</button>
             <button data-s="abm"><svg className="icon"><use href="#i-split"/></svg> Assign &amp; approve</button>
             <div className="ng">Clinic floor</div>
             <button data-s="reception"><svg className="icon"><use href="#i-door"/></svg> Reception</button>

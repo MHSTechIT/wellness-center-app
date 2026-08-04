@@ -114,7 +114,20 @@ async function getLeads(_req: Request, res: Response) {
 // ============================================================
 // GET / POST /api/meta/sync — crawl Meta → upsert into Supabase.
 // ============================================================
-async function runSync(res: Response) {
+// A crawl is EXPENSIVE: every allowlisted form paginates up to 80 pages, plus every ad in each
+// target account. The client auto-syncs on a 5-minute timer, but that timer runs PER OPEN TAB —
+// with a handful of staff tabs (and several devices) open, meta_sync_state showed a full crawl
+// roughly every MINUTE, i.e. thousands of Graph calls an hour. That is what exhausts Meta's
+// app-level quota and returns "(#4) Application request limit reached" to every subsequent call —
+// including the ad-account crawl, which is why attribution silently stopped working.
+// One shared minimum interval fixes it for the whole fleet: extra callers get the last result
+// instead of starting another crawl. Manual "Sync now" still forces a run.
+const SYNC_MIN_INTERVAL_MS = Number(process.env.META_SYNC_MIN_INTERVAL_MS || 5 * 60 * 1000);
+let _lastSyncAt = 0;
+let _lastSyncStats: any = null;
+let _syncInFlight: Promise<any> | null = null;
+
+async function runSync(res: Response, force = false) {
   const token = await getMetaToken();
   const adAccountIds = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').filter(Boolean);
   const pageIds = (process.env.META_PAGE_IDS || process.env.META_PAGE_ID || '').split(',').filter(Boolean);
@@ -124,8 +137,27 @@ async function runSync(res: Response) {
     return;
   }
 
-  const stats = await syncMetaLeadsToSupabase(adAccountIds, pageIds, token);
-  res.json({ ok: true, syncedAt: new Date().toISOString(), stats });
+  // Already crawling → wait for THAT crawl rather than starting a second one in parallel.
+  if (_syncInFlight) {
+    const stats = await _syncInFlight.catch(() => null);
+    res.json({ ok: true, syncedAt: new Date(_lastSyncAt).toISOString(), throttled: true, stats: stats || _lastSyncStats });
+    return;
+  }
+  const age = Date.now() - _lastSyncAt;
+  if (!force && _lastSyncAt && age < SYNC_MIN_INTERVAL_MS) {
+    res.json({ ok: true, syncedAt: new Date(_lastSyncAt).toISOString(), throttled: true, nextInMs: SYNC_MIN_INTERVAL_MS - age, stats: _lastSyncStats });
+    return;
+  }
+
+  _syncInFlight = syncMetaLeadsToSupabase(adAccountIds, pageIds, token);
+  try {
+    const stats = await _syncInFlight;
+    _lastSyncAt = Date.now();
+    _lastSyncStats = stats;
+    res.json({ ok: true, syncedAt: new Date(_lastSyncAt).toISOString(), stats });
+  } finally {
+    _syncInFlight = null;
+  }
 }
 
 // ============================================================
@@ -246,8 +278,10 @@ export function registerMetaRoutes(app: Express) {
   // internal needs these routes open. Previously unauthenticated, /api/meta/sync in particular
   // could be hammered by anyone to trigger the lead-prune path (see the crawl-failure guard fix).
   app.get('/api/meta/leads', requireAuth, getLeads);
-  app.get('/api/meta/sync', requireAuth, (_req, res) => runSync(res).catch((e) => res.status(500).json({ error: e.message })));
-  app.post('/api/meta/sync', requireAuth, (_req, res) => runSync(res).catch((e) => res.status(500).json({ error: e.message })));
+  // ?force=1 → a human pressed "Sync now"; bypass the shared interval. The unattended
+  // per-tab auto-sync must NOT force, or the throttle it exists for is meaningless.
+  app.get('/api/meta/sync', requireAuth, (req, res) => runSync(res, req.query.force === '1').catch((e) => res.status(500).json({ error: e.message })));
+  app.post('/api/meta/sync', requireAuth, (req, res) => runSync(res, req.query.force === '1').catch((e) => res.status(500).json({ error: e.message })));
   app.get('/api/meta/token', requireAuth, tokenGet);
   app.post('/api/meta/token', requireAuth, tokenPost);
 }
