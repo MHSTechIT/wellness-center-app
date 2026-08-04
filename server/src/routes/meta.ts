@@ -6,6 +6,7 @@ import {
   getMetaToken,
   checkTokenValidity,
   exchangeForLongLivedToken,
+  adAccountNames,
 } from '../services/meta';
 
 // ============================================================
@@ -79,6 +80,10 @@ async function getLeads(_req: Request, res: Response) {
         assignedAt: r.assigned_at || null,
         callStatus: r.call_status || '',
         enrolledAt: r.enrolled_at || null,
+        // The Advisor dashboard's "Visited" card is a JOURNEY milestone (did this lead ever visit),
+        // not a current-status bucket — without this field every visited lead that later enrolled
+        // read as never-visited and the card sat on 0.
+        visitedAt: r.visited_at || null,
       };
     });
 
@@ -284,4 +289,17 @@ export function registerMetaRoutes(app: Express) {
   app.post('/api/meta/sync', requireAuth, (req, res) => runSync(res, req.query.force === '1').catch((e) => res.status(500).json({ error: e.message })));
   app.get('/api/meta/token', requireAuth, tokenGet);
   app.post('/api/meta/token', requireAuth, tokenPost);
+  // Ad-account id → display name, straight from META_TARGET_AD_ACCOUNT_NAMES.
+  // The Meta-leads page used to derive these from leads.ad_account_name, but that column is
+  // whatever the LAST crawl happened to write: a sync run before the names map was configured
+  // stores the raw account id as the name and overwrites any good value on the next upsert, so the
+  // filter fell back to "Account 384231607347196". Serving the mapping directly makes the label
+  // independent of crawl history — no re-sync needed for a name change to show up.
+  app.get('/api/meta/accounts', requireAuth, (_req, res) => {
+    const names = adAccountNames();
+    const ids = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    // Every configured account, plus any name mapped for an account not in the target list.
+    const out = Array.from(new Set([...ids, ...Object.keys(names)])).map((id) => ({ id, name: names[id] || id }));
+    res.json({ accounts: out });
+  });
 }

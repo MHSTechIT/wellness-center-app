@@ -83,7 +83,7 @@ function adsTokenCandidates(): string[] {
   ].filter(Boolean) as string[];
 }
 
-function adAccountNames(): Record<string, string> {
+export function adAccountNames(): Record<string, string> {
   const out: Record<string, string> = {};
   (process.env.META_TARGET_AD_ACCOUNT_NAMES || '').split(',').forEach((p) => {
     const idx = p.indexOf(':');
@@ -460,13 +460,16 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     let existingFrom = 0;
     let totalScanned = 0;
     let keptAgedOut = 0;
+    // Ad accounts this run genuinely read (ads listed + leads fetched). Only these may have their
+    // leads pruned; a blocked/unconfigured account must never look like "its leads are gone".
+    const accountsReadThisRun = new Set<string>(adCrawl.accessibleAccounts.map((a) => String(a.id)));
     const staleIds: string[] = [];
     if (crawlHealthy) {
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data, error } = await supabase
           .from('leads')
-          .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at,form_name')
+          .select('meta_lead_id,is_assigned,assigned_to,in_pool,call_status,pool_added_at,form_name,ad_account_id')
           .eq('source', 'Meta Ads')
           .range(existingFrom, existingFrom + 999);
         if (error) break;
@@ -478,6 +481,13 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
           if (worked) return;
           // Form still being crawled → the lead simply aged out of Meta's window. Keep it.
           if (liveForms.size > 0 && r.form_name && liveForms.has(r.form_name)) { keptAgedOut++; return; }
+          // NEVER prune an ad-account-sourced lead unless THIS run actually read that account.
+          // Such a lead usually has no allowlisted form_name, so nothing above protects it: the
+          // moment META_TARGET_AD_ACCOUNTS was unset (or its token was blocked) the ad crawl
+          // returned nothing, every ad-account lead fell out of keepIds, and a "healthy" form
+          // crawl deleted the lot — 528 attributed leads lost in exactly that window. Only a run
+          // that successfully read the owning account may decide those leads are gone.
+          if (r.ad_account_id && !accountsReadThisRun.has(String(r.ad_account_id))) { keptAgedOut++; return; }
           staleIds.push(r.meta_lead_id);
         });
         if (data.length < 1000) break;

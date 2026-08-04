@@ -2555,11 +2555,11 @@ export function initApp(root: HTMLElement) {
       try{
         const [pr,ar]=await Promise.all([
           supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at,visited_at").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
         _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,service:r.service||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
         // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null}));
       }catch(_){ /* columns/table may be absent — ignore */ }
       // Terminal either way (loaded or unavailable) — the book is as complete as it will get, so the
       // dashboard may now show real numbers instead of the loading placeholder.
@@ -4263,6 +4263,12 @@ export function initApp(root: HTMLElement) {
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
       const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
+      // "Visited" is a JOURNEY MILESTONE, not a current-status bucket: it counts every lead that has
+      // ACTUALLY visited (leads.visited_at), no matter how far they've progressed since. The bucket
+      // version zeroed out the moment a visited lead enrolled — the dashboard read "Visited 0,
+      // Enrolled 3" for three leads who all walked in that morning (reported). This card therefore
+      // overlaps with Enrolled/Payment rather than summing into Total — that's the honest funnel.
+      counts.health=book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l))).length;
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
         // Until the book has loaded, show a muted "—" rather than a number: a 0 here is
@@ -4364,7 +4370,9 @@ export function initApp(root: HTMLElement) {
         // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
         // (every other card is a subset of it).
         : (_haActiveBucket==="total"?fullBook
-        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket)));
+        // "Visited" drill-down mirrors the card: milestone (visited_at set), not the status bucket.
+        : (_haActiveBucket==="health"?book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))
+        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket))));
       // Search box above the table — applies to EVERY card's table, matching the fields the tables
       // actually show so what you type lines up with what you see.
       if(_haQuery){
@@ -5017,7 +5025,7 @@ export function initApp(root: HTMLElement) {
         campaign:r.campaign||"—",adName:r.ad_name||"",sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
         service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
         adAccountName:r.ad_account_name||"",isValid:r.is_valid,isDuplicate:r.is_duplicate,
-        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||null};
+        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null};
     }
     function liveRerenderAll(){
       _metaLeads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
@@ -8537,6 +8545,7 @@ export function initApp(root: HTMLElement) {
           const {data}=supabase.storage.from("payment-proofs").getPublicUrl(path);
           const url=(data&&data.publicUrl)||"";
           _payProofs[containerId]={url,name:file.name};
+          try{ (root.querySelector("#"+containerId)as HTMLElement|null)?.classList.remove("err"); }catch(_){}   // required-proof error clears on attach
           tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(file.name)+'</a>';
           toast("Proof uploaded: "+file.name);
         }catch(err:any){ tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+e(file.name)+' · upload failed'; toastErr("Proof upload failed: "+(err&&err.message||"error")); }
@@ -9868,6 +9877,33 @@ export function initApp(root: HTMLElement) {
           return;
         }
         const p1=_okP1?_payNum("#i2Inst1Rcvd"):0, p2=_okP2?_payNum("#i2BalRcvd"):0;
+        // EVERY * field of "Part 1 — Installment 1 (collected now)" is MANDATORY the moment the
+        // Status says installment 1 is paid: amount, mode, date (drives the auto +30d balance-due
+        // and the ledger), txn ref (the desk-receipt number for cash — "nothing is received until
+        // proof + ref are attached") and the attached proof. Highlight every missing field at once
+        // and name them, mirroring the Advisor form's required-field pattern.
+        if(_okP1){
+          const _req:[string,string,()=>boolean][]=[
+            ["#i2Inst1Rcvd","Inst-1 received (₹)",()=>!!_payNum("#i2Inst1Rcvd")],
+            ["#i2Inst1Mode","Mode",()=>!!val("#i2Inst1Mode")],
+            ["#i2Inst1Date","Inst-1 date",()=>!!val("#i2Inst1Date")],
+            ["#i2Inst1Ref","Txn ref / UTR",()=>!!val("#i2Inst1Ref")],
+            ["#i2Inst1Proof","Inst-1 proof",()=>!!_payProofs["i2Inst1Proof"]],
+          ];
+          const _missing:string[]=[]; let _first:HTMLElement|null=null;
+          _req.forEach(([sel])=>{ const e2=root.querySelector(sel)as HTMLElement|null; if(e2) e2.classList.remove("err"); });
+          for(const [sel,label,ok] of _req){
+            if(ok()) continue;
+            _missing.push(label);
+            const e2=root.querySelector(sel)as HTMLElement|null;
+            if(e2){ e2.classList.add("err"); if(!_first) _first=e2; }
+          }
+          if(_missing.length){
+            toastErr("Installment 1: complete the required field"+(_missing.length>1?"s":"")+" — "+_missing.join(", "));
+            try{ _first&&(_first as any).focus&&(_first as any).focus(); _first&&_first.scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){}
+            return;
+          }
+        }
         const totalI2=_payNum("#i2Total")||total;
         const balance=Math.max(0,totalI2-p1-p2);
         // Don't duplicate an installment Reception has ALREADY collected — the coach save must
@@ -12398,6 +12434,16 @@ export function initApp(root: HTMLElement) {
     // by the ad-account attribution pass; while that crawl is blocked the Ad-account selector shows
     // "Unattributed", which is itself the signal that attribution is not running.
     let _mlAll:any[]=[], _mlPageN=1; const ML_PER=25;
+    let _mlAcctNames:Record<string,string>={};
+    // What the Ad-account column and filter show for a lead. Prefers a real name, then the learned
+    // id→name map, and only falls back to the bare id (prefixed, so it doesn't read as a stray
+    // number in a dropdown). Used by the options, the filter and the table so all three agree.
+    const _mlAcctLabel=(r:any):string=>{
+      const id=String(r&&r.ad_account_id||"").trim(), nm=String(r&&r.ad_account_name||"").trim();
+      if(nm&&nm!==id) return nm;
+      if(id&&_mlAcctNames[id]) return _mlAcctNames[id];
+      return id?("Account "+id):"";
+    };
     async function loadMetaLeadsData(){
       try{
         const {data,error}=await supabase.from("leads")
@@ -12405,6 +12451,24 @@ export function initApp(root: HTMLElement) {
           .in("source",["Meta Ads","Meta"]).order("created_at",{ascending:false}).limit(5000);
         if(error) throw error;
         _mlAll=(data||[]).map((r:any)=>({...r, _d:new Date(r.created_at||r.lead_date)}));
+        // id → display name, learned from any lead that carries a REAL name. The crawl falls back to
+        // the raw account id when META_TARGET_AD_ACCOUNT_NAMES has no entry for it, so a lot of rows
+        // store the id as their "name" — this lets one correctly-named lead label every other lead
+        // from the same account, without waiting for a re-sync to rewrite them.
+        _mlAcctNames={};
+        _mlAll.forEach((r:any)=>{ const id=String(r.ad_account_id||"").trim(), nm=String(r.ad_account_name||"").trim();
+          if(id&&nm&&nm!==id) _mlAcctNames[id]=nm; });
+        // AUTHORITATIVE names from the server's META_TARGET_AD_ACCOUNT_NAMES. leads.ad_account_name
+        // is only ever "whatever the last crawl wrote" — a sync that ran before the names map was
+        // configured stores the raw id and overwrites the good value on the next upsert, which is
+        // exactly why the filter read "Account 384231607347196". These win over anything learned
+        // from the rows, so renaming an account shows up without waiting for a re-sync.
+        try{
+          const res=await fetch(_api("/api/meta/accounts"),{headers:authHeaders()});
+          const j=await res.json().catch(()=>null);
+          (j&&j.accounts||[]).forEach((a:any)=>{ const id=String(a&&a.id||"").trim(), nm=String(a&&a.name||"").trim();
+            if(id&&nm&&nm!==id) _mlAcctNames[id]=nm; });
+        }catch(_){ /* offline / not signed in → fall back to whatever the rows carry */ }
       }catch(_){ _mlAll=[]; }
       _mlFillSelects(); try{ w._mlRender(); }catch(_){}
     }
@@ -12415,20 +12479,33 @@ export function initApp(root: HTMLElement) {
         const cur=el.value; el.innerHTML='<option value="all">'+allLbl+'</option>'+vals.map(v=>'<option>'+_orgEsc(v)+'</option>').join("");
         if(cur&&Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
       const uniq=(f:(r:any)=>string)=>Array.from(new Set(_mlAll.map(f).map(s=>String(s||"").trim()).filter(Boolean))).sort();
-      fill("mlAcct",uniq((r:any)=>r.ad_account_name||(r.ad_account_id?String(r.ad_account_id):"")),"All ad accounts");
+      fill("mlAcct",uniq(_mlAcctLabel),"All ad accounts");
       fill("mlCampaign",uniq((r:any)=>r.campaign),"All campaigns");
       fill("mlForm",uniq((r:any)=>r.form_name),"All forms");
     }
     function _mlFiltered(){
       const acct=_mlVal("mlAcct"), camp=_mlVal("mlCampaign"), form=_mlVal("mlForm"), rng=_mlVal("mlRange");
       const q=String(((root.querySelector("#mlSearch")as HTMLInputElement|null)?.value)||"").trim().toLowerCase();
-      const now=Date.now(); const cut=rng==="today"?0:(rng==="7d"?7:rng==="30d"?30:0);
+      // Day-based periods are compared as IST CALENDAR DAYS (same "YYYY-MM-DD" the table shows), so
+      // "Today" means the Indian day, not a rolling 24h window from the browser's clock.
       const todayIST=_istDay(new Date().toISOString());
+      const shiftDay=(iso:string,d:number)=>{ const t=new Date(iso); t.setDate(t.getDate()+d); return _istDay(t.toISOString()); };
+      const yestIST=shiftDay(new Date().toISOString(),-1);
+      // This week = Monday → today, matching the Reception "This week" convention.
+      const _n=new Date(); const _dow=(_n.getDay()+6)%7;   // 0 = Monday
+      const weekStart=shiftDay(new Date().toISOString(),-_dow);
+      const custFrom=String(((root.querySelector("#mlFrom")as HTMLInputElement|null)?.value)||"").slice(0,10);
+      const custTo=String(((root.querySelector("#mlTo")as HTMLInputElement|null)?.value)||"").slice(0,10);
+      const now=Date.now(); const cut=rng==="7d"?7:rng==="30d"?30:0;
       return _mlAll.filter((r:any)=>{
-        if(acct!=="all"&&String(r.ad_account_name||r.ad_account_id||"").trim()!==acct) return false;
+        if(acct!=="all"&&_mlAcctLabel(r)!==acct) return false;
         if(camp!=="all"&&String(r.campaign||"").trim()!==camp) return false;
         if(form!=="all"&&String(r.form_name||"").trim()!==form) return false;
-        if(rng==="today"){ if(_istDay(r._d.toISOString())!==todayIST) return false; }
+        const day=_istDay(r._d.toISOString());
+        if(rng==="today"){ if(day!==todayIST) return false; }
+        else if(rng==="yest"){ if(day!==yestIST) return false; }
+        else if(rng==="week"){ if(!(day>=weekStart&&day<=todayIST)) return false; }
+        else if(rng==="cust"){ if(custFrom&&day<custFrom) return false; if(custTo&&day>custTo) return false; }
         else if(cut){ if(!(r._d.getTime()>=now-cut*86400000)) return false; }
         if(q){ const hay=[r.name,r.phone,r.campaign,r.ad_name,r.form_name,r.service].map((v:any)=>String(v||"").toLowerCase()).join(" "); if(hay.indexOf(q)<0) return false; }
         return true;
@@ -12451,7 +12528,7 @@ export function initApp(root: HTMLElement) {
         +(rows.length?rows.map((r:any)=>'<tr>'
           +'<td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(fmtIST(r.created_at||r.lead_date))+'</td>'
           +'<td style="font-weight:600">'+e(r.name||"—")+'</td><td class="mono">'+e(r.phone||"—")+'</td>'
-          +'<td>'+(r.ad_account_name?e(r.ad_account_name):'<span style="color:var(--faint)">Unattributed</span>')+'</td>'
+          +'<td>'+(_mlAcctLabel(r)?e(_mlAcctLabel(r)):'<span style="color:var(--faint)">Unattributed</span>')+'</td>'
           +'<td>'+e(r.campaign||"—")+'</td><td>'+e(r.ad_name||"—")+'</td><td>'+e(r.form_name||"—")+'</td><td>'+e(r.service||"—")+'</td>'
           +'<td>'+(r.is_duplicate?'<span class="chipb warn">Duplicate</span>':(r.is_valid?'<span class="chipb ok">Valid</span>':'<span class="chipb al">Invalid</span>'))
           +(r.is_assigned?' <span class="chipb info">Assigned</span>':'')+'</td></tr>').join("")
@@ -12468,13 +12545,26 @@ export function initApp(root: HTMLElement) {
       if(si){ const noAcct=_mlAll.length&&_mlAll.every((r:any)=>!r.ad_account_name);
         si.innerHTML=_mlAll.length?(noAcct?'⚠ No ad-account attribution on any lead — the Meta ad-account crawl is not returning data (check the tokens), so the Ad account filter cannot narrow anything yet.':(_mlAll.length+' Meta leads synced')):'No Meta leads synced yet.'; }
     };
+    // Period changed → show the From/To boxes only for Custom range, and default them to the last
+    // 7 days so an empty custom range never renders as "no leads".
+    w._mlRangeChange=()=>{
+      const cust=_mlVal("mlRange")==="cust";
+      const wrap=root.querySelector("#mlCustWrap")as HTMLElement|null; if(wrap) wrap.style.display=cust?"inline-flex":"none";
+      if(cust){
+        const fEl=root.querySelector("#mlFrom")as HTMLInputElement|null, tEl=root.querySelector("#mlTo")as HTMLInputElement|null;
+        const today=_istDay(new Date().toISOString());
+        if(tEl&&!tEl.value) tEl.value=today;
+        if(fEl&&!fEl.value){ const d=new Date(); d.setDate(d.getDate()-6); fEl.value=_istDay(d.toISOString()); }
+      }
+      _mlPageN=1; w._mlRender();
+    };
     w._mlPage=(d:string)=>{ const pages=Math.max(1,Math.ceil(_mlFiltered().length/ML_PER));
       _mlPageN=d==="first"?1:d==="last"?pages:d==="next"?Math.min(pages,_mlPageN+1):Math.max(1,_mlPageN-1); w._mlRender(); };
     w._mlReload=()=>{ loadMetaLeadsData(); toast("Refreshed"); };
     w._mlExport=()=>{
       const f=_mlFiltered();
       const out:string[][]=[["Date & time (IST)","Lead","Phone","Ad account","Campaign","Ad","Form","Service","Valid","Duplicate","Assigned","Assigned to"]];
-      f.forEach((r:any)=>out.push([fmtIST(r.created_at||r.lead_date),r.name||"",r.phone||"",r.ad_account_name||"",r.campaign||"",r.ad_name||"",r.form_name||"",r.service||"",r.is_valid?"Yes":"No",r.is_duplicate?"Yes":"No",r.is_assigned?"Yes":"No",r.assigned_to||""]));
+      f.forEach((r:any)=>out.push([fmtIST(r.created_at||r.lead_date),r.name||"",r.phone||"",_mlAcctLabel(r),r.campaign||"",r.ad_name||"",r.form_name||"",r.service||"",r.is_valid?"Yes":"No",r.is_duplicate?"Yes":"No",r.is_assigned?"Yes":"No",r.assigned_to||""]));
       _downloadCsv("meta_leads.csv",out); toast("Exported "+f.length+" lead"+(f.length===1?"":"s"));
     };
     async function loadReportsData(){

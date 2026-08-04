@@ -468,10 +468,10 @@ export function getMainContent(): string {
           <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl" for="i2Total">Total <span class="ab">AUTO</span></label><input  class="input mono" id="i2Total" placeholder="Auto from L2 price" inputmode="decimal" readonly></div>
-              <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
-              <div class="fld"><label class="lbl" for="i2Inst1Mode">Mode <span class="req">*</span></label><select  class="select" id="i2Inst1Mode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl" for="i2Inst1Date">Inst-1 date</label><input  class="input" type="date" id="i2Inst1Date" onchange="window._syncI2BalDue()"></div>
-              <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR *</label><input  class="input mono" id="i2Inst1Ref" placeholder="Mandatory"></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="this.classList.remove('err');window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Mode">Mode <span class="req">*</span></label><select  class="select" id="i2Inst1Mode" onchange="this.classList.remove('err')"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Date">Inst-1 date <span class="req">*</span></label><input  class="input" type="date" id="i2Inst1Date" onchange="this.classList.remove('err');window._syncI2BalDue()"></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR *</label><input  class="input mono" id="i2Inst1Ref" placeholder="Mandatory" oninput="this.classList.remove('err')"></div>
               <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
@@ -588,10 +588,15 @@ export function getMainContent(): string {
         <div class="fld"><label class="lbl" for="mlAcct">Ad account</label><select class="select" id="mlAcct" onchange="window._mlRender()"><option value="all">All ad accounts</option></select></div>
         <div class="fld"><label class="lbl" for="mlCampaign">Campaign</label><select class="select" id="mlCampaign" onchange="window._mlRender()"><option value="all">All campaigns</option></select></div>
         <div class="fld"><label class="lbl" for="mlForm">Form</label><select class="select" id="mlForm" onchange="window._mlRender()"><option value="all">All forms</option></select></div>
-        <div class="fld"><label class="lbl" for="mlRange">Period</label><select class="select" id="mlRange" onchange="window._mlRender()"><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="all">All time</option></select></div>
+        <div class="fld"><label class="lbl" for="mlRange">Period</label><select class="select" id="mlRange" onchange="window._mlRangeChange()"><option value="today">Today</option><option value="yest">Yesterday</option><option value="week">This week</option><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="all">All time</option><option value="cust">Custom range</option></select></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
         <input class="input" id="mlSearch" placeholder="Search name / phone / campaign / ad…" style="max-width:340px;height:34px;font-size:12px" oninput="window._mlRender()">
+        <span id="mlCustWrap" style="display:none;gap:6px;align-items:center">
+          <input class="input" type="date" id="mlFrom" style="height:34px;font-size:12px" onchange="window._mlRender()">
+          <span style="font-size:12px;color:var(--muted)">to</span>
+          <input class="input" type="date" id="mlTo" style="height:34px;font-size:12px" onchange="window._mlRender()">
+        </span>
         <span id="mlSyncInfo" style="font-size:11.5px;color:var(--muted)"></span>
       </div>
     </div></div>
