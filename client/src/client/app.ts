@@ -8635,6 +8635,9 @@ export function initApp(root: HTMLElement) {
 
     // ========== SCREENING MODULE (live data) ==========
     let _scAll:any[]=[], _scFiltered:any[]=[], _scDate="today", _scOpenAppt:any=null, _scEligVal="", _scSvcFilter="";
+    // Which KPI card is currently driving the list ("" = none). Same click-to-filter behaviour the
+    // Reception status cards and the Accounts KPI cards already use.
+    let _scCardFilter="";
     function _scDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_scDate==="today") return [sod(now),eod(now)];
@@ -8669,6 +8672,13 @@ export function initApp(root: HTMLElement) {
     }
     w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo","scApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
     w._scApplyDate=()=>{ if(_scDate==="cust") _scApplyDateFilter(); };
+    // KPI card → filter the list below. Clicking the active card (or "Show all") clears it. Re-renders
+    // in place, no reload, and brings the list into view since the cards sit above the fold.
+    w._scCardF=(k:string)=>{
+      _scCardFilter=(!k||_scCardFilter===k)?"":k;
+      _scRenderAll();
+      try{ const ql=root.querySelector("#scQueueList"); const sec=ql&&(ql.closest(".sec")||ql); if(sec&&(sec as HTMLElement).scrollIntoView) (sec as HTMLElement).scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){}
+    };
     function _scRenderAll(){
       const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const screened=f.filter((r:any)=>r.stage==="screened"||r.stage==="done");
@@ -8676,22 +8686,42 @@ export function initApp(root: HTMLElement) {
       const inProg=f.filter((r:any)=>r.stage==="screening"&&_scOpenAppt&&_scOpenAppt.id===r.id);
       const eligible=screened.filter((r:any)=>r.eligible==="yes");
       const notEligible=screened.filter((r:any)=>r.eligible==="no");
-      const metrics=[{l:"Expected",v:f.length,c:""},{l:"Screened",v:screened.length,c:"g"},{l:"In progress",v:inProg.length,c:"a"},
-        {l:"Waiting",v:waiting.length,c:""},{l:"Eligible",v:eligible.length,c:"g"},{l:"Not eligible",v:notEligible.length,c:"r"}];
-      const mel=root.querySelector("#scMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"><div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>').join("");
-      // Queue
+      // Each KPI card owns the exact cohort it counts, so the number on the card and the list it
+      // opens can never disagree — the count IS the list's length.
+      const _scCohorts:Record<string,any[]>={expected:f,screened,inprog:inProg,waiting,eligible,noteligible:notEligible};
+      const metrics=[{k:"expected",l:"Expected",v:f.length,c:""},{k:"screened",l:"Screened",v:screened.length,c:"g"},{k:"inprog",l:"In progress",v:inProg.length,c:"a"},
+        {k:"waiting",l:"Waiting",v:waiting.length,c:""},{k:"eligible",l:"Eligible",v:eligible.length,c:"g"},{k:"noteligible",l:"Not eligible",v:notEligible.length,c:"r"}];
+      if(_scCardFilter&&!_scCohorts[_scCardFilter]) _scCardFilter="";   // stale key (shouldn't happen) → show everything
+      // Click-to-filter, mirroring the Reception status cards: the active card gets a brand outline
+      // and clicking it again clears the filter.
+      const mel=root.querySelector("#scMetrics"); if(mel) mel.innerHTML=metrics.map(m=>{
+        const on=_scCardFilter===m.k;
+        return '<div class="metric '+m.c+'" role="button" tabindex="0" title="'+(on?"Showing "+m.l+" — click to clear":"Click to list the "+m.l+" clients")+'"'
+          +' style="cursor:pointer'+(on?";outline:2.5px solid var(--brand);outline-offset:-1px":"")+'" onclick="window._scCardF(\''+m.k+'\')">'
+          +'<div class="ml">'+m.l+'</div><div class="mv">'+m.v+'</div></div>';
+      }).join("");
+      // Queue — normally the clients actually in screening. When a KPI card is active the panel
+      // becomes that card's list instead, because the queue's own stage==="screening" scope would
+      // otherwise return nothing for cohorts like Screened / Eligible.
       const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5"];
-      let queue=f.filter((r:any)=>r.stage==="screening");
+      const _cardLbl=(metrics.find((m:any)=>m.k===_scCardFilter)||{l:""}).l;
+      let queue=_scCardFilter?_scCohorts[_scCardFilter].slice():f.filter((r:any)=>r.stage==="screening");
       if(_scSvcFilter) queue=queue.filter((r:any)=>(r.service||"Other")===_scSvcFilter);
       const ql=root.querySelector("#scQueueList"); const qc=root.querySelector("#scQueueCount");
       if(qc) qc.textContent=String(queue.length);
-      if(ql) ql.innerHTML=queue.length?queue.map((r:any,i:number)=>{
+      // Header line naming the active filter + its count, with a one-click reset.
+      const _qHdr=_scCardFilter
+        ? '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;border-bottom:1px solid var(--line);font-size:11.5px">'
+          +'<b>'+e(_cardLbl)+'</b><span style="color:var(--muted)">'+queue.length+' record'+(queue.length===1?"":"s")+'</span>'
+          +'<button type="button" class="pill" style="font-size:11px;margin-left:auto" onclick="window._scCardF(\'\')">✕ Show all</button></div>'
+        : '';
+      if(ql) ql.innerHTML=_qHdr+(queue.length?queue.map((r:any,i:number)=>{
         const init=(r.name||"??").split(" ").map((w:string)=>w[0]||"").join("").substring(0,2).toUpperCase();
         const svcIcon=r.service?.toLowerCase().includes("blood")?"🩸":r.service?.toLowerCase().includes("physio")?"💪":"🩺";
         const active=_scOpenAppt&&_scOpenAppt.id===r.id;
         return '<div class="li" style="cursor:pointer'+(active?";background:var(--brand-tint)":"")+'" onclick="window._scOpenAssess('+r.id+')"><span class="avs" style="background:'+colors[i%colors.length]+'">'+init+'</span><div style="flex:1"><b>'+e(r.name)+'</b><div style="font-size:11px;color:var(--muted)">'+svcIcon+' '+e(r.service)+' · '+e(r.time)+'</div></div>'
           +(r.screenedAt?'<span class="chipb ok">Done</span>':'<span class="chipb info">Queued</span>')+'</div>';
-      }).join(""):'<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No clients in screening queue.</div>';
+      }).join(""):'<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">'+(_scCardFilter?("No "+e(_cardLbl).toLowerCase()+" clients"+(_scSvcFilter?(" for "+e(_scSvcFilter)):"")+"."):"No clients in screening queue.")+'</div>');
       // Breakdown by service
       const bySvc:Record<string,{screened:number;waiting:number}>={};
       f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(r.screenedAt) bySvc[s].screened++; else bySvc[s].waiting++; });
@@ -9863,8 +9893,13 @@ export function initApp(root: HTMLElement) {
           // then read it back on the next save, wrote a paid row for money Reception had not collected,
           // and called _ensureEnrolledFromPayment — which is why clicking "Save health record" silently
           // flipped the Enrolled status (reported for Sampath Kumar). Same rule the Txn Ref below uses.
+          // DETERMINISTIC: the field shows the paid amount, or nothing. The earlier version only
+          // cleared when a non-paid row existed, which left the no-row case untouched — so the value
+          // from the PREVIOUSLY OPEN lead stayed in the box, and saving wrote it against the new
+          // client. That is how a paid installment appeared for a lead who had only ever had a
+          // collection request sent (krishnan c, row #331 — created after the first fix).
           const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null;
-          if(i1e){ if(r1&&r1.status==="paid"&&p1amt) i1e.value=String(p1amt); else if(r1&&r1.status!=="paid") i1e.value=""; }
+          if(i1e) i1e.value=(r1&&r1.status==="paid"&&p1amt)?String(p1amt):"";
           // The plan's Total is the CONFIGURED programme price. The installment rows describe how that
           // price is SPLIT — they don't define what the plan is worth. Reconstructing Total as
           // paid + due re-inflated the plan whenever the installment-2 placeholder was wrong: a
@@ -9881,13 +9916,19 @@ export function initApp(root: HTMLElement) {
           // _persistInstallments reads this field as money collected, so pre-filling it meant the next
           // save recorded installment 2 as paid. An amount only appears here once it is actually paid.
           const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null;
-          if(bre&&r2&&r2.status!=="paid"&&!inst2Paid) bre.value="";
+          if(bre) bre.value=(r2&&r2.status==="paid"&&p2amt)?String(p2amt):"";
           // Each installment's Txn Ref / UTR comes from ITS OWN payment row — never copy installment-1's
           // ref into installment-2. Runs AFTER the profile restore, so it overrides the positional copy:
           // inst-1 field = inst-1's paid ref; inst-2 field = inst-2's paid ref, or CLEARED while pending
           // (so a stale/copied inst-1 ref never lingers in the balance section).
           const i1ref=root.querySelector("#i2Inst1Ref")as HTMLInputElement|null; if(i1ref&&r1&&r1.status==="paid") i1ref.value=String(r1.txn_ref||"");
           const i2ref=root.querySelector("#i2BalRef")as HTMLInputElement|null; if(i2ref) i2ref.value=(r2&&r2.status==="paid")?String(r2.txn_ref||""):"";
+        } else {
+          // NO installment rows for this program → nothing has been received, so the amount boxes must
+          // be empty. Without this the whole restore was skipped and the values from the PREVIOUSLY
+          // OPEN client stayed in the form; the next "Save health record" then wrote them as a paid
+          // installment against THIS lead and enrolled them. Clearing the refs too, for the same reason.
+          ["#i2Inst1Rcvd","#i2BalRcvd","#i2Inst1Ref","#i2BalRef"].forEach((sel)=>{ const el=root.querySelector(sel)as HTMLInputElement|null; if(el) el.value=""; });
         }
       }
       if(inst1Paid&&inst2Paid) _setPayStatus("pb-i2","Both Paid"); else if(inst1Paid) _setPayStatus("pb-i2","1st Paid"); else { const s=root.querySelector('#pb-i2 select[data-nocap]')as HTMLSelectElement|null; if(s&&/Paid/.test(s.value)) _setPayStatus("pb-i2","Pending"); }
