@@ -6043,7 +6043,19 @@ export function initApp(root: HTMLElement) {
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(curDate==="today") return [sod(now),eod(now)];
       if(curDate==="tmr"){ const t=new Date(now);t.setDate(t.getDate()+1); return [sod(t),eod(t)]; }
-      if(curDate==="wk"){ const e=new Date(now);e.setDate(e.getDate()+7); return [sod(now),eod(e)]; }
+      // "This week" = the CALENDAR week today falls in (Sunday → Saturday), not a rolling window.
+      // It used to be [today, today+7] — a FORWARD-looking seven days that excluded everything
+      // earlier in the same week. On Tue 04-Aug that range started at the 4th, so the 8 appointments
+      // of Mon 03-Aug were invisible under "This week" while "Between dates 03-08 → 03-08" showed
+      // them all: the same day counted differently depending on which control you used.
+      // Sunday start via getDay() matches the Blood Test and Physiotherapy pages, which already
+      // define their week that way. Full days to the end of the week (not "up to now") so Reception
+      // still sees the rest of the week's bookings, exactly like its own Today/Tomorrow filters.
+      if(curDate==="wk"){
+        const s=new Date(now); s.setDate(s.getDate()-s.getDay());
+        const e=new Date(s); e.setDate(s.getDate()+6);
+        return [sod(s),eod(e)];
+      }
       if(curDate==="cust"){ const f=(root.querySelector("#dtFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#dtTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
       return [null,null];
     }
@@ -9846,12 +9858,17 @@ export function initApp(root: HTMLElement) {
           const bal=(r2&&r2.status!=="paid")?p2amt:0;                 // balance = the unpaid installment 2
           const tot=p1amt+p2amt;
           const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null; if(i1e&&p1amt) i1e.value=String(p1amt);
-          // Only a plan with an ACTUAL paid installment reconstructs its Total from the rows
-          // (paid + outstanding balance = plan value). With nothing paid, the rows are just
-          // placeholders and the Total must keep mirroring the configured programme price — summing
-          // them here is what put ₹45,000 on a ₹30,000 L2.
+          // The plan's Total is the CONFIGURED programme price. The installment rows describe how that
+          // price is SPLIT — they don't define what the plan is worth. Reconstructing Total as
+          // paid + due re-inflated the plan whenever the installment-2 placeholder was wrong: a
+          // ₹15,000 paid installment beside a stale ₹30,000 placeholder read as a ₹45,000 Total on a
+          // ₹30,000 L2 (reported for yusuf, then again for Soosai Viagappa Sahayaraj). Gating that on
+          // "nothing paid yet" was not enough — the moment installment 1 is collected the sum takes
+          // over again. Fall back to the row sum ONLY when no programme price is configured at all.
+          const _cfgPrice=_payGetPrice();
           const _anyInstPaid=r1?.status==="paid"||r2?.status==="paid";
-          const te=root.querySelector("#i2Total")as HTMLInputElement|null; if(te&&tot&&_anyInstPaid) te.value=String(tot);
+          const te=root.querySelector("#i2Total")as HTMLInputElement|null;
+          if(te){ if(_cfgPrice>0) te.value=String(_cfgPrice); else if(tot&&_anyInstPaid) te.value=String(tot); }
           const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");   // #i2BalDue is otherwise the live-computed Total−Inst1 (installment-2 amount); don't clobber it
           const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null; if(bre&&bal>0&&!inst2Paid&&!bre.value) bre.value=String(bal);   // default the pending balance
           // Each installment's Txn Ref / UTR comes from ITS OWN payment row — never copy installment-1's
@@ -9902,7 +9919,10 @@ export function initApp(root: HTMLElement) {
       // Non-installment methods keep the row-derived figures untouched.
       let total=received+rowBalance, balance=rowBalance;
       if(isInst){
-        const planTotal=_payNum("#i2Total")||_payGetPrice()||0;
+        // CONFIGURED price first. Reading #i2Total first was the hole in the previous fix: that field
+        // is itself rebuilt from the rows, so once installment 1 was paid it carried the inflated
+        // paid+due figure straight back into the card.
+        const planTotal=_payGetPrice()||_payNum("#i2Total")||0;
         if(planTotal>0){ total=Math.max(planTotal,received); balance=Math.max(0,total-received); }
       }
       const pct=total>0?Math.round(100*received/total):(received>0?100:0);
