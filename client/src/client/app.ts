@@ -9857,7 +9857,14 @@ export function initApp(root: HTMLElement) {
           const p2amt=r2?Number(r2.amount)||0:0;
           const bal=(r2&&r2.status!=="paid")?p2amt:0;                 // balance = the unpaid installment 2
           const tot=p1amt+p2amt;
-          const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null; if(i1e&&p1amt) i1e.value=String(p1amt);
+          // "Inst-1 received" may ONLY be pre-filled from an installment-1 row that is actually PAID.
+          // byNum(1) also matches the `due` row that "Send collection request to Reception" creates,
+          // so a merely REQUESTED amount was being written into a *received* field. _persistInstallments
+          // then read it back on the next save, wrote a paid row for money Reception had not collected,
+          // and called _ensureEnrolledFromPayment — which is why clicking "Save health record" silently
+          // flipped the Enrolled status (reported for Sampath Kumar). Same rule the Txn Ref below uses.
+          const i1e=root.querySelector("#i2Inst1Rcvd")as HTMLInputElement|null;
+          if(i1e){ if(r1&&r1.status==="paid"&&p1amt) i1e.value=String(p1amt); else if(r1&&r1.status!=="paid") i1e.value=""; }
           // The plan's Total is the CONFIGURED programme price. The installment rows describe how that
           // price is SPLIT — they don't define what the plan is worth. Reconstructing Total as
           // paid + due re-inflated the plan whenever the installment-2 placeholder was wrong: a
@@ -9870,7 +9877,11 @@ export function initApp(root: HTMLElement) {
           const te=root.querySelector("#i2Total")as HTMLInputElement|null;
           if(te){ if(_cfgPrice>0) te.value=String(_cfgPrice); else if(tot&&_anyInstPaid) te.value=String(tot); }
           const bde=root.querySelector("#i2BalDue")as HTMLInputElement|null; if(bde) bde.value=bal>0?("₹"+bal.toLocaleString("en-IN")):(bde.value||"");   // #i2BalDue is otherwise the live-computed Total−Inst1 (installment-2 amount); don't clobber it
-          const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null; if(bre&&bal>0&&!inst2Paid&&!bre.value) bre.value=String(bal);   // default the pending balance
+          // Never default "Balance received" to the OUTSTANDING balance — same hazard as inst-1 above:
+          // _persistInstallments reads this field as money collected, so pre-filling it meant the next
+          // save recorded installment 2 as paid. An amount only appears here once it is actually paid.
+          const bre=root.querySelector("#i2BalRcvd")as HTMLInputElement|null;
+          if(bre&&r2&&r2.status!=="paid"&&!inst2Paid) bre.value="";
           // Each installment's Txn Ref / UTR comes from ITS OWN payment row — never copy installment-1's
           // ref into installment-2. Runs AFTER the profile restore, so it overrides the positional copy:
           // inst-1 field = inst-1's paid ref; inst-2 field = inst-2's paid ref, or CLEARED while pending
