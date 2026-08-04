@@ -5047,6 +5047,13 @@ export function initApp(root: HTMLElement) {
 
     // ========== BULK CSV IMPORT ==========
     const CSV_COLS=["Date & Time","Campaign","Ad Name","Lead Name","Phone Number","Sugar Poll","City","Street","Source","Service","Name"];
+    // "WK-AUG-01" — the import's own week, matching the shape of the labels the removed Batch
+    // dropdown offered (week number WITHIN the month, e.g. WK-JUL-01 = first week of July).
+    function _csvBatchLabel(d?:Date):string{
+      const dt=d||new Date();
+      const mon=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][dt.getMonth()];
+      return "WK-"+mon+"-"+String(Math.ceil(dt.getDate()/7)).padStart(2,"0");
+    }
     // Batch-level label for a CSV column: the single distinct value when the whole file agrees,
     // "Mixed" when it doesn't, "—" when the column is empty. Used for the import-history batch row
     // now that Source/Service are read per lead from the file instead of picked from a dropdown.
@@ -5290,17 +5297,22 @@ export function initApp(root: HTMLElement) {
       if(valid.length+dup.length===0){toast("No rows with a phone number");return;}
       if(csvImportBtn){csvImportBtn.disabled=true;csvImportBtn.textContent="Importing…";}
       try{
-        const sel=(id:string)=>(root.querySelector(id)as HTMLSelectElement)?.value;
         const meta={
           file_name:(root.querySelector("#csvFileName")?.textContent)||"upload.csv",
-          batch_name:sel("#csvBatch")||"—",
+          // Batch label is DERIVED from the import date, in the same WK-<MON>-<week-of-month> shape the
+          // removed dropdown offered. The import-history "Batch" column reads this, so it keeps working
+          // without asking anyone to pick from a hardcoded list that had gone stale (it still offered
+          // WK-JUN-* in August).
+          batch_name:_csvBatchLabel(),
           // Source / Service used to come from two dropdowns above the wizard. Those only ever
           // labelled THIS batch row — the imported leads read source/service from the CSV itself
           // (see toRow below) and nothing displays the batch-level values — so the dropdowns were
           // removed as redundant with the Download-template columns. The columns are summarised
           // from the file rather than dropped, so the batch record stays meaningful.
           source:_csvSummarise(valid.concat(dup),"source"),
-          branch:sel("#csvBranch")||"—",
+          // `branch` is deliberately not set: the Location dropdown that fed it had NO consumer —
+          // csv_import_batches.branch is written but never read (the import-history grid has no Branch
+          // column), so the field is left null rather than carrying a value nobody looks at.
           service:_csvSummarise(valid.concat(dup),"service"),
           imported_by:"ABM / Admin",
           total_records:valid.length+dup.length,valid_records:valid.length,duplicate_records:dup.length
@@ -5931,6 +5943,12 @@ export function initApp(root: HTMLElement) {
         _recInst={};
         (pr.data||[]).filter((p:any)=>p.payment_type==="installment").forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; (_recInst[k]=_recInst[k]||{rows:[]}).rows.push(p); });
         Object.keys(_recInst).forEach((k)=>{ const o=_recInst[k]; o.rows.sort((a:any,b:any)=>Number(a.installment_number||0)-Number(b.installment_number||0)); const paid=o.rows.filter((r:any)=>r.status==="paid"); const due=o.rows.filter((r:any)=>r.status==="due"); o.inst1=o.rows.find((r:any)=>Number(r.installment_number)===1)||null; o.inst2=o.rows.find((r:any)=>Number(r.installment_number)===2)||null; o.balance=due.reduce((s:number,r:any)=>s+(r.amount||0),0); o.dueDate=(due[0]||{}).due_date||""; o.totalInst=Math.max(2,...o.rows.map((r:any)=>Number(r.total_installments||2))); o.paidCount=paid.length; o.allPaid=o.rows.length>0&&due.length===0&&paid.length>=o.totalInst; });
+        // Which SERVICES a lead has actually PAID for (payments.service is stamped at collect time).
+        // A combined visit needs this: payStatus is a lead-level aggregate, so it still reads "due"
+        // while the Diabetes installment is outstanding even though the blood test was collected —
+        // which is why the blood-test side of a combined row could never show as completed.
+        const paidSvcByLead:Record<string,Record<string,boolean>>={};
+        (pr.data||[]).forEach((p:any)=>{ if(p.status!=="paid")return; const k=String(p.lead_id||""); if(!k)return; (paidSvcByLead[k]=paidSvcByLead[k]||{})[_recSvcCode(String(p.service||""))]=true; });
         // Enrichment: pull each lead's latest call_status so the Health Coach's Enrolled status
         // is reflected in Reception (Coach → Reception sync via the SAME leads record).
         const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
@@ -5967,22 +5985,44 @@ export function initApp(root: HTMLElement) {
           // Service-aware Stage chip for the Appointments table. Blood Test / Physiotherapy are
           // STANDALONE services → they show their OWN completed stage and NEVER a Diabetes stage
           // (enrolled / L1 / L2), even if a Diabetes enrollment previously stamped this row.
-          const _svcCode=_dispCode; let stageChip:{t:string;c:string};
-          if(_svcCode==="bt"){ const done=payStatus==="paid"||/complet/i.test(a.stage||"")||a.stage==="billed"||a.stage==="report"; stageChip=done?{t:"Blood Test Completed",c:"ok"}:(a.stage==="sample"?{t:"Sample collected",c:"info"}:{t:"Blood test",c:"info"}); }
-          else if(_svcCode==="physio"){
-            // The physio flow has one more step than Blood Test: the consultation finishes on the
-            // Physiotherapy page and the patient comes BACK here to pay. Say which of the two it is.
-            const consultDone=a.stage==="done"||/complet/i.test(a.stage||"");
-            stageChip=payStatus==="paid"?{t:"Physiotherapy Completed",c:"ok"}
-              :(consultDone?{t:"Consultation done · collect payment",c:"warn"}
-              :(a.stage==="physio"?{t:"With Physiotherapist",c:"info"}
-              :(/ession/i.test(a.stage||"")?{t:String(a.stage),c:"info"}:{t:"Physiotherapy",c:"info"})));
-          }
-          else{ stageChip=enrollLine?{t:enrollLine,c:"ok"}:(a.stage?{t:String(a.stage),c:"info"}:{t:"",c:"neu"}); }
+          // EVERY service on this visit gets its own chip. _recSvcDisplayCode deliberately picks ONE
+          // journey to narrate, so a "Diabetes Counselling + Blood Test" row showed only the Diabetes
+          // progression ("L2 – Installment 1 Completed") and the finished blood test was invisible.
+          // The parts are read in the order they appear in the service string, so the chips line up
+          // with the Service column.
+          const _svcParts=String(a.service||"").split(/[+,/&]| and /i).map((s:string)=>s.trim()).filter(Boolean);
+          const _codes:string[]=[]; _svcParts.forEach((p:string)=>{ const c=_recSvcCode(p); if(_codes.indexOf(c)<0) _codes.push(c); });
+          if(!_codes.length) _codes.push(_dispCode);
+          const _solo=_codes.length===1;
+          const _paidSvcs=paidSvcByLead[String(a.lead_id)]||{};
+          const _chipFor=(code:string):{t:string;c:string}=>{
+            if(code==="bt"){
+              // Single-service rows keep the original lead-level test. A COMBINED visit must judge the
+              // blood test on its OWN paid payment row, not on the aggregate pay status.
+              const done=_solo
+                ? (payStatus==="paid"||/complet/i.test(a.stage||"")||a.stage==="billed"||a.stage==="report")
+                : (!!_paidSvcs["bt"]||/blood\s*test\s*completed/i.test(a.stage||"")||a.stage==="billed"||a.stage==="report");
+              return done?{t:"Blood Test Completed",c:"ok"}:(a.stage==="sample"?{t:"Sample collected",c:"info"}:{t:"Blood test",c:"info"});
+            }
+            if(code==="physio"){
+              // The physio flow has one more step than Blood Test: the consultation finishes on the
+              // Physiotherapy page and the patient comes BACK here to pay. Say which of the two it is.
+              const consultDone=a.stage==="done"||/complet/i.test(a.stage||"");
+              const paidPhysio=_solo?payStatus==="paid":!!_paidSvcs["physio"];
+              return paidPhysio?{t:"Physiotherapy Completed",c:"ok"}
+                :(consultDone?{t:"Consultation done · collect payment",c:"warn"}
+                :(a.stage==="physio"?{t:"With Physiotherapist",c:"info"}
+                :(/ession/i.test(a.stage||"")?{t:String(a.stage),c:"info"}:{t:"Physiotherapy",c:"info"})));
+            }
+            return enrollLine?{t:enrollLine,c:"ok"}:(a.stage?{t:String(a.stage),c:"info"}:{t:"",c:"neu"});
+          };
+          const stageChips=_codes.map(_chipFor).filter((x:any)=>x&&x.t);
+          // Primary chip stays the DISPLAY journey's one, so anything reading stageChip is unchanged.
+          const stageChip:{t:string;c:string}=_chipFor(_dispCode).t?_chipFor(_dispCode):(stageChips[0]||{t:"",c:"neu"});
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabelMulti(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
           _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"", hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
-          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
+          payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, stageChips, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           // What Reception should ask a physio patient for once the consultation is done: the pack /
           // per-session price the physiotherapist set in the treatment plan (physio_data.pack_price).
@@ -6172,7 +6212,7 @@ export function initApp(root: HTMLElement) {
       {key:"pay",label:"Pay",filter:true,text:(r:any)=>(PAY_MAP[r.payStatus]||{l:"—"}).l,thStyle:"min-width:90px"},
       {key:"amount",label:"Amount",filter:true,text:(r:any)=>r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—",thStyle:"min-width:70px"},
       {key:"inv",label:"Inv",filter:false,head:'<th style="min-width:60px">Invoice</th>'},
-      {key:"stage",label:"Stage",filter:true,text:(r:any)=>r.stage||"—",thStyle:"min-width:90px"},
+      {key:"stage",label:"Stage",filter:true,text:(r:any)=>r.stage||"—",thStyle:"min-width:170px"},
       {key:"resch",label:"resch",filter:false,head:'<th style="min-width:76px">Reschedule</th>'},
       {key:"call",label:"call",filter:false,head:'<th style="min-width:56px">📞 Call</th>'},
       {key:"rec",label:"rec",filter:false,head:'<th style="min-width:70px">🎤 Calls</th>'},
@@ -6196,7 +6236,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any,i:number) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—")+'</td><td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChips&&r.stageChips.length?'<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+r.stageChips.map((c:any)=>'<span class="chipb '+c.c+'" style="white-space:normal;line-height:1.3;display:inline-block;max-width:150px;font-size:10.5px;padding:3px 7px">'+c.t+'</span>').join("")+'</div>':(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—"))+'</td><td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
       body.innerHTML = rows || '<tr><td colspan="15" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
@@ -6347,9 +6387,16 @@ export function initApp(root: HTMLElement) {
           const consSet=consP?(consP==="L1 + L2"?["L1","L2","L1 + L2"]:[consP]):[];
           let keys:string[];
           if(consSet.length) keys=order.filter(k=>consSet.indexOf(k)>=0 && byProg[k]);
-          else { const withDue=order.filter(k=>byProg[k]&&byProg[k].due>0); keys=withDue.length?withDue:order.filter(k=>byProg[k]&&byProg[k].paid>0); }
-          // One program line per selected program; fee = paid + due for that program.
-          const items:{prog:string;incl:number;paid:number;due:number}[]=keys.map(k=>({prog:k,incl:byProg[k].paid+byProg[k].due,paid:byProg[k].paid,due:byProg[k].due})).filter(it=>it.incl>0);
+          else { keys=order.filter(k=>byProg[k]&&byProg[k].paid>0); }
+          // An invoice is a receipt for money COLLECTED, so only programs actually paid into appear —
+          // a program selected purely because it carries an outstanding due would otherwise print a
+          // bill for money the client has not handed over.
+          keys=keys.filter(k=>byProg[k]&&byProg[k].paid>0);
+          // One program line per selected program; the amount is what was RECEIVED for it. This used
+          // to be paid + due, so a ₹15,000 installment-1 receipt also billed the ₹30,000 installment-2
+          // that is not yet due — printing a ₹45,150 Grand Total on a ₹15,150 collection (reported for
+          // yusuf). Future installments belong to the payment workflow, not to this receipt.
+          const items:{prog:string;incl:number;paid:number;due:number}[]=keys.map(k=>({prog:k,incl:byProg[k].paid,paid:byProg[k].paid,due:0})).filter(it=>it.incl>0);
           // Fallback (nothing matched): single line from what this lead has actually paid FOR
           // DIABETES. r.payAmt is the lead-level aggregate across every service, so it may only be
           // used when the lead has NO payment rows at all — otherwise a Blood-Test-only payment was
@@ -6362,32 +6409,34 @@ export function initApp(root: HTMLElement) {
           // Description = the ACTUAL payment item: "L2 Program", "L1 + L2 Program", plus the
           // installment / advance / EMI breakdown for that program when the client is on a part plan.
           items.forEach((it)=>{
-            const prows=((byProg[it.prog]||{rows:[]}).rows||[]).filter((p:any)=>p.payment_type==="installment"||p.payment_type==="advance"||p.payment_type==="emi");
+            // PAID parts only — the breakdown under the program line must not advertise a future
+            // installment ("L2 – Installment 2 Rs.30,000 (Due)") on a receipt for what was collected.
+            const prows=((byProg[it.prog]||{rows:[]}).rows||[]).filter((p:any)=>(p.payment_type==="installment"||p.payment_type==="advance"||p.payment_type==="emi")&&p.status==="paid");
             const parts=prows.slice().sort((a:any,b:any)=>Number(a.installment_number||0)-Number(b.installment_number||0)).map((p:any)=>{
               const nm=p.payment_type==="advance"?"Advance":(p.payment_type==="emi"?"EMI Down Payment":(it.prog?it.prog+" – ":"")+"Installment "+(Number(p.installment_number)||1));
-              return nm+" "+money(p.amount)+" ("+(p.status==="paid"?"Paid":("Due"+(p.due_date?" by "+fmtISTDate(p.due_date):"")))+")";
+              return nm+" "+money(p.amount)+" (Paid)";
             });
             lines.push({desc:(it.prog?it.prog+" Program":"Program Fees")+" – Diabetes Counselling",sub:parts.join("   ·   ")||undefined,hsn:HSN,incl:it.incl,base:round2(it.incl/1.18)});
           });
-          total+=items.reduce((s,it)=>s+it.incl,0);       // Grand Total = full program fee (paid + balance)
-          amountPaid+=items.reduce((s,it)=>s+it.paid,0);  // received so far
-          balanceDue+=items.reduce((s,it)=>s+it.due,0);   // outstanding
-          diaPays.forEach((p:any)=>{ if(p.status==="due"&&p.due_date&&keys.indexOf(normProg(p.program))>=0) dueDates.push(String(p.due_date)); });
-          invPays.push(...diaPays);
+          total+=items.reduce((s,it)=>s+it.incl,0);       // Total = what was actually collected
+          amountPaid+=items.reduce((s,it)=>s+it.paid,0);
+          // No balance and no due dates on the receipt: outstanding installments are tracked in the
+          // payment workflow (Coach plan + Reception collect queue), not billed here.
+          invPays.push(...diaPays.filter((p:any)=>p.status==="paid"));
         } else {
           // ===== One-shot services (Blood Test, Physiotherapy, Weight Loss, Sauna, Cold Plunge, HBOT) =====
           // Bill ONLY this service's money — never the lead-level aggregate (which can include the
           // Diabetes program fees, or another service billed on the same appointment).
           const rows=rowsBySvc[svc]||[];
-          invPays.push(...rows);
+          invPays.push(...rows.filter((p:any)=>p.status==="paid"));
           const sum=(f:(p:any)=>boolean)=>round2(rows.filter(f).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0));
+          // Collected money only — an unpaid service is not billed on this receipt.
           let svcPaid=sum((p:any)=>p.status==="paid");
-          let svcDue=sum((p:any)=>p.status==="due");
-          let svcTotal=round2(svcPaid+svcDue);
+          let svcTotal=svcPaid;
           // Last resort (single-service invoice with no usable rows): the appointment's own amount.
-          if(svcTotal<=0&&svcNames.length===1){ svcPaid=round2(Number(r.payAmt)||0); svcDue=0; svcTotal=svcPaid; }
-          rows.forEach((p:any)=>{ if(p.status==="due"&&p.due_date) dueDates.push(String(p.due_date)); });
-          amountPaid+=svcPaid; balanceDue+=svcDue; total+=svcTotal;
+          if(svcTotal<=0&&svcNames.length===1){ svcPaid=round2(Number(r.payAmt)||0); svcTotal=svcPaid; }
+          if(svcTotal<=0) continue;   // nothing collected for this service → no line item
+          amountPaid+=svcPaid; total+=svcTotal;
           if(svc==="Blood Test"){
             // The tests / panels the client paid for are persisted onto the appointment at collect time
             // (blood_test_data.panels — names or legacy codes; `panel` is the older free-text field).
@@ -9841,12 +9890,22 @@ export function initApp(root: HTMLElement) {
       if(!paid.length&&!due.length){ el.innerHTML=""; return; }   // nothing collected for this program yet
       const money=(n:any)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
       const received=paid.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
-      const balance=due.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
-      const total=received+balance;
-      const pct=total>0?Math.round(100*received/total):(received>0?100:0);
+      const rowBalance=due.reduce((s:number,r:any)=>s+(Number(r.amount)||0),0);
       const type=(mine[0]&&mine[0].payment_type)||"full";
       const methodLbl=({full:"Full Payment",installment:"Installment (2×)",advance:"Advance Booking",emi:"EMI"}as any)[type]||type;
       const isInst=type==="installment"||type==="advance";
+      // A part-payment plan is worth its CONFIGURED programme price (or the coach's manual Total) —
+      // not "received + whatever due rows exist". Summing the placeholder rows meant one oversized
+      // installment-2 row was added straight onto what had been received, showing ₹45,000 on a
+      // ₹30,000 L2 after a ₹15,000 collection (reported for yusuf). Deriving the balance from the
+      // plan value also makes the card self-correct against a stale placeholder.
+      // Non-installment methods keep the row-derived figures untouched.
+      let total=received+rowBalance, balance=rowBalance;
+      if(isInst){
+        const planTotal=_payNum("#i2Total")||_payGetPrice()||0;
+        if(planTotal>0){ total=Math.max(planTotal,received); balance=Math.max(0,total-received); }
+      }
+      const pct=total>0?Math.round(100*received/total):(received>0?100:0);
       const inst1=mine.find((r:any)=>Number(r.installment_number)===1); const inst2=mine.find((r:any)=>Number(r.installment_number)===2);
       const st=(x:any)=>x?(x.status==="paid"?'<span class="chipb ok">✅ Paid</span>':'<span class="chipb warn">⏳ Pending</span>'):'<span class="chipb neu">—</span>';
       const nextDue=(due[0]||{}).due_date||""; const fullyPaid=balance<=0&&received>0;
@@ -10911,16 +10970,41 @@ export function initApp(root: HTMLElement) {
     }
     function _btdRenderPanelDD(){
       const dd=root.querySelector("#btdPanelDD"); if(!dd) return;
-      dd.innerHTML=BT_PANELS.map(p=>{ const on=_btdPanels.has(p.code);
+      const list=BT_PANELS.map(p=>{ const on=_btdPanels.has(p.code);
         return '<div onclick="window._btdTogglePanel(\''+p.code+'\')" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12.5px"'
           +' onmouseover="this.style.background=\'var(--brand-tint)\'" onmouseout="this.style.background=\'transparent\'">'
           +'<input type="checkbox" '+(on?"checked":"")+' style="pointer-events:none">'
           +'<span style="flex:1">'+_btE(p.name)+'</span><span class="mono" style="color:var(--muted)">'+_btMoney(p.price)+'</span></div>';
       }).join("");
+      // Sticky Done bar. This dropdown had NO dismiss path at all — no outside-click handler (the
+      // app's three other multi-selects each have one) and _btdClosePanelDD was only ever called when
+      // the record first opened. Once opened it covered the Sample / Lab / Client status fields below
+      // it and the user could not get past this step. Ticks already apply immediately, so Done only
+      // closes the list; the running count makes that obvious.
+      const n=_btdPanels.size;
+      const foot='<div style="position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:6px 4px 2px;display:flex;align-items:center;gap:8px;margin-top:4px">'
+        +'<span style="font-size:11.5px;color:var(--muted)">'+(n?(n+" selected"):"None selected")+'</span>'
+        +'<button type="button" class="btn bsm bp" style="margin-left:auto" onclick="event.stopPropagation();window._btdDonePanelDD()">Done</button></div>';
+      dd.innerHTML=list+foot;
     }
     function _btdClosePanelDD(){ const dd=root.querySelector("#btdPanelDD") as HTMLElement|null; if(dd) dd.style.display="none"; }
     w._btdTogglePanelDD=()=>{ const dd=root.querySelector("#btdPanelDD") as HTMLElement|null; if(!dd) return; const show=dd.style.display==="none"||!dd.style.display; if(show){ _btdRenderPanelDD(); dd.style.display="block"; } else dd.style.display="none"; };
     w._btdTogglePanel=(code:string)=>{ if(_btdPanels.has(code))_btdPanels.delete(code); else _btdPanels.add(code); _btdRenderPanelBtn(); _btdRenderPanelDD(); };
+    w._btdDonePanelDD=()=>_btdClosePanelDD();
+    // The two escape hatches every other multi-select in this app already has: click anywhere outside
+    // the control, or press Escape. Selections are applied as they are ticked, so closing never
+    // discards anything.
+    // CAPTURE phase deliberately: ticking a panel re-renders the list (_btdTogglePanel rebuilds
+    // dd.innerHTML), so on the bubble phase the clicked row is already detached and
+    // box.contains(target) reports false — which closed the dropdown on every tick. In the capture
+    // phase the row is still in the tree, so containment is accurate.
+    document.addEventListener("click",(e:any)=>{
+      const box=root.querySelector("#btdPanelBox"); const dd=root.querySelector("#btdPanelDD")as HTMLElement|null;
+      if(dd&&dd.style.display==="block"&&box&&!box.contains(e.target)) _btdClosePanelDD();
+    },true);
+    document.addEventListener("keydown",(e:any)=>{
+      if(e&&e.key==="Escape"){ const dd=root.querySelector("#btdPanelDD")as HTMLElement|null; if(dd&&dd.style.display==="block") _btdClosePanelDD(); }
+    });
     function _btRenderAtts(){ const el=root.querySelector("#btdAtts"); if(!el)return; if(_btReportAtt&&_btReportAtt.url){ el.innerHTML='<a href="'+_btE(_btReportAtt.url)+'" target="_blank" class="att"><svg class="icon"><use href="#i-clip"/></svg> '+_btE(_btReportAtt.name||"Report")+'</a> <button class="btn bsm" onclick="window._btAddReport()">Replace</button>'; } else { el.innerHTML='<span class="att add" onclick="window._btAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span>'; } }
     w._btCloseDetail=()=>{ const dp=root.querySelector("#btDetailPanel") as HTMLElement; if(dp) dp.style.display="none"; _btOpenAppt=null; };
     w._btAddReport=()=>{
