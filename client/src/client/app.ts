@@ -6234,6 +6234,27 @@ export function initApp(root: HTMLElement) {
       const o=r&&r.inst;
       return !!(o&&o.inst1&&o.inst1.status==="paid"&&!(o.inst2&&o.inst2.status==="paid"));
     }
+    // When installment 1 was actually COLLECTED (its paid row), not when the plan was created.
+    function _recInst1At(r:any):string{
+      const i1=r&&r.inst&&r.inst.inst1;
+      if(!i1||i1.status!=="paid") return "—";
+      const iso=i1.paid_at||i1.created_at;
+      return iso?fmtIST(iso):"—";
+    }
+    // Balance due: the installment-2 row's stored due_date (stamped when the collection request was
+    // sent); otherwise the documented "+30 days after Inst-1", so the column still answers the
+    // question for plans saved before due dates were persisted.
+    function _recBalDueAt(r:any):string{
+      const o=r&&r.inst; if(!o) return "—";
+      if(o.inst2&&o.inst2.due_date) return fmtIST(o.inst2.due_date);
+      if(o.dueDate) return fmtIST(o.dueDate);
+      const i1=o.inst1;
+      const base=(i1&&i1.status==="paid")?(i1.paid_at||i1.created_at):"";
+      if(!base) return "—";
+      const d=new Date(base); if(isNaN(d.getTime())) return "—";
+      d.setDate(d.getDate()+30);
+      return fmtIST(d.toISOString())+" (auto +30d)";
+    }
     function renderSc() {
       const f = curSvc === "all" ? RX : RX.filter((r) => _recSvcPass(r.serviceRaw, curSvc));
       const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0,inst2:0 };
@@ -6276,6 +6297,11 @@ export function initApp(root: HTMLElement) {
     }
     // Excel-style per-column filters for the Appointments table (shared grid engine).
     // AND-combined with the existing service/date pill filters via filtered().
+    // Built per render, NOT a const array: the Instalment-2 columns below are conditional on
+    // curScFilter, and a const would freeze the header list at startup — the headers would then
+    // never include them while the row cells did, shifting every cell one column left (the
+    // Inst-1/Balance dates appeared under "Call"/"Calls").
+    function _apptColsFn(){
     const _apptCols=[
       {key:"sno",label:"S.No.",filter:false,head:'<th style="min-width:52px">S.No.</th>'},
       {key:"dt",label:"Date · time",filter:true,text:(r:any)=>r.date+(r.time?", "+r.time:""),thStyle:"min-width:150px"},
@@ -6293,7 +6319,18 @@ export function initApp(root: HTMLElement) {
       {key:"call",label:"call",filter:false,head:'<th style="min-width:56px">📞 Call</th>'},
       {key:"rec",label:"rec",filter:false,head:'<th style="min-width:70px">🎤 Calls</th>'},
     ];
-    regGrid("appt",()=>_apptCols,()=>renderAppt());
+    // Only while the "Instalment 2 pending" card is selected: when installment 1 was actually
+    // collected, and when the balance falls due — the two dates that decide who to chase.
+    // Spliced in AFTER Reschedule so the header order matches the cells rendered below.
+    if(curScFilter==="inst2"){
+      const i=_apptCols.findIndex((c:any)=>c.key==="resch");
+      _apptCols.splice(i+1,0,
+        {key:"inst1at",label:"Inst-1 paid",filter:true,text:(r:any)=>_recInst1At(r),thStyle:"min-width:170px"} as any,
+        {key:"baldue",label:"Balance due",filter:true,text:(r:any)=>_recBalDueAt(r),thStyle:"min-width:170px"} as any);
+    }
+    return _apptCols;
+    }
+    regGrid("appt",()=>_apptColsFn(),()=>renderAppt());
     // Quick "lead number" search box in the Appointments header — matches phone digits, lead id, or name.
     let _apptQuery="";
     w._apptSearch=(v:string)=>{ _apptQuery=String(v||"").trim(); renderAppt(); };
@@ -6312,9 +6349,16 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any,i:number) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChips&&r.stageChips.length?'<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+r.stageChips.map((c:any)=>'<span class="chipb '+c.c+'" style="white-space:normal;line-height:1.3;display:inline-block;max-width:150px;font-size:10.5px;padding:3px 7px">'+c.t+'</span>').join("")+'</div>':(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—"))+'</td><td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td><td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChips&&r.stageChips.length?'<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+r.stageChips.map((c:any)=>'<span class="chipb '+c.c+'" style="white-space:normal;line-height:1.3;display:inline-block;max-width:150px;font-size:10.5px;padding:3px 7px">'+c.t+'</span>').join("")+'</div>':(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—"))+'</td><td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td>'
+          // Order mirrors _apptColsFn: these two follow Reschedule, only in the Instalment-2 view.
+          // The "+30d" suffix becomes a small chip so a DERIVED due date is visually distinct from
+          // one actually committed when a collection request was sent.
+          +(curScFilter==="inst2"?('<td class="mono" style="font-size:11px;white-space:nowrap">'+_recInst1At(r)+'</td>'
+            +'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recBalDueAt(r).replace(/ \(auto \+30d\)$/,' <span class="chipb neu" style="font-size:9.5px;padding:1px 5px">auto +30d</span>')+'</td>'):'')
+          +'<td><button class="btn bsm" onclick="event.stopPropagation();window._recCall(\''+(r.lead_id||"")+'\',\''+(r.ph||"").replace(/[^0-9+ ]/g,"")+'\')">📞</button></td><td>'+(r.calls?'<span class="mono" style="font-size:11px">'+r.calls+'</span>':"—")+'</td></tr>';
       });
-      body.innerHTML = rows || '<tr><td colspan="15" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
+      // colspan tracks the columns actually rendered (15 base, +2 in the Instalment-2 view).
+      body.innerHTML = rows || '<tr><td colspan="'+(curScFilter==="inst2"?17:15)+'" style="text-align:center;color:var(--faint);padding:18px">No appointments match the filters</td></tr>';
     }
     function renderPay() {
       const el = root.querySelector("#recPayList");
@@ -9709,6 +9753,28 @@ export function initApp(root: HTMLElement) {
     function _showCommitCol(){ return ["This Week","End of Month","Next Month"].indexOf(_coachDashSel)>=0; }
     // The Pending Installment column appears only while the "Instalment 2 pending" card is selected.
     function _showInst2Col(){ return _coachDashSel==="Instalment 2 pending"; }
+    // When installment 1 was actually COLLECTED (its paid payment row), not when the plan was made.
+    function _coachInst1At(c:any):string{
+      const inst=(_recInst||{})[String(c&&c.id)];
+      const r1=inst&&inst.rows?inst.rows.find((r:any)=>Number(r.installment_number)===1&&r.status==="paid"):null;
+      const iso=r1?(r1.paid_at||r1.created_at):"";
+      return iso?fmtIST(iso):"—";
+    }
+    // When the balance falls due. Prefer the stored due_date on the installment-2 row (stamped when
+    // the collection request was sent); otherwise derive the documented "+30 days after Inst-1 date"
+    // so the column still answers the question for plans saved before due dates were persisted.
+    function _coachBalDueAt(c:any):string{
+      const inst=(_recInst||{})[String(c&&c.id)];
+      if(!inst||!inst.rows) return "—";
+      const r2=inst.rows.find((r:any)=>Number(r.installment_number)===2);
+      if(r2&&r2.due_date) return fmtIST(r2.due_date);
+      const r1=inst.rows.find((r:any)=>Number(r.installment_number)===1&&r.status==="paid");
+      const base=r1?(r1.paid_at||r1.created_at):"";
+      if(!base) return "—";
+      const d=new Date(base); if(isNaN(d.getTime())) return "—";
+      d.setDate(d.getDate()+30);
+      return fmtIST(d.toISOString())+" (auto +30d)";
+    }
     function _coachCommitOf(c:any){ const d=c&&c.coachProfile&&c.coachProfile.commitDate; return d?fmtISTDate(d):"—"; }
     function _coachCliColsFn(){
       const cols:any[]=[
@@ -9725,6 +9791,16 @@ export function initApp(root: HTMLElement) {
       if(_showCommitCol()){ const i=cols.findIndex((c:any)=>c.key==="cons"); cols.splice(i+1,0,{key:"commit",label:"Commitment Date",filter:true,text:(c:any)=>_coachCommitOf(c)}); }
       // Insert "Pending Installment" (program · balance · due date) while that card is selected.
       if(_showInst2Col()){ const i=cols.findIndex((c:any)=>c.key==="cons"); cols.splice(i+1,0,{key:"inst2",label:"Pending Installment",filter:true,text:(c:any)=>_coachInst2Detail(c)}); }
+      // "Instalment 2 pending" also gets the two dates that decide when to chase: when installment 1
+      // was collected, and when the balance is due. Placed AFTER "Visited Date & Time" so the row
+      // reads chronologically (visited → inst-1 paid → balance due). Both are filterable like every
+      // other column in this grid.
+      if(_showInst2Col()){
+        const v=cols.findIndex((c:any)=>c.key==="visited");
+        cols.splice(v+1,0,
+          {key:"inst1at",label:"Inst-1 Date & Time",filter:true,text:(c:any)=>_coachInst1At(c)},
+          {key:"baldue",label:"Balance Due Date & Time",filter:true,text:(c:any)=>_coachBalDueAt(c)});
+      }
       return cols;
     }
     regGrid("coachClients",_coachCliColsFn,()=>renderCoachClientsTable());
@@ -9750,8 +9826,13 @@ export function initApp(root: HTMLElement) {
           +(_showCommitCol()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachCommitOf(c))+'</td>'):'')
           +(_showInst2Col()?('<td style="font-size:11.5px;white-space:nowrap"><span class="chipb warn">'+e(_coachInst2Detail(c))+'</span></td>'):'')
           +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(fmtIST(c.visitedAt))+'</td>'
+          // Order must mirror _coachCliColsFn: these two sit directly after Visited Date & Time.
+          +(_showInst2Col()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachInst1At(c))+'</td>'):'')
+          +(_showInst2Col()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachBalDueAt(c))+'</td>'):'')
           +'<td><button class="btn bsm bp" onclick="window._coachOpen(\''+e(String(c.id))+'\')">Open</button></td></tr>';
-      }).join(""):'<tr><td colspan="'+((_showCommitCol()||_showInst2Col())?9:8)+'" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
+      // colspan must track the columns actually rendered: base 8, +1 Commitment, +3 for the
+      // Instalment-2 view (Pending Installment, Inst-1 date, Balance due date).
+      }).join(""):'<tr><td colspan="'+(8+(_showCommitCol()?1:0)+(_showInst2Col()?3:0))+'" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';
       const info=root.querySelector("#coachCliPageInfo"); if(info)info.textContent="Page "+_coachCliPage+" of "+pages;
       _pgBtns("coachCli",_coachCliPage,pages);
     }
