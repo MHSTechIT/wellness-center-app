@@ -1287,7 +1287,8 @@ export function initApp(root: HTMLElement) {
       {name:"Website forms",status:"Connected",sc:"ok",mode:"Webhook",lastLead:"26m"},
       {name:"WhatsApp (WATI)",status:"Connected",sc:"ok",mode:"API",lastLead:"11m"},
       {name:"Google / YouTube",status:"Not connected",sc:"neu",mode:"—",lastLead:"—"},
-      {name:"Walk-in / Referral / Telecalling",status:"Manual",sc:"info",mode:"Reception / advisor form",lastLead:"38m"}
+      {name:"Walk-in / Referral / Telecalling",status:"Manual",sc:"info",mode:"Reception / advisor form",lastLead:"38m"},
+      {name:"Bulk CSV import",status:"Manual",sc:"info",mode:"Bulk CSV Import Wizard",lastLead:"—"}
     ];
     // Lead records live in Supabase (synced from Meta). IMP is populated by
     // fetchMetaLiveFeed() from /api/meta/leads — no mock data.
@@ -1393,6 +1394,10 @@ export function initApp(root: HTMLElement) {
         const srcRes=await supabase.from("source_connections").select("*");
         if(srcRes.data && srcRes.data.length>0){
           IMP_SRC_CFG=srcRes.data.map((s:any)=>({name:s.name,status:s.status,sc:s.status_color,mode:s.mode,lastLead:s.last_lead}));
+          // The Bulk CSV Wizard row is app-defined — keep it even when the DB config
+          // table predates it, or the row silently vanishes on load.
+          if(!IMP_SRC_CFG.some((s:any)=>s.name==="Bulk CSV import"))
+            IMP_SRC_CFG.push({name:"Bulk CSV import",status:"Manual",sc:"info",mode:"Bulk CSV Import Wizard",lastLead:"—"});
           renderImport();
         }
       }catch(e){
@@ -1605,7 +1610,7 @@ export function initApp(root: HTMLElement) {
         // if it actually has leads in the database; otherwise "Not connected".
         const allForSrc=IMP.filter(r=>r.source===s.name);
         const connected=allForSrc.length>0;
-        const isManual=s.name.indexOf("Walk-in")===0;
+        const isManual=s.name.indexOf("Walk-in")===0||s.name==="Bulk CSV import";
         const newest=allForSrc.reduce((mx:any,r:any)=>(!mx||r.date>mx)?r.date:mx,null);
         const lastLead=newest?ageStr(newest):"—";
         const isMeta=s.name==="Meta Ads";
@@ -2147,32 +2152,22 @@ export function initApp(root: HTMLElement) {
         // file's lead date) and survive after their wizard row is deleted (41 promoted vs 4 sent rows
         // in the live DB), so the two counters could never reconcile. The promoted rows still exist
         // everywhere else — Live Feed, assignment pool, Advisor — only this KPI slice changes.
-        _otherLeads=rows.filter((r:any)=>String(r.meta_lead_id||"").indexOf("csv-")!==0)
-          .map((r:any)=>({id:r.meta_lead_id,name:r.name,
-            source:(r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source,
+        _otherLeads=rows.map((r:any)=>{
+          // A lead promoted from the CSV wizard keeps source "Manual" (the send payload's label),
+          // which would file it under Walk-in. Its id still starts "csv-", so attribute it to the
+          // Bulk CSV import source — the count is unaffected, only which source row it lands in.
+          const _isCsv=String(r.meta_lead_id||"").indexOf("csv-")===0;
+          return {id:r.meta_lead_id,name:r.name,
+            source:_isCsv?"Bulk CSV import":((r.source==="Manual")?"Walk-in / Referral / Telecalling":r.source),
             service:r.service||"Diabetes",
-            date:new Date(r.created_at||r.lead_date),isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned}));
-        // Promoted twins, kept for flag lookups below (a sent wizard row's assigned state lives on
-        // its "csv-<id>" leads row, not on the wizard row).
-        const _csvTwin:Record<string,any>={};
-        rows.forEach((r:any)=>{ const k=String(r.meta_lead_id||""); if(k.indexOf("csv-")===0) _csvTwin[k]=r; });
-        // ALL Bulk CSV Wizard rows — every status, the SAME population the wizard's tabs count
-        // ("Imported leads" = valid+sent+assigned; "Duplicates" = duplicate), dated by the file's own
-        // lead date so the page's date filter buckets them exactly like the wizard's range filter.
-        // One row here per wizard row, promoted or not — no double count, no orphan drift.
-        try{
-          const {data:cw}=await supabase.from("csv_leads")
-            .select("id,lead_name,name,service,date_time,status,created_at");
-          (cw||[]).forEach((r:any)=>{
-            const d=parseFlexDate(r.date_time);
-            const twin=_csvTwin["csv-"+r.id];
-            _otherLeads.push({id:"csvw-"+r.id,name:r.lead_name||r.name||"Lead",source:"Bulk CSV import",
-              service:r.service||"Diabetes",date:(d&&!isNaN(d.getTime()))?d:new Date(r.created_at),
-              isValid:r.status==="valid"||r.status==="sent"||r.status==="assigned",
-              isDuplicate:r.status==="duplicate",
-              isAssigned:twin?!!twin.is_assigned:r.status==="assigned"});
-          });
-        }catch(_){ /* wizard table absent/unreadable — the CSV cohort is empty until it loads */ }
+            date:new Date(r.created_at||r.lead_date),isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned};
+        });
+        // NOTE: the wizard's own csv_leads rows are deliberately NOT added here.
+        // They used to be, so the KPI cards counted "leads + wizard rows not yet promoted" while the
+        // Admin Report counted the leads table — a permanent 2-lead gap (53 vs 51) that read as a bug
+        // on both screens. ONE definition now: a row counts once it is a real lead. Rows still sitting
+        // in the wizard are part of the import pipeline, not the CRM, and remain visible with their own
+        // counts in the Bulk CSV import wizard's tabs below.
         // Full feed-shaped objects for the Live Incoming Feed.
         _otherFeedLeads=rows.map((r:any)=>{
           const createdAt=r.created_at||r.lead_date;

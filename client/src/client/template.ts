@@ -635,9 +635,9 @@ export function getMainContent(): string {
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto" id="impFilterBar">
         <select class="select" id="impMonth" style="height:33px;font-size:12px;width:130px"><option value="all" selected>All Months</option><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5">June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select>
         <select class="select" id="impYear" style="height:33px;font-size:12px;width:100px"><option value="all" selected>All Years</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
-        <input class="input mono" id="impDateFrom" type="datetime-local" title="From date &amp; time" style="height:33px;font-size:11.5px;width:182px">
+        <input class="input mono" id="impDateFrom" type="date" title="From date" style="height:33px;font-size:11.5px;width:150px">
         <span style="color:var(--faint);font-size:12px">to</span>
-        <input class="input mono" id="impDateTo" type="datetime-local" title="To date &amp; time" style="height:33px;font-size:11.5px;width:182px">
+        <input class="input mono" id="impDateTo" type="date" title="To date" style="height:33px;font-size:11.5px;width:150px">
         <select class="select" id="impSource" style="height:33px;font-size:12px;width:160px"><option value="all">All Sources</option><option>Meta Ads</option><option>Website forms</option><option>WhatsApp (WATI)</option><option>Google / YouTube</option><option>Walk-in / Referral / Telecalling</option><option>Bulk CSV import</option></select>
         <select class="select" id="impService" style="height:33px;font-size:12px;width:150px"><option value="all">All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select>
         <button class="btn bsm bp" onclick="window._impApplyFilters()">Apply</button>
@@ -1440,10 +1440,11 @@ export function getMainContent(): string {
           <input type="date" class="date-input" id="rpcTo">
           <button class="btn-s purple" onclick="window._rpcRender()">Apply</button>
         </div>
-        <button class="btn-s" id="rpcNavPrev" onclick="window._rpcNav(-1)" style="padding:3px 8px">&#8592;</button>
-        <span style="font-size:10px;font-weight:500;color:#111827;min-width:130px;text-align:center" id="rpcPeriodLabel"></span>
-        <button class="btn-s" id="rpcNavNext" onclick="window._rpcNav(1)" style="padding:3px 8px">&#8594;</button>
-        <button class="btn-s" onclick="window._rpcNavToday()" style="font-size:10px">Today</button>
+        <!-- Period navigator (← / label / → / Today) removed on request. The label read "Q3 2026" on
+             the Monthly view (its window is a quarter of monthly buckets), which was confusing next
+             to a Period control that has no Quarterly option. _rpcNavOff stays 0, so every period
+             shows the CURRENT day/week/quarter/year; use Custom + From/To for any other range.
+             The _rpcNav/_rpcNavToday handlers are kept so nothing that calls them breaks. -->
         <div style="width:0.5px;height:16px;background:#E5E7EB;margin:0 4px"></div>
         <span class="ctrl-label">View by:</span>
         <div class="tog" id="rpcRowviewTog">
