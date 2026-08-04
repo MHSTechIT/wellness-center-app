@@ -471,8 +471,8 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="this.classList.remove('err');window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="i2Inst1Mode">Mode <span class="req">*</span></label><select  class="select" id="i2Inst1Mode" onchange="this.classList.remove('err')"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="i2Inst1Date">Inst-1 date <span class="req">*</span></label><input  class="input" type="date" id="i2Inst1Date" onchange="this.classList.remove('err');window._syncI2BalDue()"></div>
-              <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR *</label><input  class="input mono" id="i2Inst1Ref" placeholder="Mandatory" oninput="this.classList.remove('err')"></div>
-              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof *</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR</label><input  class="input mono" id="i2Inst1Ref" placeholder="e.g. UTR / desk receipt no."></div>
+              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
               <div class="fld"><label class="lbl" for="i2BalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="i2BalDue" readonly></div>
@@ -583,12 +583,27 @@ export function getMainContent(): string {
   <section class="screen" id="s-metaleads"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Meta leads</h1><p>Every lead captured from Meta — filter by ad account, campaign or form to check what is coming in.</p></div>
       <div class="pha"><button class="btn" onclick="window._mlExport()">⬇ Export</button><button class="btn bp" onclick="window._mlReload()">↻ Refresh</button></div></div>
-    <div class="sec" style="margin-bottom:12px"><div class="sec-bd">
-      <div class="g4">
+    <!-- overflow:visible on BOTH the card and its body: the Campaign/Form menus are absolutely
+         positioned inside this card, and .sec clips its content by default — which is why the
+         dropdown appeared cut off after the first row. Same fix the pool "Assign to" menu uses. -->
+    <div class="sec" style="margin-bottom:12px;overflow:visible"><div class="sec-bd" style="overflow:visible">
+      <div class="g4" style="overflow:visible">
         <div class="fld"><label class="lbl" for="mlAcct">Ad account</label><select class="select" id="mlAcct" onchange="window._mlRender()"><option value="all">All ad accounts</option></select></div>
-        <div class="fld"><label class="lbl" for="mlCampaign">Campaign</label><select class="select" id="mlCampaign" onchange="window._mlRender()"><option value="all">All campaigns</option></select></div>
-        <div class="fld"><label class="lbl" for="mlForm">Form</label><select class="select" id="mlForm" onchange="window._mlRender()"><option value="all">All forms</option></select></div>
-        <div class="fld"><label class="lbl" for="mlRange">Period</label><select class="select" id="mlRange" onchange="window._mlRangeChange()"><option value="today">Today</option><option value="yest">Yesterday</option><option value="week">This week</option><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="all">All time</option><option value="cust">Custom range</option></select></div>
+        <div class="fld"><label class="lbl">Campaign</label>
+          <div id="mlCampWrap" style="position:relative">
+            <button type="button" class="select" id="mlCampBtn" onclick="window._mlCampToggle(event)" style="cursor:pointer;width:100%;text-align:left;display:flex;align-items:center;gap:6px;font-weight:500"><span id="mlCampLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">All campaigns</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+            <div id="mlCampMenu" style="display:none;position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;min-width:320px;background:var(--surface);border:1px solid var(--line);border-radius:9px;max-height:320px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14);padding:5px"></div>
+          </div>
+          <div id="mlCampChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px"></div>
+        </div>
+        <div class="fld"><label class="lbl">Form</label>
+          <div id="mlFormWrap" style="position:relative">
+            <button type="button" class="select" id="mlFormBtn" onclick="window._mlFormToggle(event)" style="cursor:pointer;width:100%;text-align:left;display:flex;align-items:center;gap:6px;font-weight:500"><span id="mlFormLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">All forms</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+            <div id="mlFormMenu" style="display:none;position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;min-width:340px;background:var(--surface);border:1px solid var(--line);border-radius:9px;max-height:320px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14);padding:5px"></div>
+          </div>
+          <div id="mlFormChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px"></div>
+        </div>
+        <div class="fld"><label class="lbl" for="mlRange">Period</label><select class="select" id="mlRange" onchange="window._mlRangeChange()"><option value="all" selected>All time</option><option value="today">Today</option><option value="yest">Yesterday</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="month">This month</option><option value="cust">Custom range</option></select></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
         <input class="input" id="mlSearch" placeholder="Search name / phone / campaign / ad…" style="max-width:340px;height:34px;font-size:12px" oninput="window._mlRender()">

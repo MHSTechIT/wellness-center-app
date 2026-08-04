@@ -7,6 +7,8 @@ import {
   checkTokenValidity,
   exchangeForLongLivedToken,
   adAccountNames,
+  fetchCampaignStatuses,
+  fetchFormStatuses,
 } from '../services/meta';
 
 // ============================================================
@@ -295,6 +297,26 @@ export function registerMetaRoutes(app: Express) {
   // stores the raw account id as the name and overwrites any good value on the next upsert, so the
   // filter fell back to "Account 384231607347196". Serving the mapping directly makes the label
   // independent of crawl history — no re-sync needed for a name change to show up.
+  // Live campaign status for the Meta-leads Campaign filter. Never fails the page: on a Graph
+  // error it returns an empty list plus the reason, and the filter falls back to the campaign
+  // names already present in the synced leads (status simply shows as Unknown).
+  app.get('/api/meta/campaigns', requireAuth, async (_req, res) => {
+    try {
+      const ids = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+      res.json(await fetchCampaignStatuses(ids));
+    } catch (e: any) {
+      res.json({ campaigns: [], errors: [{ account: 'all', reason: e?.message || 'lookup failed' }] });
+    }
+  });
+  // Live status for the allowlisted lead forms. Same failure contract as /campaigns.
+  app.get('/api/meta/forms', requireAuth, async (_req, res) => {
+    try {
+      const ids = (process.env.META_TARGET_FORM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+      res.json(await fetchFormStatuses(ids));
+    } catch (e: any) {
+      res.json({ forms: [], errors: [{ form: 'all', reason: e?.message || 'lookup failed' }] });
+    }
+  });
   app.get('/api/meta/accounts', requireAuth, (_req, res) => {
     const names = adAccountNames();
     const ids = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').map((s) => s.trim()).filter(Boolean);

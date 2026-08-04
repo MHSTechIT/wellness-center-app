@@ -83,6 +83,83 @@ function adsTokenCandidates(): string[] {
   ].filter(Boolean) as string[];
 }
 
+// ============================================================
+// Campaigns + LIVE status for the target ad accounts (Marketing API).
+// Drives the Meta-leads Campaign filter, so its status dots reflect what Meta says right now
+// rather than anything we stored at sync time. Cached: the filter is opened often and a campaign's
+// status changes rarely, and an uncached lookup here would eat the same app-level quota that the
+// crawl needs (x-app-usage hit ~971% when the per-tab auto-sync was left unthrottled).
+const CAMPAIGN_CACHE_TTL = Number(process.env.META_CAMPAIGN_CACHE_TTL_MS || 10 * 60 * 1000);
+let _campCache: { at: number; data: any } | null = null;
+
+export async function fetchCampaignStatuses(adAccountIds: string[]) {
+  if (_campCache && Date.now() - _campCache.at < CAMPAIGN_CACHE_TTL) return _campCache.data;
+  const names = adAccountNames();
+  const tokens = adsTokenCandidates();
+  const campaigns: any[] = [];
+  const errors: { account: string; reason: string }[] = [];
+  for (const acctId of adAccountIds) {
+    let got = false;
+    let lastErr = 'no token could read this account';
+    for (const tk of tokens) {
+      const { items, error } = await fetchAllPages(
+        `${GRAPH_API}/act_${acctId}/campaigns?fields=id,name,status,effective_status&limit=200&access_token=${tk}`,
+        10
+      );
+      if (error) { lastErr = error; continue; }
+      items.forEach((c: any) => campaigns.push({
+        id: c.id,
+        name: c.name,
+        // effective_status accounts for the parent (an ACTIVE campaign under a paused account
+        // still can't deliver), so prefer it and fall back to the campaign's own status.
+        status: String(c.effective_status || c.status || 'UNKNOWN').toUpperCase(),
+        accountId: acctId,
+        accountName: names[acctId] || acctId
+      }));
+      got = true;
+      break;
+    }
+    if (!got) errors.push({ account: acctId, reason: lastErr });
+  }
+  const data = { campaigns, errors, fetchedAt: new Date().toISOString() };
+  // Only cache a useful answer — caching a total failure would hide recovery for 10 minutes.
+  if (campaigns.length) _campCache = { at: Date.now(), data };
+  return data;
+}
+
+// Live status for the allowlisted lead forms (Marketing API). Same purpose as
+// fetchCampaignStatuses: the Form filter shows what Meta says right now, not a stored value.
+// Forms are fetched BY ID (not by enumerating pages) so a form on a page our token cannot list
+// is still reported — that is the whole reason the allowlist exists.
+const FORM_CACHE_TTL = Number(process.env.META_FORM_CACHE_TTL_MS || 10 * 60 * 1000);
+let _formCache: { at: number; data: any } | null = null;
+
+export async function fetchFormStatuses(formIds: string[]) {
+  if (_formCache && Date.now() - _formCache.at < FORM_CACHE_TTL) return _formCache.data;
+  const tokens = adsTokenCandidates();
+  const forms: any[] = [];
+  const errors: { form: string; reason: string }[] = [];
+  for (const fid of formIds) {
+    let got = false;
+    let lastErr = 'no token could read this form';
+    for (const tk of tokens) {
+      try {
+        const r: any = await fetch(`${GRAPH_API}/${fid}?fields=id,name,status&access_token=${tk}`).then((x) => x.json());
+        if (r && !r.error) {
+          forms.push({ id: r.id || fid, name: r.name || fid, status: String(r.status || 'UNKNOWN').toUpperCase() });
+          got = true;
+          break;
+        }
+        lastErr = (r && r.error && r.error.message) || lastErr;
+      } catch (e: any) { lastErr = e?.message || lastErr; }
+    }
+    if (!got) errors.push({ form: fid, reason: lastErr });
+  }
+  const data = { forms, errors, fetchedAt: new Date().toISOString() };
+  if (forms.length) _formCache = { at: Date.now(), data };
+  return data;
+}
+
 export function adAccountNames(): Record<string, string> {
   const out: Record<string, string> = {};
   (process.env.META_TARGET_AD_ACCOUNT_NAMES || '').split(',').forEach((p) => {

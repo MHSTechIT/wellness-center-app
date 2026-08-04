@@ -9850,7 +9850,17 @@ export function initApp(root: HTMLElement) {
       const _prog=_curProgram();   // tag payments per program (L1 / L2 / L1 + L2) — see _applyPaymentLocks
       const val=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null)?.value)||"";
       const iso=(d:string)=>d?new Date(d).toISOString():new Date().toISOString();
-      const proof=(cid:string)=>{ const p=_payProofs[cid]; return p?{proof_url:p.url,proof_name:p.name}:{}; };
+      // Proof for a row: a freshly attached file, else the proof already stored on the coach's saved
+      // row for that installment. _payProofs is cleared on every client open, and this function's
+      // commit() DELETES + re-inserts the coach rows from the form — without the fallback, every
+      // re-save of an installment client silently dropped the stored proof_url.
+      const proof=(cid:string)=>{
+        const p=_payProofs[cid]; if(p) return {proof_url:p.url,proof_name:p.name};
+        const n=cid==="i2Inst1Proof"?1:(cid==="i2BalProof"?2:0);
+        if(n){ const r=(_coachPayRows||[]).find((x:any)=>x.payment_type==="installment"&&Number(x.installment_number)===n&&x.status==="paid"&&x.proof_url&&!/reception|pos/i.test(String(x.collected_by||"")));
+          if(r) return {proof_url:r.proof_url,proof_name:r.proof_name||"proof"}; }
+        return {};
+      };
       const commit=async(ptype:string,rows:any[],label:string,collected:number)=>{
         // Scope the re-write to THIS program so an L2 save never wipes the L1 payment (and vice versa).
         // Abort if the delete failed — inserting on top of rows we couldn't clear duplicates them.
@@ -9882,13 +9892,17 @@ export function initApp(root: HTMLElement) {
         // and the ledger), txn ref (the desk-receipt number for cash — "nothing is received until
         // proof + ref are attached") and the attached proof. Highlight every missing field at once
         // and name them, mirroring the Advisor form's required-field pattern.
-        if(_okP1){
+        // Defense-in-depth behind _coachSaveRecord's PRE-SAVE block (which is what actually stops
+        // the health record — this function runs after the profile write). Same rules: skipped only
+        // when Reception already collected installment 1 (that row is preserved, the form isn't the
+        // source), and the proof requirement is satisfied by the stored row's proof on re-saves.
+        const _prevInst1Paid=(_coachPayRows||[]).some((r:any)=>_isDiaProgRow(r)&&r.payment_type==="installment"&&Number(r.installment_number)===1&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||"")));
+        if(_okP1&&!_prevInst1Paid){
           const _req:[string,string,()=>boolean][]=[
             ["#i2Inst1Rcvd","Inst-1 received (₹)",()=>!!_payNum("#i2Inst1Rcvd")],
             ["#i2Inst1Mode","Mode",()=>!!val("#i2Inst1Mode")],
             ["#i2Inst1Date","Inst-1 date",()=>!!val("#i2Inst1Date")],
-            ["#i2Inst1Ref","Txn ref / UTR",()=>!!val("#i2Inst1Ref")],
-            ["#i2Inst1Proof","Inst-1 proof",()=>!!_payProofs["i2Inst1Proof"]],
+            // Txn ref and Inst-1 proof were demoted to OPTIONAL on request (labels lost their *).
           ];
           const _missing:string[]=[]; let _first:HTMLElement|null=null;
           _req.forEach(([sel])=>{ const e2=root.querySelector(sel)as HTMLElement|null; if(e2) e2.classList.remove("err"); });
@@ -10282,7 +10296,20 @@ export function initApp(root: HTMLElement) {
             if(pcfg.mode){ const modeEl=root.querySelector(pcfg.mode)as HTMLSelectElement|null;
               if(!((modeEl&&modeEl.value)||"").trim()){ _missP.push("Mode"); if(modeEl){ modeEl.classList.add("err"); _firstP=_firstP||modeEl; } } }
             if(!status){ _missP.push("Status"); if(stEl){ stEl.classList.add("err"); _firstP=_firstP||stEl; } }
-            if(_missP.length){ toastErr("Payment — please complete: "+_missP.join(", ")); try{_firstP&&_firstP.focus();}catch(_){} return; }
+            // Installment (2×) Part 1: the * fields (received / mode / date) are mandatory BEFORE
+            // the health record may save (this block runs pre-save, so a failure blocks the whole
+            // record — the deeper check inside _persistInstallments runs after the profile write and
+            // can't). Date drives the auto +30d balance-due + ledger paid_at. Txn ref and proof were
+            // demoted to OPTIONAL on request. Skipped when Reception already collected installment 1
+            // — that row is preserved as-is and these form fields aren't what gets written.
+            if(pm==="i2"){
+              const _recInst1=(_coachPayRows||[]).some((r:any)=>_isDiaProgRow(r)&&r.payment_type==="installment"&&Number(r.installment_number)===1&&r.status==="paid"&&/reception|pos/i.test(String(r.collected_by||"")));
+              if(!_recInst1){
+                _clr("#i2Inst1Date"); const _dEl=root.querySelector("#i2Inst1Date")as HTMLInputElement|null;
+                if(!((_dEl&&_dEl.value)||"").trim()){ _missP.push("Inst-1 date"); if(_dEl){ _dEl.classList.add("err"); _firstP=_firstP||_dEl; } }
+              }
+            }
+            if(_missP.length){ toastErr("Payment — please complete: "+_missP.join(", ")); try{_firstP&&(_firstP as any).focus&&(_firstP as any).focus(); _firstP&&_firstP.scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){} return; }
           }
         }
       }
@@ -12435,6 +12462,21 @@ export function initApp(root: HTMLElement) {
     // "Unattributed", which is itself the signal that attribution is not running.
     let _mlAll:any[]=[], _mlPageN=1; const ML_PER=25;
     let _mlAcctNames:Record<string,string>={};
+    // campaign name → LIVE status from the Marketing API (/api/meta/campaigns), plus the set of
+    // campaigns the user has ticked. Empty set = no filter (show everything), per spec.
+    let _mlCampStatus:Record<string,string>={};
+    let _mlFormStatus:Record<string,string>={};
+    const _mlCampSel=new Set<string>();
+    const _mlFormSel=new Set<string>();
+    // Meta returns a long tail of effective_status values; collapse them into the three buckets the
+    // filter shows. Anything unrecognised is treated as non-active (red) rather than silently green.
+    const _mlStatusInfo=(st:string):{k:string;label:string;dot:string;rank:number}=>{
+      const s=String(st||"").toUpperCase();
+      if(!s||s==="UNKNOWN") return {k:"unknown",label:"Unknown",dot:"var(--faint)",rank:3};
+      if(s==="ACTIVE") return {k:"active",label:"Active",dot:"var(--ok-ink)",rank:0};
+      if(s.indexOf("PAUSED")>=0) return {k:"paused",label:"Paused",dot:"var(--warn-ink)",rank:1};
+      return {k:"other",label:s.replace(/_/g," ").toLowerCase().replace(/^./,(c)=>c.toUpperCase()),dot:"var(--alert-ink)",rank:2};
+    };
     // What the Ad-account column and filter show for a lead. Prefers a real name, then the learned
     // id→name map, and only falls back to the bare id (prefixed, so it doesn't read as a stray
     // number in a dropdown). Used by the options, the filter and the table so all three agree.
@@ -12469,6 +12511,20 @@ export function initApp(root: HTMLElement) {
           (j&&j.accounts||[]).forEach((a:any)=>{ const id=String(a&&a.id||"").trim(), nm=String(a&&a.name||"").trim();
             if(id&&nm&&nm!==id) _mlAcctNames[id]=nm; });
         }catch(_){ /* offline / not signed in → fall back to whatever the rows carry */ }
+        // LIVE campaign status from the Marketing API (server-cached). Never blocks the page: if
+        // Meta is unreachable the statuses stay empty and every campaign simply reads "Unknown".
+        try{
+          const cr=await fetch(_api("/api/meta/campaigns"),{headers:authHeaders()});
+          const cj=await cr.json().catch(()=>null);
+          _mlCampStatus={};
+          (cj&&cj.campaigns||[]).forEach((c:any)=>{ const nm=String(c&&c.name||"").trim(); if(nm) _mlCampStatus[nm]=String(c.status||""); });
+        }catch(_){ /* keep whatever we had */ }
+        try{
+          const fr=await fetch(_api("/api/meta/forms"),{headers:authHeaders()});
+          const fj=await fr.json().catch(()=>null);
+          _mlFormStatus={};
+          (fj&&fj.forms||[]).forEach((f:any)=>{ const nm=String(f&&f.name||"").trim(); if(nm) _mlFormStatus[nm]=String(f.status||""); });
+        }catch(_){ /* keep whatever we had */ }
       }catch(_){ _mlAll=[]; }
       _mlFillSelects(); try{ w._mlRender(); }catch(_){}
     }
@@ -12480,31 +12536,34 @@ export function initApp(root: HTMLElement) {
         if(cur&&Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
       const uniq=(f:(r:any)=>string)=>Array.from(new Set(_mlAll.map(f).map(s=>String(s||"").trim()).filter(Boolean))).sort();
       fill("mlAcct",uniq(_mlAcctLabel),"All ad accounts");
-      fill("mlCampaign",uniq((r:any)=>r.campaign),"All campaigns");
-      fill("mlForm",uniq((r:any)=>r.form_name),"All forms");
+      _mlRenderCampMenu();   // campaign is a multi-select with live status, not a plain <select>
+      _mlRenderFormMenu();   // form is a multi-select with live status + per-period counts
     }
-    function _mlFiltered(){
-      const acct=_mlVal("mlAcct"), camp=_mlVal("mlCampaign"), form=_mlVal("mlForm"), rng=_mlVal("mlRange");
+    // `skip` lets a facet's own menu count leads WITHOUT its own selection applied — so the numbers
+    // beside each campaign/form answer "how many would I get in this date range", not "how many are
+    // showing right now" (which would read 0 for every unticked option).
+    function _mlFiltered(skip?:string){
+      const acct=_mlVal("mlAcct"), rng=_mlVal("mlRange");
       const q=String(((root.querySelector("#mlSearch")as HTMLInputElement|null)?.value)||"").trim().toLowerCase();
       // Day-based periods are compared as IST CALENDAR DAYS (same "YYYY-MM-DD" the table shows), so
       // "Today" means the Indian day, not a rolling 24h window from the browser's clock.
       const todayIST=_istDay(new Date().toISOString());
       const shiftDay=(iso:string,d:number)=>{ const t=new Date(iso); t.setDate(t.getDate()+d); return _istDay(t.toISOString()); };
       const yestIST=shiftDay(new Date().toISOString(),-1);
-      // This week = Monday → today, matching the Reception "This week" convention.
-      const _n=new Date(); const _dow=(_n.getDay()+6)%7;   // 0 = Monday
-      const weekStart=shiftDay(new Date().toISOString(),-_dow);
+      // This month = the 1st of the current IST month → today (replaces the old "This week" option,
+      // matching the CSV wizard's Time-range menu on request).
+      const monthStart=todayIST.slice(0,8)+"01";
       const custFrom=String(((root.querySelector("#mlFrom")as HTMLInputElement|null)?.value)||"").slice(0,10);
       const custTo=String(((root.querySelector("#mlTo")as HTMLInputElement|null)?.value)||"").slice(0,10);
       const now=Date.now(); const cut=rng==="7d"?7:rng==="30d"?30:0;
       return _mlAll.filter((r:any)=>{
         if(acct!=="all"&&_mlAcctLabel(r)!==acct) return false;
-        if(camp!=="all"&&String(r.campaign||"").trim()!==camp) return false;
-        if(form!=="all"&&String(r.form_name||"").trim()!==form) return false;
+        if(skip!=="camp"&&_mlCampSel.size&&!_mlCampSel.has(String(r.campaign||"").trim())) return false;   // none ticked = all campaigns
+        if(skip!=="form"&&_mlFormSel.size&&!_mlFormSel.has(String(r.form_name||"").trim())) return false;   // none ticked = all forms
         const day=_istDay(r._d.toISOString());
         if(rng==="today"){ if(day!==todayIST) return false; }
         else if(rng==="yest"){ if(day!==yestIST) return false; }
-        else if(rng==="week"){ if(!(day>=weekStart&&day<=todayIST)) return false; }
+        else if(rng==="month"){ if(!(day>=monthStart&&day<=todayIST)) return false; }
         else if(rng==="cust"){ if(custFrom&&day<custFrom) return false; if(custTo&&day>custTo) return false; }
         else if(cut){ if(!(r._d.getTime()>=now-cut*86400000)) return false; }
         if(q){ const hay=[r.name,r.phone,r.campaign,r.ad_name,r.form_name,r.service].map((v:any)=>String(v||"").toLowerCase()).join(" "); if(hay.indexOf(q)<0) return false; }
@@ -12547,6 +12606,119 @@ export function initApp(root: HTMLElement) {
     };
     // Period changed → show the From/To boxes only for Custom range, and default them to the last
     // 7 days so an empty custom range never renders as "no leads".
+    // Campaign multi-select: every campaign seen in the synced leads, each with its LIVE Meta
+    // status, ordered Active → Paused → other/archived → unknown, then alphabetically inside each
+    // group. Campaigns Meta knows about but that have produced no lead yet are included too, so the
+    // list matches Ads Manager rather than only what happens to have arrived.
+    function _mlCampList(){
+      const seen:Record<string,boolean>={};
+      const out:{name:string;st:any;n:number}[]=[];
+      const counts:Record<string,number>={};
+      // Counted over the CURRENT date range (and the other filters), so the number beside each
+      // campaign is "leads in this period", which is what the period selector is for.
+      _mlFiltered("camp").forEach((r:any)=>{ const c=String(r.campaign||"").trim(); if(c) counts[c]=(counts[c]||0)+1; });
+      Object.keys(counts).forEach((c)=>{ seen[c]=true; out.push({name:c,st:_mlStatusInfo(_mlCampStatus[c]||""),n:counts[c]}); });
+      Object.keys(_mlCampStatus).forEach((c)=>{ if(!seen[c]) out.push({name:c,st:_mlStatusInfo(_mlCampStatus[c]),n:0}); });
+      out.sort((a,b)=>(a.st.rank-b.st.rank)||a.name.localeCompare(b.name));
+      return out;
+    }
+    function _mlRenderCampMenu(){
+      const menu=root.querySelector("#mlCampMenu")as HTMLElement|null; if(!menu) return;
+      const list=_mlCampList();
+      const head='<div style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-bottom:1px solid var(--line);margin-bottom:4px">'
+        +'<span style="font-size:11px;color:var(--muted)">'+list.length+' campaign'+(list.length===1?"":"s")+'</span>'
+        +'<button type="button" class="pill" style="font-size:11px;margin-left:auto" onclick="event.stopPropagation();window._mlCampClear()">Clear all</button></div>';
+      menu.innerHTML=head+(list.length?list.map((c)=>{
+        const on=_mlCampSel.has(c.name);
+        return '<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;cursor:pointer;font-size:12.5px"'
+          +' onmouseover="this.style.background=\'var(--brand-tint)\'" onmouseout="this.style.background=\'\'">'
+          +'<input type="checkbox" '+(on?"checked":"")+' style="accent-color:var(--brand)" onchange="event.stopPropagation();window._mlCampToggleOne(this,\''+_orgEsc(c.name).replace(/'/g,"&#39;")+'\')">'
+          +'<span style="width:8px;height:8px;border-radius:50%;background:'+c.st.dot+';flex:none"></span>'
+          +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_orgEsc(c.name)+'</span>'
+          +'<span style="font-size:10.5px;color:var(--muted)">'+c.st.label+(c.n?(" · "+c.n):"")+'</span></label>';
+      }).join(""):'<div style="padding:10px;text-align:center;color:var(--faint);font-size:12px">No campaigns yet.</div>');
+      // Button label + removable chips
+      const lbl=root.querySelector("#mlCampLabel")as HTMLElement|null;
+      if(lbl){ const n=_mlCampSel.size;
+        lbl.textContent=n?(n===1?Array.from(_mlCampSel)[0]:(n+" campaigns selected")):"All campaigns";
+        lbl.style.color=n?"var(--ink)":"var(--muted)"; }
+      const chips=root.querySelector("#mlCampChips")as HTMLElement|null;
+      if(chips) chips.innerHTML=Array.from(_mlCampSel).map((c)=>{
+        const st=_mlStatusInfo(_mlCampStatus[c]||"");
+        return '<span class="chipb neu" style="display:inline-flex;align-items:center;gap:5px;font-size:11px">'
+          +'<span style="width:7px;height:7px;border-radius:50%;background:'+st.dot+'"></span>'+_orgEsc(c)
+          +'<span style="cursor:pointer;font-weight:700" onclick="window._mlCampToggleOne(null,\''+_orgEsc(c).replace(/'/g,"&#39;")+'\')">×</span></span>';
+      }).join("");
+    }
+    // ---- Form multi-select: same contract as Campaign (live status dots, period-aware counts) ----
+    function _mlFormList(){
+      const counts:Record<string,number>={}; const seen:Record<string,boolean>={};
+      const out:{name:string;st:any;n:number}[]=[];
+      _mlFiltered("form").forEach((r:any)=>{ const f=String(r.form_name||"").trim(); if(f) counts[f]=(counts[f]||0)+1; });
+      Object.keys(counts).forEach((f)=>{ seen[f]=true; out.push({name:f,st:_mlStatusInfo(_mlFormStatus[f]||""),n:counts[f]}); });
+      // Allowlisted forms Meta knows about that produced nothing in this range still appear (count 0),
+      // so an empty period reads as "this form delivered nothing" rather than the form vanishing.
+      Object.keys(_mlFormStatus).forEach((f)=>{ if(!seen[f]) out.push({name:f,st:_mlStatusInfo(_mlFormStatus[f]),n:0}); });
+      out.sort((a,b)=>(a.st.rank-b.st.rank)||a.name.localeCompare(b.name));
+      return out;
+    }
+    function _mlRenderFormMenu(){
+      const menu=root.querySelector("#mlFormMenu")as HTMLElement|null; if(!menu) return;
+      const list=_mlFormList();
+      const tot=list.reduce((s,x)=>s+x.n,0);
+      const head='<div style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-bottom:1px solid var(--line);margin-bottom:4px">'
+        +'<span style="font-size:11px;color:var(--muted)">'+list.length+' form'+(list.length===1?"":"s")+' · '+tot+' lead'+(tot===1?"":"s")+'</span>'
+        +'<button type="button" class="pill" style="font-size:11px;margin-left:auto" onclick="event.stopPropagation();window._mlFormClear()">Clear all</button></div>';
+      menu.innerHTML=head+(list.length?list.map((c)=>{
+        const on=_mlFormSel.has(c.name);
+        return '<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;cursor:pointer;font-size:12.5px"'
+          +' onmouseover="this.style.background=\'var(--brand-tint)\'" onmouseout="this.style.background=\'\'">'
+          +'<input type="checkbox" '+(on?"checked":"")+' style="accent-color:var(--brand)" onchange="event.stopPropagation();window._mlFormToggleOne(this,\''+_orgEsc(c.name).replace(/'/g,"&#39;")+'\')">'
+          +'<span style="width:8px;height:8px;border-radius:50%;background:'+c.st.dot+';flex:none"></span>'
+          +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_orgEsc(c.name)+'</span>'
+          +'<span style="font-size:10.5px;color:var(--muted)">'+c.st.label+' · '+c.n+'</span></label>';
+      }).join(""):'<div style="padding:10px;text-align:center;color:var(--faint);font-size:12px">No forms yet.</div>');
+      const lbl=root.querySelector("#mlFormLabel")as HTMLElement|null;
+      if(lbl){ const n=_mlFormSel.size;
+        lbl.textContent=n?(n===1?Array.from(_mlFormSel)[0]:(n+" forms selected")):"All forms";
+        lbl.style.color=n?"var(--ink)":"var(--muted)"; }
+      const chips=root.querySelector("#mlFormChips")as HTMLElement|null;
+      if(chips) chips.innerHTML=Array.from(_mlFormSel).map((c)=>{
+        const st=_mlStatusInfo(_mlFormStatus[c]||"");
+        return '<span class="chipb neu" style="display:inline-flex;align-items:center;gap:5px;font-size:11px">'
+          +'<span style="width:7px;height:7px;border-radius:50%;background:'+st.dot+'"></span>'+_orgEsc(c)
+          +'<span style="cursor:pointer;font-weight:700" onclick="window._mlFormToggleOne(null,\''+_orgEsc(c).replace(/'/g,"&#39;")+'\')">×</span></span>';
+      }).join("");
+    }
+    w._mlFormToggle=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation();
+      const m=root.querySelector("#mlFormMenu")as HTMLElement|null; if(!m) return;
+      const show=m.style.display==="none"||!m.style.display; if(show) _mlRenderFormMenu();
+      m.style.display=show?"block":"none"; };
+    w._mlFormToggleOne=(_el:any,name:string)=>{
+      const c=String(name||"").replace(/&#39;/g,"'");
+      if(_mlFormSel.has(c))_mlFormSel.delete(c); else _mlFormSel.add(c);
+      _mlPageN=1; _mlRenderFormMenu(); w._mlRender(); };
+    w._mlFormClear=()=>{ _mlFormSel.clear(); _mlPageN=1; _mlRenderFormMenu(); w._mlRender(); };
+    document.addEventListener("click",(e:any)=>{
+      const wrap=root.querySelector("#mlFormWrap"); const m=root.querySelector("#mlFormMenu")as HTMLElement|null;
+      if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none";
+    },true);
+    w._mlCampToggle=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation();
+      const m=root.querySelector("#mlCampMenu")as HTMLElement|null; if(!m) return;
+      const show=m.style.display==="none"||!m.style.display; if(show) _mlRenderCampMenu();
+      m.style.display=show?"block":"none"; };
+    w._mlCampToggleOne=(_el:any,name:string)=>{
+      const c=String(name||"").replace(/&#39;/g,"'");
+      if(_mlCampSel.has(c))_mlCampSel.delete(c); else _mlCampSel.add(c);
+      _mlPageN=1; _mlRenderCampMenu(); w._mlRender(); };
+    w._mlCampClear=()=>{ _mlCampSel.clear(); _mlPageN=1; _mlRenderCampMenu(); w._mlRender(); };
+    // Close on outside click — CAPTURE phase, because ticking a box re-renders the menu and the
+    // clicked node is detached by the time a bubble-phase listener runs (same trap as the
+    // blood-test panel picker).
+    document.addEventListener("click",(e:any)=>{
+      const wrap=root.querySelector("#mlCampWrap"); const m=root.querySelector("#mlCampMenu")as HTMLElement|null;
+      if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none";
+    },true);
     w._mlRangeChange=()=>{
       const cust=_mlVal("mlRange")==="cust";
       const wrap=root.querySelector("#mlCustWrap")as HTMLElement|null; if(wrap) wrap.style.display=cust?"inline-flex":"none";
@@ -12556,7 +12728,9 @@ export function initApp(root: HTMLElement) {
         if(tEl&&!tEl.value) tEl.value=today;
         if(fEl&&!fEl.value){ const d=new Date(); d.setDate(d.getDate()-6); fEl.value=_istDay(d.toISOString()); }
       }
-      _mlPageN=1; w._mlRender();
+      // The per-option counts are period-scoped, so both menus must be rebuilt when it changes.
+      _mlPageN=1; try{ _mlRenderCampMenu(); _mlRenderFormMenu(); }catch(_){}
+      w._mlRender();
     };
     w._mlPage=(d:string)=>{ const pages=Math.max(1,Math.ceil(_mlFiltered().length/ML_PER));
       _mlPageN=d==="first"?1:d==="last"?pages:d==="next"?Math.min(pages,_mlPageN+1):Math.max(1,_mlPageN-1); w._mlRender(); };
