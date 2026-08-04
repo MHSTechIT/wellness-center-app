@@ -6260,7 +6260,20 @@ export function initApp(root: HTMLElement) {
         // (toCollect>0 / payStatus "due"), NOT on "never paid" — a client who paid L1 and now has an
         // L2 installment due must still appear. Fully-paid clients have toCollect=0 / payStatus
         // "paid", so the due check already excludes them (no need for a hasPaid gate).
-        const due=RX.filter((r:any)=>r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"));
+        // Built from _recAll (EVERY date), not the date-filtered RX: money owed doesn't expire when
+        // the day changes, but the page's date filter defaults to Today — so a collection request
+        // sent for a client whose appointment was on an earlier day never surfaced in this queue
+        // (reported: "checkin leads", request sent 04-08, appointment dated 01-08, queue empty).
+        // toCollect/payStatus are LEAD-level aggregates, so a lead with several visited appointments
+        // would repeat — dedup to one entry per lead, keeping the most recent appointment (that's
+        // the row the Collect button should attach the payment to).
+        const _seenPay=new Set<string>();
+        const due=_recAll.slice()
+          .sort((a:any,b:any)=>String(b._date||"").localeCompare(String(a._date||"")))
+          .filter((r:any)=>{
+            if(!(r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"))) return false;
+            const k=String(r.lead_id||r.id); if(_seenPay.has(k)) return false; _seenPay.add(k); return true;
+          });
         el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||Number(r.physioDue)||0;   // next installment / due amount (not the aggregate)
           const typeChip=r.collectLabel?' <span class="chipb info" style="font-size:10px">'+r.collectLabel+'</span>':(r.physioConsultDone?' <span class="chipb ok" style="font-size:10px">Consultation done</span>':'');
           return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recCollectRoute('+r.id+')">Collect</button></div>';
@@ -9757,8 +9770,23 @@ export function initApp(root: HTMLElement) {
         logActivity(id,[{action:"Payment",field:label,new:"₹"+collected.toLocaleString("en-IN")+(total?(" of ₹"+total.toLocaleString("en-IN")+", balance ₹"+Math.max(0,total-collected).toLocaleString("en-IN")):"")}]);
         if(String(_coachLeadId)===id) _renderCoachPayHistory(id);
       };
+      // ===== The payment-section Status dropdown is the gate for recording money as RECEIVED =====
+      // The page states the rule itself: "Enrolled – L1/L2 is set automatically when this method's
+      // status is marked done (Full → Payment Done · Installment → 1st Paid · Advance → Fully Paid)".
+      // This function used to IGNORE that: any amount sitting in a received box was written as a
+      // PAID payment on save — even with Status = Pending — which then (correctly, given a paid row)
+      // enrolled the lead. Third report of "Save health record enrolled the client": the coach types
+      // the plan amounts, leaves Status Pending, saves. Amounts now persist as received only when the
+      // status explicitly says that money was collected; otherwise the save touches no payment rows.
+      const _stOf=(blk:string)=>((root.querySelector('#'+blk+' select[data-nocap]')as HTMLSelectElement|null)?.value)||"";
       if(pm==="i2"){
-        const p1=_payNum("#i2Inst1Rcvd"), p2=_payNum("#i2BalRcvd");
+        const _stI2=_stOf("pb-i2");
+        const _okP1=/1st|both/i.test(_stI2), _okP2=/2nd|both/i.test(_stI2);
+        if(!_okP1&&!_okP2){
+          if(_payNum("#i2Inst1Rcvd")||_payNum("#i2BalRcvd")) toast("Amounts saved with the plan only — set Status to “1st Paid” / “Both Paid” once the money is actually collected, or send a collection request to Reception.");
+          return;
+        }
+        const p1=_okP1?_payNum("#i2Inst1Rcvd"):0, p2=_okP2?_payNum("#i2BalRcvd"):0;
         const totalI2=_payNum("#i2Total")||total;
         const balance=Math.max(0,totalI2-p1-p2);
         // Don't duplicate an installment Reception has ALREADY collected — the coach save must
@@ -9817,11 +9845,23 @@ export function initApp(root: HTMLElement) {
         if(rows.length){ if(!(await _dbOk(supabase.from("payments").insert(rows),"Payment save"))) return; logActivity(id,[{action:"Payment",field:"Installment",new:"₹"+(p1+p2).toLocaleString("en-IN")+(totalI2?(" of ₹"+totalI2.toLocaleString("en-IN")+", balance ₹"+balance.toLocaleString("en-IN")):"")}]); if(String(_coachLeadId)===id) _renderCoachPayHistory(id); }
         if(p1||p2) await _ensureEnrolledFromPayment(id,_prog);   // installment-1 alone already enrolls
       } else if(pm==="full"){
+        // Same Status gate: "Payment Done" is the declaration that the money was collected.
+        if(!/done/i.test(_stOf("pb-full"))){
+          if(_payNum("#payFullRcvd")) toast("Amount saved with the plan only — set Status to “Payment Done” once the money is actually collected, or send a collection request to Reception.");
+          return;
+        }
         const amt=_payNum("#payFullRcvd"); if(!amt) return;
         await commit("full",[{lead_id:id,amount:amt,status:"paid",method:val("#payFullMode")||null,paid_at:iso(val("#payFullDate")),payment_type:"full",txn_ref:val("#payFullRef")||null,service:"Diabetes",program:_prog,...proof("payFullProof")}],"Full payment",amt);
         await _ensureEnrolledFromPayment(id,_prog);
       } else if(pm==="adv"){
-        const a1=_payNum("#advAmt"), a2=_payNum("#advBalRcvd");
+        // Status gate: "Advance Paid" records the advance; "Fully Paid" records both halves.
+        const _stA=_stOf("pb-adv");
+        const _okA1=/advance paid|fully/i.test(_stA), _okA2=/fully/i.test(_stA);
+        if(!_okA1&&!_okA2){
+          if(_payNum("#advAmt")||_payNum("#advBalRcvd")) toast("Amounts saved with the plan only — set Status to “Advance Paid” / “Fully Paid” once the money is actually collected, or send a collection request to Reception.");
+          return;
+        }
+        const a1=_okA1?_payNum("#advAmt"):0, a2=_okA2?_payNum("#advBalRcvd"):0;
         if(!a1&&!a2) return;
         const rows:any[]=[];
         if(a1) rows.push({lead_id:id,amount:a1,status:"paid",method:val("#advMode")||null,paid_at:iso(val("#advDate")),payment_type:"advance",installment_number:1,total_installments:2,txn_ref:val("#advRef")||null,service:"Diabetes",program:_prog,...proof("advProof")});
@@ -11355,8 +11395,16 @@ export function initApp(root: HTMLElement) {
         ]);
         // One payment per appointment, and a PAID row always wins over a stale due row — this is what
         // keeps the payment status on this page identical to Reception's.
+        // PHYSIO money only: collect stamps payments.service ("Physio" / "Blood test" / "Diabetes" —
+        // see _svcPayLabel), and a combined visit hangs SEVERAL services' payments off the same
+        // appointment row. Mapping appointment_id alone let a blood-test collection become this
+        // page's Payment cell (reported for Ally: combined "Physiotherapy + Blood Test" visit showed
+        // "₹1,500 paid · UPI" — her blood-test money — while the physio fee was still pending).
+        // Rows explicitly tagged another service are skipped; untagged legacy rows still count.
         const pays:Record<string,any>={};
-        (pr.data||[]).forEach((p:any)=>{ if(!p.appointment_id) return; const k=String(p.appointment_id); const cur=pays[k];
+        (pr.data||[]).forEach((p:any)=>{ if(!p.appointment_id) return;
+          const _psvc=String(p.service||""); if(_psvc&&!/phys/i.test(_psvc)) return;
+          const k=String(p.appointment_id); const cur=pays[k];
           if(!cur||(p.status==="paid"&&cur.status!=="paid")) pays[k]=p; });
         const rows=(ar.data||[]);
         // Pull the advisor's physio panel for these leads (name/phone/condition/referral/notes) so the
