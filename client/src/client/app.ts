@@ -510,6 +510,30 @@ export function initApp(root: HTMLElement) {
       if(tog) tog.textContent=_loginIsSignUp?"Already have a password? Sign in":"First time? Set your password";
     }
 
+    // ---- "Remember my email & password on this device" ----
+    // Opt-in only, and only written after the credentials are proven correct, so a typo is never
+    // stored. Kept deliberately separate from wos_session: signing out drops the session but keeps
+    // the prefill, which is the whole point of the checkbox.
+    const REMEMBER_KEY="wos_remember";
+    function _rememberSave(email:string,pass:string){
+      const box=root.querySelector("#loginRemember") as HTMLInputElement|null;
+      try{
+        if(box&&box.checked) window.localStorage.setItem(REMEMBER_KEY,JSON.stringify({email,password:pass}));
+        else window.localStorage.removeItem(REMEMBER_KEY);
+      }catch(_){/* private mode / quota — prefill is a convenience, never block sign-in for it */}
+    }
+    function _rememberRestore(){
+      let saved:any=null;
+      try{ saved=JSON.parse(window.localStorage.getItem(REMEMBER_KEY)||"null"); }catch(_){ saved=null; }
+      if(!saved||!saved.email) return;
+      const emailEl=root.querySelector("#loginEmail") as HTMLInputElement|null;
+      const passEl=root.querySelector("#loginPass") as HTMLInputElement|null;
+      const box=root.querySelector("#loginRemember") as HTMLInputElement|null;
+      if(emailEl) emailEl.value=saved.email;
+      if(passEl&&saved.password) passEl.value=saved.password;
+      if(box) box.checked=true;
+    }
+
     async function doSignIn(){
       const emailEl=root.querySelector("#loginEmail") as HTMLInputElement;
       const passEl=root.querySelector("#loginPass") as HTMLInputElement;
@@ -531,6 +555,7 @@ export function initApp(root: HTMLElement) {
         const {error}=await supabase.auth.signInWithPassword({email,password:pass});
         if(error){ showLoginErr(error.message==="Invalid login credentials"?"Wrong email or password. If first time, click 'Set your password' below.":error.message); return; }
       }
+      _rememberSave(email,pass);
       await checkAuth();
     }
 
@@ -563,6 +588,20 @@ export function initApp(root: HTMLElement) {
       if(passEl) passEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter"&&!_loginIsSignUp) _signIn(); });
       const confirmEl=root.querySelector("#loginConfirm");
       if(confirmEl) confirmEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter") _signIn(); });
+      _rememberRestore();
+      // Password reveal. Only Edge ships a native reveal control, so on Chrome/Firefox there was no
+      // way to check a typo'd password — hence "the eye is missing in the deployed app".
+      root.querySelectorAll(".pw-eye").forEach((b:any)=>{
+        b.addEventListener("click",()=>{
+          const inp=root.querySelector("#"+b.getAttribute("data-pw")) as HTMLInputElement|null;
+          if(!inp) return;
+          const show=inp.type==="password";
+          inp.type=show?"text":"password";
+          b.setAttribute("aria-pressed",show?"true":"false");
+          b.setAttribute("aria-label",show?"Hide password":"Show password");
+          inp.focus();
+        });
+      });
     },0);
 
     // RBAC matrix
@@ -2574,7 +2613,9 @@ export function initApp(root: HTMLElement) {
     function _abmApplyPreset(name:string){
       const fromEl=root.querySelector("#abmRangeFrom")as HTMLInputElement;
       const toEl=root.querySelector("#abmRangeTo")as HTMLInputElement;
-      const fmt=(d:Date)=>{const p=(n:number)=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());};
+      // Date-only inputs: the range is always whole days, so only the calendar date is written here
+      // and _abmApplyRange widens it to 00:00:00 → 23:59:59.999.
+      const fmt=(d:Date)=>{const p=(n:number)=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());};
       const now=new Date();let from:Date|null=null,to:Date|null=new Date(now);
       const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;};
       const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
@@ -2592,12 +2633,15 @@ export function initApp(root: HTMLElement) {
     w._abmApplyRange=()=>{
       const fromEl=root.querySelector("#abmRangeFrom")as HTMLInputElement;
       const toEl=root.querySelector("#abmRangeTo")as HTMLInputElement;
-      _abmRange.from=fromEl&&fromEl.value?new Date(fromEl.value):null;
-      _abmRange.to=toEl&&toEl.value?new Date(toEl.value):null;
+      // "T00:00:00" / "T23:59:59.999" are appended deliberately: new Date("2026-08-05") parses as UTC
+      // midnight, which in IST lands at 05:30 on the same day and silently drops the first 5½ hours
+      // of leads. With an explicit time component the browser parses it as local (IST) instead.
+      _abmRange.from=fromEl&&fromEl.value?new Date(fromEl.value+"T00:00:00"):null;
+      _abmRange.to=toEl&&toEl.value?new Date(toEl.value+"T23:59:59.999"):null;
       const lab=root.querySelector("#abmRangeLabel");
       if(lab){
         if(!_abmRange.from&&!_abmRange.to) lab.textContent="Showing: all time";
-        else{const f=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(d):"…";lab.textContent="Showing: "+f(_abmRange.from)+" → "+f(_abmRange.to);}
+        else{const f=(d:Date|null)=>d?new Intl.DateTimeFormat("en-IN",{day:"2-digit",month:"short",year:"numeric"}).format(d):"…";lab.textContent="Showing: "+f(_abmRange.from)+" → "+f(_abmRange.to);}
       }
       _abmRenderAll();
       try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){}

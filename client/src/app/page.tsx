@@ -4,6 +4,21 @@ import { useEffect, useRef } from "react";
 import { getMainContent } from "@/client/template";
 import { initApp } from "@/client/app";
 
+// Password reveal icons. Chrome/Firefox render no native reveal control on <input type="password">
+// (only Edge does, via ::-ms-reveal), so the eye has to be ours or it silently disappears for most
+// users. .pw-eye hides the Edge control too, otherwise Edge would show two.
+const EyeIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+const EyeOffIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.7 6.1A9.9 9.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17.6 17.6 0 0 1-3.3 3.9M6.3 7.5A17.4 17.4 0 0 0 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 4-.9"/>
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M3 3l18 18"/>
+  </svg>
+);
+
 export default function Home() {
   const appRef = useRef<HTMLDivElement>(null);
 
@@ -59,8 +74,9 @@ export default function Home() {
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
             <div><label className="lbl" htmlFor="loginEmail">Email</label><input className="input" id="loginEmail" type="email" placeholder="you@clinic.com" autoComplete="username"/></div>
-            <div><label className="lbl" htmlFor="loginPass">Password</label><input className="input" id="loginPass" type="password" placeholder="••••••••" autoComplete="current-password"/></div>
-            <div id="loginConfirmWrap" style={{display:"none"}}><label className="lbl" htmlFor="loginConfirm">Confirm password</label><input className="input" id="loginConfirm" type="password" placeholder="••••••••" autoComplete="new-password"/></div>
+            <div><label className="lbl" htmlFor="loginPass">Password</label><div className="pw-wrap"><input className="input" id="loginPass" type="password" placeholder="••••••••" autoComplete="current-password"/><button type="button" className="pw-eye" data-pw="loginPass" aria-label="Show password" aria-pressed="false" tabIndex={-1}><span className="pw-on"><EyeIcon/></span><span className="pw-off"><EyeOffIcon/></span></button></div></div>
+            <div id="loginConfirmWrap" style={{display:"none"}}><label className="lbl" htmlFor="loginConfirm">Confirm password</label><div className="pw-wrap"><input className="input" id="loginConfirm" type="password" placeholder="••••••••" autoComplete="new-password"/><button type="button" className="pw-eye" data-pw="loginConfirm" aria-label="Show password" aria-pressed="false" tabIndex={-1}><span className="pw-on"><EyeIcon/></span><span className="pw-off"><EyeOffIcon/></span></button></div></div>
+            <label className="rmb" htmlFor="loginRemember"><input type="checkbox" id="loginRemember"/><span>Remember my email &amp; password on this device</span></label>
             <button className="btn bp" id="loginBtn" style={{width:"100%",height:"42px",marginTop:"4px"}}>Sign in</button>
             <div style={{textAlign:"center"}}><button id="loginToggle" style={{background:"none",border:"none",color:"var(--brand)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",padding:"4px"}}>First time? Set your password</button></div>
             <div className="login-err" id="loginErr" style={{display:"none"}}></div>

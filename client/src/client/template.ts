@@ -812,10 +812,10 @@ export function getMainContent(): string {
     <div class="ph"><div><h1>Assign &amp; approve</h1><p>Distribute, rescue aging leads, gate sensitive actions.</p></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Asst. branch manager</span>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0;background:var(--surf2,#f4f4f2);border:1px solid var(--line);border-radius:10px;padding:9px 12px">
-      <span style="font-size:12px;font-weight:700;color:var(--ink)">⏱ Time range</span>
+      <span style="font-size:12px;font-weight:700;color:var(--ink)">📅 Date range</span>
       <select class="select" id="abmRangePreset" style="height:31px;font-size:12px;width:150px"><option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="month">This month</option><option value="custom">Custom range</option></select>
-      <span style="font-size:11px;color:var(--faint)">From</span><input class="input mono" id="abmRangeFrom" type="datetime-local" style="height:31px;font-size:11.5px;width:185px">
-      <span style="font-size:11px;color:var(--faint)">To</span><input class="input mono" id="abmRangeTo" type="datetime-local" style="height:31px;font-size:11.5px;width:185px">
+      <span style="font-size:11px;color:var(--faint)">From</span><input class="input mono" id="abmRangeFrom" type="date" style="height:31px;font-size:11.5px;width:140px">
+      <span style="font-size:11px;color:var(--faint)">To</span><input class="input mono" id="abmRangeTo" type="date" style="height:31px;font-size:11.5px;width:140px">
       <button class="btn bsm bp" onclick="window._abmApplyRange()">Apply</button>
       <button class="btn bsm" onclick="window._abmClearRange()">Clear</button>
       <span style="font-size:11px;color:var(--faint);margin-left:auto" id="abmRangeLabel">Showing: all time</span>
