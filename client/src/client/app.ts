@@ -9793,14 +9793,18 @@ export function initApp(root: HTMLElement) {
       return L?("Enrolled – "+L):"Enrolled";
     }
     // Does client c belong in the given dashboard card / kanban column / status-filter value?
-    // Exact match, EXCEPT the two Enrolled cards use MEMBERSHIP so an L1 + L2 client counts in BOTH.
+    // Exact match. The Enrolled cards partition by EXACT membership — L1 only / L2 only / both /
+    // level unrecorded — so each enrolled client matches exactly one card and the faces sum to
+    // Total Leads. (The old membership rule matched an L1 + L2 client on both cards, which is what
+    // made the row overshoot the total.)
     function _coachConsMatch(c:any,label:string){
       if(label==="Instalment 2 pending") return _coachInst2Pending(c);   // payment state, not a consStatus
       const s=_coachConsOf(c);
-      if(/^Enrolled\s*[–-]\s*L/i.test(label)){
+      if(/^Enrolled/i.test(label)){
         if(!/enrol/i.test(s)) return false;
-        if(/l2/i.test(label)) return /l2/i.test(s);
-        if(/l1/i.test(label)) return /l1/i.test(s);
+        const sl1=/l1/i.test(s), sl2=/l2/i.test(s);
+        if(/level pending/i.test(label)) return !sl1&&!sl2;
+        return (/l1/i.test(label))===sl1 && (/l2/i.test(label))===sl2;
       }
       return s===label;
     }
@@ -9852,7 +9856,12 @@ export function initApp(root: HTMLElement) {
     w._coachCliSearch=()=>{ if(_coachSearchT)clearTimeout(_coachSearchT); _coachSearchT=setTimeout(()=>{ _coachQuery=(root.querySelector("#coCliSearch")as HTMLInputElement)?.value||""; _coachCliPage=1; const top=root.querySelector("#coSearch")as HTMLInputElement|null; if(top)top.value=_coachQuery; renderCoachOpenList(); },180); };
     w._coachToggleView=(v:string)=>{ _coachView=v; renderCoachOpenList(); };
     // ===== Health Coach dashboard cards (by consultation status) + Visited-clients table =====
-    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund","Instalment 2 pending"];
+    // The Enrolled cards are EXCLUSIVE: L1 = L1 only, L2 = L2 only, and a client in both programs
+    // counts once on "Enrolled – L1 + L2". Membership-style counting (both cards) made the row sum
+    // past Total Leads, which read as the dashboard losing count (reported). "Enrolled – Level
+    // pending" catches an enrolled client whose program isn't recorded yet — without it those
+    // clients appeared on NO card at all. It renders only when non-empty.
+    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Enrolled – L1 + L2","Enrolled – Level pending","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund","Instalment 2 pending"];
     let _coachDashSel="";
     // "Instalment 2 pending" is a PAYMENT state, not a consultation status: installment 1 collected
     // for some program but installment 2 not yet. Derived from the same guarded per-lead program
@@ -9876,25 +9885,35 @@ export function initApp(root: HTMLElement) {
       const el=root.querySelector("#coachDash"); if(!el) return;
       const list=_coachFiltered();   // cards reflect the applied filter bar (NOT the card selection)
       const counts:Record<string,number>={}; _coachStatusCards.forEach(l=>counts[l]=0);
+      // Exclusive partition: every client lands on exactly ONE status card, so the faces add up to
+      // Total Leads (membership counting put an L1 + L2 client on both Enrolled cards → 120 vs 70,
+      // reported). Enrolled with no recorded program goes to "Level pending" instead of vanishing.
       list.forEach((c:any)=>{ const s=_coachConsOf(c);
-        // Enrolled clients count by MEMBERSHIP: an L1 + L2 client is counted in BOTH Enrolled cards.
-        if(/^Enrolled\s*[–-]\s*L/i.test(s)){ if(/l1/i.test(s)) counts["Enrolled – L1"]=(counts["Enrolled – L1"]||0)+1; if(/l2/i.test(s)) counts["Enrolled – L2"]=(counts["Enrolled – L2"]||0)+1; }
+        if(/enrol/i.test(s)){
+          const l1=/l1/i.test(s), l2=/l2/i.test(s);
+          const k=l1&&l2?"Enrolled – L1 + L2":(l1?"Enrolled – L1":(l2?"Enrolled – L2":"Enrolled – Level pending"));
+          counts[k]=(counts[k]||0)+1;
+        }
         else counts[s]=(counts[s]||0)+1;
       });
       counts["Instalment 2 pending"]=list.filter(_coachInst2Pending).length;   // payment state, orthogonal to consStatus
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      // (Per-service split cards were removed on request — the dashboard shows only the
-      // consultation-status cards; the filter bar still narrows by service when needed.)
-      // Total Leads LEADS the set (requested order: Total Leads → Open → the rest): how many clients
-      // the status cards are describing. It is NOT the sum of them — a client enrolled in both levels
-      // is counted in Enrolled L1 AND L2, and Instalment 2 pending is a payment state that overlaps
-      // every consultation status. Clicking it clears the card selection, so it doubles as "show everything".
+      // Total Leads leads the set and doubles as "show everything" (clicking clears the selection).
+      // The status cards sum to it; Instalment 2 pending sits OUTSIDE the sum — it is a payment
+      // overlay whose clients are already counted on their status card, and its sub-line says so.
       const total=list.length;
       const on0=!_coachDashSel;
-      el.innerHTML='<div class="metric" title="Every client in this view — clears the card filter" style="cursor:pointer'+(on0?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\'\')"><div class="ml">Total Leads</div><div class="mv">'+total+'</div></div>'
-      +_coachStatusCards.map(l=>{
+      const _sub:Record<string,string>={
+        "Total Leads":"the status cards below add up to this",
+        "Enrolled – L1":"L1 only","Enrolled – L2":"L2 only","Enrolled – L1 + L2":"in both programs",
+        "Enrolled – Level pending":"enrolled, program not recorded yet",
+        "Instalment 2 pending":"payment state · already counted above",
+      };
+      const _mkSub=(l:string)=>_sub[l]?'<div class="mt" style="color:var(--muted);font-weight:600">'+e(_sub[l])+'</div>':'';
+      el.innerHTML='<div class="metric" title="Every client in this view — clears the card filter" style="cursor:pointer'+(on0?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\'\')"><div class="ml">Total Leads</div><div class="mv">'+total+'</div>'+_mkSub("Total Leads")+'</div>'
+      +_coachStatusCards.filter(l=>l!=="Enrolled – Level pending"||(counts[l]||0)>0).map(l=>{
         const on=_coachDashSel===l;
-        return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
+        return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div>'+_mkSub(l)+'</div>';
       }).join("");
     }
     w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachOpenList(); };
@@ -10026,7 +10045,10 @@ export function initApp(root: HTMLElement) {
       // Kanban columns mirror the consultation-status values (the same set the dashboard
       // cards, List view and All-Status dropdown use) so every view stays in sync.
       const stageColors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#0B6B4C","#E8A817","#0EA5A0","#D8442B","#A855F7","#EF4444","#64748B"];
-      const cols=_coachStatusCards.map((label:string,ci:number)=>({label,color:stageColors[ci%stageColors.length],filter:(c:any)=>_coachConsMatch(c,label)}));
+      const cols=_coachStatusCards.map((label:string,ci:number)=>({label,color:stageColors[ci%stageColors.length],filter:(c:any)=>_coachConsMatch(c,label)}))
+        // "Level pending" is a data-gap catch bucket — like its dashboard card it only appears when
+        // it actually holds someone, so a clean book never shows an empty column for it.
+        .filter(col=>col.label!=="Enrolled – Level pending"||list.some(col.filter));
       const colors=["#17A87B","#378ADD","#7B6CD9","#C07F0E","#D8442B","#5B9BD5","#A855F7","#EF4444"];
       kb.innerHTML='<div style="display:flex;gap:12px;min-width:max-content;padding-bottom:8px">'+cols.map(col=>{
         const items=list.filter(col.filter);
