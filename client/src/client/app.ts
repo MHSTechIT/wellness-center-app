@@ -4381,14 +4381,16 @@ export function initApp(root: HTMLElement) {
       // version zeroed out the moment a visited lead enrolled — the dashboard read "Visited 0,
       // Enrolled 3" for three leads who all walked in that morning (reported). This card therefore
       // overlaps with Enrolled/Payment rather than summing into Total — that's the honest funnel.
-      // Keep the exclusive bucket count before overwriting it: stage cards are mutually exclusive and
-      // DO sum to Total Leads, but Visited then becomes a milestone and stops summing. Reporting only
-      // the milestone made the cards look like they had lost leads (16+1+0+17+0+8+0 = 42 against a
-      // Total of 36). The difference is exactly the people who visited and have since moved on, so
-      // the card now states it instead of leaving the reader to work out why the sum overshoots.
-      const _visStill=counts.health;
-      counts.health=book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l))).length;
-      const _visMovedOn=Math.max(0,counts.health-_visStill);
+      // The nine stage cards are mutually exclusive and MUST add up to Total Leads — that is the
+      // property people check first, and breaking it makes the whole dashboard look wrong (129+17+0+
+      // 104+1+79+5+1 = 336 against a Total of 249). So Visited keeps its exclusive bucket count here.
+      //
+      // The milestone number is not lost: everyone who has EVER visited is carried separately and
+      // shown beneath the card, because a purely exclusive Visited once read "Visited 0, Enrolled 3"
+      // for three people who had all walked in that morning. Headline sums, sub-line tells the whole
+      // story, and the sub-line drills into the full milestone list via the visitedEver bucket.
+      const _visEver=book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l))).length;
+      const _visMovedOn=Math.max(0,_visEver-counts.health);
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
         // Until the book has loaded, show a muted "—" rather than a number: a 0 here is
@@ -4404,14 +4406,18 @@ export function initApp(root: HTMLElement) {
         // Sub-lines that make the arithmetic self-explanatory: the stage cards sum to Total Leads,
         // and Visited says how much of it is people who have already moved further down the funnel.
         const _sub:Record<string,string>=_ready?{
-          total:"stage cards below add up to this",
-          health:_visMovedOn?(_visStill+" here now · "+_visMovedOn+" moved on"):"all still at this stage",
+          total:"the stage cards below add up to this",
+          health:_visMovedOn?(_visEver+" have ever visited · "+_visMovedOn+" moved on"):"",
         }:{};
         cards.push(...HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
-          +(c.key==="health"?' title="Everyone who has ever visited, including those who have since reached Payment, Enrolled or Closed — so this card overlaps the others and is not part of the sum"':'')
-          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment + Visited-still-here + Payment + Enrolled + Follow-up + Closed adds up to this number"':'')
+          +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
+          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Zoom + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number."':'')
           +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])
-          +(_sub[c.key]?'<div class="mt" style="color:var(--muted);font-weight:600">'+_sub[c.key]+'</div>':'')+'</div>'));
+          // Visited's sub-line is its own drill-down: the full "ever visited" list, which the headline
+          // deliberately excludes so the cards still sum.
+          +(_sub[c.key]?('<div class="mt" style="color:var(--muted);font-weight:600'+(c.key==="health"?';text-decoration:underline dotted;text-underline-offset:2px':'')+'"'
+            +(c.key==="health"?' title="Show everyone who has ever visited" onclick="event.stopPropagation();window._haCardClick(\'visitedEver\')"':'')
+            +'>'+_sub[c.key]+'</div>'):'')+'</div>'));
         cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
@@ -4502,8 +4508,10 @@ export function initApp(root: HTMLElement) {
         // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
         // (every other card is a subset of it).
         : (_haActiveBucket==="total"?fullBook
-        // "Visited" drill-down mirrors the card: milestone (visited_at set), not the status bucket.
-        : (_haActiveBucket==="health"?book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))
+        // The Visited CARD drills into its stage bucket (falling through below, so the table matches
+        // the number on its face). Its sub-line drills here instead: everyone who has ever visited,
+        // including those who have since moved on.
+        : (_haActiveBucket==="visitedEver"?book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))
         : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket))));
       // Search box above the table — applies to EVERY card's table, matching the fields the tables
       // actually show so what you type lines up with what you see.
@@ -4512,7 +4520,10 @@ export function initApp(root: HTMLElement) {
         list=list.filter((l:any)=>[l.name,l.phone,l.assignedTo,l.source,l.lang,haEffStatus(l)]
           .some((v:any)=>String(v||"").toLowerCase().indexOf(q)>=0));
       }
-      const card=HA_CARDS.find(c=>c.key===_haActiveBucket);
+      // visitedEver has no card of its own (it is the Visited card's sub-line), so give it a title
+      // rather than letting the header fall back to a blank label.
+      const card=HA_CARDS.find(c=>c.key===_haActiveBucket)
+        ||(_haActiveBucket==="visitedEver"?{key:"visitedEver",label:"Ever visited",c:""}:undefined);
       wrap.style.display="";
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       if(_isCallCard){
