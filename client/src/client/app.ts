@@ -12987,6 +12987,20 @@ export function initApp(root: HTMLElement) {
       return {winLabel:"Custom Range",buckets,plc:"pl-d"};
     }
 
+    // With a Service filter active, money must be attributed by the PAYMENT's own service, not the
+    // lead's. A Physiotherapy lead who also paid for a blood test carries both rows, so counting the
+    // lead's whole payment history under "Physiotherapy" reported blood-test money as physio revenue
+    // (4 Aug 2026: ₹4,720 instead of ₹1,720). The same miscount inflated Full Paid / Pay Collected,
+    // which credited a lead who had only ever paid for a different service.
+    // Payments with no service recorded fall back to the lead's — the lead already passed the filter,
+    // and those rows carry real money that must not silently vanish from the report.
+    function _rpcPaidForSvc(rows:any[]){
+      const paid=(rows||[]).filter((p:any)=>p.status==="paid");
+      const svc=_rpcSelVal("rpcFService");
+      if(svc==="all") return paid;
+      return paid.filter((p:any)=>{ const s=String(p.service||"").trim(); return !s||_svcCanonMatch(s,svc); });
+    }
+
     // ---- cohort aggregation: one row from a set of leads ----
     function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>){
       const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,nosugar:0,callTot:0,
@@ -13012,7 +13026,7 @@ export function initApp(root: HTMLElement) {
         if(l.enrolled_at) r.enr++;
         if((recsBy[id]||[]).length) r.recDone++;
         (apptsBy[id]||[]).forEach((a:any)=>{ if(_rpcIsZoomAppt(a))r.apptZ++; else r.apptD++; if(a.status!=="cancelled")r.conf++; });
-        const pays=(paysBy[id]||[]).filter((p:any)=>p.status==="paid");
+        const pays=_rpcPaidForSvc(paysBy[id]||[]);
         let leadRev=0, hasFull=false, i1=false, i2=false, hasEmi=false, hasInst=false;
         pays.forEach((p:any)=>{
           leadRev+=(p.amount||0);
