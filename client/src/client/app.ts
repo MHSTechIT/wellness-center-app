@@ -4381,7 +4381,14 @@ export function initApp(root: HTMLElement) {
       // version zeroed out the moment a visited lead enrolled — the dashboard read "Visited 0,
       // Enrolled 3" for three leads who all walked in that morning (reported). This card therefore
       // overlaps with Enrolled/Payment rather than summing into Total — that's the honest funnel.
+      // Keep the exclusive bucket count before overwriting it: stage cards are mutually exclusive and
+      // DO sum to Total Leads, but Visited then becomes a milestone and stops summing. Reporting only
+      // the milestone made the cards look like they had lost leads (16+1+0+17+0+8+0 = 42 against a
+      // Total of 36). The difference is exactly the people who visited and have since moved on, so
+      // the card now states it instead of leaving the reader to work out why the sum overshoots.
+      const _visStill=counts.health;
       counts.health=book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l))).length;
+      const _visMovedOn=Math.max(0,counts.health-_visStill);
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
         // Until the book has loaded, show a muted "—" rather than a number: a 0 here is
@@ -4394,7 +4401,17 @@ export function initApp(root: HTMLElement) {
           +(_haFeedFailed
             ? '⚠ Couldn’t load your leads — the counts below are not available. Check your connection, then <button class="btn bsm" style="margin-left:6px" onclick="window._refreshMetaFeed()">↻ Reload</button>'
             : 'Loading leads…')+'</div>');
-        cards.push(...HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer" onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])+'</div>'));
+        // Sub-lines that make the arithmetic self-explanatory: the stage cards sum to Total Leads,
+        // and Visited says how much of it is people who have already moved further down the funnel.
+        const _sub:Record<string,string>=_ready?{
+          total:"stage cards below add up to this",
+          health:_visMovedOn?(_visStill+" here now · "+_visMovedOn+" moved on"):"all still at this stage",
+        }:{};
+        cards.push(...HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
+          +(c.key==="health"?' title="Everyone who has ever visited, including those who have since reached Payment, Enrolled or Closed — so this card overlaps the others and is not part of the sum"':'')
+          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment + Visited-still-here + Payment + Enrolled + Follow-up + Closed adds up to this number"':'')
+          +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])
+          +(_sub[c.key]?'<div class="mt" style="color:var(--muted);font-weight:600">'+_sub[c.key]+'</div>':'')+'</div>'));
         cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
@@ -9857,7 +9874,14 @@ export function initApp(root: HTMLElement) {
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // (Per-service split cards were removed on request — the dashboard shows only the
       // consultation-status cards; the filter bar still narrows by service when needed.)
-      el.innerHTML=_coachStatusCards.map(l=>{
+      // Total Leads LEADS the set (requested order: Total Leads → Open → the rest): how many clients
+      // the status cards are describing. It is NOT the sum of them — a client enrolled in both levels
+      // is counted in Enrolled L1 AND L2, and Instalment 2 pending is a payment state that overlaps
+      // every consultation status. Clicking it clears the card selection, so it doubles as "show everything".
+      const total=list.length;
+      const on0=!_coachDashSel;
+      el.innerHTML='<div class="metric" title="Every client in this view — clears the card filter" style="cursor:pointer'+(on0?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\'\')"><div class="ml">Total Leads</div><div class="mv">'+total+'</div></div>'
+      +_coachStatusCards.map(l=>{
         const on=_coachDashSel===l;
         return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
       }).join("");
