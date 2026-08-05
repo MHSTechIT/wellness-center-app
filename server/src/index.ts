@@ -42,6 +42,20 @@ const origins = (process.env.CORS_ORIGIN || '')
 // to abuse — it would still need a token it has no way to read. Non-loopback origins remain
 // restricted to the explicit CORS_ORIGIN allowlist, and still fail CLOSED when it is unset.
 const isLoopbackOrigin = (o: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
+
+// Baseline security response headers. Purely additive — no request is accepted or rejected
+// differently, and no response BODY changes; these only tell the browser how to treat what it
+// already receives. Deliberately NOT included: Content-Security-Policy and HSTS. Both can break
+// a working page (inline handlers, http:// dev origins) and need their own rollout, so they stay
+// a conscious follow-up rather than a silent change here.
+app.disable('x-powered-by');   // was advertising "Express" on every response
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');       // stop MIME-sniffing of stored uploads
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');           // no third-party framing / clickjacking
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(cors({
   origin(origin, cb) {
     // No Origin header = same-origin, curl, or server-to-server — nothing to police.

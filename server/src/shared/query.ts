@@ -92,6 +92,15 @@ function selectCols(sel: string): string {
   return sel.split(',').map((c) => q(c.trim())).join(', ');
 }
 
+// Never leak the password hash to the client. This used to live inline in the 'select' branch
+// only, but insert/upsert/update/delete all append `RETURNING *` and returned their rows
+// unfiltered — so a write against app_users handed back every scrypt hash it touched. Applied at
+// every exit point instead. Removing a field no client has ever read: no caller changes.
+function redact(table: string, rows: any[]): void {
+  if (table !== 'app_users' || !Array.isArray(rows)) return;
+  rows.forEach((row: any) => { if (row) delete row.password_hash; });
+}
+
 export async function runQuery(d: any): Promise<{ data: any; error: any; count: number | null }> {
   try {
     const table = String(d.table || '');
@@ -107,8 +116,7 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
       sql += ` LIMIT ${effectiveLimit}`;
       if (d.offset != null) sql += ` OFFSET ${Number(d.offset)}`;
       const r = await pool.query(sql, params);
-      // Never leak the password hash to the client.
-      if (table === 'app_users') r.rows.forEach((row: any) => { if (row) delete row.password_hash; });
+      redact(table, r.rows);
       return { data: d.single ? (r.rows[0] ?? null) : r.rows, error: null, count: r.rowCount };
     }
 
@@ -128,6 +136,7 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
       }
       if (d.returning) sql += ' RETURNING *';
       const r = await pool.query(sql, params);
+      redact(table, r.rows);
       return { data: d.returning ? (d.single ? (r.rows[0] ?? null) : r.rows) : null, error: null, count: r.rowCount };
     }
 
@@ -138,6 +147,7 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
       let sql = `UPDATE ${q(table)} SET ${setSql}` + buildWhere(d.filters, params);
       if (d.returning) sql += ' RETURNING *';
       const r = await pool.query(sql, params);
+      redact(table, r.rows);
       return { data: d.returning ? (d.single ? (r.rows[0] ?? null) : r.rows) : null, error: null, count: r.rowCount };
     }
 
@@ -145,6 +155,7 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
       let sql = `DELETE FROM ${q(table)}` + buildWhere(d.filters, params);
       if (d.returning) sql += ' RETURNING *';
       const r = await pool.query(sql, params);
+      redact(table, r.rows);
       return { data: d.returning ? r.rows : null, error: null, count: r.rowCount };
     }
 
