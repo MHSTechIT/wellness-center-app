@@ -1507,6 +1507,48 @@ export function initApp(root: HTMLElement) {
       if(!selectedLabel||selectedLabel==="all") return true;
       return String(recordSvc||"").split(/[+,/&]| and /i).some(p=>{ const t=p.trim(); return !!t&&normService(t)===selectedLabel; });
     }
+    // ===== Money: one date basis and one service attribution for the whole app =====
+    // Reporting money against the LEAD's created date answered the wrong question — it credited a
+    // payment to the day the lead arrived rather than the day the money moved. Every screen now
+    // dates a payment by the payment itself: when it was paid, else when it fell due, else when the
+    // charge was raised. This is the rule Accounts already used, promoted to the shared helper.
+    function _payDate(p:any):Date|null{
+      const raw=(p&&(p.paid_at||p.due_date||p.created_at))||"";
+      if(!raw) return null;
+      const s=String(raw); const d=new Date(/T/.test(s)?s:(s+"T12:00:00"));
+      return isNaN(d.getTime())?null:d;
+    }
+    // Money that belongs to no service must stay visible rather than quietly disappear from a
+    // per-service split, so attribution falls back to the lead's own service and only lands here
+    // when the lead carries several services and the payment names none of them.
+    const SVC_UNASSIGNED="Unassigned";
+    const _svcAll=()=>SERVICE_MASTER.concat([SVC_UNASSIGNED]);
+    function _svcOfPayment(p:any, leadSvc?:string){
+      const own=normService(String((p&&p.service)||"").trim());
+      if(own&&SERVICE_MASTER.indexOf(own)>=0) return own;
+      const parts=Array.from(new Set(String(leadSvc||"").split(/[+,/&]| and /i)
+        .map(x=>normService(x.trim())).filter(x=>x&&SERVICE_MASTER.indexOf(x)>=0)));
+      return parts.length===1?parts[0]:SVC_UNASSIGNED;
+    }
+    // Billed vs collected, split by service, over an optional [from,to] window of PAYMENT dates.
+    // billed = every row raised (instalments still due included); collected = the paid ones. The gap
+    // is the outstanding balance. Refunded money is excluded from both — it is no longer revenue.
+    function _svcMoney(pays:any[], leadSvcById:Record<string,string>, from?:number|null, to?:number|null){
+      const out:Record<string,{billed:number,collected:number}>={};
+      (pays||[]).forEach((p:any)=>{
+        const d=_payDate(p); if(!d) return;
+        const t=d.getTime();
+        if(from!=null&&t<from) return;
+        if(to!=null&&t>to) return;
+        if(String(p.refund_status||"")==="processed") return;
+        const amt=Number(p.amount)||0; if(!amt) return;
+        const key=_svcOfPayment(p,leadSvcById[String(p.lead_id)]||"");
+        const b=(out[key]=out[key]||{billed:0,collected:0});
+        b.billed+=amt;
+        if(p.status==="paid") b.collected+=amt;
+      });
+      return out;
+    }
     // An assignee's explicit service line (app_users.service), canonicalised to a SERVICE_MASTER label.
     // "" when the person has no service set — treated as unclassified. Keyed by email (the same link
     // _asgSyncUser uses between the assignees mirror and the app_users login row).
@@ -2263,8 +2305,40 @@ export function initApp(root: HTMLElement) {
     // was created. An existing lead booked weeks ago and checked in today must read TODAY on those
     // pages and be found by their "Today" filter — the same visit date & time Reception shows in its
     // "Visited at" column. Falls back to the booked date/time until the patient is checked in.
+    // A visited_at that can't be parsed is worse than none: some legacy rows store a time-only string
+    // ("04:30 pm"), which yields Invalid Date. Every date comparison against NaN is false, so such a
+    // row slipped past BOTH ends of every range filter and appeared under every period. Fall back to
+    // the booked date whenever the visit stamp isn't a real timestamp.
+    function _visitParsable(v:string){ if(!v) return false; const d=new Date(/T/.test(v)?v:(v+"T12:00:00")); return !isNaN(d.getTime()); }
+    // appointments.visited_at is a TEXT column, and check-ins recorded between 30 Jun and 3 Jul 2026
+    // wrote only a clock time into it ("04:18 pm") instead of a timestamp. Reading that back gives
+    // Invalid Date, which left Reception showing a bare time with no date, an empty "Visited at"
+    // cell, and the row sorted to the bottom on a zero key. The clock time is real information, so
+    // rebuild the instant from the appointment's own date rather than discarding it.
+    function _visitIso(a:any):string{
+      const v=(a&&a.visited_at)?String(a.visited_at).trim():"";
+      if(!v) return "";
+      if(_visitParsable(v)) return v;
+      const m=v.match(/^(\d{1,2}):(\d{2})\s*([ap])\.?m\.?$/i);
+      const day=String((a&&a.appt_date)||"").trim();
+      if(!m||!day) return "";
+      let dayIso="";
+      if(/^\d{4}-\d{2}-\d{2}/.test(day)) dayIso=day.slice(0,10);
+      else { const d=new Date(day); if(!isNaN(d.getTime())) dayIso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+      if(!dayIso) return "";
+      let h=Number(m[1])%12; if(/p/i.test(m[3])) h+=12;
+      return dayIso+"T"+String(h).padStart(2,"0")+":"+m[2]+":00+05:30";
+    }
+    // The visit-date counterpart to _payDate: when a client actually attended, falling back to the
+    // booked date. Every "visited in this period" count reads this, so no screen has to re-derive it.
+    function _visitDate(a:any):Date|null{
+      const raw=_visitIso(a)||((a&&a.appt_date)?String(a.appt_date):"");
+      if(!raw) return null;
+      const d=new Date(/T/.test(raw)?raw:(raw+"T12:00:00"));
+      return isNaN(d.getTime())?null:d;
+    }
     function _visitStamp(a:any):{key:string;date:string;time:string}{
-      const v=(a&&a.visited_at)?String(a.visited_at):"";
+      const v=_visitIso(a);
       if(v) return {key:v,date:fmtISTDate(v),time:fmtISTTime(v)};
       const d=(a&&a.appt_date)?String(a.appt_date):"";
       return {key:d,date:d?fmtISTDate(d):"",time:(a&&a.appt_time)||""};
@@ -4338,6 +4412,18 @@ export function initApp(root: HTMLElement) {
         const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):"";
         cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
         cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
+        // Service split of the same filtered book — one card per service rather than a single
+        // blended total, so an advisor can see which lines their book is actually made of. A lead
+        // carrying two services counts under both; the list comes from the service master.
+        const svcCnt:Record<string,number>={};
+        book.forEach((l:any)=>{
+          const parts=Array.from(new Set(String(l.service||"").split(/[+,/&]| and /i)
+            .map((x:string)=>normService(x.trim())).filter((x:string)=>x&&SERVICE_MASTER.indexOf(x)>=0)));
+          if(!parts.length){ svcCnt[SVC_UNASSIGNED]=(svcCnt[SVC_UNASSIGNED]||0)+1; return; }
+          parts.forEach((p:any)=>{ svcCnt[p]=(svcCnt[p]||0)+1; });
+        });
+        _svcAll().forEach((s:string)=>{ if(!svcCnt[s]) return;
+          cards.push('<div class="metric" title="Leads in this book tagged '+_attr(s)+'"><div class="ml">'+_attr(s)+'</div>'+mv(svcCnt[s])+'</div>'); });
         kpiEl.innerHTML=cards.join("");
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
@@ -6101,7 +6187,9 @@ export function initApp(root: HTMLElement) {
           // An enrolment on an EARLIER day than the appointment falls through to the visit instant,
           // so a new appointment for an already-enrolled client keeps its own timing.
           const _enrDated=(_enrDay&&_apDay&&_enrDay>=_apDay)?true:false;
-          const _visIso=(a.status==="visited"&&a.visited_at)?String(a.visited_at):"";
+          // _visitIso, not the raw column: a legacy time-only visited_at ("04:18 pm") is rebuilt from
+          // the appointment's date, so the row keeps a real instant to display and sort on.
+          const _visIso=(a.status==="visited")?_visitIso(a):"";
           const _rowIso=_enrDated?_enrIso:_visIso;
           const _recRowDate=_rowIso||a.appt_date;
           const _rowTime=_rowIso?fmtISTTime(_rowIso):(a.appt_time||"");
@@ -6110,7 +6198,7 @@ export function initApp(root: HTMLElement) {
           const _sortTs=_rowIso?(Date.parse(_rowIso)||0):(_apDay?((Date.parse(_apDay+"T00:00:00+05:30")||0)+_apptTimeMin(a.appt_time)*60000):0);
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabelMulti(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
-          _date:_recRowDate, date:_recFmtDate(_recRowDate), time:_rowTime, _sortTs, hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:a.visited_at||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
+          _date:_recRowDate, date:_recFmtDate(_recRowDate), time:_rowTime, _sortTs, hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:_visitIso(a)||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, stageChips, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           // What Reception should ask a physio patient for once the consultation is done: the pack /
@@ -9777,10 +9865,22 @@ export function initApp(root: HTMLElement) {
       });
       counts["Instalment 2 pending"]=list.filter(_coachInst2Pending).length;   // payment state, orthogonal to consStatus
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      // Service split of the same filtered client list, appended after the status cards — each
+      // service on its own card rather than folded into one total. Master-driven, so a new service
+      // appears without touching this code.
+      const svcCnt:Record<string,number>={};
+      list.forEach((c:any)=>{
+        const parts=Array.from(new Set(String(c.service||"").split(/[+,/&]| and /i)
+          .map((x:string)=>normService(x.trim())).filter((x:string)=>x&&SERVICE_MASTER.indexOf(x)>=0)));
+        if(!parts.length){ svcCnt[SVC_UNASSIGNED]=(svcCnt[SVC_UNASSIGNED]||0)+1; return; }
+        parts.forEach((p:any)=>{ svcCnt[p]=(svcCnt[p]||0)+1; });
+      });
+      const svcHtml=_svcAll().filter((s:string)=>!!svcCnt[s])
+        .map((s:string)=>'<div class="metric" title="Clients tagged '+_attr(s)+'"><div class="ml">'+_attr(s)+'</div><div class="mv">'+svcCnt[s]+'</div></div>').join("");
       el.innerHTML=_coachStatusCards.map(l=>{
         const on=_coachDashSel===l;
         return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
-      }).join("");
+      }).join("")+svcHtml;
     }
     w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachOpenList(); };
     // Top-right "Consultation Status" dropdown — drives the same selection the dashboard cards use,
@@ -11153,7 +11253,15 @@ export function initApp(root: HTMLElement) {
     }
     function _btApplyDateFilter(){
       const [from,to]=_btDateRange();
-      _btFiltered=_btAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
+      // Backstop for a row whose booked date is unusable too: an unplaceable record must not land in
+      // every period. It stays visible only when no range is set, instead of padding each day's count
+      // and TOTAL BILLED (4 Aug read 13 records / ₹9,350 against the 10 / ₹9,000 actually on that day).
+      _btFiltered=_btAll.filter((r:any)=>{
+        const raw=String(r._date||"");
+        const d=raw?new Date(/T/.test(raw)?raw:(raw+"T12:00:00")):null;
+        if(!d||isNaN(d.getTime())) return !from&&!to;
+        if(from&&d<from)return false; if(to&&d>to)return false; return true;
+      });
       _btRenderAll();
       try{ _btRenderOrders(); }catch(_){}   // the new bt_orders worklist shares this date filter
     }
@@ -11178,9 +11286,13 @@ export function initApp(root: HTMLElement) {
       // TOTAL BILLED = the amount billed per record: the stored our_price when present, otherwise the
       // actual payment collected — so paid records show revenue even if pricing wasn't stamped on them.
       const totalBilled=f.reduce((s:number,r:any)=>s+Math.max(0,r.ourPrice||r.payAmt||0),0);
+      // What has actually come in, against what was billed — a record can be billed and still unpaid
+      // (its payment row sits at "due"), which the billed figure alone never showed.
+      const totalCollected=f.reduce((s:number,r:any)=>s+(r.payStatus==="paid"?Math.max(0,Number(r.payAmt)||0):0),0);
       const totalCost=f.reduce((s:number,r:any)=>s+Math.max(0,r.thyroCost),0);
       const el=(id:string)=>root.querySelector("#"+id);
       if(el("btTotalBilled")) (el("btTotalBilled") as HTMLElement).textContent="₹"+totalBilled.toLocaleString("en-IN");
+      if(el("btCollected")) (el("btCollected") as HTMLElement).textContent="₹"+totalCollected.toLocaleString("en-IN")+" collected"+(totalBilled>totalCollected?" · ₹"+(totalBilled-totalCollected).toLocaleString("en-IN")+" due":"");
       if(el("btThyroCost")) (el("btThyroCost") as HTMLElement).textContent="₹"+totalCost.toLocaleString("en-IN");
       if(el("btMargin")) (el("btMargin") as HTMLElement).textContent="₹"+(totalBilled-totalCost).toLocaleString("en-IN");
       if(el("btPaidThyro")) (el("btPaidThyro") as HTMLElement).textContent="₹"+f.filter((r:any)=>r.labReportStatus==="received").reduce((s:number,r:any)=>s+r.thyroCost,0).toLocaleString("en-IN");
@@ -11746,8 +11858,13 @@ export function initApp(root: HTMLElement) {
     }
     function _phRenderAll(){
       const f=_phFiltered; const all=_phAll;
-      const rev=f.reduce((s:number,r:any)=>s+Math.max(0,r.payAmt),0);
-      const el=(id:string)=>root.querySelector("#"+id); if(el("phRevenue"))(el("phRevenue") as HTMLElement).textContent="₹"+rev.toLocaleString("en-IN");
+      // Billed vs collected, the same split the Admin Report and Accounts use. The old single figure
+      // summed payAmt across every row regardless of status, so money still owed read as revenue.
+      const collected=f.reduce((s:number,r:any)=>s+(r.payStatus==="paid"?Math.max(0,Number(r.payAmt)||0):0),0);
+      const billed=f.reduce((s:number,r:any)=>s+Math.max(0,r.payStatus==="paid"?(Number(r.payAmt)||0):(Number(r.packPrice)||0)),0);
+      const el=(id:string)=>root.querySelector("#"+id);
+      if(el("phRevenue"))(el("phRevenue") as HTMLElement).textContent="₹"+collected.toLocaleString("en-IN");
+      if(el("phBilled"))(el("phBilled") as HTMLElement).textContent="of ₹"+billed.toLocaleString("en-IN")+" billed"+(billed>collected?" · ₹"+(billed-collected).toLocaleString("en-IN")+" due":"");
       const activePlans=all.filter((r:any)=>r.sessionsPlanned>0&&r.sessionsCompleted<r.sessionsPlanned);   // side "Active patients" list — whole book, not the date window
       // Every card is a filter: its count comes from the SAME predicate the table applies, so the
       // number on the card is exactly how many rows clicking it will show.
@@ -12026,11 +12143,12 @@ export function initApp(root: HTMLElement) {
     // ========== ACCOUNTS & FINANCE MODULE (live data) ==========
     let _accPays:any[]=[], _accAppts:Record<string,any>={};
     async function loadAccountsData(){
+      _fillSvcMaster("#accSvcF");   // standardized master list — a new service shows up here on its own
       try{
         const [pr,ar,lr]=await Promise.all([
           supabase.from("payments").select("*").order("created_at",{ascending:false}).limit(1000),
           supabase.from("appointments").select("id,client_name,phone,service").limit(2000),
-          supabase.from("leads").select("meta_lead_id,name,phone").limit(10000)
+          supabase.from("leads").select("meta_lead_id,name,phone,service").limit(10000)
         ]);
         _accAppts={}; (ar.data||[]).forEach((a:any)=>{ _accAppts[a.id]=a; });
         const leadBy:Record<string,any>={}; (lr.data||[]).forEach((l:any)=>{ leadBy[String(l.meta_lead_id)]=l; });
@@ -12041,7 +12159,10 @@ export function initApp(root: HTMLElement) {
           // "Client · Installment · Cash" rows, which read as duplicate transactions (reported).
           // Fall back to the LEAD's name/phone so every row identifies its real client.
           const lead=leadBy[String(p.lead_id||"")]||{};
-          return { ...p, clientName:appt.client_name||lead.name||"Client", clientPhone:appt.phone||lead.phone||"", service:p.service||appt.service||"", dateFmt:_recFmtDate(p.paid_at?p.paid_at.substring(0,10):p.created_at?.substring(0,10)||"") };
+          // leadService is kept separate from `service` so the per-service split can fall back to the
+          // lead when neither the payment nor its appointment names one — money with no service must
+          // still land somewhere visible.
+          return { ...p, clientName:appt.client_name||lead.name||"Client", clientPhone:appt.phone||lead.phone||"", service:p.service||appt.service||"", leadService:lead.service||"", dateFmt:_recFmtDate(p.paid_at?p.paid_at.substring(0,10):p.created_at?.substring(0,10)||"") };
         });
       }catch(_){ _accPays=[]; }
       _accRenderAll();
@@ -12193,6 +12314,22 @@ export function initApp(root: HTMLElement) {
       // For the amount-bearing cards (Pending / Outstanding) the ₹ total is the headline value and the
       // txn count is the label — so the amount reads big and bold, the count reads as its subtitle.
       const mel=root.querySelector("#accMetrics"); if(mel) mel.innerHTML=metrics.map(m=>'<div class="metric '+m.c+'"'+(m.click?' role="button" tabindex="0" title="Click to filter transactions" style="cursor:pointer" onclick="window._accCardFilter(\''+m.click+'\')"':'')+'><div class="ml">'+m.l+'</div>'+(m.sub?'<div class="mv" style="font-size:22px">'+m.sub.replace(/ pending| outstanding/,"")+'</div><div class="mt" style="font-size:12px;font-weight:600;color:var(--muted);margin-top:2px">'+m.v+'</div>':'<div class="mv">'+m.v+'</div>')+'</div>').join("");
+      // Per-service split of the SAME filtered set — every service on its own line, billed against
+      // collected, never one blended total. Driven by the service master so a new service appears
+      // here automatically. Services with no money in the period are omitted rather than shown as 0.
+      const svcEl=root.querySelector("#accSvcMetrics") as HTMLElement|null;
+      if(svcEl){
+        const leadSvc:Record<string,string>={}; pays.forEach((p:any)=>{ leadSvc[String(p.lead_id)]=p.leadService||""; });
+        const money=_svcMoney(pays,leadSvc,null,null);
+        const html=_svcAll().map((s:string)=>{
+          const m=money[s]; if(!m||(!m.billed&&!m.collected)) return "";
+          const due=Math.max(0,m.billed-m.collected);
+          return '<div class="metric'+(due?" a":" g")+'"><div class="ml">'+_attr(s)+'</div>'
+            +'<div class="mv" style="font-size:20px">'+fmtL(m.collected)+'</div>'
+            +'<div class="mt" style="font-size:11.5px;font-weight:600;color:var(--muted);margin-top:2px">billed '+fmtL(m.billed)+(due?' · due '+fmtL(due):'')+'</div></div>';
+        }).filter(Boolean).join("");
+        svcEl.innerHTML=html||'<div style="grid-column:1/-1;font-size:12px;color:var(--faint);padding:4px 2px">No payments match these filters.</div>';
+      }
       const vc=root.querySelector("#accVerCount"); if(vc) vc.textContent=unverified.length?" · "+unverified.length:"";
       const oc=root.querySelector("#accOutCount"); if(oc) oc.textContent=outstanding.length?" · "+outstanding.length:"";
       const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
@@ -12494,6 +12631,10 @@ export function initApp(root: HTMLElement) {
     let _rpcCfdKey:string|null=null;
     let _rpcRows:any[]=[];   // last computed rows (pre search/sort) — reused by body-only re-renders
 
+    // Column key for a service's money pair. Slugged so a label like "HBOT (Hyperbaric Oxygen
+    // Therapy)" survives as an object key, a DOM id and a sort key.
+    const _rpcSvcKey=(svc:string,kind:"bill"|"coll")=>kind+"_"+String(svc).toLowerCase().replace(/[^a-z0-9]+/g,"");
+
     const RPC_COLS:any[]=[
       {key:"period",label:"Period / Name",group:"INFO",gcls:"g-info",always:true,sticky:"sl"},
       {key:"leads",label:"Leads",group:"INFO",gcls:"g-info",always:true,sticky:"sl2"},
@@ -12541,7 +12682,11 @@ export function initApp(root: HTMLElement) {
       {key:"payCol",label:"Pay Collected",group:"PAYMENT",gcls:"g-pay"},
       // "Ads Spent" and "ROAS" were removed: nothing in this system records ad spend, so both were
       // permanent placeholders (spend hardcoded to 0, ROAS rendering a literal "—" for every row).
+      // Revenue is what was BILLED (instalments still due included); Collected is what came in. They
+      // were one number before, which hid every outstanding balance.
       {key:"rev",label:"Revenue (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"revCol",label:"Collected (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"revOut",label:"Outstanding (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL1",label:"L1 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL2",label:"L2 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"avgTicket",label:"Avg Ticket",group:"REVENUE",gcls:"g-roas",isMoney:true},
@@ -12561,17 +12706,28 @@ export function initApp(root: HTMLElement) {
       {key:"fuSched",label:"FU Scheduled",group:"FOLLOW-UP",gcls:"g-fu"},
       {key:"chen",label:"Chennai",group:"LOCATION",gcls:"g-info"},
       {key:"oth",label:"Others",group:"LOCATION",gcls:"g-info"},
+      // REVENUE BY SERVICE is generated from the service master rather than written out, so adding a
+      // service there gives it its own Billed and Collected columns here with no code change.
+      ..._svcAll().flatMap((s:string)=>[
+        {key:_rpcSvcKey(s,"bill"),label:s+" — Billed",group:"REVENUE BY SERVICE",gcls:"g-roas",isMoney:true},
+        {key:_rpcSvcKey(s,"coll"),label:s+" — Collected",group:"REVENUE BY SERVICE",gcls:"g-roas",isMoney:true},
+      ]),
     ];
     let _rpcColVis:Record<string,boolean>={};
-    RPC_COLS.forEach((c:any)=>{_rpcColVis[c.key]=true;});
+    // The per-service money pair is off by default: ~16 extra columns would swamp the default view.
+    // The "Revenue by service" saved view turns exactly that group on.
+    RPC_COLS.forEach((c:any)=>{_rpcColVis[c.key]=c.group!=="REVENUE BY SERVICE";});
     const RPC_PRESETS:Record<string,string[]|null>={
       all:null,
       sales:["period","leads","svc","src","loc","fu","cb","lb","rnr","dnd","so","oos","wn","open","blank","ni","nosugar","callTot","apptD","apptZ","apptTot","conf","vis","m_l2a","m_a2v","m_l2v","m_l2c"],
       health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","enr","fp","pp","inst","emi","payCol"],
-      roas:["period","leads","enr","fp","pp","inst","emi","rev","revL1","revL2","avgTicket","payCol"],
+      roas:["period","leads","enr","fp","pp","inst","emi","rev","revCol","revOut","revL1","revL2","avgTicket","payCol"],
       metric:["period","leads","apptD","apptZ","conf","vis","enr","fp","pp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
       l1l2:["period","leads","enr","fp","pp","inst","l1fp","l1tot","l2fp","l2pp","l2tot","rev","revL1","revL2"],
       audit:["period","leads","vis","enr","hafDone","recDone","fuSched","payCol"],
+      // Every service side by side, billed against collected — the gap between the two pairs is that
+      // service's outstanding balance.
+      bysvc:["period","vis","rev","revCol"].concat(_svcAll().flatMap((s:string)=>[_rpcSvcKey(s,"bill"),_rpcSvcKey(s,"coll")])),
     };
 
     // ===== META LEADS PAGE =====
@@ -12929,10 +13085,20 @@ export function initApp(root: HTMLElement) {
 
     // ---- filters (control bar 2) ----
     function _rpcSelVal(id:string){ return (root.querySelector("#"+id)as HTMLSelectElement|null)?.value||"all"; }
+    // A lead belongs to a service if its own tag says so, OR if it was actually booked or billed for
+    // it. The desk sells blood tests to leads whose lead row reads "Diabetes" or "Physiotherapy", so
+    // matching the lead tag alone hid them: 4 Aug reported 4 Blood Test leads while the Blood Test
+    // page listed 9 for the same day. Appointments and paid payments both carry their own service.
+    function _rpcLeadHasSvc(l:any,svc:string,apptsBy:Record<string,any[]>,paysBy:Record<string,any[]>){
+      if(_svcCanonMatch(l.service||"",svc)) return true;
+      const id=String(l.meta_lead_id);
+      if((apptsBy[id]||[]).some((a:any)=>_svcCanonMatch(a.service||"",svc))) return true;
+      return (paysBy[id]||[]).some((p:any)=>p.status==="paid"&&_svcCanonMatch(p.service||"",svc));
+    }
     function _rpcFilteredLeads(apptsBy:Record<string,any[]>,paysBy:Record<string,any[]>){
       const svc=_rpcSelVal("rpcFService"), lang=_rpcSelVal("rpcFLang"), sales=_rpcSelVal("rpcFSales"), hc=_rpcSelVal("rpcFHc"), src=_rpcSelVal("rpcFSource"), prog=_rpcSelVal("rpcFProg");
       return _rpcLeads.filter((l:any)=>{
-        if(svc!=="all"&&!_svcCanonMatch(l.service||"",svc)) return false;
+        if(svc!=="all"&&!_rpcLeadHasSvc(l,svc,apptsBy,paysBy)) return false;
         if(lang!=="all"&&(l.language||"")!==lang) return false;
         if(sales!=="all"&&(l.assigned_to||"")!==sales) return false;
         if(src!=="all"&&(l.source||"")!==src) return false;
@@ -12987,27 +13153,29 @@ export function initApp(root: HTMLElement) {
       return {winLabel:"Custom Range",buckets,plc:"pl-d"};
     }
 
-    // With a Service filter active, money must be attributed by the PAYMENT's own service, not the
-    // lead's. A Physiotherapy lead who also paid for a blood test carries both rows, so counting the
-    // lead's whole payment history under "Physiotherapy" reported blood-test money as physio revenue
-    // (4 Aug 2026: ₹4,720 instead of ₹1,720). The same miscount inflated Full Paid / Pay Collected,
-    // which credited a lead who had only ever paid for a different service.
-    // Payments with no service recorded fall back to the lead's — the lead already passed the filter,
-    // and those rows carry real money that must not silently vanish from the report.
-    function _rpcPaidForSvc(rows:any[]){
-      const paid=(rows||[]).filter((p:any)=>p.status==="paid");
+    // Does this payment survive the Service filter? Rows with no service of their own fall back to
+    // the lead (which already passed the filter), so their money is never silently dropped.
+    function _rpcSvcAllows(p:any){
       const svc=_rpcSelVal("rpcFService");
-      if(svc==="all") return paid;
-      return paid.filter((p:any)=>{ const s=String(p.service||"").trim(); return !s||_svcCanonMatch(s,svc); });
+      if(svc==="all") return true;
+      const s=String((p&&p.service)||"").trim();
+      return !s||_svcCanonMatch(s,svc);
     }
 
-    // ---- cohort aggregation: one row from a set of leads ----
-    function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>){
+    // ---- one row: lead metrics from the cohort, money and visits from their own dates ----
+    // `scope` is what makes the date bases independent. A period row passes the WHOLE filtered lead
+    // universe with that bucket's bounds, so money is "what was paid on these days" no matter when
+    // the client arrived. A person/client row passes just that person's leads with the full window,
+    // so the bounds stop mattering and the row is about them. Lead-acquisition counts keep reading
+    // `L` (leads created inside the bucket) because "leads received on 4 Aug" has no payment date.
+    function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>, scope:{leads:any[],from:number,to:number}){
       const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,nosugar:0,callTot:0,
         apptD:0,apptZ:0,apptTot:0,conf:0,vis:0,sugarHi:0,sugarMid:0,sugarNo:0,hafDone:0,consWJ:0,consTW:0,consNW:0,consTM:0,consQD:0,recDone:0,
-        progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revL1:0,revL2:0,avgTicket:0,
+        progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revCol:0,revOut:0,revL1:0,revL2:0,avgTicket:0,
         l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,fuSched:0,chen:0,oth:0};
+      _svcAll().forEach((s:string)=>{ r[_rpcSvcKey(s,"bill")]=0; r[_rpcSvcKey(s,"coll")]=0; });
       const srcCnt:Record<string,number>={}, svcCnt:Record<string,number>={};
+      const _svcSel=_rpcSelVal("rpcFService");
       let payingLeads=0;
       L.forEach((l:any)=>{
         const id=String(l.meta_lead_id);
@@ -13016,44 +13184,96 @@ export function initApp(root: HTMLElement) {
         const sg=_rpcSugarKey(l.sugar_poll); if(sg==="hi")r.sugarHi++; else if(sg==="mid")r.sugarMid++; else if(sg==="no")r.sugarNo++;
         if(/chennai/i.test(l.city||"")) r.chen++; else if((l.city||"").trim()) r.oth++;
         srcCnt[l.source||"—"]=(srcCnt[l.source||"—"]||0)+1;
-        const nsvc=normService(String(l.service||"").split(/[+,]/)[0]||""); if(nsvc) svcCnt[nsvc]=(svcCnt[nsvc]||0)+1;
+        // The Service column shows the row's dominant service, so count EVERY service a lead carries
+        // — "Diabetes Counselling + Blood Test" is both. Taking split()[0] counted only the first,
+        // which made the second service invisible.
+        String(l.service||"").split(/[+,/&]| and /i).forEach((part:string)=>{
+          const nsvc=normService(part.trim()); if(nsvc) svcCnt[nsvc]=(svcCnt[nsvc]||0)+1;
+        });
         const cs=String((l.coach_profile&&l.coach_profile.consStatus)||"");
         if(/will join/i.test(cs))r.consWJ++; else if(/this week/i.test(cs))r.consTW++; else if(/next week/i.test(cs))r.consNW++; else if(/month/i.test(cs))r.consTM++; else if(/quer/i.test(cs))r.consQD++;
         if(l.screening_vitals) r.hafDone++;
         if(l.next_followup) r.fuSched++;
         if(/already paid/i.test(l.call_status||"")) r.alrPaid++;
-        if(l.visited_at) r.vis++;
-        if(l.enrolled_at) r.enr++;
         if((recsBy[id]||[]).length) r.recDone++;
-        (apptsBy[id]||[]).forEach((a:any)=>{ if(_rpcIsZoomAppt(a))r.apptZ++; else r.apptD++; if(a.status!=="cancelled")r.conf++; });
-        const pays=_rpcPaidForSvc(paysBy[id]||[]);
-        let leadRev=0, hasFull=false, i1=false, i2=false, hasEmi=false, hasInst=false;
-        pays.forEach((p:any)=>{
-          leadRev+=(p.amount||0);
+      });
+
+      // ---- visits: by the date the client actually attended, not the date the lead arrived ----
+      const visited=new Set<string>();
+      const leadSvcById:Record<string,string>={};
+      scope.leads.forEach((l:any)=>{
+        const id=String(l.meta_lead_id);
+        leadSvcById[id]=l.service||"";
+        // Enrolment belongs to the day it happened; enrolled_at is the canonical stamp.
+        const et=l.enrolled_at?new Date(l.enrolled_at).getTime():NaN;
+        if(!isNaN(et)&&et>=scope.from&&et<=scope.to) r.enr++;
+        (apptsBy[id]||[]).forEach((a:any)=>{
+          const d=_visitDate(a); if(!d) return;
+          const t=d.getTime(); if(t<scope.from||t>scope.to) return;
+          if(_rpcIsZoomAppt(a))r.apptZ++; else r.apptD++;
+          if(a.status!=="cancelled")r.conf++;
+          if(a.visited_at) visited.add(id);
+        });
+      });
+      r.vis=visited.size;
+
+      // ---- money: by payment date, split by service, billed against collected ----
+      const winPays:any[]=[];
+      scope.leads.forEach((l:any)=>{
+        (paysBy[String(l.meta_lead_id)]||[]).forEach((p:any)=>{
+          if(!_rpcSvcAllows(p)) return;
+          const d=_payDate(p); if(!d) return;
+          const t=d.getTime(); if(t<scope.from||t>scope.to) return;
+          winPays.push(p);
+        });
+      });
+      const money=_svcMoney(winPays,leadSvcById,null,null);
+      _svcAll().forEach((s:string)=>{
+        const m=money[s]; if(!m) return;
+        r[_rpcSvcKey(s,"bill")]=m.billed; r[_rpcSvcKey(s,"coll")]=m.collected;
+        r.rev+=m.billed; r.revCol+=m.collected;
+      });
+      r.revOut=Math.max(0,r.rev-r.revCol);
+
+      // Per-lead payment states (Full/Part Paid, Instalment, EMI, programme mix) over the leads whose
+      // money landed in this window, so the L1/L2 breakdown lines up with the revenue beside it.
+      const byLead:Record<string,any[]>={};
+      winPays.forEach((p:any)=>{ const k=String(p.lead_id); (byLead[k]=byLead[k]||[]).push(p); });
+      Object.keys(byLead).forEach(id=>{
+        const paid=byLead[id].filter((p:any)=>p.status==="paid");
+        paid.forEach((p:any)=>{
           const pr=String(p.program||"");
           if(/L1/i.test(pr)&&/L2/i.test(pr)){ r.revL1+=Math.round((p.amount||0)/2); r.revL2+=Math.round((p.amount||0)/2); }
           else if(/L1/i.test(pr)) r.revL1+=(p.amount||0);
           else if(/L2/i.test(pr)) r.revL2+=(p.amount||0);
+        });
+        if(!paid.length) return;
+        payingLeads++; r.payCol++;
+        let hasFull=false,i1=false,i2=false,hasEmi=false,hasInst=false;
+        paid.forEach((p:any)=>{
           if(p.payment_type==="full") hasFull=true;
           if(p.payment_type==="emi") hasEmi=true;
           if(p.payment_type==="installment"){ hasInst=true; if(p.installment_number===1)i1=true; if(p.installment_number===2)i2=true; }
         });
-        r.rev+=leadRev;
-        if(pays.length){ payingLeads++; r.payCol++; }
         // Payment-integrity rule: "Fully Paid" = an explicit full payment OR BOTH installments paid.
         const isFp=hasFull||(i1&&i2); const isPp=hasInst&&!isFp;
         if(hasEmi) r.emi++;
         if(hasInst) r.inst++;
         if(isFp) r.fp++; else if(isPp) r.pp++;
-        const pg=_rpcLeadProg(l,paysBy);
+        const pg=_rpcLeadProg({meta_lead_id:id},paysBy);
         if(pg.l1&&pg.l2) r.progBoth++; else if(pg.l1) r.progL1++; else if(pg.l2) r.progL2++;
         if(pg.l1){ r.l1tot++; if(isFp)r.l1fp++; }
         if(pg.l2){ r.l2tot++; if(isFp)r.l2fp++; if(isPp)r.l2pp++; }
       });
       r.apptTot=r.apptD+r.apptZ;
-      r.avgTicket=payingLeads?Math.round(r.rev/payingLeads):0;
+      r.avgTicket=payingLeads?Math.round(r.revCol/payingLeads):0;
       const top=(m:Record<string,number>)=>{ const e=Object.entries(m).sort((a,b)=>b[1]-a[1])[0]; return e?e[0]:""; };
-      r.src=top(srcCnt)||"—"; r.svc=top(svcCnt)||"—";
+      r.src=top(srcCnt)||"—";
+      // With a Service filter active every lead in this row matched it, so name it directly. Deriving
+      // the label from the lead tags instead reported the wrong service (a Blood Test filter showed
+      // "Physiotherapy" for leads tagged "Physiotherapy + Blood Test", where that word merely came
+      // first) and left it blank for leads matched by their appointment or payment rather than a tag.
+      r.svc=_svcSel!=="all"?_svcSel:(top(svcCnt)||"—");
       r.loc=r.chen>=r.oth?(r.chen?"Chennai":"—"):"Others";
       // Keep one decimal below 10%: rounding to whole numbers reported a real conversion (1 enrolled
       // out of 292 leads) as a flat "0%", which reads as "nothing converted".
@@ -13073,22 +13293,27 @@ export function initApp(root: HTMLElement) {
       const inWin=leads.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=wFrom&&t<=wTo; });
       let rows:any[]=[];
       if(_rpcRowView==="period"){
-        rows=win.buckets.map(b=>_rpcAgg(b.label,inWin.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=b.from&&t<=b.to; }),apptsBy,paysBy,recsBy));
+        // Money and visits are selected by the bucket's DATES over every filtered lead, so a payment
+        // taken on 4 Aug counts on 4 Aug even when the client arrived in July. Only the lead-count
+        // side of the row is the created-date cohort.
+        rows=win.buckets.map(b=>_rpcAgg(b.label,
+          inWin.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=b.from&&t<=b.to; }),
+          apptsBy,paysBy,recsBy,{leads,from:b.from,to:b.to}));
       } else if(_rpcRowView==="person"){
         // Advisors from lead assignment + HC/PTs from the appointments they hosted.
         const byAdv:Record<string,any[]>={};
         inWin.forEach((l:any)=>{ const a=(l.assigned_to||"").trim(); if(!a)return; (byAdv[a]=byAdv[a]||[]).push(l); });
-        rows=Object.keys(byAdv).sort().map(n=>_rpcAgg(n,byAdv[n],apptsBy,paysBy,recsBy));
+        rows=Object.keys(byAdv).sort().map(n=>_rpcAgg(n,byAdv[n],apptsBy,paysBy,recsBy,{leads:byAdv[n],from:wFrom,to:wTo}));
         const leadById:Record<string,any>={}; inWin.forEach((l:any)=>{leadById[String(l.meta_lead_id)]=l;});
         const byHc:Record<string,Set<string>>={};
         _rpcAppts.forEach((a:any)=>{ const h=(a.hc_pt||"").trim(); if(!h)return; const lid=String(a.lead_id||""); if(!leadById[lid])return; (byHc[h]=byHc[h]||new Set()).add(lid); });
-        Object.keys(byHc).sort().forEach(h=>{ rows.push(_rpcAgg(h+" (HC/PT)",Array.from(byHc[h]).map(id=>leadById[id]),apptsBy,paysBy,recsBy)); });
+        Object.keys(byHc).sort().forEach(h=>{ const hl=Array.from(byHc[h]).map(id=>leadById[id]); rows.push(_rpcAgg(h+" (HC/PT)",hl,apptsBy,paysBy,recsBy,{leads:hl,from:wFrom,to:wTo})); });
       } else {
         // client view — one row per lead in the window (newest first, capped for render weight).
         // _rpcTrunc carries the real count so the cap is stated instead of silently swallowing rows.
         _rpcTrunc=inWin.length>400?inWin.length:0;
         rows=inWin.slice(0,400).map((l:any)=>{
-          const r=_rpcAgg(l.name||l.phone||"Lead",[l],apptsBy,paysBy,recsBy);
+          const r=_rpcAgg(l.name||l.phone||"Lead",[l],apptsBy,paysBy,recsBy,{leads:[l],from:wFrom,to:wTo});
           r.doi=l.enrolled_at?new Date(l.enrolled_at).getDate()+" "+_RPC_MN[new Date(l.enrolled_at).getMonth()]+" "+new Date(l.enrolled_at).getFullYear():"—";
           r.svc=l.service||"—"; r.src=l.source||"—"; r.loc=(l.city||"—");
           return r;
@@ -13109,12 +13334,22 @@ export function initApp(root: HTMLElement) {
       return '<td><div class="pct-cell"><span class="pct-val '+cls+'">'+v+'%</span><div class="pct-bar" style="width:'+Math.min(v,100)+'%;background:'+bc+'"></div></div></td>';
     }
     const _RPC_TAGMAP:Record<string,string>={fu:"tp",dnd:"tr-x",wn:"tgr",open:"ta",apptD:"tg",apptZ:"tb-x",conf:"tg",vis:"tg",enr:"tg",fp:"tg",pp:"ta",inst:"tb-x",emi:"tb-x",ni:"tr-x",nosugar:"ta",chen:"tp",alrPaid:"tg",recDone:"tg",consWJ:"tg",payCol:"tg"};
+    // A row mixes three date bases on purpose — money by payment date, attendance by visit date,
+    // lead counts by the day the lead arrived. Stating it in the group header keeps that explicit
+    // instead of leaving readers to assume one basis for the whole row.
+    const _RPC_BASIS_MAP:Record<string,string>={
+      "REVENUE":"payment date","REVENUE BY SERVICE":"payment date","PAYMENT":"payment date",
+      "L1/L2 BREAKDOWN":"payment date","APPOINTMENTS":"visit date",
+      "INFO":"lead created date","CALL STATUS":"lead created date","HEALTH PROFILE":"lead created date",
+      "CONSULTATION":"lead created date","FOLLOW-UP":"lead created date","LOCATION":"lead created date",
+    };
+    const _RPC_BASIS=(g:string)=>{ const b=_RPC_BASIS_MAP[g]; return b?'<span style="font-weight:500;opacity:.72;text-transform:none;letter-spacing:0"> — by '+b+'</span>':''; };
     function _rpcHeader(){
       const vis=_rpcVisCols(); const gc:Record<string,number>={}; const seen:Record<string,boolean>={};
       vis.forEach((c:any)=>{gc[c.group]=(gc[c.group]||0)+1;});
       let grp='<tr class="grp-row">', col='<tr class="col-row">';
       vis.forEach((c:any)=>{
-        if(!seen[c.group]){ seen[c.group]=true; grp+='<th class="'+(c.gcls||"g-info")+'" colspan="'+gc[c.group]+'">'+c.group+'</th>'; }
+        if(!seen[c.group]){ seen[c.group]=true; grp+='<th class="'+(c.gcls||"g-info")+'" colspan="'+gc[c.group]+'">'+c.group+_RPC_BASIS(c.group)+'</th>'; }
         col+='<th class="'+(c.sticky||"")+(_rpcColFilters[c.key]?" filtered":"")+'" onclick="window._rpcColHd(event,\''+c.key+'\')"><div style="font-size:8px;line-height:1.3">'+c.label+'<span style="font-size:8px;opacity:0.5;margin-left:2px">&#9660;</span></div></th>';
       });
       const th=root.querySelector("#rpcThead"); if(th) th.innerHTML=grp+"</tr>"+col+"</tr>";
@@ -13134,7 +13369,8 @@ export function initApp(root: HTMLElement) {
       try{ (root.querySelector("#rpcTblWrap") as HTMLElement|null)?.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(_){}
     };
     function _rpcSummary(rows:any[]){
-      const t:any={leads:0,apptD:0,apptZ:0,conf:0,vis:0,enr:0,fp:0,pp:0,inst:0,rev:0,ni:0,fu:0,chen:0,oth:0};
+      const t:any={leads:0,apptD:0,apptZ:0,conf:0,vis:0,enr:0,fp:0,pp:0,inst:0,rev:0,revCol:0,revOut:0,ni:0,fu:0,chen:0,oth:0};
+      _svcAll().forEach((s:string)=>{ t[_rpcSvcKey(s,"bill")]=0; t[_rpcSvcKey(s,"coll")]=0; });
       rows.forEach((r:any)=>{Object.keys(t).forEach(k=>{t[k]+=(r[k]||0);});});
       const appt=t.apptD+t.apptZ;
       // k = the row metric this card filters the table by ("" = the card clears every filter).
@@ -13147,7 +13383,9 @@ export function initApp(root: HTMLElement) {
         {l:"Full Paid",v:t.fp,cls:"",k:"fp"},
         {l:"Part Paid",v:t.pp,cls:"amber",k:"pp"},
         {l:"Instalment",v:t.inst,cls:"blue",k:"inst"},
-        {l:"Revenue",v:_rpcMoney(t.rev),cls:"green",k:"rev"},
+        {l:"Revenue (billed)",v:_rpcMoney(t.rev),cls:"green",k:"rev"},
+        {l:"Collected",v:_rpcMoney(t.revCol),cls:"green",k:"revCol"},
+        {l:"Outstanding",v:_rpcMoney(t.revOut),cls:"amber",k:"revOut"},
         {l:"Lead→Conv%",v:_rpcPct(t.enr,t.leads)+"%",cls:"",k:"m_l2c"},
         {l:"Lead→Visit%",v:_rpcPct(t.vis,t.leads)+"%",cls:"blue",k:"m_l2v"},
         {l:"Visit→Enrol%",v:_rpcPct(t.enr,t.vis)+"%",cls:"green",k:"m_v2e"},
@@ -13158,6 +13396,23 @@ export function initApp(root: HTMLElement) {
       ];
       const el=root.querySelector("#rpcSumGrid");
       if(el) el.innerHTML=cards.map((c:any)=>'<div class="mc '+c.cls+(_rpcCardOn(c.k)?" on":"")+'" style="cursor:pointer'+(_rpcCardOn(c.k)?";outline:2px solid #6D28D9;outline-offset:-1px":"")+'" title="'+(c.k?"Show only rows with "+c.l:"Clear all filters")+'" onclick="window._rpcCardClick(\''+c.k+'\')"><div class="ml">'+c.l+'</div><div class="mv">'+c.v+'</div>'+(c.s?'<div class="ms">'+c.s+'</div>':'')+'</div>').join("");
+      _rpcSvcStrip(t);
+    }
+    // Every service, billed against collected, side by side — never one blended total. Built from the
+    // service master, so a service added there gets its own card here with no code change. Services
+    // with no money in the period are dropped rather than printed as a wall of zeroes.
+    function _rpcSvcStrip(t:any){
+      const host=root.querySelector("#rpcSvcGrid") as HTMLElement|null; if(!host) return;
+      const rowsHtml=_svcAll().map((s:string)=>{
+        const bill=t[_rpcSvcKey(s,"bill")]||0, coll=t[_rpcSvcKey(s,"coll")]||0;
+        if(!bill&&!coll) return "";
+        const out=Math.max(0,bill-coll);
+        return '<div class="mc" style="cursor:pointer" title="Show only rows with '+_rpcEsc(s)+' revenue" onclick="window._rpcCardClick(\''+_rpcSvcKey(s,"bill")+'\')">'
+          +'<div class="ml">'+_rpcEsc(s)+'</div>'
+          +'<div class="mv" style="font-size:16px">'+_rpcMoney(coll)+'</div>'
+          +'<div class="ms">billed '+_rpcMoney(bill)+(out?' · due '+_rpcMoney(out):'')+'</div></div>';
+      }).filter(Boolean).join("");
+      host.innerHTML=rowsHtml||'<div style="grid-column:1/-1;font-size:12px;color:var(--faint);padding:6px 2px">No payments in this period.</div>';
     }
     function _rpcBody(win:any){
       const vis=_rpcVisCols();

@@ -4,34 +4,34 @@ export function getMainContent(): string {
   <section class="screen active" id="s-advisor"><div class="wrap">
     <div class="sec" style="margin-bottom:14px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px">
       <span style="font-size:12px;font-weight:600;color:var(--muted);margin-right:2px">Filters</span>
-      <input class="input" type="date" id="asnFrom" style="height:30px;font-size:12px;width:150px" title="From date">
+      <input aria-label="Filter leads from date" class="input" type="date" id="asnFrom" style="height:30px;font-size:12px;width:150px" title="From date">
       <span style="color:var(--faint);font-size:12px">→</span>
-      <input class="input" type="date" id="asnTo" style="height:30px;font-size:12px;width:150px" title="To date">
-      <select class="select" id="asnSource" style="height:30px;font-size:12px;width:160px"><option value="all">All sources</option></select>
-      <select class="select" id="asnService" style="height:30px;font-size:12px;width:160px" onchange="window._asnServiceChange()"><option value="all">All services</option></select>
-      <select class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px"><option value="all">All advisors</option></select>
+      <input aria-label="Filter leads to date" class="input" type="date" id="asnTo" style="height:30px;font-size:12px;width:150px" title="To date">
+      <select aria-label="Filter by source" class="select" id="asnSource" style="height:30px;font-size:12px;width:160px"><option value="all">All sources</option></select>
+      <select aria-label="Filter by service" class="select" id="asnService" style="height:30px;font-size:12px;width:160px" onchange="window._asnServiceChange()"><option value="all">All services</option></select>
+      <select aria-label="Filter by advisor" class="select" id="assignedFilter" style="height:30px;font-size:12px;width:170px"><option value="all">All advisors</option></select>
       <button class="btn bsm bp" onclick="window._topFilterApply()">Apply</button>
       <button class="btn bsm" onclick="window._topFilterClear()">Clear</button>
     </div></div>
-    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Advisor dashboard
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chart"></use></svg> Advisor dashboard
       <div class="pills" id="asnViewToggle" style="margin-left:auto"><button class="pill on" onclick="window._asnToggleView('list')">List View</button><button class="pill" onclick="window._asnToggleView('kanban')">Kanban View</button></div>
-      <select class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px"><option value="all">All call/lead statuses</option></select></div>
+      <select aria-label="Filter by call or lead status" class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px"><option value="all">All call/lead statuses</option></select></div>
       <div class="sec-bd">
         <div class="metrics" id="haKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div>
         <div id="haResultsWrap" style="display:none;margin-top:14px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><span style="font-weight:700;font-size:13px" id="haResultsTitle"></span>
             <!-- Lives OUTSIDE the table so a re-render (which rewrites thead/tbody only) can't steal focus mid-typing. -->
-            <input class="input" id="haResultsSearch" placeholder="Search lead / phone / advisor / status…" oninput="window._haResultsSearch()" style="margin-left:auto;max-width:280px;height:32px;font-size:12.5px">
+            <input aria-label="Search results by lead, phone, advisor or status" class="input" id="haResultsSearch" placeholder="Search lead / phone / advisor / status…" oninput="window._haResultsSearch()" style="margin-left:auto;max-width:280px;height:32px;font-size:12.5px">
             <button class="btn bsm" onclick="window._haCloseResults()">Close</button></div>
-          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th>Lead</th><th>Source · Lang</th><th>Assigned to</th><th>Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
+          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th scope="col">Lead</th><th scope="col">Source · Lang</th><th scope="col">Assigned to</th><th scope="col">Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
+    <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
       <div class="sec-bd">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-        <input class="input" id="assignedSearch" placeholder="Search lead / phone / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._assignedSearch()">
+        <input aria-label="Search assigned leads by lead, phone or advisor" class="input" id="assignedSearch" placeholder="Search lead / phone / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._assignedSearch()">
       </div>
-      <div id="assignedTableWrap" class="tscroll stick1"><table class="tbl" style="min-width:1060px"><thead><tr id="assignedLeadsHead"><th>Lead Generated Date &amp; Time</th><th>Assigned Date &amp; Time</th><th>Lead</th><th>Source · Lang</th><th>Campaign</th><th>Assigned to</th><th>Status</th><th>Call Status</th><th>Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
+      <div id="assignedTableWrap" class="tscroll stick1"><table class="tbl" style="min-width:1060px"><thead><tr id="assignedLeadsHead"><th scope="col">Lead Generated Date &amp; Time</th><th scope="col">Assigned Date &amp; Time</th><th scope="col">Lead</th><th scope="col">Source · Lang</th><th scope="col">Campaign</th><th scope="col">Assigned to</th><th scope="col">Status</th><th scope="col">Call Status</th><th scope="col">Action</th></tr></thead><tbody id="assignedLeadsBody"></tbody></table></div>
       <div id="assignedKanban" style="display:none;overflow-x:auto"></div>
       <div id="asnPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
         <button class="btn bsm" id="asnFirstBtn" onclick="window._asnPage('first')">« First</button>
@@ -41,17 +41,17 @@ export function getMainContent(): string {
         <button class="btn bsm" id="asnLastBtn" onclick="window._asnPage('last')">Last »</button>
         <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
       </div></div></div>
-    <div class="sec" style="margin-bottom:14px" id="asnHistSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"></use></svg> Assigned leads history <span class="chipb neu" id="asnHistCount" style="margin-left:8px">0</span></div>
+    <div class="sec" style="margin-bottom:14px" id="asnHistSec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"></use></svg> Assigned leads history <span class="chipb neu" id="asnHistCount" style="margin-left:8px">0</span></div>
       <div class="sec-bd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <input class="input" type="date" id="asnHistFrom" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned from">
+          <input aria-label="History assigned from date" class="input" type="date" id="asnHistFrom" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned from">
           <span style="color:var(--faint);font-size:12px">→</span>
-          <input class="input" type="date" id="asnHistTo" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned to">
-          <select class="select" id="asnHistAdvisor" style="height:30px;font-size:12px;width:160px" onchange="window._asnHistFilter()"><option value="all">All health advisors</option></select>
-          <select class="select" id="asnHistSource" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All sources</option></select>
-          <select class="select" id="asnHistService" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All services</option></select>
+          <input aria-label="History assigned to date" class="input" type="date" id="asnHistTo" style="height:30px;font-size:12px;width:150px" oninput="window._asnHistFilter()" title="Assigned to">
+          <select aria-label="History filter by advisor" class="select" id="asnHistAdvisor" style="height:30px;font-size:12px;width:160px" onchange="window._asnHistFilter()"><option value="all">All health advisors</option></select>
+          <select aria-label="History filter by source" class="select" id="asnHistSource" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All sources</option></select>
+          <select aria-label="History filter by service" class="select" id="asnHistService" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All services</option></select>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap"><input type="checkbox" id="asnHistPool" onchange="window._asnHistFilter()"> Unassigned pool only</label>
-          <input class="input" id="asnHistSearch" placeholder="Search name / number / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._asnHistSearch()">
+          <input aria-label="Search assigned leads history by name, number or advisor" class="input" id="asnHistSearch" placeholder="Search name / number / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._asnHistSearch()">
           <button class="btn bsm" onclick="window._asnHistDownload()">⬇ Download</button>
         </div>
         <div class="tscroll stick1"><table class="tbl" style="min-width:940px"><thead><tr id="asnHistHead"></tr></thead><tbody id="asnHistBody"></tbody></table></div>
@@ -61,7 +61,7 @@ export function getMainContent(): string {
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
     <div id="advOpenList" style="display:none"></div>
     <div id="advDetailPane" style="min-width:0">
-    <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg class="icon" style="width:15px;height:15px"><use href="#i-user"></use></svg> <span id="advCtxText"></span></div>
+    <div id="advCtxBanner" class="banner plan" style="display:none;margin-bottom:12px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-user"></use></svg> <span id="advCtxText"></span></div>
     <div class="chead">
       <span class="cav" id="advAv"></span>
       <div class="cmeta">
@@ -70,10 +70,10 @@ export function getMainContent(): string {
         <div class="cbadges" id="advBadges"></div>
       </div>
       <div class="cacts">
-        <div style="text-align:center"><div class="ring"><svg width="62" height="62" viewBox="0 0 62 62"><circle class="bgc" cx="31" cy="31" r="26"></circle><circle class="fgc" id="aRing" cx="31" cy="31" r="26" stroke="#C07F0E" stroke-dasharray="163.4" stroke-dashoffset="42"></circle></svg><span class="rc" id="aClock" style="color:var(--warn-ink)">3:09</span></div><div class="rl">SLA · 4h</div></div>
+        <div style="text-align:center"><div class="ring"><svg aria-hidden="true" focusable="false" width="62" height="62" viewBox="0 0 62 62"><circle class="bgc" cx="31" cy="31" r="26"></circle><circle class="fgc" id="aRing" cx="31" cy="31" r="26" stroke="#C07F0E" stroke-dasharray="163.4" stroke-dashoffset="42"></circle></svg><span class="rc" id="aClock" style="color:var(--warn-ink)">3:09</span></div><div class="rl">SLA · 4h</div></div>
         <span class="chipb vio" id="consBadge" style="height:30px">Status: —</span>
-        <button class="btn bp" id="callBtn" onclick="window._advCallToggle()"><svg class="icon"><use href="#i-phone"></use></svg> <span>Call</span></button>
-        <button class="btn bwa"><svg class="icon"><use href="#i-msg"></use></svg> WA</button>
+        <button class="btn bp" id="callBtn" onclick="window._advCallToggle()"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> <span>Call</span></button>
+        <button class="btn bwa"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-msg"></use></svg> WA</button>
       </div>
     </div>
     <div class="rtabs" id="aTabs">
@@ -82,32 +82,32 @@ export function getMainContent(): string {
       <button data-t="extra">Extra Info</button><button data-t="calls">Call History <span class="mini" id="advCallCount" style="display:none">0</span></button>
     </div>
     <div class="a-p" data-p="recep" style="display:none">
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception-entered data — consent, visited time, registration time, service, token. Audit-logged.</span></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception-entered data — consent, visited time, registration time, service, token. Audit-logged.</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No reception record for this lead yet.</div></div></div>
     </div>
     <div class="a-p" data-p="sales">
-      <div class="sec" id="advBasicSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"></use></svg> Basic info <span class="arr">▾</span></div>
+      <div class="sec" id="advBasicSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Basic info <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
-          <div class="fld"><label class="lbl" for="advfName">Name <span class="req">*</span></label><input  class="input" id="advfName" value=""></div>
-          <div class="fld"><label class="lbl" for="advfPhone">Phone no <span class="req">*</span></label><input  class="input mono" id="advfPhone" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
-          <div class="fld adv-nonphysio"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input class="input" placeholder="Alt number"></div>
-          <div class="fld"><label class="lbl" for="advfWhats">WhatsApp no</label><input  class="input mono" id="advfWhats" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
-          <div class="fld adv-nonphysio"><label class="lbl" for="advfEmail">Email</label><input  class="input" id="advfEmail" type="email" placeholder="email@example.com"></div>
+          <div class="fld"><label class="lbl" for="advfName">Name <span class="req">*</span></label><input  class="input" id="advfName" autocomplete="name" value=""></div>
+          <div class="fld"><label class="lbl" for="advfPhone">Phone no <span class="req">*</span></label><input  class="input mono" id="advfPhone" autocomplete="tel" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
+          <div class="fld adv-nonphysio"><label class="lbl">Alternate ph no <span class="nb">NEW</span></label><input aria-label="Alternate phone number" class="input" placeholder="Alt number"></div>
+          <div class="fld"><label class="lbl" for="advfWhats">WhatsApp no</label><input  class="input mono" id="advfWhats" autocomplete="tel" type="tel" inputmode="numeric" maxlength="15" value="" oninput="window._digitsOnly(this)"></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="advfEmail">Email</label><input  class="input" id="advfEmail" autocomplete="email" type="email" placeholder="email@example.com"></div>
           <div class="fld"><label class="lbl" for="advfGender">Gender <span class="req">*</span></label><select  class="select" id="advfGender"><option>-- Select --</option><option selected>Male</option><option>Female</option><option>Other</option></select></div>
           <div class="fld"><label class="lbl" for="advfAge">Age <span class="req">*</span></label><input  class="input mono" id="advfAge" type="number" min="1" max="120" placeholder="e.g. 42"></div>
-          <div class="fld adv-nonphysio"><label class="lbl" for="advfOcc">Occupation <span class="req">*</span> <span class="nb">NEW</span></label><select  class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
+          <div class="fld adv-nonphysio"><label class="lbl" for="advfOcc">Occupation <span class="req">*</span> <span class="nb">NEW</span></label><select  class="select" id="advfOcc" onchange="othRev(this,'occOth')"><option>-- Select --</option><option>Private Job</option><option selected>Business</option><option>Govt Job</option><option>Self-employed</option><option>Homemaker</option><option>Retired</option><option>Student</option><option>Daily Wage</option><option>Others</option></select><input aria-label="Occupation — other, please specify" class="input hideblock" id="occOth" style="margin-top:7px" placeholder="Enter occupation…"></div>
           <div class="fld adv-nonphysio"><label class="lbl" for="advfLang">Language <span class="req">*</span></label><select  class="select" id="advfLang"><option selected>Tamil</option><option>Telugu</option><option>Kannada</option><option>Malayalam</option><option>Hindi</option><option>Marathi</option><option>Bengali</option><option>Gujarati</option><option>Punjabi</option><option>Urdu</option></select></div>
-          <div class="fld adv-nonphysio"><label class="lbl">Lead source</label><select class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
+          <div class="fld adv-nonphysio"><label class="lbl">Lead source</label><select aria-label="Lead source" class="select"><option>web</option><option selected>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
           <div class="fld adv-nonphysio"><label class="lbl" for="haLeadGen">Lead generated <span class="ab">AUTO</span></label><input  class="input mono" id="haLeadGen" readonly></div>
           <div class="fld adv-nonphysio"><label class="lbl" for="haBatch">Batch code</label><input  class="input mono" id="haBatch" placeholder="—"></div>
           <div class="fld"><label class="lbl" for="advfLoc">Location <span class="req">*</span></label><select  class="select" id="advfLoc"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>+ Add new location</option></select></div>
-          <div class="fld adv-nonphysio" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input class="input" placeholder="Street / Area"><input class="input" value="Chennai"><input class="input" placeholder="ZIP"><input class="input" value="India"></div></div>
+          <div class="fld adv-nonphysio" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input aria-label="Address — street or area" class="input" placeholder="Street / Area"><input aria-label="Address — city" class="input" value="Chennai"><input aria-label="Address — ZIP code" class="input" placeholder="ZIP"><input aria-label="Address — country" class="input" value="India"></div></div>
         </div></div></div>
 
       <!-- PHYSIOTHERAPY-SPECIFIC panel — shown only for Physiotherapy leads (data-nocap: kept out of
            the positional advisor-profile capture, persisted separately so other services are untouched). -->
-      <div class="sec" id="advPhysioSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Physiotherapy — basic information <span class="chipb info" style="margin-left:6px">Physio</span> <span class="arr">▾</span></div>
+      <div class="sec" id="advPhysioSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-heart"></use></svg> Physiotherapy — basic information <span class="chipb info" style="margin-left:6px">Physio</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <!-- Preferred date / time slot / mode were removed on request — booking happens on the slot
                board / at Reception, so the advisor panel keeps only referral + reports + remarks. -->
@@ -127,46 +127,46 @@ export function getMainContent(): string {
               <button type="button" class="chip-o" data-nocap>Blood Reports</button>
               <button type="button" class="chip-o" data-nocap>NCV &amp; EMG</button>
             </div>
-            <div id="advpAtts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"></use></svg> Upload report</span></div></div>
+            <div id="advpAtts" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><span class="att add" onclick="window._advpAddReport()"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Upload report</span></div></div>
           <div class="fld fw" style="margin-top:8px"><label class="lbl" for="advpRemarks">Remarks <span class="ab">if any</span></label><textarea class="area" id="advpRemarks" data-nocap rows="3" placeholder="Condition, pain area, doctor's note, referral notes…"></textarea></div>
         </div></div>
 
-      <div class="sec" id="advSugarSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-drop"></use></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
+      <div class="sec" id="advSugarSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Sugar &amp; medical profile <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="advfSugar">Sugar level <span class="req">*</span></label><select  class="select" id="advfSugar"><option>No Sugar</option><option selected>150–250</option><option>Above 250</option></select></div>
-          <div class="fld"><label class="lbl">Last test report date</label><input class="input" type="date"></div>
-          <div class="fld"><label class="lbl">Fasting (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
-          <div class="fld"><label class="lbl">Postprandial (mg/dL)</label><input class="input mono" type="number" placeholder="—"></div>
-          <div class="fld"><label class="lbl">HbA1c (%)</label><input class="input mono" type="number" placeholder="—"></div>
-          <div class="fld"><label class="lbl">Treatment <span class="nb">NEW</span></label><select class="select"><option selected>Allopathy</option><option>Siddha</option><option>Ayurveda</option><option>Homeopathy</option><option>No Treatment</option><option>Skipped</option></select></div>
-          <div class="fld"><label class="lbl">Years of treatment <span class="nb">NEW</span></label><select class="select"><option>Less than 1 yr</option><option>1–2 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
+          <div class="fld"><label class="lbl">Last test report date</label><input aria-label="Last test report date" class="input" type="date"></div>
+          <div class="fld"><label class="lbl">Fasting (mg/dL)</label><input aria-label="Fasting (mg/dL)" class="input mono" type="number" placeholder="—"></div>
+          <div class="fld"><label class="lbl">Postprandial (mg/dL)</label><input aria-label="Postprandial (mg/dL)" class="input mono" type="number" placeholder="—"></div>
+          <div class="fld"><label class="lbl">HbA1c (%)</label><input aria-label="HbA1c (%)" class="input mono" type="number" placeholder="—"></div>
+          <div class="fld"><label class="lbl">Treatment <span class="nb">NEW</span></label><select aria-label="Treatment" class="select"><option selected>Allopathy</option><option>Siddha</option><option>Ayurveda</option><option>Homeopathy</option><option>No Treatment</option><option>Skipped</option></select></div>
+          <div class="fld"><label class="lbl">Years of treatment <span class="nb">NEW</span></label><select aria-label="Years of treatment" class="select"><option>Less than 1 yr</option><option>1–2 yrs</option><option selected>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
           <div class="fld fw"><label class="lbl">Blood report — attachment <span class="nb">NEW</span></label>
-            <div class="atts" id="bloodAtts"><span class="att"><svg class="icon"><use href="#i-clip"></use></svg> sugar_report_may26.pdf</span><span class="att add" onclick="addBlood()"><svg class="icon"><use href="#i-clip"></use></svg> Add report</span></div></div>
+            <div class="atts" id="bloodAtts"><span class="att"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> sugar_report_may26.pdf</span><span class="att add" onclick="addBlood()"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Add report</span></div></div>
           <div class="fld fw"><label class="lbl">How are they managing now · multi-select</label>
             <div class="chips" data-oth="mgOth"><button class="chip-o on">Medicine</button><button class="chip-o">Insulin</button><button class="chip-o on">Diet</button><button class="chip-o">Fitness</button><button class="chip-o">Yoga</button><button class="chip-o" data-others="1">Others</button></div>
-            <input class="input hideblock" id="mgOth" style="margin-top:8px;max-width:380px" placeholder="Enter details…"></div>
+            <input aria-label="How they are managing now — other, please specify" class="input hideblock" id="mgOth" style="margin-top:8px;max-width:380px" placeholder="Enter details…"></div>
           <div class="fld fw"><label class="lbl">Health issues · multi-select</label>
             <div class="chips" data-oth="hiOth"><button class="chip-o on">BP / Hypertension</button><button class="chip-o">Cholesterol</button><button class="chip-o on">Fatty Liver</button><button class="chip-o">Kidney Issues</button><button class="chip-o">Thyroid</button><button class="chip-o">PCOD / PCOS</button><button class="chip-o">Nerve Damage</button><button class="chip-o">Retinopathy</button><button class="chip-o">Obesity</button><button class="chip-o" data-others="1">Others</button></div>
-            <input class="input hideblock" id="hiOth" style="margin-top:8px;max-width:380px" placeholder="Enter details…"></div>
+            <input aria-label="Health issues — other, please specify" class="input hideblock" id="hiOth" style="margin-top:8px;max-width:380px" placeholder="Enter details…"></div>
           <div class="fld fw"><label class="lbl" style="color:var(--alert-ink)">Appointment eligibility criteria <span class="nb">NEW</span></label>
             <div class="chips" id="eligChips" data-oth="elOth">
               <button class="chip-o neg">Cancer</button><button class="chip-o neg">Brain Tumor</button><button class="chip-o neg">Recent Heart Surgery</button><button class="chip-o neg">Organ Transplant</button><button class="chip-o neg">Pregnancy</button><button class="chip-o neg">Age Above 75</button><button class="chip-o neg">Already Paid</button><button class="chip-o neg">Other Language</button><button class="chip-o neg" data-others="1">Others</button>
             </div>
-            <input class="input hideblock" id="elOth" style="margin-top:8px;max-width:380px" placeholder="Enter exclusion detail…">
-            <div class="banner good" id="eligBanner"><svg class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg> <span>Eligible for diabetes reversal — appointment can be booked.</span></div></div>
+            <input aria-label="Appointment eligibility — exclusion detail" class="input hideblock" id="elOth" style="margin-top:8px;max-width:380px" placeholder="Enter exclusion detail…">
+            <div class="banner good" id="eligBanner"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg> <span>Eligible for diabetes reversal — appointment can be booked.</span></div></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-target"></use></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-target"></use></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="salesSel">Salesperson <span class="ab">AUTO</span></label><select  class="select auto" id="salesSel" tabindex="-1"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option><option>Physiotherapy Telecaller Team</option></select></div>
           <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
-          <div class="fld"><label class="lbl">Probability</label><div class="prob"><input type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
-          <div class="fld"><label class="lbl">Tags</label><input class="input" placeholder="e.g. hot-lead, follow-up"></div>
+          <div class="fld"><label class="lbl">Probability</label><div class="prob"><input aria-label="Probability" type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
+          <div class="fld"><label class="lbl">Tags</label><input aria-label="Tags" class="input" placeholder="e.g. hot-lead, follow-up"></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-phone"></use></svg> Call status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
@@ -175,31 +175,31 @@ export function getMainContent(): string {
               </select></div>
             <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
-          <div class="fld"><label class="lbl">Call notes <span class="nb">NEW</span></label><textarea class="area" rows="3" placeholder="What was discussed, objections, next step…"></textarea></div>
+          <div class="fld"><label class="lbl">Call notes <span class="nb">NEW</span></label><textarea aria-label="Call notes — What was discussed, objections, next step…" class="area" rows="3" placeholder="What was discussed, objections, next step…"></textarea></div>
           <div class="banner plan hideblock" id="fuPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
-            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Follow-up plan — standard procedure</b></div>
+            <div style="display:flex;gap:9px;align-items:center"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Follow-up plan — standard procedure</b></div>
             <div class="g4" style="gap:10px">
-              <div><label class="lbl" style="color:var(--vio-ink)">Reason / intent</label><select class="select" style="height:36px"><option>Will decide this week</option><option>Family discussion needed</option><option>Budget / salary date</option></select></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Reason / intent</label><select aria-label="Reason / intent" class="select" style="height:36px"><option>Will decide this week</option><option>Family discussion needed</option><option>Budget / salary date</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuPlannedDt">Planned date &amp; time *</label><input  class="input" style="height:36px" type="datetime-local" id="fuPlannedDt" data-future="1" onchange="window._fuPlannedSync()"></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Reminder before</label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Attempt # <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" readonly placeholder="—"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Reminder before</label><select aria-label="Reminder before" class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Attempt # <span class="ab">AUTO</span></label><input aria-label="Attempt #" class="input mono" style="height:36px" readonly placeholder="—"></div>
             </div>
             <div><label class="lbl" style="color:var(--vio-ink)">Follow-up notes</label>
-              <div style="display:flex;gap:8px"><input class="input" id="fuNoteA" style="height:36px;background:#fff" placeholder="e.g. Wants to check with brother…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNoteA()">Add note</button></div>
+              <div style="display:flex;gap:8px"><input aria-label="Follow-up notes" class="input" id="fuNoteA" style="height:36px;background:#fff" placeholder="e.g. Wants to check with brother…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNoteA()">Add note</button></div>
               <div id="fuNotesA" style="margin-top:9px;display:flex;flex-direction:column;gap:6px"></div></div>
           </div>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-msg"></use></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-msg"></use></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g3">
             <div class="fld"><label class="lbl" for="waTplSel">Template</label><select  class="select" id="waTplSel" onchange="waTpl()"><option value="welcome" selected>Welcome &amp; intro</option><option value="appt">Appointment confirmation</option><option value="fu">Follow-up reminder</option><option value="pay">Payment link</option></select></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl" for="waPrev">Preview</label><textarea  class="area" id="waPrev" rows="3" placeholder="Template preview will appear here"></textarea></div>
           </div>
-          <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg class="icon" style="width:14px;height:14px"><use href="#i-msg"></use></svg> Send via WATI</button></div>
+          <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg aria-hidden="true" focusable="false" class="icon" style="width:14px;height:14px"><use href="#i-msg"></use></svg> Send via WATI</button></div>
         </div></div>
 
-      <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-cal"></use></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
+      <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-cal"></use></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
             <div class="fld"><label class="lbl" for="slotDate">Date</label><input  class="input" type="date" id="slotDate" data-future="1" onchange="renderSlots()"></div>
@@ -208,58 +208,58 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="apptReq">Appt request <span class="ab">AUTO</span></label><input  class="input mono" id="apptReq" readonly placeholder="—"></div>
           </div>
           <div class="fld"><label class="lbl">Day view — slot occupancy</label><div class="slotgrid" id="slotGrid"></div></div>
-          <div class="banner plan hideblock" id="reschBanner" style="display:none"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg> <span>Reschedule mode — pick new slot.</span></div>
-          <div style="display:flex;gap:9px;margin-top:13px"><button class="btn bp" id="bookBtn" onclick="bookSlot()"><svg class="icon"><use href="#i-check"></use></svg> <span id="bookBtnLabel">Book into selected slot</span></button><button class="btn hideblock" id="reschBtn" style="display:none" onclick="startResch()"><svg class="icon"><use href="#i-repeat"></use></svg> Reschedule</button></div>
+          <div class="banner plan hideblock" id="reschBanner" style="display:none"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg> <span>Reschedule mode — pick new slot.</span></div>
+          <div style="display:flex;gap:9px;margin-top:13px"><button class="btn bp" id="bookBtn" onclick="bookSlot()"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"></use></svg> <span id="bookBtnLabel">Book into selected slot</span></button><button class="btn hideblock" id="reschBtn" style="display:none" onclick="startResch()"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-repeat"></use></svg> Reschedule</button></div>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"></use></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"></use></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Visited status <span class="ab">AUTO</span></label><div class="pills" id="visStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Visited</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the receptionist confirms check-in.</div></div>
           <div class="fld"><label class="lbl" for="visDt">Visited date <span class="ab">AUTO</span></label><input  class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 
-      <div class="sec" id="advEnrolledSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"></use></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec" id="advEnrolledSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"></use></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO</span></label><div class="pills" id="enrStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-ok" type="button">Enrolled</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Set automatically when the health coach marks the client Enrolled.</div></div>
           <div class="fld"><label class="lbl" for="enrDt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"></use></svg> Sales caller self-audit <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> Sales caller self-audit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">Self evaluation</div><div class="g3">
-          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea class="area"></textarea></div>
-          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea class="area"></textarea></div>
-          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea class="area"></textarea></div></div></div></div></div>
+          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="Sales caller self-audit — ✓ Good" class="area"></textarea></div>
+          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="Sales caller self-audit — ✗ Not good" class="area"></textarea></div>
+          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="Sales caller self-audit — ▲ Improve" class="area"></textarea></div></div></div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-audit"></use></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">BDM evaluation</div><div class="g3">
-          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea class="area"></textarea></div>
-          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea class="area"></textarea></div>
-          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea class="area"></textarea></div></div>
+          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="BDM audit — ✓ Good" class="area"></textarea></div>
+          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="BDM audit — ✗ Not good" class="area"></textarea></div>
+          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="BDM audit — ▲ Improve" class="area"></textarea></div></div>
           <div class="g3" style="margin-top:4px">
             <div class="fld"><label class="lbl">BDM score</label><div class="score" id="bdm"><button>1</button><button>2</button><button>3</button><button class="on">4</button><button>5</button></div></div>
-            <div class="fld"><label class="lbl">Status</label><select class="select"><option>Open</option><option selected>Done</option></select></div></div></div></div></div>
+            <div class="fld"><label class="lbl">Status</label><select aria-label="Status" class="select"><option>Open</option><option selected>Done</option></select></div></div></div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"></use></svg> Remarks <span class="arr">▾</span></div>
-        <div class="sec-bd"><div class="fld"><textarea class="area" rows="2" placeholder="Add a remark…"></textarea></div></div></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chat"></use></svg> Remarks <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="fld"><textarea aria-label="Remarks" class="area" rows="2" placeholder="Add a remark…"></textarea></div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-clock"></use></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
-        <div class="sec-bd"><div class="tscroll js-actlog" id="actLog" style="margin-top:12px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"></use></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="tscroll js-actlog" id="actLog" style="margin-top:12px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th scope="col" style="width:132px">Action</th><th scope="col">Details</th><th scope="col" style="width:140px">Actor</th><th scope="col" style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._advSaveRecord()">Save lead record</button></div>
     </div>
     <div class="a-p" data-p="health" style="display:none">
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> This clinical record is owned by the Health coach — advisors can read everything but edit nothing. Every view is audit-logged.</span></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-stetho"></use></svg> Consultation &amp; program <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> This clinical record is owned by the Health coach — advisors can read everything but edit nothing. Every view is audit-logged.</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-stetho"></use></svg> Consultation &amp; program <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No health-coach consultation recorded for this lead yet.</div></div></div>
     </div>
-    <div class="a-p" data-p="pay" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No payment records for this lead yet.</div></div></div></div>
-    <div class="a-p" data-p="notes" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"></use></svg> Internal notes</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No internal notes for this lead yet.</div></div></div></div>
-    <div class="a-p" data-p="extra" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-doc"></use></svg> Extra info</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No additional information for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="pay" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No payment records for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="notes" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chat"></use></svg> Internal notes</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No internal notes for this lead yet.</div></div></div></div>
+    <div class="a-p" data-p="extra" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-doc"></use></svg> Extra info</div><div class="sec-bd"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No additional information for this lead yet.</div></div></div></div>
     <div class="a-p" data-p="calls" style="display:none">
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div>
         <div class="sec-bd" id="advCallLog"><div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-clock"></use></svg> History of activity</div>
-        <div class="sec-bd"><div class="tscroll js-actlog" style="margin-top:4px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th style="width:132px">Action</th><th>Details</th><th style="width:140px">Actor</th><th style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"></use></svg> History of activity</div>
+        <div class="sec-bd"><div class="tscroll js-actlog" style="margin-top:4px;max-height:420px"><table class="tbl" style="min-width:640px"><thead><tr><th scope="col" style="width:132px">Action</th><th scope="col">Details</th><th scope="col" style="width:140px">Actor</th><th scope="col" style="width:186px">Date &amp; Time (IST)</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--faint);padding:24px">No activity recorded for this lead yet.</td></tr></tbody></table></div></div></div>
     </div>
     </div><!-- /advDetailPane -->
     </div><!-- /flex row -->
@@ -268,23 +268,23 @@ export function getMainContent(): string {
   <!-- COACH -->
   <section class="screen" id="s-coach"><div class="wrap">
     <div id="coachFilters" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-      <input class="input" type="date" id="coFrom" style="height:30px;font-size:12px;width:145px" title="Visited from">
+      <input aria-label="Visited from date" class="input" type="date" id="coFrom" style="height:30px;font-size:12px;width:145px" title="Visited from">
       <span style="color:var(--faint);font-size:12px">→</span>
-      <input class="input" type="date" id="coTo" style="height:30px;font-size:12px;width:145px" title="Visited to">
-      <select class="select" id="coCoach" style="height:30px;font-size:12px;width:150px"><option value="all">All health coaches</option></select>
-      <select class="select" id="coStatus" style="height:30px;font-size:12px;width:150px"><option value="all">All statuses</option></select>
-      <select class="select" id="coSource" style="height:30px;font-size:12px;width:140px"><option value="all">All sources</option></select>
-      <select class="select" id="coService" style="height:30px;font-size:12px;width:140px"><option value="all">All services</option></select>
+      <input aria-label="Visited to date" class="input" type="date" id="coTo" style="height:30px;font-size:12px;width:145px" title="Visited to">
+      <select aria-label="Filter by coach" class="select" id="coCoach" style="height:30px;font-size:12px;width:150px"><option value="all">All health coaches</option></select>
+      <select aria-label="Filter by status" class="select" id="coStatus" style="height:30px;font-size:12px;width:150px"><option value="all">All statuses</option></select>
+      <select aria-label="Filter by source" class="select" id="coSource" style="height:30px;font-size:12px;width:140px"><option value="all">All sources</option></select>
+      <select aria-label="Filter by service" class="select" id="coService" style="height:30px;font-size:12px;width:140px"><option value="all">All services</option></select>
       <button class="btn bsm bp" onclick="window._coachFilterApply()">Apply</button>
       <button class="btn bsm" onclick="window._coachFilterClear()">Clear</button>
-      <input class="input" id="coSearch" placeholder="Search client / phone…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._coachSearch()">
+      <input aria-label="Search clients by name or phone" class="input" id="coSearch" placeholder="Search client / phone…" style="height:30px;font-size:12px;width:200px;margin-left:auto" oninput="window._coachSearch()">
     </div>
-    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span>
+    <div class="sec" style="margin-bottom:14px" id="coachDashSec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chart"></use></svg> Health Coach dashboard <span style="font-size:11px;color:var(--faint);font-weight:400;margin-left:8px">By consultation status &amp; program · click a card to filter</span>
       <div class="pills" id="coachViewToggle" style="margin-left:auto;flex-shrink:0"></div>
-      <select class="select" id="coachConsFilter" style="height:30px;font-size:12px;width:210px;margin-left:8px;flex-shrink:0" title="Filter by consultation status" onchange="window._coachConsFilter(this.value)"></select></div>
+      <select aria-label="Filter by consultation status" class="select" id="coachConsFilter" style="height:30px;font-size:12px;width:210px;margin-left:8px;flex-shrink:0" title="Filter by consultation status" onchange="window._coachConsFilter(this.value)"></select></div>
       <div class="sec-bd"><div class="metrics" id="coachDash" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div></div></div>
-    <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
-      <input class="input" id="coCliSearch" placeholder="Search client / phone / coach…" style="height:30px;font-size:12px;width:250px;margin-left:auto" oninput="window._coachCliSearch()">
+    <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
+      <input aria-label="Search visited clients by client, phone or coach" class="input" id="coCliSearch" placeholder="Search client / phone / coach…" style="height:30px;font-size:12px;width:250px;margin-left:auto" oninput="window._coachCliSearch()">
       <button class="btn bsm" style="margin-left:8px" onclick="window._coachCliDownload()">⬇ Download</button></div>
       <div class="sec-bd">
         <div id="coachCliTableWrap">
@@ -299,14 +299,14 @@ export function getMainContent(): string {
         </div>
         <div id="coachKanban" style="display:none;overflow-x:auto"></div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
-      <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th>Client</th><th>Phone</th><th>Appointment Fixed Date &amp; Time</th><th>Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
+    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
+      <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th scope="col">Client</th><th scope="col">Phone</th><th scope="col">Appointment Fixed Date &amp; Time</th><th scope="col">Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
       <div class="cmeta"><h1 id="coachName">No client open</h1>
         <div class="sub" id="coachSub"><span class="mono">Pick a visited client from the table above</span></div>
         <div class="cbadges" id="coachBadges"></div></div>
-      <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: —</span><button class="btn bp" id="coachCallBtn"><svg class="icon"><use href="#i-phone"></use></svg> <span>Call</span></button><button class="btn bwa"><svg class="icon"><use href="#i-msg"></use></svg> WA</button></div>
+      <div class="cacts"><span class="chipb vio" id="coachBadge" style="height:30px">Status: —</span><button class="btn bp" id="coachCallBtn"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> <span>Call</span></button><button class="btn bwa"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-msg"></use></svg> WA</button></div>
     </div>
     <div class="rtabs" id="cTabs">
       <button data-t="recep2">Walk-in Receptionist</button><button data-t="sales2">Walk-in Sales</button><button class="on" data-t="health2">Walk-in Health</button>
@@ -315,7 +315,7 @@ export function getMainContent(): string {
     </div>
     <div class="c-p" data-p="health2">
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-user"></use></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Lead recap &amp; walk-in <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g4">
           <div class="fld"><label class="lbl" for="crSugar">Sugar level</label><input  class="input" id="crSugar" readonly></div>
           <div class="fld"><label class="lbl" for="crFasting">Fasting / PP</label><input  class="input mono" id="crFasting" readonly></div>
@@ -326,7 +326,7 @@ export function getMainContent(): string {
           <div class="fld fw"><label class="lbl" for="crRemarks">Remarks</label><textarea  class="area" rows="2" id="crRemarks"></textarea></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Screening results — clinic floor <span class="chipb warn" id="scrChip" style="margin-left:8px">Awaiting screening</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-heart"></use></svg> Screening results — clinic floor <span class="chipb warn" id="scrChip" style="margin-left:8px">Awaiting screening</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="stub" id="scrEmpty" style="margin-top:12px">Client is at reception / screening. The moment the screening desk saves the M0 baseline, the vitals appear here automatically — read-only, locked as baseline.</div>
           <div class="g4" id="scrData" style="display:none;margin-top:2px">
@@ -339,15 +339,15 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="cs_wa">Waist (cm)</label><input  class="input mono" id="cs_wa" readonly></div>
             <div class="fld"><label class="lbl" for="cs_te">Temp</label><input  class="input mono" id="cs_te" readonly></div>
             <div class="fld"><label class="lbl" for="cs_gl">Desk glucose (mg/dL)</label><input  class="input mono" id="cs_gl" readonly></div>
-            <div class="fld" style="grid-column:span 3"><label class="lbl">Captured by</label><input class="input" value="Screening desk · M0 baseline · locked" readonly></div>
+            <div class="fld" style="grid-column:span 3"><label class="lbl">Captured by</label><input aria-label="Captured by" class="input" value="Screening desk · M0 baseline · locked" readonly></div>
           </div>
         </div></div>
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-heart"></use></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="aud" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
             <div class="fld fw"><label class="lbl" for="haChief">Chief complaint</label><input  class="input" id="haChief"></div>
             <div class="fld"><label class="lbl" for="haDuration">Duration of diabetes <span class="req">*</span></label><select  class="select" id="haDuration"><option value="">-- Select --</option><option>Newly Diagnosed</option><option>1–3 yrs</option><option>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
-            <div class="fld"><label class="lbl">Family history</label><select class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
+            <div class="fld"><label class="lbl">Family history</label><select aria-label="Family history" class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
             <div class="fld"><label class="lbl" for="haHeight">Height (cm)</label><input  class="input mono" id="haHeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
             <div class="fld"><label class="lbl" for="haWeight">Weight (kg)</label><input  class="input mono" id="haWeight" inputmode="decimal" oninput="window._numOnly(this);window._haBmiCalc()"></div>
             <div class="fld"><label class="lbl" for="haBmi">BMI <span class="ab">AUTO</span></label><input  class="input mono" id="haBmi" readonly></div>
@@ -355,20 +355,20 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="haPulse">Pulse</label><input  class="input mono" id="haPulse" inputmode="numeric" oninput="window._numOnly(this)"></div>
             <div class="fld"><label class="lbl" for="haTemp">Temp</label><input  class="input mono" id="haTemp" inputmode="decimal" oninput="window._numOnly(this)"></div></div></div>
           <div class="aud" style="background:#fff"><div class="ahd">Lifestyle &amp; diet</div><div class="g4">
-            <div class="fld"><label class="lbl">Diet type</label><select class="select"><option>Vegetarian</option><option selected>Non-Vegetarian</option><option>Vegan</option><option>Eggetarian</option></select></div>
-            <div class="fld"><label class="lbl">Physical activity</label><select class="select"><option selected>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
-            <div class="fld"><label class="lbl">Sleep</label><select class="select"><option>&lt;5</option><option selected>5–6 hrs</option><option>6–7</option><option>7–8</option><option>8+</option></select></div>
-            <div class="fld"><label class="lbl">Water (L/day)</label><select class="select"><option>&lt;1L</option><option selected>1–2L</option><option>2–3L</option><option>3L+</option></select></div>
-            <div class="fld"><label class="lbl">Smoking</label><select class="select"><option selected>Never</option><option>Occasional</option><option>Regular</option><option>Quit</option></select></div>
-            <div class="fld"><label class="lbl">Alcohol</label><select class="select"><option>Never</option><option selected>Occasional</option><option>Regular</option><option>Quit</option></select></div></div></div>
+            <div class="fld"><label class="lbl">Diet type</label><select aria-label="Diet type" class="select"><option>Vegetarian</option><option selected>Non-Vegetarian</option><option>Vegan</option><option>Eggetarian</option></select></div>
+            <div class="fld"><label class="lbl">Physical activity</label><select aria-label="Physical activity" class="select"><option selected>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
+            <div class="fld"><label class="lbl">Sleep</label><select aria-label="Sleep" class="select"><option>&lt;5</option><option selected>5–6 hrs</option><option>6–7</option><option>7–8</option><option>8+</option></select></div>
+            <div class="fld"><label class="lbl">Water (L/day)</label><select aria-label="Water (L/day)" class="select"><option>&lt;1L</option><option selected>1–2L</option><option>2–3L</option><option>3L+</option></select></div>
+            <div class="fld"><label class="lbl">Smoking</label><select aria-label="Smoking" class="select"><option selected>Never</option><option>Occasional</option><option>Regular</option><option>Quit</option></select></div>
+            <div class="fld"><label class="lbl">Alcohol</label><select aria-label="Alcohol" class="select"><option>Never</option><option selected>Occasional</option><option>Regular</option><option>Quit</option></select></div></div></div>
           <div class="aud" style="background:#fff"><div class="ahd">Symptoms reported</div>
             <div class="chips" data-oth="syOth"><button class="chip-o">Frequent Urination</button><button class="chip-o">Excessive Thirst</button><button class="chip-o">Fatigue</button><button class="chip-o">Blurred Vision</button><button class="chip-o">Tingling/Numbness</button><button class="chip-o">Slow Healing Wounds</button><button class="chip-o">Weight Loss</button><button class="chip-o">Headache</button><button class="chip-o" data-others="1">Others</button></div>
-            <input class="input hideblock" id="syOth" style="margin-top:8px;max-width:360px" placeholder="Enter details…"></div>
+            <input aria-label="Other symptom — please specify" class="input hideblock" id="syOth" style="margin-top:8px;max-width:360px" placeholder="Enter details…"></div>
           <div class="fld"><label class="lbl" for="haDocNotes">Doctor / consultant notes</label><textarea  class="area" id="haDocNotes"></textarea></div>
           <button class="btn bp" style="margin-top:12px" onclick="window._coachSaveRecord()">Save health assessment</button>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-stetho"></use></svg> Consultation status &amp; program <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-stetho"></use></svg> Consultation status &amp; program <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g4">
             <div class="fld"><label class="lbl" for="haAttendedBy">Attended by (HC)</label><input  class="input" id="haAttendedBy" readonly></div>
@@ -376,11 +376,11 @@ export function getMainContent(): string {
             <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="date" id="haReviewDate" data-future="1"></div>
             <div class="fld"><label class="lbl">Recording status</label><div class="pills" id="recStatusPills"><button class="pill p-vio on" onclick="window._recStatusSet('open')">Open</button><button class="pill p-ok" onclick="window._recStatusSet('done')">Done</button><button class="pill p-al" onclick="window._recStatusSet('notdone')">Not Done</button></div></div>
           </div>
-          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg class="icon" style="width:19px;height:19px"><use href="#i-mic"></use></svg></button>
+          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg aria-hidden="true" focusable="false" class="icon" style="width:19px;height:19px"><use href="#i-mic"></use></svg></button>
             <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
             <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
             <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop Recording</button>
-            <input class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"><button class="btn bsm bp" id="coachSaveZoomBtn" onclick="window._coachSaveZoomLink()" style="margin-left:6px;white-space:nowrap">Save Link</button></div>
+            <input aria-label="Consultation recording link" class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"><button class="btn bsm bp" id="coachSaveZoomBtn" onclick="window._coachSaveZoomLink()" style="margin-left:6px;white-space:nowrap">Save Link</button></div>
           <div id="ovrList" style="margin-top:8px"></div>
 
           <div class="fld"><label class="lbl">Consultation status — drives payment &amp; follow-up flow</label>
@@ -398,22 +398,22 @@ export function getMainContent(): string {
               <button class="pill p-al" onclick="consAct('refund',this)">Refund</button>
             </div></div>
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
-            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
+            <div style="display:flex;gap:9px;align-items:center"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1" onchange="window._fuCommitSync()" oninput="window._fuCommitSync()"></div>
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuOwner">Owner</label><select  class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input class="input" style="height:36px" type="date" data-future="1"></div>
-              <div><label class="lbl" style="color:var(--vio-ink)">Reminder before <span class="nb">NEW</span></label><select class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
-              <div style="grid-column:span 3"><label class="lbl" style="color:var(--vio-ink)">If not actioned — repeat notify</label><input class="input" style="height:36px" value="Re-notify owner every 10 min × 3 → then escalate to ABM + Deviation page" readonly></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select aria-label="Blocker" class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input aria-label="Hold offer till" class="input" style="height:36px" type="date" data-future="1"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)">Reminder before <span class="nb">NEW</span></label><select aria-label="Reminder before" class="select" style="height:36px"><option selected>15 min before</option><option>30 min before</option></select></div>
+              <div style="grid-column:span 3"><label class="lbl" style="color:var(--vio-ink)">If not actioned — repeat notify</label><input aria-label="If not actioned — repeat notify" class="input" style="height:36px" value="Re-notify owner every 10 min × 3 → then escalate to ABM + Deviation page" readonly></div>
             </div>
             <div><label class="lbl" style="color:var(--vio-ink)">Follow-up notes — every attempt logged (clients may take 5–6 follow-ups)</label>
-              <div style="display:flex;gap:8px"><input class="input" id="fuNote" style="height:36px;background:#fff" placeholder="e.g. Spoke to wife, salary on 1st — call on 2nd…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNote()">Add note</button></div>
+              <div style="display:flex;gap:8px"><input aria-label="Follow-up note" class="input" id="fuNote" style="height:36px;background:#fff" placeholder="e.g. Spoke to wife, salary on 1st — call on 2nd…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNote()">Add note</button></div>
               <div id="fuNotes" style="margin-top:9px;display:flex;flex-direction:column;gap:6px"></div></div>
             <div style="font-size:11.5px;font-weight:500">Auto-touch plan: ① WA summary + program PDF today · ② call T+2 days · ③ WA offer-reminder T+5 · ④ call on commitment date − 1 · ⑤ missed → Deviation + ABM. Every touch logged.</div>
           </div>
           <div class="banner bad hideblock" id="refundPanel" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
-            <div style="display:flex;gap:9px;align-items:center"><svg class="icon" style="width:16px;height:16px"><use href="#i-coin"></use></svg><b>Refund request — routes through ABM → BM → Accounts (rule-enforced)</b></div>
+            <div style="display:flex;gap:9px;align-items:center"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-coin"></use></svg><b>Refund request — routes through ABM → BM → Accounts (rule-enforced)</b></div>
             <div class="g4" style="gap:10px">
               <div><label class="lbl" style="color:var(--alert-ink)" for="refReason">Reason *</label><select class="select" id="refReason" style="height:36px"><option value="">-- Select --</option><option>Medical — cannot continue</option><option>Relocation</option><option>Dissatisfied with program</option><option>Financial difficulty</option><option>Duplicate payment</option><option>Others</option></select></div>
               <div><label class="lbl" style="color:var(--alert-ink)" for="refPaid">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refPaid" readonly></div>
@@ -422,27 +422,27 @@ export function getMainContent(): string {
             </div>
             <button class="btn bsm" style="background:#fff;align-self:flex-start" onclick="window._submitRefund()">Submit refund request → ABM</button>
           </div>
-          <div class="fld"><label class="lbl">Client expectations &amp; commitments</label><textarea class="area" placeholder="e.g. HbA1c 9.2 → below 7 in 3 months; morning walks; diet…"></textarea></div>
+          <div class="fld"><label class="lbl">Client expectations &amp; commitments</label><textarea aria-label="Client expectations & commitments" class="area" placeholder="e.g. HbA1c 9.2 → below 7 in 3 months; morning walks; diet…"></textarea></div>
           <div class="g4" style="margin-top:3px">
             <div class="fld"><label class="lbl" for="haProgram">Program suggested</label><select  class="select" id="haProgram" onchange="window._syncProgramPricing()"><option>L1</option><option selected>L2</option><option>L1 + L2</option></select></div>
             <div class="fld"><label class="lbl" for="haL1Price">L1 price · full only</label><select  class="select" id="haL1Price" onchange="window._payCalcAll()"><option>₹3,999 (Standard)</option><option>₹3,500 (Offer)</option><option>Special Offer</option></select></div>
             <div class="fld"><label class="lbl" for="haSpecialAmt">Special offer amt (₹)</label><input  class="input mono" id="haSpecialAmt" inputmode="numeric" maxlength="9" placeholder="0" oninput="window._numOnly(this);window._payCalcAll()"></div>
             <div class="fld"><label class="lbl" for="haL2Price">L2 price (₹)</label><input  class="input mono" id="haL2Price" inputmode="decimal" oninput="window._numOnly(this);window._payCalcAll()"></div>
             <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code — special discount <span class="nb">NEW</span></label>
-              <div style="display:flex;gap:7px"><input class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
+              <div style="display:flex;gap:7px"><input aria-label="Coupon code — special discount" class="input mono" id="coupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCoupon()">Apply</button></div>
               <div id="couponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
-            <div class="fld"><label class="lbl">Client category</label><select class="select"><option>-- Select --</option><option>VIP</option><option>Staff Relatives</option><option>Officers</option><option>Complicated</option></select></div>
-            <div class="fld"><label class="lbl">Date of joining</label><input class="input" type="date" data-future="1"></div>
-            <div class="fld"><label class="lbl">Access planned</label><input class="input" type="date" data-future="1"></div>
+            <div class="fld"><label class="lbl">Client category</label><select aria-label="Client category" class="select"><option>-- Select --</option><option>VIP</option><option>Staff Relatives</option><option>Officers</option><option>Complicated</option></select></div>
+            <div class="fld"><label class="lbl">Date of joining</label><input aria-label="Date of joining" class="input" type="date" data-future="1"></div>
+            <div class="fld"><label class="lbl">Access planned</label><input aria-label="Access planned" class="input" type="date" data-future="1"></div>
             <div class="fld"><label class="lbl" for="haAttendedBy2">Attended by <span class="ab">AUTO</span></label><input  class="input" id="haAttendedBy2" readonly></div>
           </div>
         </div></div>
 
-      <div class="sec hideblock" id="paySec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-wallet"></use></svg> Payment — <span id="payFlowLbl">standard</span> collection flow <span class="arr">▾</span></div>
+      <div class="sec hideblock" id="paySec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-wallet"></use></svg> Payment — <span id="payFlowLbl">standard</span> collection flow <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div id="coachPaySummary"></div>
           <div class="steps"><div class="step on"><span class="n">1</span> Quote (auto from price master)</div><div class="step on"><span class="n">2</span> Collect — Reception desk / Razorpay link / EMI provider</div><div class="step"><span class="n">3</span> Attach proof *</div><div class="step"><span class="n">4</span> Accounts verifies vs bank</div><div class="step"><span class="n">5</span> Auto receipt + GST invoice</div></div>
-          <div class="banner good" style="margin-top:10px"><svg class="icon" style="width:15px;height:15px"><use href="#i-check"></use></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
+          <div class="banner good" style="margin-top:10px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-check"></use></svg> <span><b>Who collects:</b> Reception or Razorpay link — never the coach. Coach closes, Reception/link collects, Accounts verifies. Cash gets a numbered desk receipt; nothing is "received" until proof + ref are attached.</span></div>
           <div class="g3" style="margin-top:6px">
             <div class="fld"><label class="lbl" for="payMethod">Payment method</label>
               <select  class="select" id="payMethod" onchange="payBlk(this.value)"><option value="">-- Select --</option><option value="full" selected>Full Payment (1 Shot)</option><option value="i2">Installment (2x)</option><option value="emi">EMI (BFL / SaveIn)</option><option value="adv">Advance Booking</option></select></div>
@@ -450,83 +450,83 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">Accounts team verification</label><div class="pills" id="payVerify"><button class="pill p-warn on" onclick="window._payVerify('pending',this)">Pending</button><button class="pill p-ok" onclick="window._payVerify('verified',this)">Verified</button></div></div>
           </div>
           <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
-            <button class="btn bsm bp" id="sendCollectBtn" onclick="sendToReception()"><svg class="icon" style="width:14px;height:14px"><use href="#i-coin"></use></svg> Send collection request to Reception</button>
+            <button class="btn bsm bp" id="sendCollectBtn" onclick="sendToReception()"><svg aria-hidden="true" focusable="false" class="icon" style="width:14px;height:14px"><use href="#i-coin"></use></svg> Send collection request to Reception</button>
             <span style="font-size:11.5px;color:var(--muted)">Appears instantly in <b>Reception → Collect payment</b> queue with client, plan &amp; amount</span>
           </div>
 
-          <div class="payblk on" id="pb-full"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Full payment</div>
+          <div class="payblk on" id="pb-full"><div class="pt"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Full payment</div>
             <div class="g4">
               <div class="fld"><label class="lbl" for="payAmtDue">Amount due <span class="ab">AUTO</span></label><input  class="input mono" id="payAmtDue" readonly></div>
-              <div class="fld"><label class="lbl" for="payFullRcvd">Amount received (₹) <span class="req">*</span></label><input  class="input mono" id="payFullRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#payAmtDue','#payFullRcvdErr');window._payCalcFull()"><div id="payFullRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="payFullRcvd">Amount received (₹) <span class="req">*</span></label><input  class="input mono" id="payFullRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#payAmtDue','#payFullRcvdErr');window._payCalcFull()"><div id="payFullRcvdErr" style="display:none;color:var(--alert-ink);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="payFullMode">Mode <span class="req">*</span></label><select  class="select" id="payFullMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="payFullRef">Txn ref / UTR *</label><input  class="input mono" id="payFullRef" placeholder="Mandatory"></div>
               <div class="fld"><label class="lbl" for="payFullDate">Actual paid date</label><input  class="input" type="date" id="payFullDate"></div>
-              <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach screenshot / receipt</span></div></div>
-              <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Payment Done</option><option selected>In Process</option><option>Pending</option></select><div class="pills" style="display:none"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
+              <div class="fld fw"><label class="lbl">Payment proof — attachment * <span class="nb">NEW</span></label><div class="atts" id="payFullProof"><span class="att add" onclick="window._payAttach('payFullProof')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach screenshot / receipt</span></div></div>
+              <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select aria-label="Full payment — Status" class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Payment Done</option><option selected>In Process</option><option>Pending</option></select><div class="pills" style="display:none"><button class="pill p-ok">Payment Done</button><button class="pill p-warn on">In Process</button><button class="pill">Pending</button></div></div>
             </div></div>
 
-          <div class="payblk" id="pb-i2"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Installment (2x) — balance never untracked</div>
+          <div class="payblk" id="pb-i2"><div class="pt"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Installment (2x) — balance never untracked</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Installment 1 (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl" for="i2Total">Total <span class="ab">AUTO</span></label><input  class="input mono" id="i2Total" placeholder="Auto from L2 price" inputmode="decimal" readonly></div>
-              <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="this.classList.remove('err');window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="i2Inst1Rcvd">Inst-1 received (₹) <span class="req">*</span></label><input  class="input mono" id="i2Inst1Rcvd" placeholder="e.g. 16000" inputmode="decimal" oninput="this.classList.remove('err');window._payAmtRcvd(this,'#i2Total','#i2Inst1RcvdErr');window._payCalcI2()"><div id="i2Inst1RcvdErr" style="display:none;color:var(--alert-ink);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="i2Inst1Mode">Mode <span class="req">*</span></label><select  class="select" id="i2Inst1Mode" onchange="this.classList.remove('err')"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="i2Inst1Date">Inst-1 date <span class="req">*</span></label><input  class="input" type="date" id="i2Inst1Date" onchange="this.classList.remove('err');window._syncI2BalDue()"></div>
               <div class="fld"><label class="lbl" for="i2Inst1Ref">Txn ref / UTR</label><input  class="input mono" id="i2Inst1Ref" placeholder="e.g. UTR / desk receipt no."></div>
-              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
+              <div class="fld" style="grid-column:span 3"><label class="lbl">Inst-1 proof</label><div class="atts" id="i2Inst1Proof"><span class="att add" onclick="window._payAttach('i2Inst1Proof')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders from Accounts)</div><div class="g4">
               <div class="fld"><label class="lbl" for="i2BalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="i2BalDue" readonly></div>
               <div class="fld"><label class="lbl" for="i2BalDueDate">Balance due date <span class="ab">AUTO · +30d</span></label><input  class="input mono" type="text" id="i2BalDueDate" readonly placeholder="30 days after Inst-1 date" title="Auto-calculated: Installment-1 date + 30 days"></div>
-              <div class="fld"><label class="lbl" for="i2BalRcvd">Balance received (₹)</label><input  class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="i2BalRcvd">Balance received (₹)</label><input  class="input mono" id="i2BalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#i2BalDue','#i2BalRcvdErr')"><div id="i2BalRcvdErr" style="display:none;color:var(--alert-ink);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="i2BalMode">Mode</label><select  class="select" id="i2BalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="i2BalDate">Balance paid date</label><input  class="input" type="date" id="i2BalDate"></div>
               <div class="fld"><label class="lbl" for="i2BalRef">Txn ref / UTR *</label><input  class="input mono" id="i2BalRef" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
+              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="i2BalProof"><span class="att add" onclick="window._payAttach('i2BalProof')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
-            <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>1st Paid</option><option>2nd Paid</option><option>Both Paid</option><option>In Process</option><option selected>Pending</option></select><div class="pills" style="display:none"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
+            <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select aria-label="Installment payment — Status" class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>1st Paid</option><option>2nd Paid</option><option>Both Paid</option><option>In Process</option><option selected>Pending</option></select><div class="pills" style="display:none"><button class="pill p-info">1st Paid</button><button class="pill p-info">2nd Paid</button><button class="pill p-ok">Both Paid</button><button class="pill p-warn">In Process</button><button class="pill on">Pending</button></div></div>
             </div>
 
-          <div class="payblk" id="pb-emi"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> EMI (BFL / SaveIn) — client pays financier; we track down payment &amp; disbursement</div>
+          <div class="payblk" id="pb-emi"><div class="pt"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> EMI (BFL / SaveIn) — client pays financier; we track down payment &amp; disbursement</div>
             <div class="g4">
-              <div class="fld"><label class="lbl">Provider</label><select class="select"><option selected>BFL (Bajaj Finserv)</option><option>SaveIn</option></select></div>
+              <div class="fld"><label class="lbl">Provider</label><select aria-label="Provider" class="select"><option selected>BFL (Bajaj Finserv)</option><option>SaveIn</option></select></div>
               <div class="fld"><label class="lbl">Eligibility (provider tool)</label><div class="pills"><button class="pill p-ok on">Eligible</button><button class="pill p-al">Not Eligible</button></div></div>
               <div class="fld" style="grid-column:span 2"><label class="lbl">Coupon code <span class="nb">NEW</span></label>
-                <div style="display:flex;gap:7px"><input class="input mono" id="emiCoupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCouponEmi()">Apply</button></div>
+                <div style="display:flex;gap:7px"><input aria-label="EMI coupon code" class="input mono" id="emiCoupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCouponEmi()">Apply</button></div>
                 <div id="emiCouponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
               <div class="fld"><label class="lbl" for="emiCost">Program cost <span class="ab">AUTO</span></label><input  class="input mono" id="emiCost" readonly></div>
               <div class="fld"><label class="lbl" for="emiDown">Down payment (₹) — drives calculator <span class="req">*</span></label><input  class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
               <div class="fld"><label class="lbl" for="emiRemain">Financed balance <span class="ab">AUTO</span></label><input  class="input mono" id="emiRemain" readonly></div>
               <div class="fld"><label class="lbl" for="emiTenure">Tenure (months) — drives calculator</label><select  class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
               <div class="fld"><label class="lbl" for="emiPer">EMI / month <span class="ab">AUTO calculated</span></label><input  class="input mono" id="emiPer" readonly></div>
-              <div class="fld"><label class="lbl">Documentation date</label><input class="input" type="date"></div>
-              <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input class="input" type="date" data-future="1"></div>
+              <div class="fld"><label class="lbl">Documentation date</label><input aria-label="Documentation date" class="input" type="date"></div>
+              <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input aria-label="Disbursement ETA" class="input" type="date" data-future="1"></div>
               <div class="fld"><label class="lbl" for="emiNet">Net after subvention <span class="ab">AUTO</span></label><input  class="input mono" id="emiNet" readonly></div>
-              <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"></use></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"></use></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg class="icon"><use href="#i-clip"></use></svg> Attach credit proof</span></div></div>
-              <div class="fld fw"><label class="lbl">EMI payment collection — status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option selected>Open</option><option>EMI Received</option><option>EMI Process</option></select><div class="pills" style="display:none"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
+              <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach credit proof</span></div></div>
+              <div class="fld fw"><label class="lbl">EMI payment collection — status <span class="req">*</span></label><select aria-label="EMI payment collection — status" class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option selected>Open</option><option>EMI Received</option><option>EMI Process</option></select><div class="pills" style="display:none"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
             </div></div>
 
-          <div class="payblk" id="pb-adv"><div class="pt"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Advance booking — locks the price, starts the clock</div>
+          <div class="payblk" id="pb-adv"><div class="pt"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> Advance booking — locks the price, starts the clock</div>
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Advance (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl" for="advAmt">Advance (₹2K–5K) <span class="req">*</span></label><input  class="input mono" id="advAmt" placeholder="e.g. 2000" inputmode="numeric" maxlength="9" oninput="window._numOnly(this);window._payCalcAdv()"></div>
               <div class="fld"><label class="lbl" for="advMode">Mode <span class="req">*</span></label><select  class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="advDate">Advance date</label><input  class="input" type="date" id="advDate"></div>
               <div class="fld"><label class="lbl" for="advRef">Txn ref / UTR *</label><input  class="input mono" id="advRef" placeholder="Mandatory"></div>
-              <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
+              <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
               <div class="fld"><label class="lbl" for="advBalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="advBalDue" readonly></div>
               <div class="fld"><label class="lbl" for="advBalDueDate">Balance due date *</label><input  class="input" type="date" id="advBalDueDate" data-future="1"></div>
-              <div class="fld"><label class="lbl" for="advBalRcvd">Balance received (₹)</label><input  class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div>
+              <div class="fld"><label class="lbl" for="advBalRcvd">Balance received (₹)</label><input  class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert-ink);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="advBalMode">Mode</label><select  class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="advBalDate">Balance paid date</label><input  class="input" type="date" id="advBalDate"></div>
               <div class="fld"><label class="lbl" for="advBalRef">Txn ref / UTR *</label><input  class="input mono" id="advBalRef" placeholder="Mandatory"></div>
-              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
+              <div class="fld" style="grid-column:span 2"><label class="lbl">Balance proof *</label><div class="atts" id="advBalProof"><span class="att add" onclick="window._payAttach('advBalProof')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
-            <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Advance Paid</option><option selected>Balance Pending</option><option>Fully Paid</option><option>Cancelled</option></select><div class="pills" style="display:none"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
+            <div class="fld fw"><label class="lbl">Status <span class="req">*</span></label><select aria-label="Advance payment — Status" class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option>Advance Paid</option><option selected>Balance Pending</option><option>Fully Paid</option><option>Cancelled</option></select><div class="pills" style="display:none"><button class="pill p-ok">Advance Paid</button><button class="pill p-warn on">Balance Pending</button><button class="pill p-ok">Fully Paid</button><button class="pill p-al">Cancelled</button></div></div>
             </div>
         </div></div>
 
-      <div class="sec" id="enrollStatusSec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-check"></use></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec" id="enrollStatusSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"></use></svg> Enrolled status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g2">
           <div class="fld"><label class="lbl">Enrolled status <span class="ab">AUTO — set from payment</span></label>
             <div><span id="payEnrollChip" class="chipb neu">Not enrolled</span></div>
@@ -534,17 +534,17 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl" for="payEnrollAt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="payEnrollAt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-chat"></use></svg> Feedback call <span class="arr">▾</span></div>
+      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chat"></use></svg> Feedback call <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="fld"><label class="lbl">Call outcome</label>
             <div class="pills"><button class="pill p-ok">Attended — Feedback Collected</button><button class="pill p-warn">Not Attended — Rescheduled</button><button class="pill p-info">Call Back Requested</button><button class="pill p-al">Switched Off</button><button class="pill p-vio on">Open</button></div></div>
-          <div class="g2"><div class="fld"><label class="lbl">Next feedback call</label><input class="input" type="datetime-local" data-future="1"></div></div>
-          <div class="fld"><label class="lbl">Feedback notes</label><textarea class="area"></textarea></div>
+          <div class="g2"><div class="fld"><label class="lbl">Next feedback call</label><input aria-label="Next feedback call" class="input" type="datetime-local" data-future="1"></div></div>
+          <div class="fld"><label class="lbl">Feedback notes</label><textarea aria-label="Feedback notes" class="area"></textarea></div>
         </div></div>
 
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> <span>Follow-up &amp; collection sections removed from this screen — committed-not-paid runs through the <b>strong follow-up flow</b> above; balance chasing lives in <b>Accounts → Outstanding</b> with auto-reminders.</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-coin"></use></svg> <span>Follow-up &amp; collection sections removed from this screen — committed-not-paid runs through the <b>strong follow-up flow</b> above; balance chasing lives in <b>Accounts → Outstanding</b> with auto-reminders.</span></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-gift"></use></svg> Welcome kit <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-gift"></use></svg> Welcome kit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="haAttendedBy3">Attended by <span class="ab">AUTO</span></label><input  class="input" id="haAttendedBy3" readonly></div>
           <div class="fld" style="grid-column:span 2"><label class="lbl">Welcome kit status</label>
@@ -553,29 +553,29 @@ export function getMainContent(): string {
 
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._coachSaveRecord()">Save health record</button><button class="btn" style="height:45px" onclick="window._coachPrint()">📋 Print prescription</button></div>
     </div>
-    <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody id="coachRecepBody"><tr><td style="color:var(--muted)">Visited</td><td class="mono">—</td><td style="color:var(--muted)">Registered</td><td class="mono">—</td><td style="color:var(--muted)">Consent</td><td>—</td></tr></tbody></table></div></div></div>
+    <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody id="coachRecepBody"><tr><td style="color:var(--muted)">Visited</td><td class="mono">—</td><td style="color:var(--muted)">Registered</td><td class="mono">—</td><td style="color:var(--muted)">Consent</td><td>—</td></tr></tbody></table></div></div></div>
     <div class="c-p" data-p="sales2" style="display:none">
-      <div class="banner plan" style="margin-top:16px"><svg class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> This sales record is owned by the Health advisor — coaches can read the full journey but edit nothing.</span></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-user"></use></svg> Basic &amp; pipeline <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="banner plan" style="margin-top:16px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> This sales record is owned by the Health advisor — coaches can read the full journey but edit nothing.</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Basic &amp; pipeline <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><table class="tbl"><tbody id="roBasic">
           <tr><td style="color:var(--muted)">Occupation</td><td>—</td><td style="color:var(--muted)">Language</td><td>—</td><td style="color:var(--muted)">Source · campaign</td><td>—</td></tr>
           <tr><td style="color:var(--muted)">Location</td><td>—</td><td style="color:var(--muted)">Salesperson</td><td style="font-weight:600">—</td><td style="color:var(--muted)">Priority · probability</td><td>—</td></tr>
         </tbody></table></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Sugar profile &amp; eligibility <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Sugar profile &amp; eligibility <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><table class="tbl"><tbody id="roSugar">
           <tr><td style="color:var(--muted)">Sugar level</td><td>—</td><td style="color:var(--muted)">Fasting / PP</td><td class="mono">—</td><td style="color:var(--muted)">HbA1c</td><td class="mono" style="font-weight:700">—</td></tr>
           <tr><td style="color:var(--muted)">Treatment</td><td>—</td><td style="color:var(--muted)">Managing now</td><td>—</td><td style="color:var(--muted)">Eligibility</td><td>—</td></tr>
         </tbody></table></div></div>
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-phone"></use></svg> Call journey &amp; appointment <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call journey &amp; appointment <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div>
         <div class="sec-bd"><table class="tbl"><tbody id="roCalls">
           <tr><td style="color:var(--muted)">Call status</td><td>—</td><td style="color:var(--muted)">Appointment</td><td class="mono">—</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">—</td></tr>
           <tr><td style="color:var(--muted)">Last call note</td><td colspan="5">—</td></tr>
         </tbody></table></div></div>
     </div>
-    <div class="c-p" data-p="pay2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div id="coachPayHist"><div class="stub">No payment records for this client yet.</div></div></div></div></div>
+    <div class="c-p" data-p="pay2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div id="coachPayHist"><div class="stub">No payment records for this client yet.</div></div></div></div></div>
     <div class="c-p" data-p="notes2" style="display:none"><div class="stub">Internal notes.</div></div>
     <div class="c-p" data-p="extra2" style="display:none"><div class="stub">Extra info.</div></div>
-    <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div></div>
+    <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div></div>
   </div></section>
 
   <!-- LEAD IMPORT -->
@@ -1038,7 +1038,7 @@ export function getMainContent(): string {
           <div class="sec-bd" style="padding:4px 14px 14px"><div id="recPayList"></div>
             <div id="recWb" class="hideblock" style="display:none;border:1.5px solid var(--brand-line);border-radius:11px;padding:11px 13px;margin-top:8px;background:linear-gradient(180deg,#F7FCFA,#fff)">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><b id="recWbName" style="font-family:var(--disp);font-size:14px">—</b><span class="chipb info" id="recWbPlan">—</span></div>
-              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl" for="recWbDue">Due</label><input  class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl" for="recWbAmt">Received *</label><input  class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0" oninput="window._payAmtRcvd(this,'#recWbDue','#recWbAmtErr')"><div id="recWbAmtErr" style="display:none;color:var(--alert);font-size:11px;margin-top:3px"></div></div><div class="fld"><label class="lbl" for="recWbMode">Mode *</label><select  class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl" for="recWbTxn">Txn ref *</label><input  class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
+              <div class="g2" style="gap:8px"><div class="fld"><label class="lbl" for="recWbDue">Due</label><input  class="input mono" style="height:34px" id="recWbDue" readonly></div><div class="fld"><label class="lbl" for="recWbAmt">Received *</label><input  class="input mono" style="height:34px" id="recWbAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0" oninput="window._payAmtRcvd(this,'#recWbDue','#recWbAmtErr')"><div id="recWbAmtErr" style="display:none;color:var(--alert-ink);font-size:11px;margin-top:3px"></div></div><div class="fld"><label class="lbl" for="recWbMode">Mode *</label><select  class="select" style="height:34px" id="recWbMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div><div class="fld"><label class="lbl" for="recWbTxn">Txn ref *</label><input  class="input mono" style="height:34px" id="recWbTxn" maxlength="40"></div></div>
               <div style="display:flex;gap:6px;margin-top:8px"><button class="btn bsm bp" onclick="recConfirm()">Confirm → Accounts</button><button class="btn bsm" onclick="recBack()">↩ Back</button></div>
             </div>
           </div></div>
@@ -1154,7 +1154,7 @@ export function getMainContent(): string {
       <button class="btn" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap" id="btRevCards">
-      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div></div></div>
+      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div><div style="font-size:10px;opacity:.85;font-weight:600" id="btCollected"></div></div></div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:16px"><div><div style="font-size:9px;color:var(--faint);font-weight:600">THYROCARE COST</div><div class="mono" style="font-weight:700;color:var(--alert-ink)" id="btThyroCost">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">OUR MARGIN</div><div class="mono" style="font-weight:700;color:var(--ok-ink)" id="btMargin">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">PAID TO THYROCARE</div><div class="mono" style="font-weight:700" id="btPaidThyro">₹0</div></div></div>
     </div>
     <div class="metrics" style="margin:6px 0" id="btMetrics"></div>
@@ -1254,8 +1254,10 @@ export function getMainContent(): string {
       <input type="date" class="input" id="phFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="phTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="phApplyBtn" style="display:none;height:30px" onclick="window._phApplyDate()">Apply</button>
-      <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Revenue</span>
+      <!-- Same billed-vs-collected split the report and Accounts use, so the three agree. -->
+      <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Collected</span>
       <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)" id="phRevenue">₹0</span>
+      <span style="font-size:11px;color:var(--muted);font-weight:600" id="phBilled"></span>
       <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
@@ -1370,7 +1372,9 @@ export function getMainContent(): string {
     <div class="sec" style="margin-top:10px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div class="fld" style="margin:0"><label class="lbl">From date &amp; time</label><input  class="input" type="datetime-local" id="accFrom" style="height:34px;width:190px;font-size:12px"></div>
       <div class="fld" style="margin:0"><label class="lbl">To date &amp; time</label><input  class="input" type="datetime-local" id="accTo" style="height:34px;width:190px;font-size:12px"></div>
-      <div class="fld" style="margin:0"><label class="lbl">Service</label><select  class="select" id="accSvcF" style="height:34px;width:170px"><option value="all">All services</option><option>Diabetes Counselling</option><option>Weight Loss Counselling</option><option>Sauna Bath</option><option>Cold Plunge</option><option>Physiotherapy</option><option>Blood Test</option><option>HBOT (Hyperbaric Oxygen Therapy)</option></select></div>
+      <!-- Options are filled from the service master at load (_fillSvcMaster), so a service added
+           there appears here without editing this markup. -->
+      <div class="fld" style="margin:0"><label class="lbl">Service</label><select  class="select" id="accSvcF" style="height:34px;width:170px"><option value="all">All services</option></select></div>
       <div class="fld" style="margin:0"><label class="lbl">Payment method</label><select  class="select" id="accMethodF" style="height:34px;width:140px"><option value="all">All methods</option><option>Cash</option><option>UPI</option><option>Card</option><option>Net Banking</option><option>Bank Transfer</option><option>Cheque</option><option>Other</option></select></div>
       <div class="fld" style="margin:0"><label class="lbl">Verification</label><select  class="select" id="accStatusF" style="height:34px;width:130px"><option value="all">All</option><option value="verified">Verified</option><option value="unverified">Unverified</option></select></div>
       <button class="btn bsm bp" style="height:34px" onclick="window._accApplyFilters()">Apply</button>
@@ -1378,6 +1382,10 @@ export function getMainContent(): string {
       <input  class="input" id="accSearch" placeholder="Search name / phone / ref…" style="height:34px;max-width:230px;margin-left:auto;font-size:12px" oninput="window._accSearch()">
     </div></div>
     <div class="metrics" id="accMetrics"></div>
+    <!-- PER-SERVICE MONEY — collected headline, billed and outstanding beneath. Reflects the same
+         filters as the cards above; the list comes from the service master. -->
+    <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:10px 2px 6px">Revenue by service <span style="font-weight:600;text-transform:none;letter-spacing:0">— collected, with billed below · by payment date</span></div>
+    <div class="metrics" id="accSvcMetrics"></div>
     <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
     <div class="acc-p" data-p="tx">
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
@@ -1483,9 +1491,16 @@ export function getMainContent(): string {
         <span class="sv-tag" onclick="window._rpcPreset(this,'metric')">Conversion Metrics</span>
         <span class="sv-tag" onclick="window._rpcPreset(this,'l1l2')">L1 / L2 View</span>
         <span class="sv-tag" onclick="window._rpcPreset(this,'audit')">Audit View</span>
+        <span class="sv-tag roas" onclick="window._rpcPreset(this,'bysvc')">Revenue by Service</span>
       </div>
       <!-- SUMMARY CARDS -->
       <div class="sum-wrap"><div class="sum-grid" id="rpcSumGrid"></div></div>
+      <!-- PER-SERVICE MONEY — one card per service, collected with billed underneath. Never blended
+           into a single total; the list is generated from the service master. -->
+      <div class="sum-wrap" style="margin-top:8px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:0 2px 6px">Revenue by service <span style="font-weight:600;text-transform:none;letter-spacing:0">— collected, with billed below · by payment date</span></div>
+        <div class="sum-grid" id="rpcSvcGrid"></div>
+      </div>
       <!-- SECTION HEADER -->
       <div class="sec-hd2">
         <div>
