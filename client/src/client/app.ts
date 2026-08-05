@@ -4412,18 +4412,8 @@ export function initApp(root: HTMLElement) {
         const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):"";
         cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
         cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
-        // Service split of the same filtered book — one card per service rather than a single
-        // blended total, so an advisor can see which lines their book is actually made of. A lead
-        // carrying two services counts under both; the list comes from the service master.
-        const svcCnt:Record<string,number>={};
-        book.forEach((l:any)=>{
-          const parts=Array.from(new Set(String(l.service||"").split(/[+,/&]| and /i)
-            .map((x:string)=>normService(x.trim())).filter((x:string)=>x&&SERVICE_MASTER.indexOf(x)>=0)));
-          if(!parts.length){ svcCnt[SVC_UNASSIGNED]=(svcCnt[SVC_UNASSIGNED]||0)+1; return; }
-          parts.forEach((p:any)=>{ svcCnt[p]=(svcCnt[p]||0)+1; });
-        });
-        _svcAll().forEach((s:string)=>{ if(!svcCnt[s]) return;
-          cards.push('<div class="metric" title="Leads in this book tagged '+_attr(s)+'"><div class="ml">'+_attr(s)+'</div>'+mv(svcCnt[s])+'</div>'); });
+        // (Per-service split cards were removed on request — the Service filter above still scopes
+        // every card, so the per-line view is one dropdown away rather than permanent card clutter.)
         kpiEl.innerHTML=cards.join("");
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
@@ -9865,22 +9855,12 @@ export function initApp(root: HTMLElement) {
       });
       counts["Instalment 2 pending"]=list.filter(_coachInst2Pending).length;   // payment state, orthogonal to consStatus
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      // Service split of the same filtered client list, appended after the status cards — each
-      // service on its own card rather than folded into one total. Master-driven, so a new service
-      // appears without touching this code.
-      const svcCnt:Record<string,number>={};
-      list.forEach((c:any)=>{
-        const parts=Array.from(new Set(String(c.service||"").split(/[+,/&]| and /i)
-          .map((x:string)=>normService(x.trim())).filter((x:string)=>x&&SERVICE_MASTER.indexOf(x)>=0)));
-        if(!parts.length){ svcCnt[SVC_UNASSIGNED]=(svcCnt[SVC_UNASSIGNED]||0)+1; return; }
-        parts.forEach((p:any)=>{ svcCnt[p]=(svcCnt[p]||0)+1; });
-      });
-      const svcHtml=_svcAll().filter((s:string)=>!!svcCnt[s])
-        .map((s:string)=>'<div class="metric" title="Clients tagged '+_attr(s)+'"><div class="ml">'+_attr(s)+'</div><div class="mv">'+svcCnt[s]+'</div></div>').join("");
+      // (Per-service split cards were removed on request — the dashboard shows only the
+      // consultation-status cards; the filter bar still narrows by service when needed.)
       el.innerHTML=_coachStatusCards.map(l=>{
         const on=_coachDashSel===l;
         return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
-      }).join("")+svcHtml;
+      }).join("");
     }
     w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachOpenList(); };
     // Top-right "Consultation Status" dropdown — drives the same selection the dashboard cards use,
@@ -12621,10 +12601,13 @@ export function initApp(root: HTMLElement) {
     // Dense multi-group admin grid (styles scoped under .rpc in globals.css). Every cell is computed
     // from LIVE rows — leads (call statuses / sugar / consultation / location), appointments (direct
     // vs zoom / confirmed / visited), payments (FP/PP/instalment/EMI, L1-L2 programs, revenue) and
-    // office_recordings (Recording Done). Attribution is COHORT-based: a bucket's row is the leads
-    // CREATED in that bucket, and every other column is the lifetime outcome of that cohort — so
-    // "10 Mar: 5 enrolled" reads "of the leads generated 10 Mar, 5 enrolled". Fields the system does
-    // not track (ad spend → ROAS, audit scores) render as "—" rather than fabricated numbers.
+    // office_recordings (Recording Done). Attribution is PER-METRIC, not one cohort: lead-acquisition
+    // columns (Leads, call statuses, health, consultation, follow-up, location) are the leads CREATED
+    // in the bucket, money columns are the payments DATED in the bucket (_payDate) and appointment
+    // columns are the visits DATED in the bucket (_visitDate). So "4 Aug: 5 enrolled, ₹20,000" reads
+    // "5 people enrolled and ₹20,000 moved on 4 Aug", not "of the leads generated 4 Aug…". Each group
+    // header states its own basis. Fields the system does not track (ad spend → ROAS, audit scores)
+    // render as "—" rather than fabricated numbers.
     let _rpcLeads:any[]=[], _rpcAppts:any[]=[], _rpcPays:any[]=[], _rpcRecs:any[]=[];
     let _rpcPeriod="daily", _rpcRowView="period", _rpcNavOff=0;
     let _rpcColFilters:Record<string,{op:string,val:string}>={};
