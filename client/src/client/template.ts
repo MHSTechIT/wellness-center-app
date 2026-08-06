@@ -171,7 +171,7 @@ export function getMainContent(): string {
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
               <select  class="select" id="callStatus" onchange="callStatusChange(this.value)">
-                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="ni">Not Interested</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="payp">Payment Pending</option><option value="payc">Payment Completed</option><option value="int">Interested</option><option value="nr">Not Reachable</option><option value="cbr">Callback Requested</option>
+                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option>
               </select></div>
             <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
@@ -1093,7 +1093,7 @@ export function getMainContent(): string {
   <section class="screen" id="s-screening"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Health screening</h1>
-      <div class="pills" id="scrDateF"><button class="pill on" onclick="window._scDateF('today')">Today</button><button class="pill" onclick="window._scDateF('yest')">Yesterday</button><button class="pill" onclick="window._scDateF('cust')">Custom</button></div>
+      <div class="pills" id="scrDateF"><button class="pill on" data-d="today" onclick="window._scDateF('today')">Today</button><button class="pill" data-d="yest" onclick="window._scDateF('yest')">Yesterday</button><button class="pill" data-d="tmrw" onclick="window._scDateF('tmrw')">Tomorrow</button><button class="pill" data-d="wk" onclick="window._scDateF('wk')">This week</button><button class="pill" data-d="cust" onclick="window._scDateF('cust')">Custom</button></div>
       <input type="date" class="input" id="scFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="scTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="scApplyBtn" style="display:none;height:30px" onclick="window._scApplyDate()">Apply</button>
@@ -1135,9 +1135,8 @@ export function getMainContent(): string {
           <div class="sec-bd" id="scQueueList"><div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No clients in screening queue.</div></div></div>
         <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Breakdown</div>
           <div class="sec-bd" id="scBreakdown"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">—</div></div></div>
-        <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Quick test order</div>
-          <div class="sec-bd"><div class="pills" id="scTestPills"><button type="button" class="pill p-ok on" onclick="window._scTogTest(this)">HbA1c</button><button type="button" class="pill p-ok on" onclick="window._scTogTest(this)">FBS</button><button type="button" class="pill" onclick="window._scTogTest(this)">Lipid</button><button type="button" class="pill" onclick="window._scTogTest(this)">Thyroid</button></div>
-            <button class="btn bp bsm" style="margin-top:10px" onclick="window._scOrderTests()">Order &amp; print</button></div></div>
+        <!-- (Quick test order card removed on request — blood-test ordering lives on the Blood Test
+             page / Reception intake, so the screening desk no longer carries a duplicate entry point.) -->
       </div>
     </div>
   </div></section>
@@ -1788,7 +1787,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Eligibility exclusions</label><textarea class="area">Cancer, Brain Tumor, Recent Heart Surgery, Organ Transplant, Pregnancy, Age Above 75, Already Paid, Other Language, Others</textarea></div>
           <div class="fld"><label class="lbl">Occupations</label><textarea class="area">Private Job, Govt Job, Business, Self-employed, Homemaker, Retired, Student, Daily Wage, Others</textarea></div>
-          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Not Interested, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Zoom</textarea></div>
+          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Zoom</textarea></div>
           <div class="fld"><label class="lbl">Languages</label><textarea class="area">Tamil, Telugu, Kannada, Malayalam, Hindi, Marathi, Bengali, Gujarati, Punjabi, Urdu</textarea></div>
           <div class="fld"><label class="lbl">Locations</label><textarea class="area">Poonamalle, Porur, Maduravoyal, Ambattur, Avadi, Tambaram, Nagapattinam</textarea></div>
           <div class="fld"><label class="lbl">Physio conditions</label><textarea class="area">Frozen shoulder, Knee rehab, Lower back pain, Cervical spondylosis, Sports injury, Post-surgical, Sciatica, Others</textarea></div>

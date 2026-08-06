@@ -4371,32 +4371,38 @@ export function initApp(root: HTMLElement) {
         _advCallRows=data||[];
       }catch(_){ _advCallRows=[]; }
     }
-    // Resolve the SINGLE advisor name this dashboard view currently represents, if any — a locked
-    // Advisor role always has one (their own); a full-access viewer only has one when the top
-    // "Advisor" filter is set to something other than "All advisors". Empty = no single-person
-    // scope (team-wide), which is the ONLY case that keeps the pre-fix aggregate (nothing to
-    // attribute personally when the view already spans multiple people).
+    // The SINGLE person whose calls the KPIs show. A locked Advisor role is always themself; a
+    // full-access viewer is themself too UNLESS the top "Advisor" filter names someone — that is a
+    // deliberate inspection of that advisor's activity. "" = the logged-in user.
+    // There is NO team-wide aggregate any more: showing everyone's calls to a full-access login is
+    // exactly how a call the viewer never placed appeared on their dashboard (reported for Jothi
+    // Anumukondae — the row wasn't even attributable, it came off the clinic line, not the app).
     function _advCallScopeName():string{
       const locked=_advisorScope(); if(locked) return locked;
       const top=_asnApplied.advisor; return (top&&top!=="all") ? top : "";
+    }
+    // The login email whose calls count: the named advisor's (top filter), else the viewer's own.
+    // Empty resolves to "match nothing" — never to "show everyone's".
+    function _advCallScopeEmail():string{
+      const n=_advCallScopeName();
+      if(n) return String((_assignees.find((a:any)=>String(a.name||"").trim().toLowerCase()===n.trim().toLowerCase())||{}).email||"").trim().toLowerCase();
+      return String((_currentUser&&_currentUser.email)||"").trim().toLowerCase();
     }
     // Build the per-lead {connected,dur} map for the CURRENT scope. Recomputed on every call
     // (cheap — a few thousand rows, no DOM/network work) so it always reflects the live top-filter
     // selection without needing a re-fetch.
     function _advCallScopedStats():Record<string,{connected:number;dur:number}>{
-      const scopeName=_advCallScopeName();
-      // Name → login email, so a call can be matched to the PERSON the dashboard names, not just
-      // whoever happens to be logged in. Case-insensitive; unresolvable name (no assignee email on
-      // file) deliberately matches NOTHING rather than falling back to "show everyone's calls" —
-      // that fallback is exactly how a wrong call got attributed to Deepak in the first place.
-      const scopeEmail=scopeName?String((_assignees.find((a:any)=>String(a.name||"").trim().toLowerCase()===scopeName.trim().toLowerCase())||{}).email||"").trim().toLowerCase():"";
+      // Every call must be attributed to the scope's login (call_recordings.initiated_by_email,
+      // stamped server-side when Call is clicked). A row with NO attribution — e.g. dialed straight
+      // from the Tata line rather than through the app — counts for NOBODY's KPI. It stays visible
+      // in the lead's own Call History; it just isn't anyone's personal statistic.
+      const scopeEmail=_advCallScopeEmail();
       const m:Record<string,{connected:number;dur:number}>={};
+      if(!scopeEmail) return m;
       _advCallRows.forEach((r:any)=>{
         const k=String(r.contact_id||""); if(!k) return;
-        if(scopeName){
-          const who=String(r.initiated_by_email||"").trim().toLowerCase();
-          if(!who||!scopeEmail||who!==scopeEmail) return;
-        }
+        const who=String(r.initiated_by_email||"").trim().toLowerCase();
+        if(who!==scopeEmail) return;
         const o=(m[k]=m[k]||{connected:0,dur:0});
         const secs=Number(r.duration_seconds)||0;
         // "Connected" = the provider's normalised `answered` state, OR any call with real talk
@@ -4414,7 +4420,10 @@ export function initApp(root: HTMLElement) {
       if(m) return m+"m "+String(sec).padStart(2,"0")+"s";
       return sec+"s";
     }
-    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Not Interested","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Payment Pending","Payment Completed","Interested","Not Reachable","Callback Requested"];
+    // Removed on request (6 Aug 2026): Payment Pending, Payment Completed, Interested, Not
+    // Interested, Callback Requested. They stay in the LABEL/CODE maps below so a lead that already
+    // carries one of those stored values still displays it — the dropdown just no longer offers them.
+    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Not Reachable"];
     const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Open:"new"};
     const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested"};
     function haBucketOf(cs:string){
@@ -4587,7 +4596,7 @@ export function initApp(root: HTMLElement) {
         // before this fix, or made by someone else on a shared lead, correctly won't appear here
         // even though it still shows on the lead's own Call History.
         const _callScopeName=_advCallScopeName();
-        const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):"";
+        const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):" · your calls only";
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
         // (Per-service split cards were removed on request — the Service filter above still scopes
@@ -6421,6 +6430,7 @@ export function initApp(root: HTMLElement) {
     function _recDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(curDate==="today") return [sod(now),eod(now)];
+      if(curDate==="yest"){ const y=new Date(now);y.setDate(y.getDate()-1); return [sod(y),eod(y)]; }
       if(curDate==="tmr"){ const t=new Date(now);t.setDate(t.getDate()+1); return [sod(t),eod(t)]; }
       // "This week" = the CALENDAR week today falls in (Sunday → Saturday), not a rolling window.
       // It used to be [today, today+7] — a FORWARD-looking seven days that excluded everything
@@ -7090,7 +7100,7 @@ export function initApp(root: HTMLElement) {
       // other Service filter in the app. Filtering routes through _recSvcPass (see curSvc note).
       const _svcPills:[string,string][]=[["all","All"],..._recServiceList().map((s:string)=>[s,s] as [string,string])];
       const sf = root.querySelector("#svcFilt"); if (sf) sf.innerHTML = _svcPills.map(([k,v])=>'<button class="pill '+(curSvc===k?"p-ok on":"p-info")+'" onclick="window._svcF(\''+_attr(k)+'\')">'+_attr(v)+'</button>').join("");
-      const dates = [["today","Today"],["tmr","Tomorrow"],["wk","This week"],["cust","Between dates"]];
+      const dates = [["today","Today"],["yest","Yesterday"],["tmr","Tomorrow"],["wk","This week"],["cust","Between dates"]];
       const df = root.querySelector("#dateFilt"); if (df) df.innerHTML = dates.map(([k,v])=>'<button class="pill '+(curDate===k?"on":"")+'" onclick="window._dtF(\''+k+'\')">'+v+'</button>').join("");
     }
 
@@ -9170,6 +9180,15 @@ export function initApp(root: HTMLElement) {
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_scDate==="today") return [sod(now),eod(now)];
       if(_scDate==="yest"){ const y=new Date(now);y.setDate(y.getDate()-1); return [sod(y),eod(y)]; }
+      if(_scDate==="tmrw"){ const t=new Date(now);t.setDate(t.getDate()+1); return [sod(t),eod(t)]; }
+      // "This week" = the CALENDAR week today falls in (Sunday → Saturday), the same definition
+      // Reception / Blood Test / Physiotherapy already use, so the same day never counts differently
+      // depending on which page you are looking at.
+      if(_scDate==="wk"){
+        const s=new Date(now); s.setDate(s.getDate()-s.getDay());
+        const e=new Date(s); e.setDate(s.getDate()+6);
+        return [sod(s),eod(e)];
+      }
       if(_scDate==="cust"){ const f=(root.querySelector("#scFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#scTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
       return [null,null];
     }
@@ -9198,7 +9217,9 @@ export function initApp(root: HTMLElement) {
       _scFiltered=_scAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _scRenderAll();
     }
-    w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo","scApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,cust:2}[d]??0; root.querySelectorAll("#scrDateF .pill")[idx]?.classList.add("on"); _scApplyDateFilter(); };
+    // The active pill is matched by its data-d key, not by position — a positional index map breaks
+    // silently the moment a preset is added or reordered (which is what adding Tomorrow/This week did).
+    w._scDateF=(d:string)=>{ _scDate=d; const show=d==="cust"; ["scFrom","scTo","scApplyBtn"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); root.querySelectorAll("#scrDateF .pill").forEach((b:any)=>b.classList.toggle("on",b.getAttribute("data-d")===d)); _scApplyDateFilter(); };
     w._scApplyDate=()=>{ if(_scDate==="cust") _scApplyDateFilter(); };
     // KPI card → filter the list below. Clicking the active card (or "Show all") clears it. Re-renders
     // in place, no reload, and brings the list into view since the cards sit above the fold.
@@ -9262,24 +9283,8 @@ export function initApp(root: HTMLElement) {
     }
     w._scFilterSvc=(s:string)=>{ _scSvcFilter=(s&&_scSvcFilter===s)?"":s; _scRenderAll();
       const qh=root.querySelector("#scQueueList"); if(qh)(qh as HTMLElement).scrollIntoView?.({block:"nearest"}); };
-    // Test pills are a multi-select for the lab order. Toggle the green "selected" look
-    // (p-ok) together with `on` so every pill — not just the pre-selected HbA1c/FBS —
-    // gives clear visual feedback when picked. _scOrderTests reads `.pill.on`.
-    w._scTogTest=(btn:HTMLElement)=>{ const on=btn.classList.toggle("on"); btn.classList.toggle("p-ok",on); };
-    w._scOrderTests=()=>{
-      const on=Array.from(root.querySelectorAll("#scTestPills .pill.on")).map((b:any)=>b.textContent.trim());
-      if(!on.length){ toastErr("Select at least one test to order"); return; }
-      const cur=_scOpenAppt;
-      const win=window.open("","_blank","width=640,height=720"); if(!win){ toastErr("Allow pop-ups to print the order slip"); return; }
-      const who=cur?(cur.name||"Client"):"—"; const ph=cur?(cur.ph||"—"):"—";
-      win.document.write('<html><head><title>Test order — '+who+'</title></head><body style="font-family:system-ui;padding:28px;color:#111">'
-        +'<h2 style="margin:0 0 4px">Lab Test Order</h2><p style="margin:0 0 14px;color:#555">'+who+' · '+ph+' · '+new Date().toLocaleString("en-IN")+'</p>'
-        +'<table style="border-collapse:collapse;width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:6px;border:1px solid #ddd;background:#f6f6f6">#</th><th style="text-align:left;padding:6px;border:1px solid #ddd;background:#f6f6f6">Test</th></tr></thead><tbody>'
-        +on.map((t:string,i:number)=>'<tr><td style="padding:6px;border:1px solid #ddd;width:36px">'+(i+1)+'</td><td style="padding:6px;border:1px solid #ddd">'+t.replace(/</g,"&lt;")+'</td></tr>').join("")
-        +'</tbody></table><p style="margin-top:18px;color:#555;font-size:12px">Ordered by '+_scCurrentUser()+'</p></body></html>');
-      win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
-      toast("Ordered "+on.length+" test"+(on.length>1?"s":"")+" · slip printed");
-    };
+    // (Quick test order card + its _scTogTest/_scOrderTests handlers removed on request —
+    // blood-test ordering lives on the Blood Test page / Reception intake.)
     w._scOpenAssess=(id:any)=>{
       const r=_scAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;} _scOpenAppt=r;   // id is BIGSERIAL → gateway returns a string
       const el=(s:string)=>root.querySelector("#"+s)as any;
@@ -11743,6 +11748,21 @@ export function initApp(root: HTMLElement) {
         +`\nRegards,\nMHS Wellness Centre`;
       window.location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     };
+    // WhatsApp twin of _btRowMail — same message, sent via wa.me so it opens WhatsApp Web/app with
+    // the report text prefilled. Indian numbers: a bare 10-digit phone gets the 91 country code
+    // (wa.me refuses numbers without one); anything already carrying a code is passed through.
+    w._btRowWa=(id:string)=>{
+      const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      let d=String(r.ph||"").replace(/\D/g,"");
+      if(d.length===11&&d.startsWith("0")) d=d.slice(1);
+      if(d.length===10) d="91"+d;
+      if(d.length<11){ toastErr("No usable phone number on this record"); return; }
+      const url=String((r.btData||{}).report_url||"");
+      const body=`Dear ${r.name||"Client"},\n\nYour blood test report is ready.\n`
+        +(url?`\nDownload: ${url}\n`:``)
+        +`\nRegards,\nMHS Wellness Centre`;
+      window.open("https://wa.me/"+d+"?text="+encodeURIComponent(body),"_blank","noopener");
+    };
     // Per-row report upload. Mirrors _btAddReport (same bucket, same path shape, same 15 MB cap and
     // the same "buckets not created yet" hint) but writes straight to the row instead of the panel,
     // and reuses report_url so the row and the detail panel stay one field, not two.
@@ -11805,8 +11825,8 @@ export function initApp(root: HTMLElement) {
         +'<th scope="col">Lab</th><th scope="col">Lab report sent date &amp; time</th>'
         +'<th scope="col">Lab report</th><th scope="col">Lab report received date &amp; time</th>'
         +'<th scope="col">Client report</th><th scope="col">Client share date &amp; time</th>'
-        +'<th scope="col">Actions</th><th scope="col">Email send</th><th scope="col">Add report</th></tr></thead><tbody>';
-      if(!vis.length) wl+='<tr><td colspan="17" style="text-align:center;color:var(--faint);padding:20px">No blood test records match.</td></tr>';
+        +'<th scope="col">Actions</th><th scope="col">Email send</th><th scope="col">WhatsApp send</th><th scope="col">Add report</th></tr></thead><tbody>';
+      if(!vis.length) wl+='<tr><td colspan="18" style="text-align:center;color:var(--faint);padding:20px">No blood test records match.</td></tr>';
       else vis.forEach((r:any)=>{
         const on=_btRowSel.has(String(r.id));
         const bt=r.btData||{};
@@ -11845,6 +11865,10 @@ export function initApp(root: HTMLElement) {
           +'<td><button class="btn bsm" id="btMail-'+rid+'" '+(email?"":"disabled ")
             +'title="'+(email?_btE("Email the report to "+email):"Add a client email first")+'"'
             +' onclick="window._btRowMail(\''+rid+'\')">✉ Email send</button></td>'
+          // WhatsApp mirrors Email send: same message, delivered via wa.me to the row's phone.
+          +'<td><button class="btn bsm" '+(String(r.ph||"").replace(/\D/g,"").length>=10?"":"disabled ")
+            +'title="'+(String(r.ph||"").replace(/\D/g,"").length>=10?_btE("WhatsApp the report to "+r.ph):"No phone number on this record")+'"'
+            +' onclick="window._btRowWa(\''+rid+'\')">🟢 WhatsApp send</button></td>'
           +'<td><div style="display:flex;gap:6px;align-items:center">'
             +'<button class="btn bsm" onclick="window._btRowUpload(\''+rid+'\')">'+(fileName?"Replace":"⬆ Add report")+'</button>'
             +(fileName?'<a href="'+_btE(_safeHref(bt.report_url))+'" target="_blank" rel="noopener noreferrer" class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+_btE(fileName)+'">'+_btE(fileName)+'</a>':'<span style="font-size:11px;color:var(--faint)">No file</span>')
