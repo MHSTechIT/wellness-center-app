@@ -509,13 +509,13 @@ export function getMainContent(): string {
             <div class="aud" style="background:#fff;margin-top:8px"><div class="ahd">Part 1 — Advance (collected now)</div><div class="g4">
               <div class="fld"><label class="lbl" for="advAmt">Advance (₹2K–5K) <span class="req">*</span></label><input  class="input mono" id="advAmt" placeholder="e.g. 2000" inputmode="numeric" maxlength="9" oninput="window._numOnly(this);window._payCalcAdv()"></div>
               <div class="fld"><label class="lbl" for="advMode">Mode <span class="req">*</span></label><select  class="select" id="advMode"><option>Cash</option><option selected>UPI</option><option>Card</option></select></div>
-              <div class="fld"><label class="lbl" for="advDate">Advance date</label><input  class="input" type="date" id="advDate"></div>
+              <div class="fld"><label class="lbl" for="advDate">Advance date <span class="req">*</span></label><input  class="input" type="date" id="advDate" onchange="this.classList.remove('err');window._syncAdvBalDue()"></div>
               <div class="fld"><label class="lbl" for="advRef">Txn ref / UTR *</label><input  class="input mono" id="advRef" placeholder="Mandatory"></div>
               <div class="fld fw"><label class="lbl">Advance proof *</label><div class="atts" id="advProof"><span class="att add" onclick="window._payAttach('advProof')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach proof</span></div></div>
             </div></div>
             <div class="aud" style="background:#fff"><div class="ahd" style="color:var(--warn-ink)">Part 2 — Balance collection (separate fields · auto-reminders + Outstanding queue)</div><div class="g4">
               <div class="fld"><label class="lbl" for="advBalDue">Balance due <span class="ab">AUTO</span></label><input  class="input mono" id="advBalDue" readonly></div>
-              <div class="fld"><label class="lbl" for="advBalDueDate">Balance due date *</label><input  class="input" type="date" id="advBalDueDate" data-future="1"></div>
+              <div class="fld"><label class="lbl" for="advBalDueDate">Balance due date <span class="ab">AUTO · +30d</span></label><input  class="input mono" type="text" id="advBalDueDate" readonly placeholder="30 days after Advance date" title="Auto-calculated: Advance date + 30 days"></div>
               <div class="fld"><label class="lbl" for="advBalRcvd">Balance received (₹)</label><input  class="input mono" id="advBalRcvd" inputmode="decimal" oninput="window._payAmtRcvd(this,'#advBalDue','#advBalRcvdErr')"><div id="advBalRcvdErr" style="display:none;color:var(--alert-ink);font-size:11px;margin-top:3px"></div></div>
               <div class="fld"><label class="lbl" for="advBalMode">Mode</label><select  class="select" id="advBalMode"><option>Cash</option><option selected>UPI</option><option>Bank Transfer</option><option>Card</option></select></div>
               <div class="fld"><label class="lbl" for="advBalDate">Balance paid date</label><input  class="input" type="date" id="advBalDate"></div>

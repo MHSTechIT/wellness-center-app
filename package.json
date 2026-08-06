@@ -13,6 +13,7 @@
     "typecheck": "npm --prefix client run typecheck && npm --prefix server run typecheck",
     "predeploy:scan": "node server/scripts/predeploy-scan.mjs",
     "predeploy": "npm run typecheck && npm run build && npm run predeploy:scan && node server/scripts/predeploy-verify.mjs",
-    "install:all": "npm --prefix client install && npm --prefix server install"
+    "install:all": "npm --prefix client install && npm --prefix server install",
+    "migrate": "node server/scripts/run-migration.mjs"
   }
 }

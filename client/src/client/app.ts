@@ -6294,7 +6294,11 @@ export function initApp(root: HTMLElement) {
         // Collect-queue payment-type label (L2 – 1st/2nd Installment, Full Payment, …). Same rule as
         // above: skip coach-tracked placeholders never explicitly sent to Reception.
         const dueByLead:Record<string,any>={};
-        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due"||p.collected_by==="Health Coach") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]={label:_recCollectLabel(p.program,p.payment_type,p.installment_number),amount:Number(p.amount)||0}; });
+        // Carry the due ROW's identity (id + program), not just its label/amount: Reception's
+        // Confirm must settle THAT exact row. Re-deriving which row to settle from a guessed
+        // service code is how an advance request stayed "due" while each Confirm click inserted a
+        // fresh untagged full payment beside it (reported for Bhagyalakshmi — three duplicates).
+        (pr.data||[]).slice().reverse().forEach((p:any)=>{ if(p.status!=="due"||p.collected_by==="Health Coach") return; const k=String(p.lead_id||""); if(!k||dueByLead[k]) return; dueByLead[k]={id:p.id,program:p.program||"",label:_recCollectLabel(p.program,p.payment_type,p.installment_number),amount:Number(p.amount)||0}; });
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
@@ -6408,6 +6412,7 @@ export function initApp(root: HTMLElement) {
           _date:_recRowDate, date:_recFmtDate(_recRowDate), time:_rowTime, _sortTs, hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:_visitIso(a)||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, stageChips, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
+          collectPayId:(dueByLead[String(a.lead_id)]||{}).id||null, collectProgram:(dueByLead[String(a.lead_id)]||{}).program||"",
           // What Reception should ask a physio patient for once the consultation is done: the pack /
           // per-session price the physiotherapist set in the treatment plan (physio_data.pack_price).
           // There is no "due" payments row for physio — creating one would be picked up by the
@@ -6599,7 +6604,10 @@ export function initApp(root: HTMLElement) {
       f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)enrolledLeads.add(String(r.lead_id||r.id)); if(_recInst2Pending(r))inst2Leads.add(String(r.lead_id||r.id)); });
       c.enrolled=enrolledLeads.size;
       c.inst2=inst2Leads.size;
-      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"noshow",l:"No show",v:c.noshow,c:"r"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"},{k:"inst2",l:"Instalment 2 pending",v:c.inst2,c:"a"}];
+      // "No show" card removed on request. Nothing in the app ever writes appointments.status
+      // "noshow", so the card could only ever read 0 — the counter and its table filter are left in
+      // place (harmless, unreachable) so the card can be restored by re-adding one entry here.
+      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"},{k:"inst2",l:"Instalment 2 pending",v:c.inst2,c:"a"}];
       const el = root.querySelector("#scCards");
       if (el) el.innerHTML = cards.map((x) => '<div class="metric '+x.c+'" style="cursor:pointer;'+(curScFilter===x.k?'outline:2.5px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._scClick(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
     }
@@ -7772,7 +7780,7 @@ export function initApp(root: HTMLElement) {
       finally{ _cpBusy=false; if(btn) btn.disabled=false; }
     };
 
-    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any,program?:string,svc?:string}|null=null;
+    let _recCollect:{apptId:any,leadId:string,amt:number,installment?:number,payId?:any,program?:string,svc?:string,collector?:string}|null=null;
     let _recBusy=false;   // guards recConfirm against double-submit (double-click) — prevents duplicate paid rows
     // Diabetes alone has an L1/L2 "program"/enrollment concept (_enrollLeadShared, _recLeadProgram).
     // Blood Test and Physio are one-shot services with no such concept — a payment for either is
@@ -7824,6 +7832,12 @@ export function initApp(root: HTMLElement) {
       // old hardcoded ₹800. Say so instead of opening the dialog on a figure nobody agreed.
       if(!(amt>0)&&_routeSvc==="physio"){ toastErr("No amount set for "+(r.name||"this patient")+" — the physiotherapist must save the session amount first"); return; }
       recOpen(r.id, r.name||"Client", amt, r.lead_id||"", _routeSvc);
+      // Collecting a PENDING REQUEST (the amount came from its due row): hand Confirm the exact row
+      // id so it settles that row — never re-derived from the service guess, which mis-tagged
+      // combined-service leads and left the request "due" while duplicates piled up beside it.
+      if(_recCollect&&r.collectPayId&&Number(r.collectAmt)>0&&amt===Number(r.collectAmt)){
+        _recCollect.payId=r.collectPayId; _recCollect.program=r.collectProgram||""; _recCollect.collector="Reception desk";
+      }
     };
     // Resolve a LEAD's program from its own payment rows — never from _curProgram() (the coach's
     // on-screen program dropdown), which reflects whoever is open in the Health Coach view, not
@@ -7899,7 +7913,9 @@ export function initApp(root: HTMLElement) {
         //      balance): update that row to paid instead of inserting a duplicate. ----
         if(_recCollect.payId){
           const pid=_recCollect.payId;
-          if(!(await _dbOk(supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid),"Payment collect"))) return;
+          // Who actually collected: the Reception queue tags itself; the Accounts Outstanding tab
+          // (the branch's original caller) keeps its label.
+          if(!(await _dbOk(supabase.from("payments").update({status:"paid",amount:amt,method,paid_at:new Date().toISOString(),collected_by:_recCollect.collector||"Accounts desk",txn_ref:txnRef||null,due_date:null}).eq("id",pid),"Payment collect"))) return;
           // Move the linked appointment to the payment stage (look it up from the payment row
           // when we weren't handed one) and mark the lead Payment Done.
           let apptId=_recCollect.apptId, _payProg="L1", _rowSvc="dia";
@@ -9113,13 +9129,29 @@ export function initApp(root: HTMLElement) {
         const inst1Done=!!(_i1Res?.data&&_i1Res.data.length);
         instNum=inst1Done?2:1;
       }
+      // Advance booking is the same 2-part shape: part 1 = the advance, part 2 = the balance. Same
+      // "never send a second part 1" rule, and the part-1 request REQUIRES the Advance date — it
+      // anchors the +30d balance due date the whole plan (and Accounts reminders) run on.
+      if(method==="adv"){
+        const _a1Res:any=await supabase.from("payments").select("status").eq("lead_id",id).eq("program",prog).eq("payment_type","advance").eq("installment_number",1).eq("status","paid").limit(1);
+        if(_a1Res&&_a1Res.error){ toastErr("Payment check failed: "+(_a1Res.error.message||"database error")+" — send aborted"); return; }
+        instNum=(_a1Res?.data&&_a1Res.data.length)?2:1;
+        if(instNum===1){
+          const de=root.querySelector("#advDate")as HTMLInputElement|null;
+          if(!((de?.value)||"").trim()){ toastErr("Select the Advance date first — the balance due date is 30 days after it"); if(de){ de.classList.add("err"); de.focus(); } return; }
+          try{ (w as any)._syncAdvBalDue(); }catch(_){}
+        }
+      }
       const _i2PlanTotal=_payNum("#i2Total")||_payNetPrice();   // full value of the 2-part plan (net of coupon)
       // Installment amount fallbacks must NEVER be the full plan total (that made inst-1 = total → no
       // balance left → inst-2 never tracked). Inst 1 falls back to half the plan; inst 2 to total − inst 1.
       const amt = method==="full" ? (_payNum("#payFullRcvd")||_payNum("#payAmtDue")||_payNetPrice())
                 : method==="i2"   ? (instNum===2 ? (_payNum("#i2BalRcvd")||_payNum("#i2BalDue")||Math.max(0,_i2PlanTotal-(_payNum("#i2Inst1Rcvd")||0)))
                                                   : (_payNum("#i2Inst1Rcvd")||(_i2PlanTotal?Math.round(_i2PlanTotal/2):0)))
-                : method==="adv"  ? (_payNum("#advAmt")||_payNetPrice())
+                // Advance part 1 is the ADVANCE only — never fall back to the full plan price (that
+                // would ask Reception to collect the whole programme as an "advance"). Part 2 = the
+                // remaining balance.
+                : method==="adv"  ? (instNum===2 ? (_payNum("#advBalRcvd")||_payNum("#advBalDue")||Math.max(0,_payNetPrice()-(_payNum("#advAmt")||0))) : _payNum("#advAmt"))
                 : method==="emi"  ? (_payNum("#emiDown")||_payNetPrice())   // EMI: Reception collects the down payment
                 : _payNetPrice();
       if(!amt||amt<=0){ toastErr("Enter the amount to collect first"); return; }
@@ -9134,7 +9166,7 @@ export function initApp(root: HTMLElement) {
         // channel (Reception desk → POS), which could later be collected as a duplicate.
         let del=supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type",ptype).eq("program",prog); if(instNum!=null) del=del.eq("installment_number",instNum);
         if(!(await _dbOk(del,"Collection request update"))) return;
-        if(!(await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:method==="i2"?2:null}),"Send to Reception"))) return;
+        if(!(await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:amt,status:"due",payment_type:ptype,program:prog,service:"Diabetes",collected_by:who,installment_number:instNum,total_installments:(method==="i2"||method==="adv")?2:null}),"Send to Reception"))) return;
         // 2-part plan, installment 1 request → ALSO track the remaining balance as installment 2
         // so the Total/Balance survive a reopen. This is bookkeeping only, NOT a Reception request —
         // tag it "Health Coach" (like _persistInstallments' own placeholder), never the Reception-side
@@ -9147,6 +9179,17 @@ export function initApp(root: HTMLElement) {
             const bdd=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; const dueIso=(bdd&&(bdd as any).dataset&&(bdd as any).dataset.iso)||null;
             if(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","installment").eq("program",prog).eq("installment_number",2),"Balance update"))
               await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"installment",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:"Health Coach"}),"Balance tracking");
+          }
+        }
+        // Advance booking, part-1 request → track the remaining balance as part 2. Bookkeeping only
+        // (tagged "Health Coach"): it feeds Outstanding + the auto-reminders with the +30d due date
+        // without surfacing in Reception's queue before the balance is actually requested.
+        if(method==="adv" && instNum===1){
+          const bal=Math.max(0,(_payNetPrice()||0)-amt);
+          if(bal>0){
+            const bdd=root.querySelector("#advBalDueDate")as HTMLInputElement|null; const dueIso=(bdd&&(bdd as any).dataset&&(bdd as any).dataset.iso)||null;
+            if(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","advance").eq("program",prog).eq("installment_number",2),"Balance update"))
+              await _dbOk(supabase.from("payments").insert({lead_id:id,appointment_id:apptId,amount:bal,status:"due",payment_type:"advance",program:prog,service:"Diabetes",installment_number:2,total_installments:2,due_date:dueIso,collected_by:"Health Coach"}),"Balance tracking");
           }
         }
         // Log against the lead THIS request is actually for (id = _coachLeadId) — not whichever
@@ -9445,6 +9488,7 @@ export function initApp(root: HTMLElement) {
         _syncPayStSelects();     // mirror restored payment-Status pills into their dropdowns
         _refreshPayEnrollChip(); // reflect the enrolled level (L1/L2) in the payment section
         try{ w._syncI2BalDue(); }catch(_){}   // rebuild Balance due date (Inst-1 + 30d) from restored Inst-1 date
+        try{ w._syncAdvBalDue(); }catch(_){}   // same for Advance booking (Advance date + 30d)
       } finally { _coachApplying=false; }
     }
     // Part 2 — Balance due date = Installment-1 date + 30 days. Auto-filled + read-only (the user
@@ -9453,6 +9497,17 @@ export function initApp(root: HTMLElement) {
     w._syncI2BalDue=()=>{
       const tgt=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; if(!tgt) return;
       const v=((root.querySelector("#i2Inst1Date")as HTMLInputElement|null)?.value||"").trim();
+      if(!v){ tgt.value=""; delete tgt.dataset.iso; return; }
+      const d=new Date(v+"T00:00:00"); if(isNaN(d.getTime())){ tgt.value=""; delete tgt.dataset.iso; return; }
+      d.setDate(d.getDate()+30);
+      const iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+      tgt.dataset.iso=iso; tgt.value=fmtISTDate(iso);
+    };
+    // Advance-booking twin of _syncI2BalDue: Balance due date = Advance date + 30 days, auto-filled
+    // and read-only (ISO kept in data-iso for the balance due row + Accounts reminders).
+    w._syncAdvBalDue=()=>{
+      const tgt=root.querySelector("#advBalDueDate")as HTMLInputElement|null; if(!tgt) return;
+      const v=((root.querySelector("#advDate")as HTMLInputElement|null)?.value||"").trim();
       if(!v){ tgt.value=""; delete tgt.dataset.iso; return; }
       const d=new Date(v+"T00:00:00"); if(isNaN(d.getTime())){ tgt.value=""; delete tgt.dataset.iso; return; }
       d.setDate(d.getDate()+30);
@@ -10528,6 +10583,13 @@ export function initApp(root: HTMLElement) {
         }
         const a1=_okA1?_payNum("#advAmt"):0, a2=_okA2?_payNum("#advBalRcvd"):0;
         if(!a1&&!a2) return;
+        // Advance date is mandatory whenever the advance itself is being recorded — it anchors the
+        // +30d balance due date and is the paid_at instant of the advance row.
+        if(a1&&!val("#advDate")){
+          const de=root.querySelector("#advDate")as HTMLInputElement|null;
+          if(de){ de.classList.add("err"); de.focus(); }
+          toastErr("Select the Advance date — required to record the advance"); return;
+        }
         const rows:any[]=[];
         if(a1) rows.push({lead_id:id,amount:a1,status:"paid",method:val("#advMode")||null,paid_at:iso(val("#advDate")),payment_type:"advance",installment_number:1,total_installments:2,txn_ref:val("#advRef")||null,service:"Diabetes",program:_prog,...proof("advProof")});
         if(a2) rows.push({lead_id:id,amount:a2,status:"paid",method:val("#advBalMode")||null,paid_at:iso(val("#advBalDate")),payment_type:"advance",installment_number:2,total_installments:2,txn_ref:val("#advBalRef")||null,service:"Diabetes",program:_prog,...proof("advBalProof")});
@@ -10641,7 +10703,12 @@ export function initApp(root: HTMLElement) {
       // ADVANCE
       _lockFields(["#advAmt","#advMode","#advRef","#advDate"],adv1Paid);
       _lockFields(["#advBalRcvd","#advBalMode","#advBalRef","#advBalDate"],adv2Paid);
+      // Status follows the money automatically, same as the installment block above: once Reception
+      // records the advance, the coach's Status reads "Advance Paid" without anyone touching it.
       if(adv1Paid&&adv2Paid) _setPayStatus("pb-adv","Fully Paid");
+      else if(adv1Paid) _setPayStatus("pb-adv","Advance Paid");
+      else { const s=root.querySelector('#pb-adv select[data-nocap]')as HTMLSelectElement|null; if(s&&/Paid/.test(s.value)) _setPayStatus("pb-adv","Balance Pending"); }
+      const asel=root.querySelector('#pb-adv select[data-nocap]')as HTMLSelectElement|null; if(asel) asel.disabled=(adv1Paid&&adv2Paid);
       // Block re-collection: disable "Send collection request to Reception" when the ACTIVE method is fully collected.
       const method=(root.querySelector("#payMethod")as HTMLSelectElement|null)?.value||"";
       const done=(method==="full"&&fullPaid)||(method==="i2"&&inst1Paid&&inst2Paid)||(method==="adv"&&adv1Paid&&adv2Paid);
