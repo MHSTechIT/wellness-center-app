@@ -6302,7 +6302,12 @@ export function initApp(root: HTMLElement) {
         // Installment aggregation per lead (from the shared payments table) so Reception can show
         // Installment 1 / 2 status, remaining balance, next due date + a payment history.
         _recInst={};
-        (pr.data||[]).filter((p:any)=>p.payment_type==="installment").forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; (_recInst[k]=_recInst[k]||{rows:[]}).rows.push(p); });
+        // Advance booking is the same 2-part shape (part 1 = advance, part 2 = balance) and its rows
+        // carry installment_number too. Excluding them made Reception's Instalment-2-pending card,
+        // the Inst-1 / Balance-due columns and the queue balance all blind to advance plans, while
+        // the Coach card (built from installment_number regardless of type) counted them — the two
+        // cards disagreed on the same leads (reported).
+        (pr.data||[]).filter((p:any)=>p.payment_type==="installment"||p.payment_type==="advance").forEach((p:any)=>{ const k=String(p.lead_id||""); if(!k)return; (_recInst[k]=_recInst[k]||{rows:[]}).rows.push(p); });
         Object.keys(_recInst).forEach((k)=>{ const o=_recInst[k]; o.rows.sort((a:any,b:any)=>Number(a.installment_number||0)-Number(b.installment_number||0)); const paid=o.rows.filter((r:any)=>r.status==="paid"); const due=o.rows.filter((r:any)=>r.status==="due"); o.inst1=o.rows.find((r:any)=>Number(r.installment_number)===1)||null; o.inst2=o.rows.find((r:any)=>Number(r.installment_number)===2)||null; o.balance=due.reduce((s:number,r:any)=>s+(r.amount||0),0); o.dueDate=(due[0]||{}).due_date||""; o.totalInst=Math.max(2,...o.rows.map((r:any)=>Number(r.total_installments||2))); o.paidCount=paid.length; o.allPaid=o.rows.length>0&&due.length===0&&paid.length>=o.totalInst; });
         // Which SERVICES a lead has actually PAID for (payments.service is stamped at collect time).
         // A combined visit needs this: payStatus is a lead-level aggregate, so it still reads "due"
@@ -6586,14 +6591,18 @@ export function initApp(root: HTMLElement) {
     // question for plans saved before due dates were persisted.
     function _recBalDueAt(r:any):string{
       const o=r&&r.inst; if(!o) return "—";
-      if(o.inst2&&o.inst2.due_date) return fmtIST(o.inst2.due_date);
-      if(o.dueDate) return fmtIST(o.dueDate);
+      // Lead with the OUTSTANDING amount so the column answers both questions at once —
+      // how much is due, and by when (requested).
+      const _bal=Number(o.balance)||0;
+      const _pre=_bal>0?("₹"+_bal.toLocaleString("en-IN")+" · "):"";
+      if(o.inst2&&o.inst2.due_date) return _pre+fmtIST(o.inst2.due_date);
+      if(o.dueDate) return _pre+fmtIST(o.dueDate);
       const i1=o.inst1;
       const base=(i1&&i1.status==="paid")?(i1.paid_at||i1.created_at):"";
       if(!base) return "—";
       const d=new Date(base); if(isNaN(d.getTime())) return "—";
       d.setDate(d.getDate()+30);
-      return fmtIST(d.toISOString())+" (auto +30d)";
+      return _pre+fmtIST(d.toISOString())+" (auto +30d)";
     }
     function renderSc() {
       const f = curSvc === "all" ? RX : RX.filter((r) => _recSvcPass(r.serviceRaw, curSvc));
@@ -10271,14 +10280,17 @@ export function initApp(root: HTMLElement) {
     function _coachBalDueAt(c:any):string{
       const inst=(_recInst||{})[String(c&&c.id)];
       if(!inst||!inst.rows) return "—";
+      // Outstanding amount leads the cell so the column reads "₹X · when" (requested).
+      const _bal=Number(inst.balance)||0;
+      const _pre=_bal>0?("₹"+_bal.toLocaleString("en-IN")+" · "):"";
       const r2=inst.rows.find((r:any)=>Number(r.installment_number)===2);
-      if(r2&&r2.due_date) return fmtIST(r2.due_date);
+      if(r2&&r2.due_date) return _pre+fmtIST(r2.due_date);
       const r1=inst.rows.find((r:any)=>Number(r.installment_number)===1&&r.status==="paid");
       const base=r1?(r1.paid_at||r1.created_at):"";
       if(!base) return "—";
       const d=new Date(base); if(isNaN(d.getTime())) return "—";
       d.setDate(d.getDate()+30);
-      return fmtIST(d.toISOString())+" (auto +30d)";
+      return _pre+fmtIST(d.toISOString())+" (auto +30d)";
     }
     function _coachCommitOf(c:any){ const d=c&&c.coachProfile&&c.coachProfile.commitDate; return d?fmtISTDate(d):"—"; }
     function _coachCliColsFn(){
