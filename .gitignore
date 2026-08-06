@@ -52,3 +52,6 @@ out/
 
 # runtime file storage (uploaded office-visit recordings, etc.)
 server/uploads/
+
+# database backups — full production dumps carry client PII and password hashes; never push
+*.backup
