@@ -972,7 +972,7 @@ export function getMainContent(): string {
                 <div class="fld"><label class="lbl" for="nwName">Name *</label><input  class="input" style="height:38px" id="nwName"></div>
                 <div class="fld"><label class="lbl" for="nwPhone">Phone *</label><input  class="input mono" style="height:38px" id="nwPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" oninput="window._digitsOnly(this)"></div>
                 <div class="fld"><label class="lbl" for="nwWhats">WhatsApp</label><input  class="input mono" style="height:38px" id="nwWhats" type="tel" inputmode="numeric" maxlength="15" oninput="window._digitsOnly(this)"></div>
-                <div class="fld"><label class="lbl" for="nwEmail">Email</label><input  class="input" style="height:38px" id="nwEmail" type="email" placeholder="email@example.com"></div>
+                <div class="fld"><label class="lbl" for="nwEmail" id="nwEmailLbl">Email</label><input  class="input" style="height:38px" id="nwEmail" type="email" placeholder="email@example.com"></div>
                 <div class="fld"><label class="lbl" for="nwGender">Gender</label><select  class="select" style="height:38px" id="nwGender"><option>Male</option><option>Female</option><option>Other</option></select></div>
                 <div class="fld"><label class="lbl" for="nwAge">Age</label><input  class="input mono" style="height:38px" id="nwAge" type="number" min="1" max="120" placeholder="42"></div>
                 <div class="fld"><label class="lbl" for="nwOccupation">Occupation</label><select  class="select" style="height:38px" id="nwOccupation"><option>Business</option><option>Private Job</option><option>Govt</option><option>Homemaker</option><option>Others</option></select></div>
@@ -1146,12 +1146,11 @@ export function getMainContent(): string {
   <section class="screen" id="s-bloodtest"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">Blood test — Thyrocare</h1>
-      <div class="pills" id="btDateFilt"><button class="pill on" onclick="window._btDateF('today')">Today</button><button class="pill" onclick="window._btDateF('yest')">Yesterday</button><button class="pill" onclick="window._btDateF('wk')">This week</button><button class="pill" onclick="window._btDateF('cust')">Custom</button></div>
+      <div class="pills" id="btDateFilt"><button class="pill on" onclick="window._btDateF('today')">Today</button><button class="pill" onclick="window._btDateF('tmrw')">Tomorrow</button><button class="pill" onclick="window._btDateF('yest')">Yesterday</button><button class="pill" onclick="window._btDateF('wk')">This week</button><button class="pill" onclick="window._btDateF('cust')">Custom</button></div>
       <input type="date" class="input" id="btFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="btApplyBtn" style="display:none;height:30px" onclick="window._btApplyDate()">Apply</button>
-      <button class="btn bp" style="margin-left:auto" onclick="window._btIntakeOpen()">+ New walk-in</button>
-      <button class="btn" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
+      <button class="btn" style="margin-left:auto" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap" id="btRevCards">
       <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div><div style="font-size:10px;opacity:.85;font-weight:600" id="btCollected"></div></div></div>
@@ -1250,7 +1249,7 @@ export function getMainContent(): string {
   <section class="screen" id="s-physio"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h1 style="font-family:var(--disp);font-size:22px;font-weight:700">💪 Physiotherapy</h1>
-      <div class="pills" id="phDateFilt"><button class="pill on" onclick="window._phDateF('today')">Today</button><button class="pill" onclick="window._phDateF('wk')">This week</button><button class="pill" onclick="window._phDateF('cust')">Custom</button></div>
+      <div class="pills" id="phDateFilt"><button class="pill on" onclick="window._phDateF('today')">Today</button><button class="pill" onclick="window._phDateF('tmrw')">Tomorrow</button><button class="pill" onclick="window._phDateF('wk')">This week</button><button class="pill" onclick="window._phDateF('cust')">Custom</button></div>
       <input type="date" class="input" id="phFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="phTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="phApplyBtn" style="display:none;height:30px" onclick="window._phApplyDate()">Apply</button>
@@ -1631,7 +1630,7 @@ export function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-cpn">Coupon codes</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
 
     <div class="st-p" data-p="st-svc">
@@ -1687,6 +1686,36 @@ export function getMainContent(): string {
           </div>
           <div class="tscroll"><table class="tbl" style="min-width:560px"><thead><tr><th>Item</th><th>Sessions</th><th>Price</th><th>Status</th><th>Actions</th></tr></thead><tbody id="phpBody"><tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
           <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Add, edit, delete or (de)activate any item. Changes take effect live on the Physiotherapy page's treatment-plan and payment amounts — no code change or redeploy needed.</p>
+        </div></div>
+    </div>
+
+    <!-- COUPON CODES MASTER — auto-generated MHS + YY + MM + serial codes on bt_coupons (the store
+         every Apply-coupon field already validates against). Serial restarts each month. -->
+    <div class="st-p" data-p="st-cpn" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Coupon codes — special discount <span class="nb">NEW</span></div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:stretch;margin-bottom:16px">
+            <div style="flex:1;min-width:270px;background:linear-gradient(135deg,#0E7C5C,#129468);border-radius:13px;padding:15px 18px;color:#fff;box-shadow:0 10px 24px -12px rgba(14,124,92,.55)">
+              <div style="font-size:10px;font-weight:700;letter-spacing:.1em;opacity:.78;text-transform:uppercase">Next code · auto-generated</div>
+              <div style="display:flex;align-items:center;gap:10px;margin:7px 0 10px"><span id="cpnNext" style="font-family:var(--mono,ui-monospace,monospace);font-size:25px;font-weight:700;letter-spacing:.05em">MHS———</span><button class="btn bsm" style="height:26px;font-size:11px;background:rgba(255,255,255,.14);border-color:transparent;color:#fff" onclick="window._cpnCopyNext()" title="Copy the next code">Copy</button></div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10.5px;font-weight:600">
+                <span style="background:rgba(255,255,255,.15);border-radius:6px;padding:2px 8px">MHS — brand</span>
+                <span style="background:rgba(255,255,255,.15);border-radius:6px;padding:2px 8px" id="cpnFmtY">YY — year</span>
+                <span style="background:rgba(255,255,255,.15);border-radius:6px;padding:2px 8px" id="cpnFmtM">MM — month</span>
+                <span style="background:rgba(255,255,255,.15);border-radius:6px;padding:2px 8px">0001 — serial</span>
+              </div>
+              <div style="font-size:10.5px;opacity:.75;margin-top:9px">Serial restarts at 0001 automatically every month.</div>
+            </div>
+            <div style="flex:1.6;min-width:330px;display:flex;gap:10px 12px;flex-wrap:wrap;align-items:flex-end;align-content:flex-end">
+              <div class="fld" style="margin:0"><label class="lbl" for="cpnType">Discount type</label><select class="select" id="cpnType" style="height:34px;width:120px"><option value="flat">Flat ₹</option><option value="percent">Percent %</option></select></div>
+              <div class="fld" style="margin:0"><label class="lbl" for="cpnValue">Value <span class="req">*</span></label><input class="input mono" id="cpnValue" type="number" min="1" style="height:34px;width:110px" placeholder="e.g. 500"></div>
+              <div class="fld" style="margin:0"><label class="lbl" for="cpnValidTo">Valid until <span class="ab">optional</span></label><input class="input" type="date" id="cpnValidTo" style="height:34px;width:150px"></div>
+              <div class="fld" style="margin:0"><label class="lbl" for="cpnMaxUses">Max uses <span class="ab">optional</span></label><input class="input mono" id="cpnMaxUses" type="number" min="1" style="height:34px;width:100px" placeholder="∞"></div>
+              <button class="btn bp" style="height:36px" onclick="window._cpnGen()">⚡ Generate coupon</button>
+            </div>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:840px"><thead><tr><th>Code</th><th>Discount</th><th>Validity</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody id="cpnBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Generated coupons work instantly on the Collect Payment page, the Blood-test intake, and the Coach payment &amp; EMI coupon fields — each apply is validated live against status, validity window and usage cap. No code change or redeploy needed.</p>
         </div></div>
     </div>
 
@@ -1817,6 +1846,13 @@ export function getMainContent(): string {
           <div class="fld" style="margin:0"><label class="lbl" for="usrRole">Role</label><select class="select" id="usrRole" onchange="window._usrRoleChange()"></select></div>
         </div>
         <p id="usrRoleHint" style="font-size:11.5px;color:var(--faint);margin:8px 0 0;display:none"></p>
+        <!-- Extra roles the person also performs. The select above stays the PRIMARY role (it
+             drives the assignee mirror and the session token); these add permissions on top. -->
+        <div class="fld" style="margin:10px 0 0">
+          <label class="lbl" for="usrRolesExtra">Also works as <span class="ab">MULTI</span></label>
+          <div class="chips" id="usrRolesExtra" style="margin-top:2px"></div>
+          <p style="font-size:11.5px;color:var(--muted);margin:6px 0 0">Tick every additional role this person performs — they get the combined screen access, and appear in each role&rsquo;s assignment lists.</p>
+        </div>
 
         <div class="umodal-sec" id="usrPostingSec">Posting</div>
         <div class="umodal-grid">

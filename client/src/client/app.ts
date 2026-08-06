@@ -158,18 +158,75 @@ export function initApp(root: HTMLElement) {
     };
 
     function _roleRow(name:string){ return _orgRoles.find((r:any)=>String(r.name)===String(name))||null; }
+    // ===== Multi-role =========================================================================
+    // A person may hold several roles at once (Health Coach AND Advisor). app_users.role remains
+    // the PRIMARY role — the assignees mirror and the session token are still single-valued — and
+    // app_users.roles carries the full list. Everything role-driven resolves through _rolesOf, so
+    // permissions are the UNION of the roles held.
+    //
+    // Falls back to [role] whenever `roles` is absent, which is what makes this safe before
+    // db/migration-user-multi-role.sql has been run: the column simply isn't there, every user
+    // resolves to their single role, and the app behaves exactly as it did before.
+    // email -> full role list, filled from app_users by _setRolesByEmail. Declared HERE, next to
+    // _rolesOf, rather than beside the other lookup maps further down: applyNavGating runs during
+    // init and calls _rolesOf, so a `let` declared later would still be in its temporal dead zone.
+    let _rolesByEmail:Record<string,string[]>={};
+    // "column does not exist" from Postgres, i.e. db/migration-user-multi-role.sql hasn't been run.
+    function _isMissingRolesCol(err:any):boolean{
+      return /roles/i.test(String(err?.message||""))&&/column|does not exist|schema|unknown/i.test(String(err?.message||""));
+    }
+    function _rolesOf(u:any):string[]{
+      if(!u) return [];
+      const raw=(u as any).roles;
+      let list:string[]=[];
+      if(Array.isArray(raw)) list=raw.map((x:any)=>String(x||"").trim());
+      else if(typeof raw==="string"&&raw.trim()){
+        // A jsonb column can arrive as a string depending on the driver/gateway.
+        try{ const p=JSON.parse(raw); if(Array.isArray(p)) list=p.map((x:any)=>String(x||"").trim()); }
+        catch(_){ list=raw.split(/\s*[|,]\s*/); }
+      }
+      // An assignees row carries only its mirrored `role`; fill in the rest from app_users by email.
+      if(!list.length){
+        const em=String((u as any).email||"").trim().toLowerCase();
+        if(em&&_rolesByEmail[em]) list=_rolesByEmail[em].slice();
+      }
+      const primary=String((u as any).role||"").trim();
+      if(primary) list=[primary,...list];                       // primary always first
+      const seen=new Set<string>(); const out:string[]=[];
+      list.forEach(r=>{ const k=r.toLowerCase(); if(r&&!seen.has(k)){ seen.add(k); out.push(r); } });
+      return out;
+    }
     // Does this role receive lead assignments? (was: ASSIGNEE_ROLES.includes(role))
     function _roleIsAssignable(name:string):boolean{
       const r=_roleRow(name);
       if(r) return !!r.is_assignable;
       return ASSIGNEE_ROLES_FALLBACK.includes(String(name));
     }
+    // Assignable if ANY held role is — a Health Coach who is also an Advisor still takes leads.
+    function _anyRoleAssignable(u:any):boolean{ return _rolesOf(u).some(r=>_roleIsAssignable(r)); }
     const ASSIGNEE_ROLES_FALLBACK=["Advisor","Senior Advisor","Telecaller","Manager","Health Coach"];
     // Screen modules for a role — the role master first, then the built-in default.
     function _roleModules(name:string):string[]{
       const r=_roleRow(name);
       if(r&&Array.isArray(r.modules)) return r.modules.slice();
       return (DEFAULT_RBAC[String(name)]||[]).slice();
+    }
+    // Union of every screen the held roles grant. Deliberately a union, not an intersection:
+    // adding a second role must never REMOVE access the first role already had.
+    function _modulesForRoles(roles:string[],matrix?:any):string[]{
+      const out=new Set<string>();
+      roles.forEach(r=>{
+        const fromMatrix=matrix&&matrix[r];
+        (Array.isArray(fromMatrix)?fromMatrix:_roleModules(r)).forEach((m:string)=>out.add(m));
+      });
+      return Array.from(out);
+    }
+    // The role written to the single-valued assignees mirror: the first held role that can actually
+    // receive leads, else the primary. Without this a "Health Coach + Advisor" would mirror as
+    // Health Coach and never surface in an Advisor picker.
+    function _primaryAssignRole(u:any):string{
+      const roles=_rolesOf(u);
+      return roles.find(r=>_roleIsAssignable(r))||roles[0]||"";
     }
     // Every role name to show as a column in the RBAC matrix (was: RBAC_ROLES).
     function _rbacRoleNames():string[]{
@@ -471,6 +528,7 @@ export function initApp(root: HTMLElement) {
       loadReceptionData();
       try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
       try{ loadPhysioPricing(); }catch(_){}   // Physio pricing master (Settings CRUD + Physio page card + payment defaults)
+      try{ _cpnLoad(); }catch(_){}   // Coupon codes master (Settings CRUD + every Apply-coupon field)
       setTimeout(()=>{ try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){} },4000);
     }
 
@@ -708,17 +766,21 @@ export function initApp(root: HTMLElement) {
     }
     function applyNavGating(){
       if(!_currentUser) return;
-      const role=_currentUser.role;
+      // Multi-role: screens are the UNION of every role held (a Health Coach who is also an
+      // Advisor sees both sets). Single-role users resolve to exactly one entry, so this is
+      // identical to the previous behaviour for them.
+      const roles=_rolesOf(_currentUser);
+      const role=roles[0]||"";
       // Only Super Admin is unconditionally full-access. Every other role is gated by the
       // saved RBAC matrix, falling back to the built-in default for that role. A truly
       // unknown/legacy role gets NO modules (fail CLOSED) rather than full access — this
       // prevents a mistyped or unlisted role (e.g. "Admin") from silently unlocking the app.
-      if(role==="Super Admin"){
+      if(roles.includes("Super Admin")){
         root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>btn.style.display="");
         _syncNavGroups();
         return;
       }
-      const allowed=(_rbacMatrix&&_rbacMatrix[role])||_roleModules(role);
+      const allowed=_modulesForRoles(roles,_rbacMatrix);
       root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>{
         (btn as HTMLElement).style.display=allowed.includes(btn.dataset.s)?"":"none";
       });
@@ -744,8 +806,19 @@ export function initApp(root: HTMLElement) {
     // exists in app_users only and would otherwise never appear as a bookable provider.
     let _usrLite:any[]=[];
     function _setSvcByEmail(rows:any[]){ const m:Record<string,string>={}; (rows||[]).forEach((u:any)=>{ const e=String(u&&u.email||"").trim().toLowerCase(); if(e) m[e]=String(u.service||""); }); _svcByEmail=m; }
+    // The `assignees` mirror is single-valued (one `role` column), so a multi-role person would
+    // otherwise be invisible to every picker except the one matching their mirrored role — a Health
+    // Coach + Advisor would never reach the Advisor menu, which is the whole point of multi-role.
+    // app_users is the source of truth, so resolve an assignee's full role list by email.
+    function _setRolesByEmail(rows:any[]){
+      const m:Record<string,string[]>={};
+      (rows||[]).forEach((u:any)=>{ const e=String(u&&u.email||"").trim().toLowerCase(); if(e) m[e]=_rolesOf(u); });
+      _rolesByEmail=m;
+    }
     async function loadAdvisorServices(){
-      try{ const {data}=await supabase.from("app_users").select("email,name,role,service,active"); _usrLite=data||[]; _setSvcByEmail(_usrLite); }catch(_){ /* leave map as-is; advisors fall back to visible-everywhere */ }
+      // select("*") so `roles` comes through when the migration has been run. The server strips
+      // password_hash from every app_users read, so this exposes nothing extra.
+      try{ const {data}=await supabase.from("app_users").select("*"); if(data){ _usrLite=data; _setSvcByEmail(_usrLite); _setRolesByEmail(_usrLite); } }catch(_){ /* leave maps as-is; advisors fall back to visible-everywhere */ }
       try{ renderAssignedLeads(); }catch(_){}
       try{ _poolRenderAssignMenu(); }catch(_){}       // service-gated Assign-to menus depend on this map
       try{ _populateDevAssignMenus(); }catch(_){}
@@ -1028,10 +1101,35 @@ export function initApp(root: HTMLElement) {
       el.value=(keep&&names.includes(keep))?keep:names[0];
       _cselSync(el);
     }
+    // ---- "Also works as" multi-role chips -----------------------------------------------------
+    // Lists every ACTIVE role except the primary one currently selected above, so the two controls
+    // can never disagree. Selection lives in the DOM (.on class), read back by _usrExtraRoles().
+    function _fillExtraRoles(selected:string[]){
+      const box=root.querySelector("#usrRolesExtra")as HTMLElement|null; if(!box) return;
+      const primary=String((root.querySelector("#usrRole")as HTMLSelectElement)?.value||"").trim().toLowerCase();
+      const on=new Set(selected.map(s=>String(s||"").trim().toLowerCase()));
+      const names=_orgRoles.filter((r:any)=>r.is_active!==false).map((r:any)=>String(r.name))
+        .filter((n:string)=>n.trim().toLowerCase()!==primary);
+      if(!names.length){ box.innerHTML='<span style="font-size:11.5px;color:var(--faint)">No other roles configured.</span>'; return; }
+      box.innerHTML=names.map((n:string)=>'<button type="button" class="chip-o'+(on.has(n.toLowerCase())?" on":"")
+        +'" data-role="'+_orgEsc(n)+'" aria-pressed="'+(on.has(n.toLowerCase())?"true":"false")
+        +'" onclick="window._usrToggleExtraRole(this)">'+_orgEsc(n)+'</button>').join("");
+    }
+    w._usrToggleExtraRole=(btn:any)=>{
+      if(!btn) return;
+      const on=!btn.classList.contains("on");
+      btn.classList.toggle("on",on);
+      btn.setAttribute("aria-pressed",on?"true":"false");
+    };
+    function _usrExtraRoles():string[]{
+      return Array.from(root.querySelectorAll("#usrRolesExtra .chip-o.on"))
+        .map((b:any)=>String(b.getAttribute("data-role")||"").trim()).filter(Boolean);
+    }
     w._usrServiceChange=()=>{
       const svc=(root.querySelector("#usrService")as HTMLSelectElement)?.value||"";
       const cur=(root.querySelector("#usrRole")as HTMLSelectElement)?.value||"";
       _fillRoleSelect(svc,cur,false);   // never carry a role across a service change
+      _fillExtraRoles(_usrExtraRoles());   // primary changed → re-exclude it from the chips
       w._usrRoleChange();
     };
     function _enhanceUserModal(){
@@ -1046,6 +1144,7 @@ export function initApp(root: HTMLElement) {
       if(em){ em.readOnly=false; em.title=""; em.placeholder="user@clinic.com"; }
       const br=root.querySelector("#usrBranch")as HTMLSelectElement|null; if(br){ br.value="Chennai"; _cselSync(br); }
       _fillServiceSelect(""); _fillRoleSelect("","");
+      _fillExtraRoles([]);                     // a new user starts with the primary role only
       w._usrRoleChange();
       const t=root.querySelector("#usrModalTitle"); if(t) t.textContent="Add User";
       const b=root.querySelector("#usrSaveBtn"); if(b) b.textContent="Create user";
@@ -1077,7 +1176,10 @@ export function initApp(root: HTMLElement) {
     // Show that plainly instead of accepting input that would be silently dropped.
     w._usrRoleChange=()=>{
       const role=(root.querySelector("#usrRole")as HTMLSelectElement)?.value||"Advisor";
-      const on=_roleIsAssignable(role);
+      _fillExtraRoles(_usrExtraRoles());   // the new primary must drop out of the chip list
+      // Branch/phone stay enabled if ANY held role receives leads, not just the primary — otherwise
+      // picking Health Coach as primary would grey out the fields their Advisor role still needs.
+      const on=_rolesOf({role,roles:_usrExtraRoles()}).some(r=>_roleIsAssignable(r));
       const hint=root.querySelector("#usrRoleHint")as HTMLElement|null;
       for(const id of ["usrBranchFld","usrPhoneFld"]){
         const el=root.querySelector("#"+id)as HTMLElement|null;
@@ -1096,6 +1198,10 @@ export function initApp(root: HTMLElement) {
       const email=(emailEl?.value||"").trim().toLowerCase();
       const name=(nameEl?.value||"").trim();
       const role=roleEl?.value||"Advisor";
+      // Primary + the ticked "Also works as" chips. Deduped, primary always first, so `role` and
+      // `roles[0]` can never disagree.
+      const extraRoles=_usrExtraRoles().filter(r=>r.trim().toLowerCase()!==role.trim().toLowerCase());
+      const allRoles=[role,...extraRoles];
       const service=(root.querySelector("#usrService")as HTMLSelectElement)?.value||"";
       const branch=(root.querySelector("#usrBranch")as HTMLSelectElement)?.value||"Chennai";
       const phone=((root.querySelector("#usrPhone")as HTMLInputElement)?.value||"").trim();
@@ -1122,8 +1228,15 @@ export function initApp(root: HTMLElement) {
           // deliberately (a cascade was built and reverted on request) — reassign affected leads by
           // hand, or avoid renaming anyone who already owns leads.
           if(prev.uid){
-            if(!(await _dbOk(supabase.from("app_users").update({name,role,service:service||null,tata_did:did||null,tata_extension:ext||null}).eq("id",prev.uid),"User update"))) return;
-            const synced=await _asgSyncUser(email,name,role,prev.active,branch,phone);
+            const patchU:any={name,role,service:service||null,tata_did:did||null,tata_extension:ext||null};
+            const upd:any=await supabase.from("app_users").update({...patchU,roles:allRoles}).eq("id",prev.uid);
+            if(upd&&upd.error&&_isMissingRolesCol(upd.error)){
+              // The multi-role column isn't there yet — save everything else so the edit is never
+              // lost, and say exactly what to run. Single-role behaviour is unchanged.
+              if(!(await _dbOk(supabase.from("app_users").update(patchU).eq("id",prev.uid),"User update"))) return;
+              if(extraRoles.length) toastErr("Saved — but extra roles need db/migration-user-multi-role.sql to be run first.");
+            }else if(upd&&upd.error){ toastErr("User update failed: "+(upd.error.message||"database error")); return; }
+            const synced=await _asgSyncUser(email,name,_primaryAssignRole({role,roles:extraRoles})||role,prev.active,branch,phone);
             if(prev.assignable&&_roleIsAssignable(role)&&!synced) toastErr("Saved the login, but the assignee record did not update — this person may not see their leads.");
             else toast("Saved");
             w._usrCancelEdit();
@@ -1137,7 +1250,9 @@ export function initApp(root: HTMLElement) {
           if(email){
             // Promote to a real user: create the login, then stamp the email onto the assignee row
             // so the two are linked from here on (email is the join key everywhere else).
-            const {error}=await supabase.from("app_users").insert({email,name,role,service:service||null,tata_did:did||null,tata_extension:ext||null});
+            let {error}=await supabase.from("app_users").insert({email,name,role,roles:allRoles,service:service||null,tata_did:did||null,tata_extension:ext||null});
+            // Retry without the multi-role column when the migration has not been run yet.
+            if(error&&_isMissingRolesCol(error)){ ({error}=await supabase.from("app_users").insert({email,name,role,service:service||null,tata_did:did||null,tata_extension:ext||null})); if(!error&&extraRoles.length) toastErr("User created — extra roles need db/migration-user-multi-role.sql to be run first."); }
             if(error){ _usrModalErr(error.message.includes("duplicate")?"That email already belongs to another user":error.message); return; }
           }
           const patch:any={name,role,branch,phone:phone||null};
@@ -1149,7 +1264,9 @@ export function initApp(root: HTMLElement) {
           return;
         }
 
-        const {error}=await supabase.from("app_users").insert({email,name,role,service:service||null,tata_did:did||null,tata_extension:ext||null});
+        let {error}=await supabase.from("app_users").insert({email,name,role,roles:allRoles,service:service||null,tata_did:did||null,tata_extension:ext||null});
+            // Retry without the multi-role column when the migration has not been run yet.
+            if(error&&_isMissingRolesCol(error)){ ({error}=await supabase.from("app_users").insert({email,name,role,service:service||null,tata_did:did||null,tata_extension:ext||null})); if(!error&&extraRoles.length) toastErr("User created — extra roles need db/migration-user-multi-role.sql to be run first."); }
         if(error){ _usrModalErr(error.message.includes("duplicate")?"This email already exists":error.message); return; }
         // Mirror into Assignees so this person is immediately selectable in "Assigned to"
         // dropdowns — only for roles flagged "receives leads" in Settings → Services & Roles.
@@ -1173,6 +1290,9 @@ export function initApp(root: HTMLElement) {
       // opening and saving a record can never silently reassign them.
       _fillServiceSelect(r.service||"");
       _fillRoleSelect(r.service||"",r.role||"",true);   // editing: never drop their stored role
+      // Everything except the primary role becomes a ticked chip. _rolesOf puts the primary first,
+      // so slicing it off leaves exactly the extras (empty for a normal single-role user).
+      _fillExtraRoles(_rolesOf(r).slice(1));
       set("#usrBranch",r.branch||"Chennai"); set("#usrPhone",r.phone||"");
       { const b=root.querySelector("#usrBranch")as HTMLSelectElement|null; if(b) _cselSync(b); }
       set("#usrDid",r.did||""); set("#usrExt",r.ext||"");
@@ -3640,12 +3760,23 @@ export function initApp(root: HTMLElement) {
     // other service keeps the full default layout (nothing hidden). Purely visibility — no data change.
     function _advApplyServiceLayout(service:any){
       const physio=/phys/i.test(String(service||""));
+      // A BLOOD TEST lead has no diabetes work-up: the Sugar & medical profile section is dropped
+      // entirely and Occupation is hidden from Basic info. Everything else on the profile stays.
+      // Physio keeps its own layout; a combined lead (e.g. Diabetes + Blood Test) is NOT blood-only,
+      // so it keeps the full default layout — the Diabetes side still needs those fields.
+      const svcStr=String(service||"");
+      const bt=/blood/i.test(svcStr)&&!svcStr.split(/[+,/&]| and /i).some((p:string)=>{ const t=p.trim(); return !!t&&!/blood/i.test(t); });
       const show=(sel:string,on:boolean)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.style.display=on?"":"none"; };
       show("#advPhysioSec",physio);
-      show("#advSugarSec",!physio);
+      show("#advSugarSec",!physio&&!bt);
       show("#advEnrolledSec",!physio);
       root.querySelectorAll("#advBasicSec .adv-nonphysio").forEach((el:any)=>{ el.style.display=physio?"none":""; });
+      // Occupation sits inside a .adv-nonphysio field, so this runs AFTER that loop and folds both
+      // rules together rather than fighting it.
+      const occFld=(root.querySelector("#advfOcc") as HTMLElement|null)?.closest(".fld") as HTMLElement|null;
+      if(occFld) occFld.style.display=(physio||bt)?"none":"";
       _advLayoutPhysio=physio;
+      _advLayoutBt=bt;
       _advApplyPhysioStaffing();
     }
     // ---- Physiotherapy staffing (Assignment & pipeline) ----------------------------------------
@@ -3661,6 +3792,7 @@ export function initApp(root: HTMLElement) {
     // service-scoped team later: add its <option> to #salesTeamSel in template.ts and map it here.
     const PHYSIO_SALES_TEAM="Physiotherapy Telecaller Team";
     let _advLayoutPhysio=false;
+    let _advLayoutBt=false;      // Blood-Test-only lead → Occupation + Sugar section hidden (see _advApplyServiceLayout)
     // Every physiotherapy PROVIDER, from BOTH staff sources — the same union _nwFillProviders uses
     // for Reception's Provider dropdown. The `assignees` mirror only receives assignable roles, and
     // "Physiotherapist" is not assignable, so a real PT (karuna) exists in app_users alone: filtering
@@ -3907,6 +4039,10 @@ export function initApp(root: HTMLElement) {
         // "Occupation", a field the physio layout never renders and the user cannot fill. Scoped to
         // the physio layout, so every other service keeps its rules exactly as they were.
         if(_advLayoutPhysio&&el&&typeof el.closest==="function"&&el.closest(".adv-nonphysio")) continue;
+        // Same rule for a BLOOD-TEST-only lead: that layout hides Occupation and the whole Sugar &
+        // medical profile section, so neither can be mandatory — the save would otherwise be blocked
+        // on fields the user cannot even see. Scoped to this layout; every other service is unchanged.
+        if(_advLayoutBt&&(sel==="#advfOcc"||sel==="#advfSugar")) continue;
         const v=((el&&el.value)||"").trim();
         let bad=!v||/^--\s*select\s*--$/i.test(v);
         if(!bad&&sel==="#advfOcc"&&/^others$/i.test(v)){
@@ -4426,11 +4562,18 @@ export function initApp(root: HTMLElement) {
           +(_haFeedFailed
             ? '⚠ Couldn’t load your leads — the counts below are not available. Check your connection, then <button class="btn bsm" style="margin-left:6px" onclick="window._refreshMetaFeed()">↻ Reload</button>'
             : 'Loading leads…')+'</div>');
-        cards.push(...HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
+        // BLOOD TEST view: a blood test has no enrolment / follow-up / conversion journey, so the
+        // Service filter narrows the dashboard to the six cards that DO apply, and the Zoom card is
+        // labelled "Home" (home sample collection). Counts, click-through and every other service's
+        // dashboard are untouched — this only decides which cards are rendered.
+        const _btView=String(_asnApplied.svc||"all")==="Blood Test";
+        const _btKeys=["total","open","apptDirect","apptZoom","health","payment"];
+        const _shownCards=_btView?HA_CARDS.filter(c=>_btKeys.indexOf(c.key)>=0):HA_CARDS;
+        cards.push(..._shownCards.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
           +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Zoom + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number."':'')
-          +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])+'</div>'));
-        cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
+          +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+((_btView&&c.key==="apptZoom")?"Appointment Fixed – Home":c.label)+'</div>'+mv(counts[c.key])+'</div>'));
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
@@ -4445,8 +4588,8 @@ export function initApp(root: HTMLElement) {
         // even though it still shows on the lead's own Call History.
         const _callScopeName=_advCallScopeName();
         const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):"";
-        cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
-        cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
         // (Per-service split cards were removed on request — the Service filter above still scopes
         // every card, so the per-line view is one dropdown away rather than permanent card clutter.)
         kpiEl.innerHTML=cards.join("");
@@ -4673,9 +4816,20 @@ export function initApp(root: HTMLElement) {
     // To let another advisor grade pick leads here (e.g. "Senior Advisor"), add it to this list —
     // that is the ONLY place the rule lives.
     const ADVISOR_ASSIGN_ROLES=["Advisor"];
+    // Telecallers work the unassigned pool — that IS this menu's job — so the telecaller family
+    // counts too, including the per-service roles people create in Settings → Roles ("Telecaller
+    // blood test", "Tele caller — physio", …). Without this, an exact match on "Advisor" meant a
+    // custom role could never appear here no matter how it was configured, which made the
+    // "Assignable" checkbox in Settings → Roles a dead switch for every role but one.
+    // Deliberately NOT "any assignable role": "Physio advisor", "Health Coach" and "Manager" are
+    // all is_assignable=true because they receive leads through their own screens, and listing them
+    // in an ADVISOR picker is the exact regression the role gate was added to stop. Matching the
+    // advisor/telecaller family keeps that exclusion intact. is_assignable is still checked
+    // separately by _assignTargets, so Settings → Roles remains the on/off switch.
     function _isAdvisorAssignRole(role:string):boolean{
       const r=String(role||"").trim().toLowerCase();
-      return ADVISOR_ASSIGN_ROLES.some(x=>x.toLowerCase()===r);
+      if(ADVISOR_ASSIGN_ROLES.some(x=>x.toLowerCase()===r)) return true;
+      return /^tele\s*caller\b/.test(r);
     }
     // Who may RECEIVE leads for `svc` — the single source of truth for every "Assign to" menu.
     // All four gates required: active, an advisor role, that role still marked assignable by the org
@@ -4686,13 +4840,27 @@ export function initApp(root: HTMLElement) {
     // Note this deliberately does NOT gate the read-only "Assigned leads" advisor FILTER — that one
     // must still list whoever actually holds leads, including someone since made non-assignable.
     function _assignTargets(svc:string):string[]{
-      return _assignees.filter((a:any)=>a.is_active&&_isAdvisorAssignRole(a.role)&&_roleIsAssignable(a.role)&&_advisorInService(a,svc)).map((a:any)=>a.name);
+      // Multi-role: qualifies if ANY held role is an advisor/telecaller grade AND that same role is
+      // marked assignable. Checked per-role so a Health Coach + Advisor gets in on the Advisor
+      // role, while a Health Coach alone still does not.
+      return _assignees.filter((a:any)=>{
+        if(!a.is_active) return false;
+        const roles=_rolesOf(a);
+        if(!roles.some(r=>_isAdvisorAssignRole(r)&&_roleIsAssignable(r))) return false;
+        return _advisorInService(a,svc);
+      }).map((a:any)=>a.name);
     }
     // Shown when a service has no advisor mapped to it — the list is empty because of configuration,
     // not a loading failure, so say where to fix it.
     function _assignEmptyMsg(svc:string):string{
+      // Names all three gates, in the order they actually bite. The old text mentioned only the
+      // role and the service, so someone whose role simply wasn't ticked "Assignable" was sent to
+      // the wrong screen — the case that hid a correctly-configured blood-test telecaller.
       return '<div style="font-size:11.5px;color:var(--faint);padding:8px;line-height:1.5">No advisors available for the selected service'
-        +'<div style="margin-top:4px;color:var(--muted)">Set <b>Role = Advisor</b> and <b>Service = '+_orgEsc(svc)+'</b> for them in Settings &rarr; Users.</div></div>';
+        +'<div style="margin-top:4px;color:var(--muted)">Check, in Settings:'
+        +'<br>&bull; <b>Roles</b> &rarr; their role is ticked <b>Assignable</b>'
+        +'<br>&bull; <b>Users</b> &rarr; their <b>Service = '+_orgEsc(svc)+'</b>'
+        +'<br>&bull; the role is an Advisor or Telecaller grade</div></div>';
     }
     function _fillAssignSvcSel(selId:string){
       const el=root.querySelector("#"+selId)as HTMLSelectElement|null; if(!el) return;
@@ -6649,7 +6817,15 @@ export function initApp(root: HTMLElement) {
         let svcName=svcNames.join(" + ");
         const isDia=svcNames.length===1&&svcNames[0]==="Diabetes Counselling";
         const HSN="999249";
-        // Line items are GST-INCLUSIVE (`incl`); the tax-exclusive base is back-computed at 18% below.
+        // GST applies PER SERVICE: Blood Test and Physiotherapy are billed WITHOUT CGST/SGST; every
+        // other service keeps the 18% split. A MIXED invoice (e.g. Diabetes + Blood Test) still carries
+        // GST — the taxable service decides. When GST is off the line Rate/Amount is the full collected
+        // figure (no 1.18 back-out), so the item rows still add up to the Total.
+        const _gstFreeSvc=(s:string)=>s==="Blood Test"||s==="Physiotherapy";
+        let noGst=svcNames.length>0&&svcNames.every(_gstFreeSvc);
+        const baseOf=(v:number)=>noGst?round2(v):round2(v/1.18);
+        // Line items are GST-INCLUSIVE (`incl`); `base` is the printed Rate/Amount — the tax-exclusive
+        // value on a GST invoice, the full amount on a GST-free one.
         const lines:{desc:string;sub?:string;hsn:string;incl:number;base:number}[]=[];
         let total=0, amountPaid=0, balanceDue=0, balDueDate="";
         const dueDates:string[]=[];
@@ -6706,7 +6882,7 @@ export function initApp(root: HTMLElement) {
               const nm=p.payment_type==="advance"?"Advance":(p.payment_type==="emi"?"EMI Down Payment":(it.prog?it.prog+" – ":"")+"Installment "+(Number(p.installment_number)||1));
               return nm+" "+money(p.amount)+" (Paid)";
             });
-            lines.push({desc:(it.prog?it.prog+" Program":"Program Fees")+" – Diabetes Counselling",sub:parts.join("   ·   ")||undefined,hsn:HSN,incl:it.incl,base:round2(it.incl/1.18)});
+            lines.push({desc:(it.prog?it.prog+" Program":"Program Fees")+" – Diabetes Counselling",sub:parts.join("   ·   ")||undefined,hsn:HSN,incl:it.incl,base:baseOf(it.incl)});
           });
           total+=items.reduce((s,it)=>s+it.incl,0);       // Total = what was actually collected
           amountPaid+=items.reduce((s,it)=>s+it.paid,0);
@@ -6750,10 +6926,10 @@ export function initApp(root: HTMLElement) {
             };
             const priced=panels.map(nm=>({nm,p:priceOf(nm)}));
             const itemise=priced.length>0&&priced.every(x=>x.p>0)&&Math.abs(priced.reduce((s,x)=>s+x.p,0)-svcTotal)<1;
-            if(itemise) priced.forEach(x=>lines.push({desc:"Blood Test – "+x.nm,hsn:HSN,incl:x.p,base:round2(x.p/1.18)}));
-            else lines.push({desc:"Blood Test"+(panels.length?" – "+panels.join(", "):""),hsn:HSN,incl:svcTotal,base:round2(svcTotal/1.18)});
+            if(itemise) priced.forEach(x=>lines.push({desc:"Blood Test – "+x.nm,hsn:HSN,incl:x.p,base:baseOf(x.p)}));
+            else lines.push({desc:"Blood Test"+(panels.length?" – "+panels.join(", "):""),hsn:HSN,incl:svcTotal,base:baseOf(svcTotal)});
           } else {
-            lines.push({desc:svc+(r.session?(" – "+String(r.session)):""),hsn:HSN,incl:svcTotal,base:round2(svcTotal/1.18)});
+            lines.push({desc:svc+(r.session?(" – "+String(r.session)):""),hsn:HSN,incl:svcTotal,base:baseOf(svcTotal)});
           }
         }
         }
@@ -6769,15 +6945,18 @@ export function initApp(root: HTMLElement) {
             lines.length=0; invPays.length=0; invPays.push(...paidRowsAll);
             const by:Record<string,number>={};
             paidRowsAll.forEach((p:any)=>{ const k=normService(String(p.service||""))||"Service"; by[k]=(by[k]||0)+(Number(p.amount)||0); });
-            Object.keys(by).forEach(k=>{ const amt=round2(by[k]); lines.push({desc:k,hsn:HSN,incl:amt,base:round2(amt/1.18)}); total+=amt; amountPaid+=amt; });
+            // This path re-derives the billed services, so the GST decision has to follow them too.
+            const byKeys=Object.keys(by);
+            noGst=byKeys.length>0&&byKeys.every(_gstFreeSvc);
+            byKeys.forEach(k=>{ const amt=round2(by[k]); lines.push({desc:k,hsn:HSN,incl:amt,base:baseOf(amt)}); total+=amt; amountPaid+=amt; });
             total=round2(total); amountPaid=round2(amountPaid); balanceDue=0; balDueDate="";
             svcName=Object.keys(by).join(" + ");
           }
         }
         if(!lines.length||total<=0){ toastErr("No amount on record for this client — cannot generate invoice"); return; }
-        const baseTotal=round2(total/1.18);
-        const cgst=round2(baseTotal*0.09);
-        const sgst=round2(baseTotal*0.09);
+        const baseTotal=noGst?total:round2(total/1.18);
+        const cgst=noGst?0:round2(baseTotal*0.09);
+        const sgst=noGst?0:round2(baseTotal*0.09);
 
         // Invoice identity — stable per appointment. Reception appointment id (a serial) drives the suffix.
         const suffix=(String(id).replace(/\D/g,"").slice(-4))||"0001";
@@ -6861,9 +7040,13 @@ export function initApp(root: HTMLElement) {
         // Totals (right-aligned)
         const tLabelR=cRateR, tValR=cAmtR;
         const totRow=(label:string,val:string,bold:boolean)=>{ doc.setFont("helvetica",bold?"bold":"normal"); doc.setFontSize(bold?10.5:9); doc.setTextColor(bold?20:60,bold?20:60,bold?20:60); doc.text(label,tLabelR,y,{align:"right"}); doc.text(val,tValR,y,{align:"right"}); y+=5.5; };
-        totRow("Base Value (Tax Exclusive)",fmt(baseTotal),false);
-        totRow("CGST (9%)",fmt(cgst),false);
-        totRow("SGST (9%)",fmt(sgst),false);
+        // Blood Test / Physiotherapy invoices carry no GST → the whole tax block is omitted (a
+        // "Base Value" row would just repeat the Total). Every other service prints it unchanged.
+        if(!noGst){
+          totRow("Base Value (Tax Exclusive)",fmt(baseTotal),false);
+          totRow("CGST (9%)",fmt(cgst),false);
+          totRow("SGST (9%)",fmt(sgst),false);
+        }
         doc.setDrawColor(180); doc.setLineWidth(0.3); doc.line(tLabelR-40,y-2,MR,y-2);
         totRow(balanceDue>0?"Grand Total":"Total",fmt(total),true);
         // Installment invoices: show what was actually received vs the outstanding balance.
@@ -7136,6 +7319,10 @@ export function initApp(root: HTMLElement) {
       const fld=root.querySelector("#nwProvFld")as HTMLElement|null; if(fld) fld.style.display=btOnly?"none":"";
       const book=root.querySelector("#nwBookingSec")as HTMLElement|null; if(book) book.style.display=btOnly?"none":"";
       const note=root.querySelector("#nwBtBookNote")as HTMLElement|null; if(note) note.style.display=btOnly?"":"none";
+      // Email is MANDATORY once Blood Test is ticked (the lab report is emailed to the client), so the
+      // label carries the same "*" Name/Phone do — visible before Save rather than only on the error.
+      const emLbl=root.querySelector("#nwEmailLbl")as HTMLElement|null;
+      if(emLbl) emLbl.textContent=_nwHasBloodTest()?"Email *":"Email";
       // Auto-fill the Provider from the selected (non-blood) service — Physiotherapy → the first
       // real Physiotherapist, any consultation → the first real Health Coach — unless the
       // receptionist has manually chosen one.
@@ -7405,7 +7592,11 @@ export function initApp(root: HTMLElement) {
       const prov=(root.querySelector("#nwProv")as HTMLSelectElement)?.value||"";
       if(!name||!ph){ toastErr("Enter name and phone"); return; }
       if(!/^\d{10}$/.test(ph)){ toastErr("Enter a valid 10-digit mobile number"); return; }
-      if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); return; }
+      // Blood Test is the ONE service that requires an email — the lab report is delivered to it
+      // (the Blood Test worklist's "Email send" button is dead without one). Every other service
+      // keeps email optional; this branch only ever runs when Blood Test is ticked.
+      if(!email){ toastErr("Email is required for Blood Test — the report is sent to it"); (root.querySelector("#nwEmail")as HTMLInputElement|null)?.focus(); return; }
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); (root.querySelector("#nwEmail")as HTMLInputElement|null)?.focus(); return; }
       const sel=_nwSelectedSvcs();                      // every ticked service (incl. Blood Test)
       const nonBT=sel.filter(s=>s!=="Blood Test");       // the "remaining services" that follow the normal flow
       const nowIso=new Date().toISOString(); const today=nowIso.substring(0,10);
@@ -8544,7 +8735,7 @@ export function initApp(root: HTMLElement) {
       // Selecting Installment (2×): seed the Total from the program price so the L2 price flows into the
       // plan (overwriting any stray value). Skipped when the client already has recorded installment
       // payments — _applyPaymentLocks (run just below) reconstructs the real Total from the paid rows.
-      if(v==="i2"){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; const _hasInst=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment"&&r.status==="paid"); if(te&&!_hasInst){ const pr=_payGetPrice(); if(pr>0){ te.value=String(pr); try{ _payCalcI2(); }catch(_){} } } }
+      if(v==="i2"){ const te=root.querySelector("#i2Total")as HTMLInputElement|null; const _hasInst=(_coachPayRows||[]).some((r:any)=>r.payment_type==="installment"&&r.status==="paid"); if(te&&!_hasInst){ const pr=_payNetPrice(); if(pr>0){ te.value=String(pr); try{ _payCalcI2(); }catch(_){} } } }
       try{ if(w._coachApplyPayLocks) w._coachApplyPayLocks(); }catch(_){}   // re-apply paid-stage locks for the chosen method
     }
     w.payBlk = payBlk;
@@ -8669,12 +8860,24 @@ export function initApp(root: HTMLElement) {
       if(prog==="L1 + L2") return l1+l2;
       return l2;
     }
+    // The applied coupon lives INSIDE the pricing chain: _payGetPrice() stays the gross list price,
+    // _payNetPrice() is what the client actually owes. Every "amount due" consumer reads net, so the
+    // discount survives each recalc (program change, special offer, lock refresh) instead of being
+    // painted onto one field and wiped by the next _payCalcAll — which is exactly what happened when
+    // the coupon chip said ₹29,500 while the Installment Total still read ₹30,000. One coupon per
+    // enrolment: the payment coupon field and the EMI coupon field share this state.
+    let _coachCoupon:any=null;
+    function _payNetPrice():number{
+      const gross=_payGetPrice();
+      if(!_coachCoupon) return gross;
+      return Math.max(0,gross-_couponDiscount(_coachCoupon,gross));
+    }
     function _paySetVal(id:string,v:number){
       const el=root.querySelector("#"+id)as HTMLInputElement;
       if(el) el.value=v?"₹"+v.toLocaleString("en-IN"):"";
     }
     function _payCalcAll(){
-      const price=_payGetPrice();
+      const price=_payNetPrice();   // net of any applied coupon — see _payNetPrice
       _paySetVal("payAmtDue",price);
       // Installment Total MIRRORS the program price whenever the 2× method is active — so whatever is
       // entered as the L2/L1 price (or Special offer) always shows as the plan Total. Skipped only when
@@ -8705,7 +8908,7 @@ export function initApp(root: HTMLElement) {
     }
     w._payCalcI2 = _payCalcI2;
     function _payCalcAdv(){
-      const price=_payGetPrice();
+      const price=_payNetPrice();
       const adv=parseInt((root.querySelector("#advAmt")as HTMLInputElement)?.value?.replace(/[^\d]/g,"")||"0")||0;
       _paySetVal("advBalDue",price?Math.max(0,price-adv):0);
     }
@@ -8803,7 +9006,40 @@ export function initApp(root: HTMLElement) {
     }
     w.toastErr = toastErr;
 
-    function applyCoupon(){const v=root.querySelector("#coupon")as HTMLInputElement;if(!v||!v.value.trim()){toastErr("Enter code");return;}const r=root.querySelector("#couponRes")as HTMLElement;if(r)r.innerHTML='<span class="chipb ok">−₹2,000</span><span class="chipb warn">ABM approval</span>';toast("Coupon sent");}
+    // One rulebook for every coupon apply: found → enabled → inside the validity window → under the
+    // usage cap. Same checks the Collect Payment page and Blood-test intake enforce, so a code
+    // generated in Settings behaves identically wherever it is typed.
+    async function _couponCheck(code:string):Promise<{ok:boolean;c?:any;msg:string}>{
+      if(!code) return {ok:false,msg:"Enter code"};
+      try{
+        const r:any=await supabase.from("bt_coupons").select("*").eq("code",code).limit(1);
+        const c=r&&r.data&&r.data[0];
+        if(!c) return {ok:false,msg:"Invalid code"};
+        if(c.active===false) return {ok:false,msg:"Coupon disabled"};
+        const today=new Date().toISOString().slice(0,10);
+        if(c.valid_from&&String(c.valid_from).slice(0,10)>today) return {ok:false,msg:"Not active yet"};
+        if(c.valid_to&&String(c.valid_to).slice(0,10)<today) return {ok:false,msg:"Coupon expired"};
+        if(c.max_uses!=null&&Number(c.used_count||0)>=Number(c.max_uses)) return {ok:false,msg:"Usage limit reached"};
+        return {ok:true,c,msg:""};
+      }catch(e:any){ return {ok:false,msg:"Could not verify — "+(e?.message||"network error")}; }
+    }
+    const _couponDiscount=(c:any,base:number)=>Math.min(base,c.discount_type==="percent"?Math.round(base*(Number(c.discount_value)||0)/100):(Number(c.discount_value)||0));
+
+    // Coach payment "special discount" coupon — used to accept ANY code with a hardcoded message.
+    // Now validated against the real coupon store; on success the coupon enters the pricing chain
+    // (_coachCoupon → _payNetPrice), and _payCalcAll repaints Amount due, Installment Total, Advance
+    // balance and the EMI cost together, so every block shows the same discounted plan.
+    async function applyCoupon(){
+      const v=root.querySelector("#coupon")as HTMLInputElement; const r=root.querySelector("#couponRes")as HTMLElement|null;
+      const code=((v?.value)||"").trim().toUpperCase();
+      const {ok,c,msg}=await _couponCheck(code);
+      if(!ok){ _coachCoupon=null; _payCalcAll(); if(r)r.innerHTML='<span class="chipb warn">'+_attr(msg)+'</span>'; return; }
+      _coachCoupon=c;
+      const base=_payGetPrice(), net=_payNetPrice(), disc=base-net;
+      _payCalcAll();
+      if(r)r.innerHTML='<span class="chipb ok">'+_attr(code)+' ✓ −₹'+disc.toLocaleString("en-IN")+'</span><span class="chipb info">Pay ₹'+net.toLocaleString("en-IN")+' instead of ₹'+base.toLocaleString("en-IN")+'</span>';
+      toast("Coupon applied — ₹"+disc.toLocaleString("en-IN")+" off");
+    }
     w.applyCoupon = applyCoupon;
 
     let emiBase=32000;
@@ -8819,7 +9055,20 @@ export function initApp(root: HTMLElement) {
     }
     w.emiCalc = emiCalc;
 
-    function applyCouponEmi(){const v=root.querySelector("#emiCoupon")as HTMLInputElement;if(!v||!v.value.trim()){toastErr("Enter code");return;}emiBase=30000;emiCalc();const r=root.querySelector("#emiCouponRes")as HTMLElement;if(r)r.innerHTML='<span class="chipb ok">−₹2,000</span>';toast("EMI coupon sent");}
+    // EMI coupon — used to accept ANY code and silently knock ₹2,000 off. Same shared coupon state
+    // as the payment coupon (one coupon per enrolment): _payCalcAll re-derives the EMI base from the
+    // net price, so the financed balance and EMI/month reflect the discount immediately.
+    async function applyCouponEmi(){
+      const v=root.querySelector("#emiCoupon")as HTMLInputElement; const r=root.querySelector("#emiCouponRes")as HTMLElement|null;
+      const code=((v?.value)||"").trim().toUpperCase();
+      const {ok,c,msg}=await _couponCheck(code);
+      if(!ok){ _coachCoupon=null; _payCalcAll(); if(r)r.innerHTML='<span class="chipb warn">'+_attr(msg)+'</span>'; return; }
+      _coachCoupon=c;
+      const base=_payGetPrice(), net=_payNetPrice(), disc=base-net;
+      _payCalcAll();
+      if(r)r.innerHTML='<span class="chipb ok">'+_attr(code)+' ✓ −₹'+disc.toLocaleString("en-IN")+'</span><span class="chipb info">Program cost ₹'+net.toLocaleString("en-IN")+'</span>';
+      toast("EMI coupon applied — ₹"+disc.toLocaleString("en-IN")+" off");
+    }
     w.applyCouponEmi = applyCouponEmi;
 
     function waTpl(){const el=root.querySelector("#waPrev")as HTMLTextAreaElement;if(el)el.value="Template preview loaded";}
@@ -8854,15 +9103,15 @@ export function initApp(root: HTMLElement) {
         const inst1Done=!!(_i1Res?.data&&_i1Res.data.length);
         instNum=inst1Done?2:1;
       }
-      const _i2PlanTotal=_payNum("#i2Total")||_payGetPrice();   // full value of the 2-part plan
+      const _i2PlanTotal=_payNum("#i2Total")||_payNetPrice();   // full value of the 2-part plan (net of coupon)
       // Installment amount fallbacks must NEVER be the full plan total (that made inst-1 = total → no
       // balance left → inst-2 never tracked). Inst 1 falls back to half the plan; inst 2 to total − inst 1.
-      const amt = method==="full" ? (_payNum("#payFullRcvd")||_payNum("#payAmtDue")||_payGetPrice())
+      const amt = method==="full" ? (_payNum("#payFullRcvd")||_payNum("#payAmtDue")||_payNetPrice())
                 : method==="i2"   ? (instNum===2 ? (_payNum("#i2BalRcvd")||_payNum("#i2BalDue")||Math.max(0,_i2PlanTotal-(_payNum("#i2Inst1Rcvd")||0)))
                                                   : (_payNum("#i2Inst1Rcvd")||(_i2PlanTotal?Math.round(_i2PlanTotal/2):0)))
-                : method==="adv"  ? (_payNum("#advAmt")||_payGetPrice())
-                : method==="emi"  ? (_payNum("#emiDown")||_payGetPrice())   // EMI: Reception collects the down payment
-                : _payGetPrice();
+                : method==="adv"  ? (_payNum("#advAmt")||_payNetPrice())
+                : method==="emi"  ? (_payNum("#emiDown")||_payNetPrice())   // EMI: Reception collects the down payment
+                : _payNetPrice();
       if(!amt||amt<=0){ toastErr("Enter the amount to collect first"); return; }
       try{
         // Link to the lead's active appointment so it shows in the Collect queue + Appointment row.
@@ -8883,7 +9132,7 @@ export function initApp(root: HTMLElement) {
         // been sent (installment 2 must get its OWN explicit "Send collection request" click, which
         // re-tags it via the `who`-tagged insert above once instNum resolves to 2).
         if(method==="i2" && instNum===1){
-          const total=_payNum("#i2Total")||_payGetPrice()||0; const bal=(total>amt)?(total-amt):0;
+          const total=_payNum("#i2Total")||_payNetPrice()||0; const bal=(total>amt)?(total-amt):0;
           if(bal>0){
             const bdd=root.querySelector("#i2BalDueDate")as HTMLInputElement|null; const dueIso=(bdd&&(bdd as any).dataset&&(bdd as any).dataset.iso)||null;
             if(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("status","due").eq("payment_type","installment").eq("program",prog).eq("installment_number",2),"Balance update"))
@@ -9610,6 +9859,10 @@ export function initApp(root: HTMLElement) {
       }
       _coachAttachments=[]; renderCoachAtts();
       Object.keys(_payProofs).forEach(k=>delete _payProofs[k]);   // clear per-client payment proofs
+      // A coupon belongs to ONE enrolment — never let it leak onto the next client opened.
+      _coachCoupon=null;
+      ["coupon","emiCoupon"].forEach(cid=>{ const el=root.querySelector("#"+cid)as HTMLInputElement|null; if(el) el.value=""; });
+      ["couponRes","emiCouponRes"].forEach(cid=>{ const el=root.querySelector("#"+cid); if(el) el.innerHTML=""; });
       _coachConsStatus="Open";   // reset; a restored profile re-sets it via consAct
       _fuDates={}; _fuActiveKey="";   // clear per-status follow-up dates so a new client starts fresh
       const crS=root.querySelector("#crSugar")as HTMLInputElement|null; if(crS&&lead.sugar) crS.value=lead.sugar;
@@ -10110,7 +10363,7 @@ export function initApp(root: HTMLElement) {
     // not collected by us) so it stays tracked in coach_profile only.
     async function _persistInstallments(id:string){
       const pm=(root.querySelector("#payMethod")as HTMLSelectElement)?.value||"";
-      const total=_payGetPrice();
+      const total=_payNetPrice();   // the plan is worth the COUPON-NET price — ₹29,500 on a ₹30,000 L2 with a ₹500 coupon IS fully paid
       const _prog=_curProgram();   // tag payments per program (L1 / L2 / L1 + L2) — see _applyPaymentLocks
       const val=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null)?.value)||"";
       const iso=(d:string)=>d?new Date(d).toISOString():new Date().toISOString();
@@ -10342,7 +10595,7 @@ export function initApp(root: HTMLElement) {
           // ₹30,000 L2 (reported for yusuf, then again for Soosai Viagappa Sahayaraj). Gating that on
           // "nothing paid yet" was not enough — the moment installment 1 is collected the sum takes
           // over again. Fall back to the row sum ONLY when no programme price is configured at all.
-          const _cfgPrice=_payGetPrice();
+          const _cfgPrice=_payNetPrice();
           const _anyInstPaid=r1?.status==="paid"||r2?.status==="paid";
           const te=root.querySelector("#i2Total")as HTMLInputElement|null;
           if(te){ if(_cfgPrice>0) te.value=String(_cfgPrice); else if(tot&&_anyInstPaid) te.value=String(tot); }
@@ -10409,7 +10662,7 @@ export function initApp(root: HTMLElement) {
         // CONFIGURED price first. Reading #i2Total first was the hole in the previous fix: that field
         // is itself rebuilt from the rows, so once installment 1 was paid it carried the inflated
         // paid+due figure straight back into the card.
-        const planTotal=_payGetPrice()||_payNum("#i2Total")||0;
+        const planTotal=_payNetPrice()||_payNum("#i2Total")||0;
         if(planTotal>0){ total=Math.max(planTotal,received); balance=Math.max(0,total-received); }
       }
       const pct=total>0?Math.round(100*received/total):(received>0?100:0);
@@ -10991,6 +11244,89 @@ export function initApp(root: HTMLElement) {
       if(!window.confirm('Delete "'+(t.name||"this panel")+'" from the pricing master? Past records keep their stored prices.')) return;
       supabase.from("bt_tests").delete().eq("id",id).then(async()=>{ toast("Panel deleted"); await loadBtMaster(); }).catch((e:any)=>toast("Delete failed: "+(e?.message||"db error")));
     };
+
+    // ===== COUPON CODES MASTER (Settings → Coupon codes) =====
+    // Auto-generated codes on bt_coupons — the store every Apply-coupon field already validates
+    // against, so a generated code works everywhere with zero extra wiring. Format MHS + YY + MM +
+    // 4-digit serial (MHS26080001); the serial is derived from the codes already saved for the
+    // CURRENT month, so it restarts at 0001 on the 1st of each month with no counter to maintain.
+    let _cpnList:any[]=[];
+    function _cpnParts(){
+      const p=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",year:"2-digit",month:"2-digit"}).formatToParts(new Date());
+      const g=(t:string)=>p.find(x=>x.type===t)?.value||"";
+      return {yy:g("year"),mm:g("month")};
+    }
+    const _cpnPrefix=()=>{ const d=_cpnParts(); return "MHS"+d.yy+d.mm; };
+    function _cpnNextCode(){
+      const pre=_cpnPrefix(); let max=0;
+      _cpnList.forEach((c:any)=>{ const m=String(c.code||"").match(new RegExp("^"+pre+"(\\d{4})$")); if(m) max=Math.max(max,Number(m[1])); });
+      return pre+String(max+1).padStart(4,"0");
+    }
+    async function _cpnLoad(){
+      try{ const r:any=await supabase.from("bt_coupons").select("*").order("created_at",{ascending:false}).limit(500);
+        _cpnList=(r&&!r.error&&r.data)||[];
+      }catch(_){ _cpnList=[]; }
+      _cpnRender();
+    }
+    // One status per coupon, priority: disabled → expired → exhausted → active.
+    function _cpnStatus(c:any):{l:string;cls:string}{
+      const today=new Date().toISOString().slice(0,10);
+      if(c.active===false) return {l:"Disabled",cls:"neu"};
+      if(c.valid_to&&String(c.valid_to).slice(0,10)<today) return {l:"Expired",cls:"warn"};
+      if(c.max_uses!=null&&Number(c.used_count||0)>=Number(c.max_uses)) return {l:"Exhausted",cls:"warn"};
+      return {l:"Active",cls:"ok"};
+    }
+    function _cpnRender(){
+      const d=_cpnParts();
+      const nx=root.querySelector("#cpnNext"); if(nx) nx.textContent=_cpnNextCode();
+      const fy=root.querySelector("#cpnFmtY"); if(fy) fy.textContent=d.yy+" — year";
+      const fm=root.querySelector("#cpnFmtM"); if(fm) fm.textContent=d.mm+" — month";
+      const body=root.querySelector("#cpnBody"); if(!body) return;
+      if(!_cpnList.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No coupons yet — generate the first one above.</td></tr>'; return; }
+      const dt=(v:any)=>v?fmtISTDate(String(v)):"";
+      body.innerHTML=_cpnList.map((c:any)=>{
+        const st=_cpnStatus(c); const on=c.active!==false;
+        const disc=c.discount_type==="percent"?(Number(c.discount_value)||0)+"% off":"₹"+(Number(c.discount_value)||0).toLocaleString("en-IN")+" off";
+        const val=(c.valid_from||c.valid_to)?((dt(c.valid_from)||"—")+" → "+(dt(c.valid_to)||"no expiry")):"No expiry";
+        const use=String(Number(c.used_count||0))+" / "+(c.max_uses!=null?String(c.max_uses):"∞");
+        return '<tr><td class="mono" style="font-weight:700">'+_attr(String(c.code||"—"))
+          +' <button class="btn bsm" style="height:22px;font-size:10.5px;padding:0 7px" title="Copy code" onclick="window._cpnCopy(\''+_attr(String(c.code||""))+'\')">Copy</button></td>'
+          +'<td style="font-weight:600">'+disc+'</td>'
+          +'<td style="font-size:12px">'+val+'</td>'
+          +'<td class="mono">'+use+'</td>'
+          +'<td><span class="chipb '+st.cls+'">'+st.l+'</span></td>'
+          +'<td><div style="display:flex;gap:5px;flex-wrap:wrap">'
+            +'<button class="btn bsm" onclick="window._cpnToggle(\''+_attr(String(c.id))+'\','+(on?"false":"true")+')">'+(on?"Disable":"Enable")+'</button>'
+            +'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._cpnDel(\''+_attr(String(c.id))+'\')">Delete</button>'
+          +'</div></td></tr>';
+      }).join("");
+    }
+    w._cpnGen=async()=>{
+      const type=((root.querySelector("#cpnType")as HTMLSelectElement)?.value)==="percent"?"percent":"flat";
+      const value=Math.round(Number((root.querySelector("#cpnValue")as HTMLInputElement)?.value||0));
+      const validTo=((root.querySelector("#cpnValidTo")as HTMLInputElement)?.value||"").trim();
+      const maxRaw=((root.querySelector("#cpnMaxUses")as HTMLInputElement)?.value||"").trim();
+      const maxUses=maxRaw?Math.max(1,Math.round(Number(maxRaw))):null;
+      if(!(value>0)){ toastErr("Enter the discount value"); return; }
+      if(type==="percent"&&value>100){ toastErr("Percent discount cannot exceed 100"); return; }
+      // Refresh before numbering so two admins generating in the same minute don't collide.
+      try{ const r:any=await supabase.from("bt_coupons").select("code").limit(1000); if(r&&!r.error&&r.data) _cpnList=r.data; }catch(_){/* fall back to the loaded list */}
+      const code=_cpnNextCode();
+      const today=new Date().toISOString().slice(0,10);
+      if(!(await _dbOk(supabase.from("bt_coupons").insert({code,discount_type:type,discount_value:value,valid_from:today,valid_to:validTo||null,max_uses:maxUses,active:true}),"Generate coupon"))) return;
+      try{ await navigator.clipboard.writeText(code); }catch(_){/* clipboard needs a secure context; the Copy button still works */}
+      toast("Coupon "+code+" created & copied");
+      const v=root.querySelector("#cpnValue")as HTMLInputElement|null; if(v) v.value="";
+      await _cpnLoad();
+    };
+    w._cpnCopy=async(code:string)=>{ try{ await navigator.clipboard.writeText(code); toast(code+" copied"); }catch(_){ toastErr("Copy failed — select the code manually"); } };
+    w._cpnCopyNext=async()=>{ const nx=root.querySelector("#cpnNext"); const code=(nx?.textContent||"").trim(); if(!/^MHS\d{8}$/.test(code)){ toastErr("Generate the coupon first"); return; } try{ await navigator.clipboard.writeText(code); toast(code+" copied — remember to Generate it"); }catch(_){ toastErr("Copy failed"); } };
+    w._cpnToggle=async(id:string,on:boolean)=>{ if(await _dbOk(supabase.from("bt_coupons").update({active:on}).eq("id",id),"Update coupon")){ toast(on?"Coupon enabled":"Coupon disabled"); await _cpnLoad(); } };
+    w._cpnDel=(id:string)=>{
+      const c=_cpnList.find((x:any)=>String(x.id)===String(id)); if(!c) return;
+      if(!window.confirm('Delete coupon "'+(c.code||"")+'"? Anywhere it was already applied keeps its discount; it just cannot be used again.')) return;
+      supabase.from("bt_coupons").delete().eq("id",id).then(async()=>{ toast("Coupon deleted"); await _cpnLoad(); }).catch((e:any)=>toastErr("Delete failed: "+(e?.message||"db error")));
+    };
     let _btdPanels=new Set<string>();          // selected panel codes for the open record
     let _btRowSel=new Set<string>();           // selected appointment ids for bulk actions
     let _btSearch="";                          // name/phone search term
@@ -11021,6 +11357,7 @@ export function initApp(root: HTMLElement) {
     function _btDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_btDate==="today") return [sod(now),eod(now)];
+      if(_btDate==="tmrw"){ const t=new Date(now);t.setDate(t.getDate()+1); return [sod(t),eod(t)]; }
       if(_btDate==="yest"){ const y=new Date(now);y.setDate(y.getDate()-1); return [sod(y),eod(y)]; }
       if(_btDate==="wk"){ const s=new Date(now);s.setDate(s.getDate()-s.getDay()); return [sod(s),eod(now)]; }
       if(_btDate==="cust"){ const f=(root.querySelector("#btFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#btTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
@@ -11272,6 +11609,18 @@ export function initApp(root: HTMLElement) {
           supabase.from("payments").select("*").order("created_at",{ascending:false})
         ]);
         const pays:Record<string,any>={}; (pr.data||[]).forEach((p:any)=>{ if(p.appointment_id&&!pays[p.appointment_id]) pays[p.appointment_id]=p; });
+        // The client's email is captured at REGISTRATION and lives on the LEAD (leads.email);
+        // blood_test_data.client_email only exists once someone types into this table's cell. Reading
+        // just the latter left the column blank for every client who registered with an email
+        // (reported: testingleads@gmail.com registered, cell empty). Resolve both — see `email` below.
+        const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
+        const _emailByLead:Record<string,string>={};
+        if(_leadIds.length){
+          try{
+            const {data:le}=await supabase.from("leads").select("meta_lead_id,email").in("meta_lead_id",_leadIds);
+            (le||[]).forEach((l:any)=>{ const e=String(l.email||"").trim(); if(e) _emailByLead[String(l.meta_lead_id)]=e; });
+          }catch(_){ /* email is a convenience here — never block the worklist on it */ }
+        }
         _btAll=(ar.data||[]).map((a:any)=>{
           const pay=pays[a.id]; const bt=a.blood_test_data||{};
           // Normalize legacy sample_status (pending/collected/sent_to_lab/done) onto the new
@@ -11290,6 +11639,10 @@ export function initApp(root: HTMLElement) {
             sampleStatus, labStatus, labReportStatus, clientReportStatus, reportUrl:bt.report_url||"",
             shared:clientReportStatus==="shared", thyroCost:bt.thyrocare_cost||0, ourPrice:bt.our_price||0,
             payStatus:pay?pay.status:"due", payAmt:pay?pay.amount:0, payMethod:pay?pay.method:"", payVerified:pay?pay.verified:false,
+            // leadEmail = what the client registered with; email = what this page acts on, with a
+            // typed-in client_email overriding it (clearing that cell falls back to the registered one).
+            leadEmail:_emailByLead[String(a.lead_id)]||"",
+            email:String(bt.client_email||"").trim()||_emailByLead[String(a.lead_id)]||"",
             btData:bt, raw:a };
         });
       }catch(e:any){ _btAll=[]; if(/blood_test_data|column/i.test(e.message||"")) toast("Run supabase-migration-module-columns.sql to enable blood test data"); }
@@ -11309,7 +11662,7 @@ export function initApp(root: HTMLElement) {
       _btRenderAll();
       try{ _btRenderOrders(); }catch(_){}   // the new bt_orders worklist shares this date filter
     }
-    w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); const ab=root.querySelector("#btApplyBtn")as HTMLElement|null; if(ab) ab.style.display=show?"inline-flex":"none"; root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,yest:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); if(d!=="cust") _btApplyDateFilter(); };   // presets apply at once; Custom waits for the Apply button
+    w._btDateF=(d:string)=>{ _btDate=d; const show=d==="cust"; ["btFrom","btTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); const ab=root.querySelector("#btApplyBtn")as HTMLElement|null; if(ab) ab.style.display=show?"inline-flex":"none"; root.querySelectorAll("#btDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,tmrw:1,yest:2,wk:3,cust:4}[d]??0; root.querySelectorAll("#btDateFilt .pill")[idx]?.classList.add("on"); if(d!=="cust") _btApplyDateFilter(); };   // presets apply at once; Custom waits for the Apply button
     w._btApplyDate=()=>{ if(_btDate==="cust") _btApplyDateFilter(); };   // triggered by the Custom-range Apply button
     // Rows visible after the search + status filters are applied on top of the date filter.
     function _btVisibleRows(){
@@ -11325,6 +11678,98 @@ export function initApp(root: HTMLElement) {
         return true;
       });
     }
+    // ===== Worklist inline fields: client email, the three stage timestamps, the report file =====
+    // All six live on appointments.blood_test_data (JSONB), so no migration is needed — the same
+    // blob the detail panel already owns. Every write merges into the CURRENT blob so a field saved
+    // from the row can never drop a key the detail panel wrote, and goes through _dbOk, because the
+    // gateway resolves {error} rather than throwing (a bare try/catch here would swallow failures).
+    // ---- Milestone timestamps: stamped AUTOMATICALLY, never typed ----
+    // [status field, the value that means "done", timestamp field]. Each of the four workflow
+    // statuses owns one date column; the column is filled the moment the status reaches its done
+    // value and cleared if it is moved back, so the dates are a record of what actually happened
+    // rather than free text staff can back-date.
+    const BT_STATUS_STAMPS:[string,string,string][]=[
+      ["sample_status","collected","sample_sent_at"],
+      ["lab_status","sent","lab_sent_at"],
+      ["lab_report_status","received","lab_report_received_at"],
+      ["client_report_status","shared","client_shared_at"],
+    ];
+    // Apply the stamp rule for ONE status write. Only a status that actually CHANGED touches its
+    // timestamp — a record whose status was already "done" keeps its original stamp, and a legacy
+    // record with a missing stamp is never back-filled with a false "now".
+    function _btStampStatus(bt:any,prev:any,field:string,value:string){
+      const m=BT_STATUS_STAMPS.find((x)=>x[0]===field); if(!m) return;
+      const done=m[1], ts=m[2];
+      const before=String((prev||{})[field]||"");
+      const next=String(value||"");
+      if(next===before) return;                                   // unchanged → leave the stamp alone
+      if(next===done) bt[ts]=new Date().toISOString(); else bt[ts]="";
+    }
+    // Patch ONE key on a row's blood_test_data. Returns false (and toasts) if the write failed, so
+    // the in-memory row is only updated once the database actually took it.
+    async function _btPatchRow(id:any,patch:Record<string,any>):Promise<boolean>{
+      const r=_btAll.find((x:any)=>String(x.id)===String(id));
+      if(!r){ toastErr("Blood test record not found"); return false; }
+      const bt={...(r.btData||{}),...patch};
+      const ok=await _dbOk(supabase.from("appointments").update({blood_test_data:bt}).eq("id",r.id),"Blood test record");
+      if(!ok) return false;
+      r.btData=bt;                       // keep the row in step without a full re-render
+      return true;
+    }
+    w._btRowEmail=async(id:string,val:string)=>{
+      const email=String(val||"").trim();
+      // Same shape check the browser applies to type="email"; empty is allowed (clearing the field).
+      if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toastErr("Enter a valid email address"); return; }
+      if(!await _btPatchRow(id,{client_email:email})) return;
+      // Clearing the cell drops the override, so the row falls back to the registered lead email.
+      const r=_btAll.find((x:any)=>String(x.id)===String(id));
+      const eff=email||(r?String(r.leadEmail||""):"");
+      if(r) r.email=eff;
+      // Flip the row's Email Send button live rather than repainting the table.
+      const btn=root.querySelector('#btMail-'+CSS.escape(String(id)))as HTMLButtonElement|null;
+      if(btn){ btn.disabled=!eff; btn.title=eff?("Email the report to "+eff):"Add a client email first"; }
+    };
+    // No mail transport exists in this codebase (server deps are cors/dotenv/express/pg only), so
+    // this opens the staff member's own mail client with the message prefilled — real and working
+    // today — rather than faking a "sent" toast the way _btShareWA does.
+    w._btRowMail=(id:string)=>{
+      const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      const to=String(r.email||(r.btData||{}).client_email||"").trim();
+      if(!to){ toastErr("Add a client email first"); return; }
+      const url=String((r.btData||{}).report_url||"");
+      const subject=`Your blood test report — ${r.name||"MHS Wellness"}`;
+      const body=`Dear ${r.name||"Client"},\n\nYour blood test report is ready.\n`
+        +(url?`\nDownload: ${url}\n`:`\n(The report file is attached.)\n`)
+        +`\nRegards,\nMHS Wellness Centre`;
+      window.location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    };
+    // Per-row report upload. Mirrors _btAddReport (same bucket, same path shape, same 15 MB cap and
+    // the same "buckets not created yet" hint) but writes straight to the row instead of the panel,
+    // and reuses report_url so the row and the detail panel stay one field, not two.
+    w._btRowUpload=(id:string)=>{
+      const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".pdf,.jpg,.jpeg,.png,.webp";
+      inp.onchange=async()=>{
+        const file=inp.files&&inp.files[0]; if(!file) return;
+        if(file.size>15*1024*1024){ toastErr("Max 15 MB"); return; }
+        toast("Uploading…");
+        const safe=(s:any)=>String(s).replace(/[^a-zA-Z0-9._-]/g,"_");
+        const path="bloodtest/"+safe(r.lead_id||r.id)+"/"+Date.now()+"_"+safe(file.name);
+        try{
+          const up=await supabase.storage.from("lead-files").upload(path,file,{upsert:false});
+          if(up.error) throw up.error;
+          const {data}=supabase.storage.from("lead-files").getPublicUrl(path);
+          if(!await _btPatchRow(id,{report_url:(data&&data.publicUrl)||"",report_name:file.name})) return;
+          _btRenderAll();                 // filename cell + Email Send link both change
+          toast("Report attached");
+        }catch(e:any){
+          toastErr(/bucket|not found|policy/i.test(e?.message||"")
+            ? "Storage buckets aren't created yet — run supabase-migration-storage-buckets.sql"
+            : "Upload failed: "+(e?.message||"error"));
+        }
+      };
+      inp.click();
+    };
     function _btRenderAll(){
       const f=_btFiltered;
       // TOTAL BILLED = the amount billed per record: the stored our_price when present, otherwise the
@@ -11352,22 +11797,58 @@ export function initApp(root: HTMLElement) {
       _btRowSel.forEach(id=>{ if(!visIds.has(id)) _btRowSel.delete(id); });
       const chip=(m:any,v:string)=>{ const o=m[v]||{l:v||"—",c:"neu"}; return '<span class="chipb '+o.c+'">'+_btE(o.l)+'</span>'; };
       const allOn=vis.length>0&&vis.every((r:any)=>_btRowSel.has(String(r.id)));
-      let wl='<table class="tbl" style="min-width:1040px"><thead><tr>'
-        +'<th style="width:28px"><input type="checkbox" '+(allOn?"checked":"")+' onclick="window._btToggleAll(this.checked)" title="Select all"></th>'
-        +'<th>Visit date &amp; time</th><th>Client</th><th>Phone</th><th>Panel(s)</th><th>Sample</th><th>Lab</th><th>Lab report</th><th>Client report</th><th>Actions</th></tr></thead><tbody>';
-      if(!vis.length) wl+='<tr><td colspan="10" style="text-align:center;color:var(--faint);padding:20px">No blood test records match.</td></tr>';
+      let wl='<table class="tbl" style="min-width:2100px"><thead><tr>'
+        +'<th scope="col" style="width:28px"><input type="checkbox" '+(allOn?"checked":"")+' onclick="window._btToggleAll(this.checked)" aria-label="Select all rows" title="Select all"></th>'
+        +'<th scope="col">Visit date &amp; time</th><th scope="col">Client</th><th scope="col">Client email</th>'
+        +'<th scope="col">Phone</th><th scope="col">Panel(s)</th>'
+        +'<th scope="col">Sample</th><th scope="col">Sample sent date &amp; time</th>'
+        +'<th scope="col">Lab</th><th scope="col">Lab report sent date &amp; time</th>'
+        +'<th scope="col">Lab report</th><th scope="col">Lab report received date &amp; time</th>'
+        +'<th scope="col">Client report</th><th scope="col">Client share date &amp; time</th>'
+        +'<th scope="col">Actions</th><th scope="col">Email send</th><th scope="col">Add report</th></tr></thead><tbody>';
+      if(!vis.length) wl+='<tr><td colspan="17" style="text-align:center;color:var(--faint);padding:20px">No blood test records match.</td></tr>';
       else vis.forEach((r:any)=>{
         const on=_btRowSel.has(String(r.id));
+        const bt=r.btData||{};
+        const rid=_btE(String(r.id));
+        const email=String(r.email||"");   // typed-in override, else the email captured at registration
+        // Shared styling for the five inline editors so they match the table's existing controls.
+        const inStyle='height:30px;font-size:11.5px;padding:0 7px';
+        // Read-only: these four dates are stamped automatically when their status changes (see
+        // BT_STATUS_STAMPS), so the cell reports the milestone instead of inviting a typed date.
+        const dtCell=(key:string,label:string)=>{
+          const iso=String(bt[key]||"");
+          return '<td class="mono" style="font-size:11.5px;white-space:nowrap'+(iso?'':';color:var(--faint)')+'"'
+            +' title="'+_btE(label+" — set automatically when the status changes")+'">'+_btE(iso?fmtIST(iso):"—")+'</td>';
+        };
+        const fileName=String(bt.report_name||"")||(bt.report_url?"Report":"");
         wl+='<tr'+(on?' style="background:var(--brand-tint)"':'')+'>'
-          +'<td><input type="checkbox" '+(on?"checked":"")+' onclick="window._btToggleRow(\''+_btE(String(r.id))+'\',this.checked)"></td>'
+          +'<td><input type="checkbox" '+(on?"checked":"")+' onclick="window._btToggleRow(\''+rid+'\',this.checked)" aria-label="Select '+_btE(r.name||"record")+'"></td>'
           +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+_btE(r.date)+(r.time?' · '+_btE(r.time):'')+'</td>'
-          +'<td style="font-weight:600">'+_btE(r.name)+'</td><td class="mono">'+_btE(r.ph)+'</td>'
+          +'<td style="font-weight:600">'+_btE(r.name)+'</td>'
+          +'<td><input class="input" type="email" inputmode="email" placeholder="name@example.com" style="'+inStyle+';width:190px"'
+            +' value="'+_btE(email)+'" aria-label="Client email for '+_btE(r.name||"this record")+'"'
+            +' onchange="window._btRowEmail(\''+rid+'\',this.value)"></td>'
+          +'<td class="mono">'+_btE(r.ph)+'</td>'
           +'<td style="max-width:220px;white-space:normal">'+_btE(r.panelText||"—")+'</td>'
           +'<td>'+chip(_btSampleL,r.sampleStatus)+'</td>'
+          +dtCell("sample_sent_at","Sample sent date and time")
           +'<td>'+chip(_btLabL,r.labStatus)+'</td>'
+          +dtCell("lab_sent_at","Lab report sent date and time")
           +'<td>'+chip(_btLabRepL,r.labReportStatus)+'</td>'
+          +dtCell("lab_report_received_at","Lab report received date and time")
           +'<td>'+chip(_btCliRepL,r.clientReportStatus)+'</td>'
-          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="window._btOpenDetail(\''+_btE(String(r.id))+'\')">Open</button>'+(r.payStatus!=="paid"?'<button class="btn bsm" title="Collect blood-test payment" onclick="event.stopPropagation();window._btCollectQueue(\''+_btE(String(r.id))+'\')">₹ Collect</button>':'<span class="chipb ok" style="font-size:10px;align-self:center">Paid</span>')+'</div></td></tr>';
+          +dtCell("client_shared_at","Client share date and time")
+          +'<td><div style="display:flex;gap:4px"><button class="btn bsm bp" onclick="window._btOpenDetail(\''+rid+'\')">Open</button>'+(r.payStatus!=="paid"?'<button class="btn bsm" title="Collect blood-test payment" onclick="event.stopPropagation();window._btCollectQueue(\''+rid+'\')">₹ Collect</button>':'<span class="chipb ok" style="font-size:10px;align-self:center">Paid</span>')+'</div></td>'
+          // Disabled until the row has an email, per spec. The title says WHY it is disabled —
+          // a disabled control with no explanation is the usual reason people think it is broken.
+          +'<td><button class="btn bsm" id="btMail-'+rid+'" '+(email?"":"disabled ")
+            +'title="'+(email?_btE("Email the report to "+email):"Add a client email first")+'"'
+            +' onclick="window._btRowMail(\''+rid+'\')">✉ Email send</button></td>'
+          +'<td><div style="display:flex;gap:6px;align-items:center">'
+            +'<button class="btn bsm" onclick="window._btRowUpload(\''+rid+'\')">'+(fileName?"Replace":"⬆ Add report")+'</button>'
+            +(fileName?'<a href="'+_btE(_safeHref(bt.report_url))+'" target="_blank" rel="noopener noreferrer" class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+_btE(fileName)+'">'+_btE(fileName)+'</a>':'<span style="font-size:11px;color:var(--faint)">No file</span>')
+            +'</div></td></tr>';
       });
       wl+='</tbody></table>';
       const ww=el("btWorklistWrap"); if(ww)(ww as HTMLElement).innerHTML=wl;
@@ -11418,6 +11899,7 @@ export function initApp(root: HTMLElement) {
       const ups=ids.map(async id=>{
         const r=_btAll.find((x:any)=>String(x.id)===String(id)); if(!r) return;
         const bt={...(r.btData||{})}; bt[field]=value;
+        _btStampStatus(bt,r.btData,field,value);   // stamp/clear this status's date column
         if(field==="client_report_status") bt.shared=(value==="shared");
         return supabase.from("appointments").update({blood_test_data:bt}).eq("id",r.id);
       });
@@ -11559,6 +12041,9 @@ export function initApp(root: HTMLElement) {
         thyrocare_cost:Number(v("btdThyroCost"))||0, our_price:Number(v("btdOurPrice"))||0,
         report_url:_btReportAtt?.url||"", shared:clientReport==="shared",
         sample_at:v("btdSample")==="collected"?new Date().toISOString():""};
+      // Same auto-stamp rule as the worklist's bulk actions: only statuses this save CHANGED move
+      // their date column, so re-saving an unrelated field never rewrites an existing milestone.
+      BT_STATUS_STAMPS.forEach(([f])=>_btStampStatus(btData,_btOpenAppt.btData,f,String(btData[f]||"")));
       try{ const {error}=await supabase.from("appointments").update({blood_test_data:btData}).eq("id",_btOpenAppt.id);
         if(error&&/blood_test_data|column|schema|exist/i.test(error.message||"")){ toastErr("Can't save yet — the blood-test column is missing. Run supabase-migration-module-columns.sql in Supabase, then Save again."); return; }
         if(error)throw error; toast("Blood test record saved"); await loadBloodTestData();
@@ -11619,6 +12104,7 @@ export function initApp(root: HTMLElement) {
     function _phDateRange():[Date|null,Date|null]{
       const now=new Date(); const sod=(d:Date)=>{const x=new Date(d);x.setHours(0,0,0,0);return x;}; const eod=(d:Date)=>{const x=new Date(d);x.setHours(23,59,59,999);return x;};
       if(_phDate==="today") return [sod(now),eod(now)];
+      if(_phDate==="tmrw"){ const t=new Date(now);t.setDate(t.getDate()+1); return [sod(t),eod(t)]; }
       if(_phDate==="wk"){ const s=new Date(now);s.setDate(s.getDate()-s.getDay()); return [sod(s),eod(now)]; }
       if(_phDate==="cust"){ const f=(root.querySelector("#phFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#phTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
       return [null,null];
@@ -11864,7 +12350,7 @@ export function initApp(root: HTMLElement) {
       _phFiltered=_phAll.filter((r:any)=>{ if(!r._date)return true; const d=new Date(/T/.test(r._date)?r._date:(r._date+"T12:00:00")); if(from&&d<from)return false; if(to&&d>to)return false; return true; });
       _phRenderAll();
     }
-    w._phDateF=(d:string)=>{ _phDate=d; const show=d==="cust"; ["phFrom","phTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); const ab=root.querySelector("#phApplyBtn")as HTMLElement|null; if(ab) ab.style.display=show?"inline-flex":"none"; root.querySelectorAll("#phDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,wk:1,cust:2}[d]??0; root.querySelectorAll("#phDateFilt .pill")[idx]?.classList.add("on"); if(d!=="cust") _phApplyDateFilter(); };   // presets apply at once; Custom waits for the Apply button
+    w._phDateF=(d:string)=>{ _phDate=d; const show=d==="cust"; ["phFrom","phTo"].forEach(id=>{const el=root.querySelector("#"+id)as HTMLElement;if(el)el.style.display=show?"inline":"none";}); const ab=root.querySelector("#phApplyBtn")as HTMLElement|null; if(ab) ab.style.display=show?"inline-flex":"none"; root.querySelectorAll("#phDateFilt .pill").forEach((b:any)=>b.classList.remove("on")); const idx={today:0,tmrw:1,wk:2,cust:3}[d]??0; root.querySelectorAll("#phDateFilt .pill")[idx]?.classList.add("on"); if(d!=="cust") _phApplyDateFilter(); };   // presets apply at once; Custom waits for the Apply button
     w._phApplyDate=()=>{ if(_phDate==="cust") _phApplyDateFilter(); };   // triggered by the Custom-range Apply button
     // Search (name / phone) + consultation-status filter, applied on top of the date range.
     w._phSearch=(v:string)=>{ _phSearchQ=String(v||""); _phRenderAll(); };
