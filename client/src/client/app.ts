@@ -4383,14 +4383,9 @@ export function initApp(root: HTMLElement) {
       // overlaps with Enrolled/Payment rather than summing into Total — that's the honest funnel.
       // The nine stage cards are mutually exclusive and MUST add up to Total Leads — that is the
       // property people check first, and breaking it makes the whole dashboard look wrong (129+17+0+
-      // 104+1+79+5+1 = 336 against a Total of 249). So Visited keeps its exclusive bucket count here.
-      //
-      // The milestone number is not lost: everyone who has EVER visited is carried separately and
-      // shown beneath the card, because a purely exclusive Visited once read "Visited 0, Enrolled 3"
-      // for three people who had all walked in that morning. Headline sums, sub-line tells the whole
-      // story, and the sub-line drills into the full milestone list via the visitedEver bucket.
-      const _visEver=book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l))).length;
-      const _visMovedOn=Math.max(0,_visEver-counts.health);
+      // 104+1+79+5+1 = 336 against a Total of 249). So Visited keeps its exclusive bucket count.
+      // The "ever visited" milestone remains reachable via the visitedEver drill-down bucket and the
+      // tooltips below; the on-card explainer text was removed on request (kept hover-only).
       const kpiEl=root.querySelector("#haKpis");
       if(kpiEl){
         // Until the book has loaded, show a muted "—" rather than a number: a 0 here is
@@ -4403,21 +4398,10 @@ export function initApp(root: HTMLElement) {
           +(_haFeedFailed
             ? '⚠ Couldn’t load your leads — the counts below are not available. Check your connection, then <button class="btn bsm" style="margin-left:6px" onclick="window._refreshMetaFeed()">↻ Reload</button>'
             : 'Loading leads…')+'</div>');
-        // Sub-lines that make the arithmetic self-explanatory: the stage cards sum to Total Leads,
-        // and Visited says how much of it is people who have already moved further down the funnel.
-        const _sub:Record<string,string>=_ready?{
-          total:"the stage cards below add up to this",
-          health:_visMovedOn?(_visEver+" have ever visited · "+_visMovedOn+" moved on"):"",
-        }:{};
         cards.push(...HA_CARDS.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
           +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Zoom + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number."':'')
-          +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])
-          // Visited's sub-line is its own drill-down: the full "ever visited" list, which the headline
-          // deliberately excludes so the cards still sum.
-          +(_sub[c.key]?('<div class="mt" style="color:var(--muted);font-weight:600'+(c.key==="health"?';text-decoration:underline dotted;text-underline-offset:2px':'')+'"'
-            +(c.key==="health"?' title="Show everyone who has ever visited" onclick="event.stopPropagation();window._haCardClick(\'visitedEver\')"':'')
-            +'>'+_sub[c.key]+'</div>'):'')+'</div>'));
+          +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+c.label+'</div>'+mv(counts[c.key])+'</div>'));
         cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
@@ -9900,20 +9884,15 @@ export function initApp(root: HTMLElement) {
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Total Leads leads the set and doubles as "show everything" (clicking clears the selection).
       // The status cards sum to it; Instalment 2 pending sits OUTSIDE the sum — it is a payment
-      // overlay whose clients are already counted on their status card, and its sub-line says so.
+      // overlay whose clients are already counted on their status card (stated in its tooltip; the
+      // on-card explainer text was removed on request).
       const total=list.length;
       const on0=!_coachDashSel;
-      const _sub:Record<string,string>={
-        "Total Leads":"the status cards below add up to this",
-        "Enrolled – L1":"L1 only","Enrolled – L2":"L2 only","Enrolled – L1 + L2":"in both programs",
-        "Enrolled – Level pending":"enrolled, program not recorded yet",
-        "Instalment 2 pending":"payment state · already counted above",
-      };
-      const _mkSub=(l:string)=>_sub[l]?'<div class="mt" style="color:var(--muted);font-weight:600">'+e(_sub[l])+'</div>':'';
-      el.innerHTML='<div class="metric" title="Every client in this view — clears the card filter" style="cursor:pointer'+(on0?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\'\')"><div class="ml">Total Leads</div><div class="mv">'+total+'</div>'+_mkSub("Total Leads")+'</div>'
+      el.innerHTML='<div class="metric" title="Every client in this view — clears the card filter" style="cursor:pointer'+(on0?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\'\')"><div class="ml">Total Leads</div><div class="mv">'+total+'</div></div>'
       +_coachStatusCards.filter(l=>l!=="Enrolled – Level pending"||(counts[l]||0)>0).map(l=>{
         const on=_coachDashSel===l;
-        return '<div class="metric" style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div>'+_mkSub(l)+'</div>';
+        const tip=l==="Instalment 2 pending"?' title="Payment state — these clients are already counted on their status card"':'';
+        return '<div class="metric"'+tip+' style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
       }).join("");
     }
     w._coachDashClick=(label:string)=>{ _coachDashSel=(_coachDashSel===label)?"":label; _coachCliPage=1; renderCoachOpenList(); };
