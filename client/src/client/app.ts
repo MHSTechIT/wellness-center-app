@@ -9194,11 +9194,20 @@ export function initApp(root: HTMLElement) {
     }
     async function loadScreeningData(){
       try{
-        const {data}=await supabase.from("appointments").select("*").in("stage",["screening","screened","done"]).order("appt_date",{ascending:false}).limit(500);
+        // Fetch by MILESTONE, not by current stage: a client who was screened and then progressed
+        // (stage → payment / enrolled / …) must stay on this page and in the day's Screened count.
+        // Filtering the query to stage IN (screening,screened,done) made a screened client VANISH
+        // the moment they enrolled — reported for Jothi Anumukondae: screened today, enrolled today,
+        // and the page then showed "Screened 1" for a day with two screenings. So: pull the recent
+        // appointments and keep any row that is either currently in the screening flow OR carries
+        // saved screening vitals, whatever its stage has moved to since.
+        const {data}=await supabase.from("appointments").select("*").order("appt_date",{ascending:false}).limit(500);
         // Blood-test-ONLY records live only in the Blood Test workflow — they must never surface in
         // the Screening queue. A COMBINED appointment (e.g. Diabetes + Blood Test) still belongs in
         // Screening for its non-blood services, so exclude only when EVERY service is blood.
         _scAll=(data||[]).filter((a:any)=>{
+          const inFlow=["screening","screened","done"].indexOf(String(a.stage||""))>=0;
+          if(!inFlow&&!a.screening_vitals_data) return false;   // never entered screening
           const svc=String(a.service||""); if(!/blood/i.test(svc)) return true;
           const parts=svc.split(/\s*\+\s*|\s*,\s*/).map((s:string)=>s.trim()).filter(Boolean);
           return parts.some((p:string)=>!/blood/i.test(p));   // keep combined; drop blood-only
@@ -9206,6 +9215,7 @@ export function initApp(root: HTMLElement) {
           const sv=a.screening_vitals_data||{};
           return { id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", _date:a.appt_date, date:_recFmtDate(a.appt_date), time:a.appt_time||"",
             status:a.status||"expected", stage:a.stage||"", service:a.service||"Diabetes",
+            hasSv:!!a.screening_vitals_data,
             vitals:sv, eligible:sv.eligible||"", screenedAt:sv.screened_at||"", screenedBy:sv.screened_by||"",
             raw:a };
         });
@@ -9230,8 +9240,10 @@ export function initApp(root: HTMLElement) {
     };
     function _scRenderAll(){
       const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      const screened=f.filter((r:any)=>r.stage==="screened"||r.stage==="done");
-      const waiting=f.filter((r:any)=>r.stage==="screening"&&!r.screenedAt);
+      // Screened is a MILESTONE: saved vitals count no matter how far the stage has moved since
+      // (enrolled/payment/…). Stage alone erased a screened client the moment they progressed.
+      const screened=f.filter((r:any)=>r.stage==="screened"||r.stage==="done"||r.hasSv);
+      const waiting=f.filter((r:any)=>r.stage==="screening"&&!r.hasSv&&!r.screenedAt);
       const inProg=f.filter((r:any)=>r.stage==="screening"&&_scOpenAppt&&_scOpenAppt.id===r.id);
       const eligible=screened.filter((r:any)=>r.eligible==="yes");
       const notEligible=screened.filter((r:any)=>r.eligible==="no");
@@ -9269,11 +9281,11 @@ export function initApp(root: HTMLElement) {
         const svcIcon=r.service?.toLowerCase().includes("blood")?"🩸":r.service?.toLowerCase().includes("physio")?"💪":"🩺";
         const active=_scOpenAppt&&_scOpenAppt.id===r.id;
         return '<div class="li" style="cursor:pointer'+(active?";background:var(--brand-tint)":"")+'" onclick="window._scOpenAssess('+r.id+')"><span class="avs" style="background:'+colors[i%colors.length]+'">'+init+'</span><div style="flex:1"><b>'+e(r.name)+'</b><div style="font-size:11px;color:var(--muted)">'+svcIcon+' '+e(r.service)+' · '+e(r.time)+'</div></div>'
-          +(r.screenedAt?'<span class="chipb ok">Done</span>':'<span class="chipb info">Queued</span>')+'</div>';
+          +((r.screenedAt||r.hasSv)?'<span class="chipb ok">Done</span>':'<span class="chipb info">Queued</span>')+'</div>';
       }).join(""):'<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">'+(_scCardFilter?("No "+e(_cardLbl).toLowerCase()+" clients"+(_scSvcFilter?(" for "+e(_scSvcFilter)):"")+"."):"No clients in screening queue.")+'</div>');
       // Breakdown by service
       const bySvc:Record<string,{screened:number;waiting:number}>={};
-      f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(r.screenedAt) bySvc[s].screened++; else bySvc[s].waiting++; });
+      f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(r.screenedAt||r.hasSv) bySvc[s].screened++; else bySvc[s].waiting++; });
       const svcIcon=(s:string)=>s.toLowerCase().includes("blood")?"🩸":s.toLowerCase().includes("physio")?"💪":"🩺";
       const bd=root.querySelector("#scBreakdown"); if(bd) bd.innerHTML=Object.keys(bySvc).length?'<table class="tbl"><tbody>'+Object.entries(bySvc).map(([s,d])=>{
         const on=_scSvcFilter===s;
