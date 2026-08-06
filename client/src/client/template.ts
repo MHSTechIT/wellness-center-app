@@ -156,7 +156,7 @@ export function getMainContent(): string {
             <div class="banner good" id="eligBanner"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-check"></use></svg> <span>Eligible for diabetes reversal — appointment can be booked.</span></div></div>
         </div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-target"></use></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
+      <div class="sec" id="advAssignSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-target"></use></svg> Assignment &amp; pipeline <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl" for="salesSel">Salesperson <span class="ab">AUTO</span></label><select  class="select auto" id="salesSel" tabindex="-1"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option><option>Physiotherapy Telecaller Team</option></select></div>
@@ -171,7 +171,7 @@ export function getMainContent(): string {
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
               <select  class="select" id="callStatus" onchange="callStatusChange(this.value)">
-                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option>
+                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Home</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option>
               </select></div>
             <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
@@ -224,13 +224,13 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl" for="enrDt">Enrolled date &amp; time <span class="ab">AUTO</span></label><input  class="input" id="enrDt" readonly placeholder="— set on Enrolled"></div>
         </div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> Sales caller self-audit <span class="arr">▾</span></div>
+      <div class="sec closed" id="advSelfAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> Sales caller self-audit <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">Self evaluation</div><div class="g3">
           <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="Sales caller self-audit — ✓ Good" class="area"></textarea></div>
           <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="Sales caller self-audit — ✗ Not good" class="area"></textarea></div>
           <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="Sales caller self-audit — ▲ Improve" class="area"></textarea></div></div></div></div></div>
 
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec closed" id="advBdmAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">BDM evaluation</div><div class="g3">
           <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="BDM audit — ✓ Good" class="area"></textarea></div>
           <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="BDM audit — ✗ Not good" class="area"></textarea></div>
@@ -239,7 +239,7 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl">BDM score</label><div class="score" id="bdm"><button>1</button><button>2</button><button>3</button><button class="on">4</button><button>5</button></div></div>
             <div class="fld"><label class="lbl">Status</label><select aria-label="Status" class="select"><option>Open</option><option selected>Done</option></select></div></div></div></div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chat"></use></svg> Remarks <span class="arr">▾</span></div>
+      <div class="sec" id="advRemarksSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chat"></use></svg> Remarks <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="fld"><textarea aria-label="Remarks" class="area" rows="2" placeholder="Add a remark…"></textarea></div></div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"></use></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
@@ -299,7 +299,7 @@ export function getMainContent(): string {
         </div>
         <div id="coachKanban" style="display:none;overflow-x:auto"></div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
+    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Home” · checked in by Reception</span></div>
       <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th scope="col">Client</th><th scope="col">Phone</th><th scope="col">Appointment Fixed Date &amp; Time</th><th scope="col">Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
@@ -1787,7 +1787,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Eligibility exclusions</label><textarea class="area">Cancer, Brain Tumor, Recent Heart Surgery, Organ Transplant, Pregnancy, Age Above 75, Already Paid, Other Language, Others</textarea></div>
           <div class="fld"><label class="lbl">Occupations</label><textarea class="area">Private Job, Govt Job, Business, Self-employed, Homemaker, Retired, Student, Daily Wage, Others</textarea></div>
-          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Zoom</textarea></div>
+          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Home</textarea></div>
           <div class="fld"><label class="lbl">Languages</label><textarea class="area">Tamil, Telugu, Kannada, Malayalam, Hindi, Marathi, Bengali, Gujarati, Punjabi, Urdu</textarea></div>
           <div class="fld"><label class="lbl">Locations</label><textarea class="area">Poonamalle, Porur, Maduravoyal, Ambattur, Avadi, Tambaram, Nagapattinam</textarea></div>
           <div class="fld"><label class="lbl">Physio conditions</label><textarea class="area">Frozen shoulder, Knee rehab, Lower back pain, Cervical spondylosis, Sports injury, Post-surgical, Sciatica, Others</textarea></div>

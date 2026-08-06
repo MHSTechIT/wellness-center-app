@@ -3545,8 +3545,13 @@ export function initApp(root: HTMLElement) {
     const ADV_ACTOR="ABM / Admin";  // no auth yet → record the active role
     // Call-status codes that REQUIRE a "Next follow-up date & time".
     const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so","nr","cbr"];
+    // Statuses where a next follow-up may be set but is NOT demanded. An appointment is a commitment
+    // to a date, and advisors still want a reminder against it (a confirmation call the day before,
+    // a nudge if the client no-shows) — the field used to be disabled and cleared for these, so that
+    // was impossible to record. Enabled-but-optional keeps Save from insisting on a value.
+    const FU_OPTIONAL_CODES=["afd","afz","apc"];
     // Statuses that assert an appointment exists — saving one requires a booked slot (see
-    // _advSaveRecord). afd = Appointment Fixed – Direct, afz = Appointment Fixed – Zoom.
+    // _advSaveRecord). afd = Appointment Fixed – Direct, afz = Appointment Fixed – Home.
     const APPT_REQUIRED_CODES=["afd","afz"];
     const _OPEN_KEY="wos_open_leads";
     // Persist the open-leads workspace so it survives page refreshes / new sessions.
@@ -3764,12 +3769,26 @@ export function initApp(root: HTMLElement) {
       // entirely and Occupation is hidden from Basic info. Everything else on the profile stays.
       // Physio keeps its own layout; a combined lead (e.g. Diabetes + Blood Test) is NOT blood-only,
       // so it keeps the full default layout — the Diabetes side still needs those fields.
+      // The page-level Service FILTER set to "Blood Test" applies the same trimmed layout to EVERY
+      // profile opened from that view (requested): the advisor is working the blood-test line, so a
+      // combined lead opened here is being handled for its blood test — Occupation and the Sugar &
+      // medical section are noise for that job. Clearing the filter restores the full layout on the
+      // next open, and the required-field validation already skips the hidden fields via _advLayoutBt.
       const svcStr=String(service||"");
-      const bt=/blood/i.test(svcStr)&&!svcStr.split(/[+,/&]| and /i).some((p:string)=>{ const t=p.trim(); return !!t&&!/blood/i.test(t); });
+      const btView=String((_asnApplied&&_asnApplied.svc)||"all")==="Blood Test";
+      const bt=btView||(/blood/i.test(svcStr)&&!svcStr.split(/[+,/&]| and /i).some((p:string)=>{ const t=p.trim(); return !!t&&!/blood/i.test(t); }));
       const show=(sel:string,on:boolean)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.style.display=on?"":"none"; };
       show("#advPhysioSec",physio);
       show("#advSugarSec",!physio&&!bt);
-      show("#advEnrolledSec",!physio);
+      show("#advEnrolledSec",!physio&&!bt);
+      // The blood-test view is a short intake: name/contact, call outcome, reports. Everything that
+      // belongs to the diabetes counselling pipeline is dropped (requested) — assignment & pipeline,
+      // the slot board, enrolled status, both audit panels and remarks. Visibility only; every
+      // field keeps whatever it already stored, and clearing the Service filter brings them back.
+      ["#advAssignSec","#advSelfAuditSec","#advBdmAuditSec","#advRemarksSec"].forEach(sel=>show(sel,!bt));
+      // The slot board is normally driven by call status (callStatusChange) — force it closed here
+      // and let that function keep it closed while this layout is active.
+      if(bt) show("#apptSec",false);
       root.querySelectorAll("#advBasicSec .adv-nonphysio").forEach((el:any)=>{ el.style.display=physio?"none":""; });
       // Occupation sits inside a .adv-nonphysio field, so this runs AFTER that loop and folds both
       // rules together rather than fighting it.
@@ -4016,7 +4035,9 @@ export function initApp(root: HTMLElement) {
       // Checked against the DB, not the in-memory `booked` flag: that is only set by a booking made
       // in THIS session, so a lead whose slot was booked earlier (or on another device) would be
       // wrongly blocked.
-      if(_csSel && APPT_REQUIRED_CODES.indexOf(_csSel.value)>=0){
+      // Skipped in the blood-test layout: that view has no slot board, so demanding a slot from it
+      // would be an unsatisfiable requirement pointing at a section the advisor cannot see.
+      if(_csSel && !_advLayoutBt && APPT_REQUIRED_CODES.indexOf(_csSel.value)>=0){
         const _apRes:any=await supabase.from("appointments").select("id").eq("lead_id",String(_advLeadId)).neq("status","cancelled").limit(1);
         if(_apRes&&_apRes.error){ toastErr("Could not verify the appointment slot — check your connection and try again"); return; }
         if(!(_apRes?.data&&_apRes.data.length)){
@@ -4423,9 +4444,9 @@ export function initApp(root: HTMLElement) {
     // Removed on request (6 Aug 2026): Payment Pending, Payment Completed, Interested, Not
     // Interested, Callback Requested. They stay in the LABEL/CODE maps below so a lead that already
     // carries one of those stored values still displays it — the dropdown just no longer offers them.
-    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Not Reachable"];
-    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Open:"new"};
-    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested"};
+    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Home","Appointment Confirmed","Visited","Enrolled","Not Reachable"];
+    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Open:"new"};
+    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Home",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested"};
     function haBucketOf(cs:string){
       const s=(cs||"").toLowerCase();
       if(/enrol/.test(s)) return "enrolled";
@@ -4435,7 +4456,9 @@ export function initApp(root: HTMLElement) {
       // lumped them together). Zoom is checked first; every other appointment status counts as
       // Direct — including "Appointment Confirmed", which is selectable but currently unused
       // (0 rows). Without that fallback it would silently drop into Open Leads.
-      if(/appointment/.test(s)) return /zoom/.test(s)?"apptZoom":"apptDirect";
+      // "Zoom" was renamed to "Home" (same afz code). Match both so leads saved under the old label
+      // still bucket correctly instead of silently falling into Appointment-Direct.
+      if(/appointment/.test(s)) return /zoom|home/.test(s)?"apptZoom":"apptDirect";
       if(/visited/.test(s)) return "health";
       if(/follow up|call back|callback/.test(s)) return "followup";
       if(/not interested|no sugar|wrong number|dnd/.test(s)) return "closed";
@@ -4448,7 +4471,7 @@ export function initApp(root: HTMLElement) {
       {key:"total",label:"Total Leads",c:"g"},
       {key:"open",label:"Open Leads",c:"g"},
       {key:"apptDirect",label:"Appointment Fixed – Direct",c:""},
-      {key:"apptZoom",label:"Appointment Fixed – Zoom",c:""},
+      {key:"apptZoom",label:"Appointment Fixed – Home",c:""},
       {key:"health",label:"Visited",c:""},{key:"payment",label:"Payment Stage",c:"a"},
       {key:"enrolled",label:"Enrolled",c:"g"},{key:"followup",label:"Follow-up",c:""},
       {key:"closed",label:"Closed / Converted",c:"a"}
@@ -8384,24 +8407,31 @@ export function initApp(root: HTMLElement) {
     function callStatusChange(v:string) {
       const appt=root.querySelector("#apptSec")as HTMLElement;
       const fu=root.querySelector("#fuPanel")as HTMLElement;
-      if(appt){ appt.style.display=(v==="afd"||v==="afz")?"block":"none"; if(v==="afd"||v==="afz") appt.classList.add("closed"); }   // show the slot board collapsed — it opens only when the advisor clicks it
+      // …unless the blood-test layout is active, where the slot board is removed entirely: booking
+      // happens at Reception for that line, so re-showing it on an appointment status would put
+      // back a section this view deliberately drops.
+      if(appt){ appt.style.display=(!_advLayoutBt&&(v==="afd"||v==="afz"))?"block":"none"; if(!_advLayoutBt&&(v==="afd"||v==="afz")) appt.classList.add("closed"); }   // show the slot board collapsed — it opens only when the advisor clicks it
       if(v==="afd"){const m=root.querySelector("#apptMode");if(m)m.textContent="Direct (Walk-in)";}
-      if(v==="afz"){const m=root.querySelector("#apptMode");if(m)m.textContent="Zoom / Online";}
+      if(v==="afz"){const m=root.querySelector("#apptMode");if(m)m.textContent="Home visit";}
       if(fu) fu.style.display=(v==="fu")?"flex":"none";
       // Next follow-up date is REQUIRED for statuses that imply a retry/follow-up,
       // and disabled+cleared for the rest. (Appointment statuses use the slot board.)
       const needsFu=FU_REQUIRED_CODES.indexOf(v)>=0;
+      // Appointment statuses may carry a follow-up too — enabled, but never auto-filled or demanded.
+      const allowFu=needsFu||FU_OPTIONAL_CODES.indexOf(v)>=0;
       const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
       if(nf){
-        nf.disabled=!needsFu;
-        nf.style.opacity=needsFu?"1":"0.45";
-        nf.title=needsFu?"Required for this status":"Only used for Call Back / Follow Up / RNR / Line Busy / Switched Off";
-        if(!needsFu){ nf.value=""; }
-        else if(!nf.value && !_advApplying){ const d=new Date(); d.setDate(d.getDate()+1); d.setHours(11,0,0,0); const p=(n:number)=>String(n).padStart(2,"0"); nf.value=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes()); }
+        nf.disabled=!allowFu;
+        nf.style.opacity=allowFu?"1":"0.45";
+        nf.title=needsFu?"Required for this status":(allowFu?"Optional — set a reminder for this appointment":"Only used for Call Back / Follow Up / RNR / Line Busy / Switched Off");
+        if(!allowFu){ nf.value=""; }
+        // Only the REQUIRED statuses get a suggested default; an appointment's reminder is the
+        // advisor's own call, so the field opens empty rather than inventing tomorrow 11:00.
+        else if(needsFu && !nf.value && !_advApplying){ const d=new Date(); d.setDate(d.getDate()+1); d.setHours(11,0,0,0); const p=(n:number)=>String(n).padStart(2,"0"); nf.value=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes()); }
       }
       // Follow-up plan "Planned date & time" mirrors the canonical Next-follow-up field.
       if(v==="fu"){ const _fp=root.querySelector("#fuPlannedDt")as HTMLInputElement|null; if(_fp) _fp.value=((root.querySelector("#nextFollowUp")as HTMLInputElement)?.value)||_fp.value; }
-      const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:["Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"]};
+      const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:["Appt Fixed (Home)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"]};
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
       if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=_todayLocal(); renderSlots(); }   // LOCAL date (not UTC) so an early-morning IST default isn't "yesterday" and rejected by bookSlot's _todayLocal check. no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
