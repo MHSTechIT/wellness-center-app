@@ -7,6 +7,8 @@ import {
   checkTokenValidity,
   exchangeForLongLivedToken,
   adAccountNames,
+  metaTargetAdAccounts,
+  metaTargetFormIds,
   fetchCampaignStatuses,
   fetchFormStatuses,
 } from '../services/meta';
@@ -104,7 +106,7 @@ async function getLeads(_req: Request, res: Response) {
       }
     } catch (_) {}
 
-    const adAccountIds = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').filter(Boolean);
+    const adAccountIds = metaTargetAdAccounts();
 
     res.json({
       leads,
@@ -136,7 +138,7 @@ let _syncInFlight: Promise<any> | null = null;
 
 async function runSync(res: Response, force = false) {
   const token = await getMetaToken();
-  const adAccountIds = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').filter(Boolean);
+  const adAccountIds = metaTargetAdAccounts();
   const pageIds = (process.env.META_PAGE_IDS || process.env.META_PAGE_ID || '').split(',').filter(Boolean);
 
   if (pageIds.length === 0) {
@@ -302,7 +304,7 @@ export function registerMetaRoutes(app: Express) {
   // names already present in the synced leads (status simply shows as Unknown).
   app.get('/api/meta/campaigns', requireAuth, async (_req, res) => {
     try {
-      const ids = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const ids = metaTargetAdAccounts();
       res.json(await fetchCampaignStatuses(ids));
     } catch (e: any) {
       res.json({ campaigns: [], errors: [{ account: 'all', reason: e?.message || 'lookup failed' }] });
@@ -311,7 +313,7 @@ export function registerMetaRoutes(app: Express) {
   // Live status for the allowlisted lead forms. Same failure contract as /campaigns.
   app.get('/api/meta/forms', requireAuth, async (_req, res) => {
     try {
-      const ids = (process.env.META_TARGET_FORM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const ids = metaTargetFormIds();
       res.json(await fetchFormStatuses(ids));
     } catch (e: any) {
       res.json({ forms: [], errors: [{ form: 'all', reason: e?.message || 'lookup failed' }] });
@@ -319,7 +321,7 @@ export function registerMetaRoutes(app: Express) {
   });
   app.get('/api/meta/accounts', requireAuth, (_req, res) => {
     const names = adAccountNames();
-    const ids = (process.env.META_TARGET_AD_ACCOUNTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const ids = metaTargetAdAccounts();
     // Every configured account, plus any name mapped for an account not in the target list.
     const out = Array.from(new Set([...ids, ...Object.keys(names)])).map((id) => ({ id, name: names[id] || id }));
     res.json({ accounts: out });

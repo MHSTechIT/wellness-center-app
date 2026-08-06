@@ -160,9 +160,26 @@ export async function fetchFormStatuses(formIds: string[]) {
   return data;
 }
 
+// ===== Central Meta crawl scope =====
+// The env vars OVERRIDE these defaults; the defaults exist because every deployment reads its OWN
+// .env, and the two lists drifting apart is exactly how production lost 942 ad-account leads: its
+// .env was never given META_TARGET_AD_ACCOUNTS, so its crawl couldn't see them, its prune deleted
+// them as "gone from Meta", and only dev (with a full .env) kept re-importing them. With the scope
+// in code, a machine with a stale .env still crawls the same forms and accounts as every other —
+// add a new form/account HERE (and deploy) rather than editing .env on each machine.
+const DEFAULT_TARGET_FORM_IDS = '2449233332261397,818636004640541,968880282530796,1325107116305272,1029626479628890,26854157430943728';
+const DEFAULT_TARGET_AD_ACCOUNTS = '384231607347196,1795178471390515';
+const DEFAULT_AD_ACCOUNT_NAMES = '384231607347196:MHS Ad Account (2024),1795178471390515:MHS DF 01';
+export function metaTargetFormIds(): string[] {
+  return (process.env.META_TARGET_FORM_IDS || DEFAULT_TARGET_FORM_IDS).split(',').map((s) => s.trim()).filter(Boolean);
+}
+export function metaTargetAdAccounts(): string[] {
+  return (process.env.META_TARGET_AD_ACCOUNTS || DEFAULT_TARGET_AD_ACCOUNTS).split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 export function adAccountNames(): Record<string, string> {
   const out: Record<string, string> = {};
-  (process.env.META_TARGET_AD_ACCOUNT_NAMES || '').split(',').forEach((p) => {
+  (process.env.META_TARGET_AD_ACCOUNT_NAMES || DEFAULT_AD_ACCOUNT_NAMES).split(',').forEach((p) => {
     const idx = p.indexOf(':');
     if (idx > 0) out[p.substring(0, idx).trim()] = p.substring(idx + 1).trim();
   });
@@ -257,8 +274,8 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
   const windowCutoff = Date.now() - LEAD_WINDOW_DAYS * 86400000;
 
   // Optional allowlist: only these lead-form IDs (the forms run by the target ad
-  // accounts). Empty → all forms on the connected pages.
-  const allowList = (process.env.META_TARGET_FORM_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // accounts). Env overrides the in-code default scope; empty only if BOTH are empty.
+  const allowList = metaTargetFormIds();
   const allowForms = new Set(allowList);
 
   // ===== Direct-by-form mode (explicit allowlist) =====
