@@ -604,6 +604,34 @@ export function initApp(root: HTMLElement) {
       });
     },0);
 
+    // ---- Cash payments have no transaction reference ----
+    // Every payment form pairs a Mode select with a Txn ref field. When Mode reads Cash the ref
+    // field disappears (and clears, so a stale reference typed under UPI is never saved with a cash
+    // row); any other mode brings it back. One pair list covers the whole app, and the validations
+    // that require a ref already exempt cash, so hiding it changes no save path.
+    const CASH_TXN_PAIRS:[string,string][]=[
+      ["cpMode","cpTxn"],             // Collect Payment page
+      ["recWbMode","recWbTxn"],       // Reception — collect due / walk-in
+      ["payFullMode","payFullRef"],   // Coach — full payment
+      ["i2Inst1Mode","i2Inst1Ref"],   // Coach — installment 1
+      ["i2BalMode","i2BalRef"],       // Coach — installment balance
+      ["advMode","advRef"],           // Coach — advance
+      ["advBalMode","advBalRef"],     // Coach — advance balance
+    ];
+    function _syncCashTxn(){
+      CASH_TXN_PAIRS.forEach(([m,t])=>{
+        const mode=root.querySelector("#"+m) as HTMLSelectElement|null;
+        const txn=root.querySelector("#"+t) as HTMLInputElement|null;
+        if(!mode||!txn) return;
+        const fld=txn.closest(".fld") as HTMLElement|null;
+        const isCash=/^cash$/i.test((mode.value||"").trim());
+        if(fld) fld.style.display=isCash?"none":"";
+        if(isCash&&txn.value) txn.value="";
+      });
+    }
+    CASH_TXN_PAIRS.forEach(([m])=>{ const el=root.querySelector("#"+m); if(el) el.addEventListener("change",_syncCashTxn); });
+    _syncCashTxn();
+
     // RBAC matrix
     // The matrix is now DERIVED from the roles master (org_roles.modules) rather than stored
     // separately in app_settings. Two stores meant two answers: editing a role's screens in
