@@ -62,7 +62,13 @@ export function initApp(root: HTMLElement) {
     // advisor name to lock to, or "" for any role allowed to see everything (Super Admin,
     // Branch Manager, ...). A logged-in Advisor that resolves to no name fails CLOSED
     // (a sentinel matching no lead) so other advisors' data can never leak.
-    function _isAdvisorRole():boolean{ return !!_currentUser && String(_currentUser.role||"")==="Advisor"; }
+    // Dual-role aware: a user is treated as an Advisor for data-scoping if they HOLD the Advisor role
+    // (primary OR secondary via app_users.roles → _rolesOf), so a Health-Coach-AND-Advisor sees only
+    // their own advisor leads on the Advisor page (and, symmetrically, only their coach clients on the
+    // Coach page). Oversight roles (Super Admin / Manager / Branch Manager) still see everything even
+    // if they also carry an Advisor/Coach tag — they must never be silently narrowed to one book.
+    function _holdsFullViewRole():boolean{ return _rolesOf(_currentUser).some((r:string)=>_SERVICE_BYPASS_ROLES.includes(r)); }
+    function _isAdvisorRole():boolean{ return !!_currentUser && !_holdsFullViewRole() && _rolesOf(_currentUser).includes("Advisor"); }
     // Resolve the login account to its advisor NAME: prefer an assignee whose "Login email"
     // matches the account email (reliable even when display names differ), else the account
     // name itself (works when app_users.name === the assignee name).
@@ -75,7 +81,7 @@ export function initApp(root: HTMLElement) {
     function _advisorScope():string{ return _isAdvisorRole() ? (_advisorName() || "__no_advisor__") : ""; }
     // _advisorName() resolves ANY login to its assignee/account name, so it works for coaches too.
     // A Health Coach is scoped to clients whose assigned coach (appointment hc_pt) is this name.
-    function _isCoachRole():boolean{ return !!_currentUser && String(_currentUser.role||"")==="Health Coach"; }
+    function _isCoachRole():boolean{ return !!_currentUser && !_holdsFullViewRole() && _rolesOf(_currentUser).includes("Health Coach"); }
     function _coachScope():string{ return _isCoachRole() ? (_advisorName() || "__no_coach__") : ""; }
 
     // ---- Service-line scoping (app_users.service → leads.service) ----
@@ -1496,7 +1502,12 @@ export function initApp(root: HTMLElement) {
     function _notifStackEl(){
       let s=document.getElementById("metaNotifStack")as HTMLElement|null;
       if(!s){ s=document.createElement("div"); s.id="metaNotifStack";
-        s.style.cssText="position:fixed;top:14px;right:14px;z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:flex-end;max-width:330px;pointer-events:none";
+        // BOTTOM-LEFT (moved from top-right on request): the top-right corner sits over the page
+        // header and its action buttons, so a stack of follow-up reminders covered the controls the
+        // user was reaching for. Anchored at the bottom with a normal column direction, the newest
+        // alert lands nearest the corner and older ones ride upward — which also means the cap's
+        // "drop the first child" removes the OLDEST (top) one rather than the newest.
+        s.style.cssText="position:fixed;bottom:14px;left:14px;z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:flex-start;max-width:330px;pointer-events:none";
         document.body.appendChild(s); }
       return s;
     }
@@ -12840,8 +12851,116 @@ export function initApp(root: HTMLElement) {
           return { ...p, clientName:appt.client_name||lead.name||"Client", clientPhone:appt.phone||lead.phone||"", service:p.service||appt.service||"", leadService:lead.service||"", dateFmt:_recFmtDate(p.paid_at?p.paid_at.substring(0,10):p.created_at?.substring(0,10)||"") };
         });
       }catch(_){ _accPays=[]; }
+      // Blood-test appointments for the Thyrocare reconciliation tab. Fetched separately and scoped
+      // by service so the main appointments query above stays as narrow as it is — this one needs the
+      // blood_test_data blob (our price, Thyrocare cost, sample + lab status) that nothing else here reads.
+      try{
+        const {data:btA}=await supabase.from("appointments")
+          .select("id,client_name,phone,service,status,visited_at,appt_date,appt_time,blood_test_data")
+          .ilike("service","%blood%").limit(2000);
+        _accThyroAppts=btA||[];
+      }catch(_){ _accThyroAppts=[]; }
       _accRenderAll();
     }
+    // ===== Blood test — Thyrocare reconciliation (Accounts tab) =====
+    // One row per DAY. Every figure uses the SAME definition as the Blood Test page's own cards, so
+    // the two screens can never disagree:
+    //   Total billed   = stored our_price per record, else the payment actually collected
+    //   Overall BT     = what has actually come in (paid rows only)
+    //   Thyrocare cost = the lab's cost for the panels
+    //   Our margin     = billed − cost
+    //   Paid to Thyro. = cost of records whose lab report has been RECEIVED (that is when we owe it)
+    let _accThyroAppts:any[]=[];
+    function _accThyroRows(){
+      // Money per appointment comes from the payment rows already loaded for this screen — but ONLY
+      // the blood-test-tagged ones. A combined visit ("Diabetes Counselling + Blood Test") carries the
+      // L1/L2 programme payment on the SAME appointment, so counting every linked row billed ₹3.07L of
+      // diabetes money as blood-test revenue. Tagging is what separates them, not the appointment.
+      const payByAppt:Record<string,{paid:number;refund:number}>={};
+      _accPays.forEach((p:any)=>{
+        const k=String(p.appointment_id||""); if(!k) return;
+        if(normService(String(p.service||""))!=="Blood Test") return;
+        const o=(payByAppt[k]=payByAppt[k]||{paid:0,refund:0});
+        if(p.status==="paid") o.paid+=Math.max(0,Number(p.amount)||0);
+        o.refund+=Math.max(0,Number(p.refund_amount)||0);
+      });
+      // appointments.visited_at is TEXT, so older rows hold non-ISO strings ("Thu Jul 30 2026 …").
+      // Parse before grouping or those land in their own junk bucket instead of their real day.
+      const dayKey=(v:any)=>{
+        const s=String(v||""); if(!s) return "";
+        if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+        const d=new Date(s); if(isNaN(d.getTime())) return "";
+        const p2=(n:number)=>String(n).padStart(2,"0");
+        return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate());
+      };
+      const byDay:Record<string,any>={};
+      _accThyroAppts.forEach((a:any)=>{
+        const bt=a.blood_test_data||{};
+        // Same date rule the Blood Test page uses: the VISIT, falling back to the booked date.
+        const vs=_visitStamp(a);
+        const key=dayKey(vs.key)||dayKey(a.appt_date); if(!key) return;
+        const pay=payByAppt[String(a.id)]||{paid:0,refund:0};
+        const billed=Math.max(0,Number(bt.our_price)||pay.paid||0);
+        const cost=Math.max(0,Number(bt.thyrocare_cost)||0);
+        const labReceived=(bt.lab_report_status==="received"||bt.report_status==="ready"||bt.report_status==="shared");
+        const d=(byDay[key]=byDay[key]||{key,date:vs.date||_recFmtDate(key),total:0,visited:0,sample:0,
+          billed:0,collected:0,cost:0,paidThyro:0,refund:0});
+        d.total++;
+        if(String(a.status||"")==="visited") d.visited++;
+        if(bt.sample_status==="collected"||bt.sample_status==="done") d.sample++;
+        d.billed+=billed; d.collected+=pay.paid; d.cost+=cost; d.refund+=pay.refund;
+        if(labReceived) d.paidThyro+=cost;
+      });
+      return Object.values(byDay).sort((a:any,b:any)=>String(b.key).localeCompare(String(a.key)));
+    }
+    function renderAccThyro(){
+      const el=root.querySelector("#accThyroBody")as HTMLElement|null; if(!el) return;
+      const rows=_accThyroRows();
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px">No blood test records yet.</div>'; return; }
+      const tot=rows.reduce((s:any,r:any)=>({total:s.total+r.total,visited:s.visited+r.visited,sample:s.sample+r.sample,
+        billed:s.billed+r.billed,collected:s.collected+r.collected,cost:s.cost+r.cost,paidThyro:s.paidThyro+r.paidThyro,refund:s.refund+r.refund}),
+        {total:0,visited:0,sample:0,billed:0,collected:0,cost:0,paidThyro:0,refund:0});
+      const num='class="mono" style="text-align:right;white-space:nowrap"';
+      let h='<div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr>'
+        +'<th scope="col">Date &amp; time</th><th scope="col" style="text-align:right">Total</th>'
+        +'<th scope="col" style="text-align:right">Visited</th><th scope="col" style="text-align:right">Sample collected</th>'
+        +'<th scope="col" style="text-align:right">Total billed</th><th scope="col" style="text-align:right">Overall blood test</th>'
+        +'<th scope="col" style="text-align:right">Thyrocare cost</th><th scope="col" style="text-align:right">Our margin</th>'
+        +'<th scope="col" style="text-align:right">Paid to Thyrocare</th><th scope="col" style="text-align:right">Refund</th></tr></thead><tbody>';
+      rows.forEach((r:any)=>{
+        const margin=r.billed-r.cost;
+        h+='<tr><td class="mono" style="white-space:nowrap;font-weight:600">'+_btE(r.date)+'</td>'
+          +'<td '+num+'>'+r.total+'</td><td '+num+'>'+r.visited+'</td><td '+num+'>'+r.sample+'</td>'
+          +'<td '+num+' >'+money(r.billed)+'</td><td '+num+'>'+money(r.collected)+'</td>'
+          +'<td '+num+'>'+money(r.cost)+'</td>'
+          +'<td class="mono" style="text-align:right;white-space:nowrap;font-weight:700;color:'+(margin<0?"var(--alert-ink)":"var(--brand-600)")+'">'+money(margin)+'</td>'
+          +'<td '+num+'>'+money(r.paidThyro)+'</td>'
+          +'<td class="mono" style="text-align:right;white-space:nowrap'+(r.refund>0?";color:var(--alert-ink)":"")+'">'+money(r.refund)+'</td></tr>';
+      });
+      const tMargin=tot.billed-tot.cost;
+      h+='</tbody><tfoot><tr style="border-top:2px solid var(--line)">'
+        +'<td style="font-weight:700">TOTAL</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+tot.total+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+tot.visited+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+tot.sample+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.billed)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.collected)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.cost)+'</td>'
+        +'<td class="mono" style="text-align:right;font-weight:700;color:'+(tMargin<0?"var(--alert-ink)":"var(--brand-600)")+'">'+money(tMargin)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.paidThyro)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.refund)+'</td></tr></tfoot></table></div>';
+      el.innerHTML=h;
+    }
+    w._accThyroDownload=()=>{
+      const rows=_accThyroRows(); if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Date","Total","Visited","Sample collected","Total billed","Overall blood test","Thyrocare cost","Our margin","Paid to Thyrocare","Refund"]];
+      rows.forEach((r:any)=>out.push([r.date,String(r.total),String(r.visited),String(r.sample),
+        String(Math.round(r.billed)),String(Math.round(r.collected)),String(Math.round(r.cost)),
+        String(Math.round(r.billed-r.cost)),String(Math.round(r.paidThyro)),String(Math.round(r.refund))]));
+      _downloadCsv("blood_test_thyrocare_"+rows.length+"_days.csv",out);
+      toast("Exported "+rows.length+" day"+(rows.length===1?"":"s"));
+    };
     // ---- Top-bar filters + search + pagination; every card and the Transactions table read the SAME
     //      filtered set (kept in sync). Filters apply only on the Apply button; search is live. ----
     let _accApplied:{from:string;to:string;service:string;method:string;status:string}={from:"",to:"",service:"all",method:"all",status:"all"};
@@ -12966,6 +13085,7 @@ export function initApp(root: HTMLElement) {
     regGrid("accRef",()=>_accRefCols,()=>_accRenderAll());
     regGrid("accHist",()=>_accHistCols,()=>_accRenderAll());
     function _accRenderAll(){
+      try{ renderAccThyro(); }catch(_){}   // Blood test — Thyrocare tab
       const pays=_accFilteredPays(); const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const todayStr=new Date().toISOString().substring(0,10);
       const collectedToday=pays.filter((p:any)=>p.status==="paid"&&(p.paid_at||p.created_at||"").startsWith(todayStr)).reduce((s:number,p:any)=>s+(p.amount||0),0);

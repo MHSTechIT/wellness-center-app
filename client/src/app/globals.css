@@ -852,3 +852,32 @@ html{scroll-behavior:smooth}
      margin-left:auto in the same nowrap row. */
   #s-coach #coCliSearch{width:100% !important;max-width:100% !important;margin-left:0 !important}
 }
+
+/* ── App-wide narrow-viewport fixes ─────────────────────────────────────────────────────────
+   Found by measuring all 14 screens at 360 / 375 / 768px. Every rule below is presentation
+   only — no layout changes above 820px, where the audit found nothing. */
+@media (max-width:820px){
+  /* Card headers are nowrap flex rows, and several use margin-left:auto to push a search box
+     or button to the right. Inside .sec (overflow:hidden) anything past the edge is clipped
+     with no way to scroll to it — Recordings lost a whole button off the right at 360px.
+     Letting the header wrap is the fix; at widths where the row already fits, nothing moves. */
+  .sec-hd{flex-wrap:wrap;row-gap:8px}
+  .sec-hd .input{max-width:100%}
+  /* Tab strips are a single unbreakable row — scroll rather than overflow the card. */
+  .tabs{max-width:100%;overflow-x:auto}
+  /* .aud holds a full table with no .tscroll wrapper of its own. */
+  .aud{overflow-x:auto}
+  /* Inner toolbars pushed to the right with an inline margin-left:auto are their OWN nowrap flex
+     rows, so they can still exceed a parent that has already wrapped (Lead Import's Download
+     group). On a phone there is no room to push anything right anyway: wrap them and drop the
+     push, so they stack under the controls they belong to instead of off the card edge. */
+  .sec-bd [style*="margin-left:auto"]{flex-wrap:wrap;margin-left:0 !important}
+}
+@media (max-width:640px){
+  /* .g2/.g3/.g4 already collapse to ONE column at this width, but children carrying an inline
+     `grid-column: span N` still demand N columns. The grid then creates implicit,
+     content-sized columns and overflows its card — this was the Health Coach programme/price
+     grid running 31px past the card edge at 360px. At one column a span means nothing, so
+     reset it. !important is required: the span is an inline style no selector can outrank. */
+  .g2>*,.g3>*,.g4>*{grid-column:auto !important}
+}

@@ -1384,7 +1384,7 @@ export function getMainContent(): string {
          filters as the cards above; the list comes from the service master. -->
     <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:10px 2px 6px">Revenue by service <span style="font-weight:600;text-transform:none;letter-spacing:0">— collected, with billed below · by payment date</span></div>
     <div class="metrics" id="accSvcMetrics"></div>
-    <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button></div>
+    <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button><button data-t="thyro">Blood test — Thyrocare</button></div>
     <div class="acc-p" data-p="tx">
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg class="icon"><use href="#i-wallet"></use></svg> Transactions</span>
@@ -1417,6 +1417,13 @@ export function getMainContent(): string {
           <input class="input" id="accRefSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accRefSearch()">
           <button class="btn bsm" onclick="window._accRefDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
+    <!-- Blood test — Thyrocare: day-by-day reconciliation with the lab partner. Counts and money use
+         the SAME definitions as the Blood Test page's own cards, so the two screens always agree. -->
+    <div class="acc-p" data-p="thyro" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Blood test — Thyrocare reconciliation <span style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px">one row per day · by visit date</span></span>
+        <button class="btn bsm" onclick="window._accThyroDownload()">⬇ Download</button></div>
+        <div class="sec-bd" id="accThyroBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
   </div></section>
 
   <!-- REPORTS (Admin Report redesign — all styling scoped under .rpc) -->
