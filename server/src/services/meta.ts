@@ -167,9 +167,14 @@ export async function fetchFormStatuses(formIds: string[]) {
 // them as "gone from Meta", and only dev (with a full .env) kept re-importing them. With the scope
 // in code, a machine with a stale .env still crawls the same forms and accounts as every other —
 // add a new form/account HERE (and deploy) rather than editing .env on each machine.
+// ONE ad account: act_384231607347196 "MHS Ad Account (2024)" — confirmed against the Graph API and
+// against the leads themselves (every Meta lead carrying an account id carries this one; the only
+// MHS DF 01 rows are 134 leads whose newest is 15 Jun 2026, i.e. that account is not in use).
+// Listing a second account only widened the crawl into something nobody reads and made the
+// "unreadable account" warning fire for an account that does not matter.
 const DEFAULT_TARGET_FORM_IDS = '2449233332261397,818636004640541,968880282530796,1325107116305272,1029626479628890,26854157430943728';
-const DEFAULT_TARGET_AD_ACCOUNTS = '384231607347196,1795178471390515';
-const DEFAULT_AD_ACCOUNT_NAMES = '384231607347196:MHS Ad Account (2024),1795178471390515:MHS DF 01';
+const DEFAULT_TARGET_AD_ACCOUNTS = '384231607347196';
+const DEFAULT_AD_ACCOUNT_NAMES = '384231607347196:MHS Ad Account (2024)';
 export function metaTargetFormIds(): string[] {
   return (process.env.META_TARGET_FORM_IDS || DEFAULT_TARGET_FORM_IDS).split(',').map((s) => s.trim()).filter(Boolean);
 }
