@@ -171,7 +171,7 @@ export function getMainContent(): string {
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
               <select  class="select" id="callStatus" onchange="callStatusChange(this.value)">
-                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Home</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option>
+                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option>
               </select></div>
             <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
@@ -188,6 +188,16 @@ export function getMainContent(): string {
               <div style="display:flex;gap:8px"><input aria-label="Follow-up notes" class="input" id="fuNoteA" style="height:36px;background:#fff" placeholder="e.g. Wants to check with brother…"><button class="btn bsm" style="height:36px;flex:none;background:#fff" onclick="addFuNoteA()">Add note</button></div>
               <div id="fuNotesA" style="margin-top:9px;display:flex;flex-direction:column;gap:6px"></div></div>
           </div>
+        </div></div>
+
+      <!-- BLOOD TEST PLANS & PRICING — shown only in the Blood-Test advisor view (see
+           _advApplyServiceLayout). The two package tables are rendered by _advRenderBtPlans from
+           BT_PLANS in app.ts, so panel contents/prices are edited in ONE place. -->
+      <div class="sec" id="advBtPlansSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Blood Test Plans &amp; Pricing <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd">
+          <div class="fld" style="max-width:320px"><label class="lbl" for="advBtPlan">Selected plan</label>
+            <select class="select" id="advBtPlan" onchange="window._advBtPlanPick(this.value)"><option value="">— Select a plan —</option></select></div>
+          <div id="advBtPlanCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:12px"></div>
         </div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-msg"></use></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
@@ -299,7 +309,7 @@ export function getMainContent(): string {
         </div>
         <div id="coachKanban" style="display:none;overflow-x:auto"></div>
       </div></div>
-    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Home” · checked in by Reception</span></div>
+    <div class="sec" style="margin-bottom:14px" id="zoomCiSecAdv"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Zoom check-in <span class="chipb neu zoomCiCount" style="margin-left:8px">0</span><span style="margin-left:auto;font-size:11px;color:var(--faint)">Appointments fixed as “Appointment Fixed – Zoom” · checked in by Reception</span></div>
       <div class="sec-bd"><div class="tscroll"><table class="tbl" style="min-width:520px"><thead><tr><th scope="col">Client</th><th scope="col">Phone</th><th scope="col">Appointment Fixed Date &amp; Time</th><th scope="col">Status</th></tr></thead><tbody id="zoomCiListAdv"></tbody></table></div></div></div>
     <div class="chead">
       <span class="cav" id="coachAv" style="background:linear-gradient(135deg,#378ADD,#185FA5)">—</span>
@@ -418,7 +428,7 @@ export function getMainContent(): string {
               <div><label class="lbl" style="color:var(--alert-ink)" for="refReason">Reason *</label><select class="select" id="refReason" style="height:36px"><option value="">-- Select --</option><option>Medical — cannot continue</option><option>Relocation</option><option>Dissatisfied with program</option><option>Financial difficulty</option><option>Duplicate payment</option><option>Others</option></select></div>
               <div><label class="lbl" style="color:var(--alert-ink)" for="refPaid">Paid amount <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refPaid" readonly></div>
               <div><label class="lbl" style="color:var(--alert-ink)" for="refDays">Days since payment <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refDays" readonly></div>
-              <div><label class="lbl" style="color:var(--alert-ink)" for="refEligible">Eligible refund <span class="ab">AUTO</span></label><input class="input mono" style="height:36px" id="refEligible" readonly></div>
+              <div><label class="lbl" style="color:var(--alert-ink)" for="refEligible">Refund amount <span class="req">*</span></label><input class="input mono" style="height:36px" id="refEligible" type="number" min="0" step="1" inputmode="numeric" placeholder="Enter amount" title="The amount being requested — cannot exceed what the client has paid for this program"></div>
             </div>
             <button class="btn bsm" style="background:#fff;align-self:flex-start" onclick="window._submitRefund()">Submit refund request → ABM</button>
           </div>
@@ -1062,10 +1072,18 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl">Selected service</label><input  class="input" style="height:38px" id="cpSvc" readonly></div>
         </div>
       </div></div>
-    <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)">Tick every test / panel the client is paying for</span></div>
+    <div class="sec" id="cpTestsSec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-drop"></use></svg> Tests / Panels <span style="margin-left:auto;font-size:11px;color:var(--faint)" id="cpTestsHint">Tick every test / panel the client is paying for</span></div>
       <div class="sec-bd">
-        <!-- Rendered live from the Blood Test Pricing Master (bt_tests) by _cpRenderTests(). -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap"></div>
+        <!-- Two ways to price the same visit: individual panels, or a packaged plan. They are
+             ALTERNATIVES — picking one clears the other (see _cpPlanPick / _cpRecalc). -->
+        <div class="tabs" id="cpTestTabs" style="margin-bottom:10px"><button class="on" data-t="cp-tests">Tests / Panels</button><button data-t="cp-plans">Blood Test Plans &amp; Pricing</button></div>
+        <div class="cp-tp" data-p="cp-tests">
+          <!-- Rendered live from the Blood Test Pricing Master (bt_tests) by _cpRenderTests(). -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 14px" id="cpTestsWrap"></div>
+        </div>
+        <div class="cp-tp" data-p="cp-plans" style="display:none">
+          <div id="cpPlanCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px"></div>
+        </div>
       </div></div>
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Payment</div>
       <div class="sec-bd">
@@ -1794,7 +1812,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Eligibility exclusions</label><textarea class="area">Cancer, Brain Tumor, Recent Heart Surgery, Organ Transplant, Pregnancy, Age Above 75, Already Paid, Other Language, Others</textarea></div>
           <div class="fld"><label class="lbl">Occupations</label><textarea class="area">Private Job, Govt Job, Business, Self-employed, Homemaker, Retired, Student, Daily Wage, Others</textarea></div>
-          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Home</textarea></div>
+          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Zoom</textarea></div>
           <div class="fld"><label class="lbl">Languages</label><textarea class="area">Tamil, Telugu, Kannada, Malayalam, Hindi, Marathi, Bengali, Gujarati, Punjabi, Urdu</textarea></div>
           <div class="fld"><label class="lbl">Locations</label><textarea class="area">Poonamalle, Porur, Maduravoyal, Ambattur, Avadi, Tambaram, Nagapattinam</textarea></div>
           <div class="fld"><label class="lbl">Physio conditions</label><textarea class="area">Frozen shoulder, Knee rehab, Lower back pain, Cervical spondylosis, Sports injury, Post-surgical, Sciatica, Others</textarea></div>

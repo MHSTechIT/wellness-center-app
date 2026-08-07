@@ -95,7 +95,7 @@ async function getLeads(_req: Request, res: Response) {
     try {
       const { data } = await supabase
         .from('meta_sync_state')
-        .select('finished_at,status,leads_synced,accounts_accessible')
+        .select('finished_at,status,leads_synced,accounts_accessible,error')
         .eq('status', 'success')
         .not('finished_at', 'is', null)
         .order('finished_at', { ascending: false })
@@ -107,12 +107,25 @@ async function getLeads(_req: Request, res: Response) {
     } catch (_) {}
 
     const adAccountIds = metaTargetAdAccounts();
+    // Which configured ad accounts the last crawl could NOT read. A token without ads_read on an
+    // account makes the sync succeed while silently importing fewer leads — production ran for days
+    // reading only "MHS DF 01" and nobody could see why its counts trailed dev. Reporting the gap
+    // turns a silent shortfall into something the Lead-import page can say out loud.
+    const names = adAccountNames();
+    const configured = adAccountIds.map((id) => names[id] || id);
+    const reachable = String(lastSync?.accounts_accessible || '')
+      .split(',').map((s) => s.trim()).filter(Boolean);
+    const unreadableAccounts = lastSync
+      ? configured.filter((n) => !reachable.some((r) => r.toLowerCase() === n.toLowerCase()))
+      : [];
 
     res.json({
       leads,
       count: leads.length,
       fetchedAt: new Date().toISOString(),
       adAccounts: adAccountIds.length,
+      configuredAccounts: configured,
+      unreadableAccounts,
       lastSync,
     });
   } catch (err: any) {

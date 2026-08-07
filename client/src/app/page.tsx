@@ -85,7 +85,17 @@ export default function Home() {
       </div>
 
       <div className="app" id="appShell" style={{display:"none"}}>
-        <aside className="side">
+        {/* Mobile/tablet navigation. Below 900px the sidebar becomes an off-canvas panel — before
+            this it was simply display:none under 640px, which left a phone with no way to reach
+            any other screen at all. Both controls are hidden on desktop by CSS. */}
+        <button className="navtog" id="navToggle" aria-label="Open navigation menu" aria-controls="nav" aria-expanded="false" onClick={()=>(window as any)._navToggle?.()}>
+          {/* inlined: the sprite has no menu glyph, and a <use> pointing at a missing id renders nothing */}
+          <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" style={{fill:"none",stroke:"currentColor",strokeWidth:2,strokeLinecap:"round"}}>
+            <path d="M4 7h16M4 12h16M4 17h16"/>
+          </svg>
+        </button>
+        <div className="navscrim" id="navScrim" onClick={()=>(window as any)._navToggle?.(false)}></div>
+        <aside className="side" id="side">
           <div className="sb">
             <img src="/mhs-logo.png" alt="MHS Wellness Center" style={{height:"32px",width:"auto",maxWidth:"56px",objectFit:"contain",display:"block",flex:"0 0 auto"}} />
             <div><div className="bn">MHS Wellness Center</div><div className="bs">Chennai · HQ</div></div>

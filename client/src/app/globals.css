@@ -881,3 +881,30 @@ html{scroll-behavior:smooth}
      reset it. !important is required: the span is an inline style no selector can outrank. */
   .g2>*,.g3>*,.g4>*{grid-column:auto !important}
 }
+
+/* ── Mobile / tablet navigation ─────────────────────────────────────────────────────────────
+   Below 900px the 222px sidebar column is dropped and the nav becomes an off-canvas panel
+   opened by a fixed hamburger. Before this, `.side{display:none}` at <=640px left a phone with
+   no route to any other screen. Desktop is untouched: both controls are display:none above the
+   breakpoint and the grid keeps its two columns. */
+.navtog,.navscrim{display:none}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  /* Fixed rather than in-flow so it stays reachable while .main scrolls under it. */
+  .navtog{display:inline-flex;align-items:center;justify-content:center;position:fixed;top:10px;left:10px;
+    z-index:90;width:40px;height:40px;border-radius:10px;cursor:pointer;
+    background:var(--pine);color:#EAF3EE;border:1px solid rgba(255,255,255,.14);box-shadow:var(--sh)}
+  .navtog:active{transform:scale(.96)}
+  /* display:flex overrides the <=640px `.side{display:none}` rule that used to hide it outright. */
+  .side{display:flex !important;position:fixed;top:0;left:0;bottom:0;width:250px;max-width:84vw;
+    z-index:95;transform:translateX(-100%);transition:transform .28s var(--ease);will-change:transform}
+  .side.open{transform:none}
+  .navscrim{display:block;position:fixed;inset:0;z-index:92;background:rgba(10,43,34,.44);
+    opacity:0;pointer-events:none;transition:opacity .28s var(--ease)}
+  .navscrim.open{opacity:1;pointer-events:auto}
+  /* Keep the hamburger from sitting on top of each screen's first heading. */
+  .main .wrap,.main>section>div{padding-top:58px}
+}
+@media (max-width:900px) and (prefers-reduced-motion:reduce){
+  .side{transition:none}.navscrim{transition:none}
+}
