@@ -31,6 +31,11 @@ function loadEnv() {
 
 const args = process.argv.slice(2).filter((a) => a !== '--');
 const apply = args.includes('--apply');
+// TEST-DATA ONLY. Deletes the lead's payment rows instead of refusing on them. Use when a test
+// enrolment left money on the books: a refund record would leave Accounts reporting a real
+// collection AND a real refund, so for fake money deletion is the honest fix. Every deleted row is
+// written to a timestamped .json backup first, so it can be re-inserted if this was a mistake.
+const dropPayments = args.includes('--delete-payments');
 const raw = args.find((a) => !a.startsWith('--'));
 if (!raw) {
   console.error('Usage: node server/scripts/return-lead-to-pool.mjs <phone> [--apply]');
@@ -74,26 +79,46 @@ async function main() {
     // Money is the hard stop.
     const pays = (await c.query(
       `select id, amount, status, service, program, appointment_id from payments where lead_id = any($1)`, [ids])).rows;
-    if (pays.length) {
+    if (pays.length && !dropPayments) {
       console.log('✖ REFUSING — this lead has ' + pays.length + ' payment row(s):');
       pays.forEach((p) => console.log('   ' + show(p)));
-      console.log('   Removing it would detach collected money from its appointment. Resolve in Accounts first.');
+      console.log('   Removing it would detach collected money from its appointment. Resolve in Accounts first,');
+      console.log('   or pass --delete-payments if this is TEST data whose money was never real.');
       await c.query('ROLLBACK');
       process.exitCode = 1;
       return;
     }
-    console.log('Payments: none — safe to proceed.');
+    if (pays.length) {
+      console.log('Payments to DELETE (' + pays.length + ') — test data:');
+      pays.forEach((p) => console.log('   ' + show(p)));
+    } else {
+      console.log('Payments: none — safe to proceed.');
+    }
 
     const appts = (await c.query(
       `select id, service, status, stage, appt_date, visited_at from appointments where lead_id = any($1)`, [ids])).rows;
     console.log('Appointments to delete (' + appts.length + '):');
     appts.forEach((a) => console.log('   ' + show(a)));
 
-    // 1. Appointments are what put the client on Reception / Blood test / Physio. Removing them is
+    // Full snapshot of everything about to be removed, written BEFORE any delete, so a mistake is
+    // recoverable by re-inserting from the file rather than from a full-database restore.
+    if (apply) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = path.join(SERVER_DIR, 'scripts', 'deleted-lead-' + digits + '-' + stamp + '.json');
+      fs.writeFileSync(file, JSON.stringify({ database: process.env.PGDATABASE, phone: digits,
+        deletedAt: new Date().toISOString(), leads, appointments: appts, payments: pays }, null, 2));
+      console.log('\nBackup written: ' + path.relative(SERVER_DIR, file));
+    }
+
+    // 1. Payments first — they reference the appointment, so they must go before it does.
+    let delP = { rowCount: 0 };
+    if (pays.length && dropPayments) delP = await c.query(`delete from payments where lead_id = any($1)`, [ids]);
+
+    // 2. Appointments are what put the client on Reception / Blood test / Physio. Removing them is
     //    what takes the lead off those screens.
     const delA = await c.query(`delete from appointments where lead_id = any($1)`, [ids]);
 
-    // 2. Reset the lead itself: unassigned + pooled (Assign & approve reads in_pool AND NOT is_assigned),
+    // 3. Reset the lead itself: unassigned + pooled (Assign & approve reads in_pool AND NOT is_assigned),
     //    and clear the journey markers that put it on the Advisor and Coach queues.
     const upd = await c.query(
       `update leads
@@ -110,6 +135,7 @@ async function main() {
       [ids]);
 
     console.log('');
+    console.log('Payments deleted     : ' + delP.rowCount);
     console.log('Appointments deleted : ' + delA.rowCount);
     console.log('Leads reset to pool  : ' + upd.rowCount);
     upd.rows.forEach((r) => console.log('   ' + show(r)));

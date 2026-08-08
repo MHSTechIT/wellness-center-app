@@ -1,6 +1,10 @@
 export function getMainContent(): string {
   return `
   <!-- ADVISOR -->
+  <!-- Today's planned follow-ups. Fixed to the left edge of the content area (clear of the sidebar),
+       filled by _fuRenderReminders(). Advisor: every due lead, stays until actioned. Admin: one at a
+       time, 30s each. Empty = the element renders nothing and takes no space. -->
+  <div id="fuReminders" class="fu-rem" aria-live="polite" aria-label="Today's follow-up reminders"></div>
   <section class="screen active" id="s-advisor"><div class="wrap">
     <div class="sec" style="margin-bottom:14px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px">
       <span style="font-size:12px;font-weight:600;color:var(--muted);margin-right:2px">Filters</span>
@@ -224,7 +228,7 @@ export function getMainContent(): string {
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"></use></svg> Visited status <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="g3">
-          <div class="fld"><label class="lbl">Visited status <span class="ab">AUTO</span></label><div class="pills" id="visStatusPills" style="pointer-events:none"><button class="pill p-vio on" type="button">Open</button><button class="pill p-info" type="button">Confirm</button><button class="pill p-ok" type="button">Visited</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Open → Confirm once an appointment is fixed → Visited when the receptionist confirms check-in.</div></div>
+          <div class="fld"><label class="lbl">Visited status <span class="ab">AUTO</span></label><div class="pills" id="visStatusPills"><button class="pill p-vio on" type="button" style="pointer-events:none">Open</button><button class="pill p-info" type="button" id="visConfirmBtn" onclick="window._advToggleConfirm()" title="Mark this appointment as confirmed" style="cursor:pointer">Confirm</button><button class="pill p-ok" type="button" style="pointer-events:none">Visited</button></div><div style="font-size:11px;color:var(--faint);margin-top:4px">Click <b>Confirm</b> when you have confirmed the appointment with the client. Visited is set automatically at check-in.</div></div>
           <div class="fld"><label class="lbl" for="visDt">Visited date <span class="ab">AUTO</span></label><input  class="input" id="visDt" readonly placeholder="— set on Visited"></div>
         </div></div></div>
 

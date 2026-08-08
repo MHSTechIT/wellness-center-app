@@ -908,3 +908,27 @@ html{scroll-behavior:smooth}
 @media (max-width:900px) and (prefers-reduced-motion:reduce){
   .side{transition:none}.navscrim{transition:none}
 }
+
+/* ===== Today's follow-up reminders (Advisor page, left rail) =====
+   Fixed beside the sidebar so it survives scrolling — these must stay in view until the advisor
+   actually deals with the lead. pointer-events on the container is none so an empty/att gap can
+   never swallow clicks on the page beneath; the cards themselves re-enable it. */
+.fu-rem{position:fixed;left:238px;bottom:22px;z-index:60;display:flex;flex-direction:column;gap:9px;
+        width:288px;max-height:70vh;overflow-y:auto;pointer-events:none}
+.fu-rem:empty{display:none}
+.fu-card{pointer-events:auto;background:var(--surface);border:1px solid var(--line);
+         border-left:4px solid var(--warn-ink,#C07F0E);border-radius:11px;padding:11px 13px;
+         box-shadow:0 8px 24px rgba(17,34,27,.16);animation:fuIn .22s ease}
+.fu-card.due{border-left-color:var(--alert-ink,#D8442B)}
+@keyframes fuIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.fu-card{animation:none}}
+.fu-hd{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:.07em;
+       text-transform:uppercase;color:var(--warn-ink,#C07F0E);margin-bottom:5px}
+.fu-card.due .fu-hd{color:var(--alert-ink,#D8442B)}
+.fu-nm{font-weight:650;font-size:13.5px;line-height:1.25;color:var(--ink)}
+.fu-when{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:11.5px;color:var(--muted);margin-top:2px}
+.fu-act{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+.fu-seq{font-size:10.5px;color:var(--faint);margin-top:7px}
+/* Under 1100px the sidebar collapses/overlays, so the rail moves to the screen edge. */
+@media(max-width:1100px){.fu-rem{left:12px;width:250px}}
+@media(max-width:700px){.fu-rem{left:8px;right:8px;width:auto;bottom:8px;max-height:44vh}}

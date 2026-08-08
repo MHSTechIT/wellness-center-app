@@ -1387,6 +1387,8 @@ export function initApp(root: HTMLElement) {
           if (mainEl) mainEl.scrollTop = 0;
           // Flush any render deferred while this screen was off-screen during a sync.
           const _scr=(b as HTMLElement).dataset.s; if(_scr&&(w as any)._flushDirtyScreen) (w as any)._flushDirtyScreen(_scr);
+          // The follow-up rail belongs to the Advisor screen: show it on arrival, clear it on leaving.
+          try{ (w as any)._fuRefresh&&(w as any)._fuRefresh(); }catch(_){}
         };
       });
     }
@@ -2721,7 +2723,12 @@ export function initApp(root: HTMLElement) {
     // one above, so it needs its own grid or its headers render as plain <th> with no filter control —
     // which is exactly why that table had none. These three derive the values ONCE so the filter
     // dropdown always lists precisely what the rows display.
-    const _haFuNext=(l:any)=>String(((_advLeadsDet[String(l.id)]||{}).next_followup)||"");
+    // Planned follow-up: read the lead's OWN next_followup first. _advLeadsDet is only populated by
+    // loadAdvLeadsDetails(), which runs one-shot off the Advisor-LOAD table and covers only that
+    // table's row set (advisor-filtered + phone-deduped). Opening the Follow-up card without that
+    // table having rendered left the map empty, so every row printed "—". It stays as a fallback
+    // because it also picks up the legacy value stored inside advisor_profile on older leads.
+    const _haFuNext=(l:any)=>String(l.nextFollowup||((_advLeadsDet[String(l.id)]||{}).next_followup)||"");
     const _haFuWhen=(l:any)=>{ const nf=_haFuNext(l); return nf?fmtIST(nf):"—"; };
     const _haFuState=(l:any)=>{ const nf=_haFuNext(l); return (nf&&new Date(nf).getTime()<=Date.now())?"Overdue":"Pending"; };
     const _haFuCols:any[]=[
@@ -2866,11 +2873,11 @@ export function initApp(root: HTMLElement) {
       try{
         const [pr,ar]=await Promise.all([
           supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at,visited_at").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at,visited_at,confirmed_at,next_followup").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
         _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,service:r.service||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
         // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null,confirmedAt:r.confirmed_at||null,nextFollowup:r.next_followup||null}));
       }catch(_){ /* columns/table may be absent — ignore */ }
       // Terminal either way (loaded or unavailable) — the book is as complete as it will get, so the
       // dashboard may now show real numbers instead of the loading placeholder.
@@ -3059,7 +3066,7 @@ export function initApp(root: HTMLElement) {
     const _haBucketLabel=(cs:string)=>{ const k=haBucketOf(cs); const c=HA_CARDS.find((x:any)=>x.key===k); return c?c.label:"Open Leads"; };
     const _advLeadSvc=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.service)||l.service||"Diabetes"; };
     const _advLeadAsgd=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return fmtIST((d&&d.assigned_at)||l.poolAddedAt||l.createdAt); };
-    const _advLeadNextFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return d&&d.next_followup?_dIST(d.next_followup):"—"; };
+    const _advLeadNextFu=(l:any)=>{ const nf=_haFuNext(l); return nf?_dIST(nf):"—"; };
     const _advLeadLastFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.last_fu)||"—"; };
     // When the lead was originally captured. Meta leads carry the form-submission time; manual /
     // CSV leads fall back through the same chain the profile's "Lead generated" field uses, so the
@@ -3832,7 +3839,7 @@ export function initApp(root: HTMLElement) {
         try{
           const l=_advFindLead(String(_advLeadId));
           if(l){
-            _advApplyVisited(l.visitedAt,l.callStatus);   // also resolves Open vs Confirm, so it runs even when not visited
+            _advApplyVisited(l.visitedAt,"",l.confirmedAt);   // resolves Open vs Confirm too, so it runs even when not visited
             // Always call _advApplyEnrolled (not only when enrolled): it also manages the call-status
             // dropdown lock, so a non-enrolled lead opened after an enrolled one must run it to UNLOCK.
             _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
@@ -4123,23 +4130,55 @@ export function initApp(root: HTMLElement) {
     // Visited status is READ-ONLY on the advisor page and driven ONLY by leads.visited_at,
     // which the reception "Confirm check-in" sets. Never toggled by advisor clicks or any
     // other action — this just mirrors the stored value (Visited if visited_at is set).
-    // Three states, all derived — never toggled by a click:
-    //   Visited  visited_at is set (reception confirmed the check-in)
-    //   Confirm  not yet visited, but an appointment is fixed/confirmed on the call status
+    // Three states:
+    //   Visited  visited_at is set — automatic, stamped by Reception's check-in
+    //   Confirm  confirmed_at is set — MANUAL, only ever from the Confirm button below
     //   Open     neither
-    // callStatus is optional: when the caller doesn't have it, fall back to the in-memory lead so a
-    // refresh that only carries visited_at can't silently drop a lead back from Confirm to Open.
-    function _advApplyVisited(visitedAt:any,callStatus?:any){
+    // Confirm is deliberately NOT derived from the call status: "Appointment Fixed" means a slot was
+    // chosen, not that the client confirmed it, so guessing inflated the Confirmed count. Visited
+    // still wins, because someone who turned up is past the confirming stage.
+    function _advApplyVisited(visitedAt:any,_callStatus?:any,confirmedAt?:any){
       const isV=!!visitedAt;
-      let cs=String(callStatus==null?"":callStatus);
-      if(!cs){ try{ const l=_advFindLead(String(_advLeadId)); cs=String((l&&l.callStatus)||""); }catch(_){} }
-      const isC=!isV&&/appointment/i.test(cs);
+      let cAt=confirmedAt;
+      if(cAt===undefined){ try{ const l=_advFindLead(String(_advLeadId)); cAt=l&&l.confirmedAt; }catch(_){} }
+      const isC=!isV&&!!cAt;
       const idx=isV?2:(isC?1:0);
       const cont=root.querySelector("#visStatusPills");
       if(cont){ cont.querySelectorAll(".pill").forEach((b:any,i:number)=>b.classList.toggle("on", i===idx)); }
+      // The button says what clicking it will DO, and goes quiet once the lead has moved past it.
+      const cb=root.querySelector("#visConfirmBtn")as HTMLButtonElement|null;
+      if(cb){
+        cb.textContent=isC?"Confirmed ✓":"Confirm";
+        cb.disabled=isV;
+        cb.style.opacity=isV?"0.5":"1";
+        cb.style.cursor=isV?"not-allowed":"pointer";
+        cb.title=isV?"Already visited — the appointment is past confirming"
+          :(isC?("Confirmed "+fmtIST(cAt)+" — click to undo"):"Mark this appointment as confirmed");
+      }
       const vd=root.querySelector("#visDt")as HTMLInputElement|null;
       if(vd) vd.value=isV?fmtIST(visitedAt):"";
     }
+    // Manual Confirm — the ONLY thing that sets leads.confirmed_at. Toggles, so a mis-click is
+    // undoable. Writes immediately (no Save needed) and updates the in-memory lead so the dashboard's
+    // Confirmed card and its drill-down move at once rather than after a reload.
+    w._advToggleConfirm=async()=>{
+      const id=String(_advLeadId||"");
+      if(!id){ toast("Open a lead first (from Assigned leads)"); return; }
+      const lead=_advFindLead(id);
+      if(lead&&lead.visitedAt){ toast("This client has already visited — nothing to confirm"); return; }
+      const on=!!(lead&&lead.confirmedAt);
+      const next=on?null:new Date().toISOString();
+      const btn=root.querySelector("#visConfirmBtn")as HTMLButtonElement|null;
+      if(btn) btn.disabled=true;
+      const ok=await _dbOk(supabase.from("leads").update({confirmed_at:next}).eq("meta_lead_id",id),"Confirm status");
+      if(btn) btn.disabled=false;
+      if(!ok) return;
+      [_metaLeads,_assignedExtras,_otherFeedLeads].forEach((arr:any[])=>{ const t=arr.find((x:any)=>String(x.id)===id); if(t) t.confirmedAt=next; });
+      _advApplyVisited(lead&&lead.visitedAt,"",next);
+      logActivity(id,[{action:next?"Confirmed":"Confirmation removed",field:"Visited status",new:next?"Confirmed":"Open"}]);
+      toast(next?"✓ Appointment confirmed":"Confirmation removed");
+      try{ renderHealthDashboard(); }catch(_){}
+    };
     // Salesperson defaults to the advisor the lead is ASSIGNED to. That assignment already happened
     // in Assign & approve (the header shows "Assigned: <name>"), so making the advisor re-pick the
     // same name by hand was duplicate data entry — and an empty dropdown on a lead that clearly HAS
@@ -4199,7 +4238,7 @@ export function initApp(root: HTMLElement) {
         let {data,error}=await supabase.from("leads").select(cols).eq("meta_lead_id",l.id).limit(1);
         if(error&&/advisor_profile|column|exist|schema/i.test(error.message||"")){
           _advProfileColMissing=true;   // column absent → retry without it so enrolled/visited still sync
-          ({data,error}=await supabase.from("leads").select("visited_at,call_status,enrolled_at,coach_profile").eq("meta_lead_id",l.id).limit(1));
+          ({data,error}=await supabase.from("leads").select("visited_at,call_status,enrolled_at,confirmed_at,coach_profile").eq("meta_lead_id",l.id).limit(1));
         }
         if(error) return;
         const row:any=data&&data[0]; if(!row) return;
@@ -4222,7 +4261,8 @@ export function initApp(root: HTMLElement) {
         }
         if(enrLvl) l.enrolledLevel=enrLvl;
         // Applied AFTER the profile restore so it always wins over any stale saved pill state.
-        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(row.visited_at,row.call_status); _advApplyEnrolled(row.call_status,row.enrolled_at,enrLvl); }
+        l.confirmedAt=row.confirmed_at||null;   // keep the in-memory lead in step, so the card count matches the pill
+        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(row.visited_at,"",row.confirmed_at); _advApplyEnrolled(row.call_status,row.enrolled_at,enrLvl); }
       }catch(_){/* network error — local copy already applied */}
     }
     function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
@@ -4324,7 +4364,11 @@ export function initApp(root: HTMLElement) {
       if(nfEl&&nfEl.value){ const d=new Date(nfEl.value); if(!isNaN(d.getTime())) nfIso=d.toISOString(); }
       upd.next_followup=nfIso;
       // Reflect the planned follow-up in-memory so the Follow-ups card/table update immediately.
+      // Both stores: the detail map AND the lead object itself, which is what the Follow-up table
+      // now reads — updating only the map would leave the row on "—" until a full reload.
       _advLeadsDet[id]=Object.assign({},_advLeadsDet[id],{next_followup:nfIso});
+      _fuAck(id,nfIso);   // planned follow-up saved → clear today's reminder for the time just handled
+      [_metaLeads,_assignedExtras].forEach((arr:any[])=>{ const t=arr.find((x:any)=>String(x.id)===id); if(t) t.nextFollowup=nfIso; });
       // Persist canonical contact fields edited in Basic info to the leads columns (not just
       // the advisor_profile JSONB), so the header, tables and downstream screens reflect them.
       const _fv=(sel:string)=>((root.querySelector(sel)as HTMLInputElement)?.value||"").trim();
@@ -4762,6 +4806,10 @@ export function initApp(root: HTMLElement) {
       {key:"apptDirect",label:"Appointment Fixed – Direct",c:""},
       {key:"apptZoom",label:"Appointment Fixed – Zoom",c:""},
       {key:"apptConfirmed",label:"Appointment Confirmed",c:""},
+      // MILESTONE card, not a status bucket: it counts leads the advisor manually pressed Confirm on
+      // (leads.confirmed_at), so it deliberately overlaps the status cards and is excluded from the
+      // "cards sum to Total" partition — same treatment as Visited. See counts.confirmed below.
+      {key:"confirmed",label:"Confirmed",c:"g"},
       {key:"health",label:"Visited",c:""},{key:"payment",label:"Payment Stage",c:"a"},
       {key:"enrolled",label:"Enrolled",c:"g"},{key:"followup",label:"Follow-up",c:""},
       {key:"closed",label:"Closed / Converted",c:"a"}
@@ -4788,7 +4836,7 @@ export function initApp(root: HTMLElement) {
       haBook().forEach((l:any)=>{
         if(haBucketOf(haEffStatus(l))!=="followup") return;
         const key=String(l.id); live.add(key);
-        const nf=(_advLeadsDet[key]||{}).next_followup; if(!nf) return;
+        const nf=_haFuNext(l); if(!nf) return;   // same source as the Follow-up table, so a planned reminder can't be missed
         const t=new Date(nf).getTime(); if(isNaN(t)||t>now) return;
         if(_fuNotified.has(key)) return; _fuNotified.add(key);
         _metaPopup("Follow-up due — "+(l.name||l.phone||"lead")+(l.assignedTo?(" · "+l.assignedTo):"")+" (planned "+fmtIST(nf)+")","warn");
@@ -4830,6 +4878,90 @@ export function initApp(root: HTMLElement) {
       fsel.innerHTML='<option value="all">All advisors</option>'+names.map((n:string)=>'<option>'+(n||"").replace(/</g,"&lt;")+'</option>').join("");
       fsel.value=Array.from(fsel.options).some(o=>o.value===cur)?cur:"all";
     };
+    // ===== Today's planned follow-up reminders (Advisor page, left rail) =====
+    // Leads whose PLANNED follow-up falls today and that nobody has dealt with yet. Deliberately
+    // does NOT expire when the time passes — a 5 PM call-back that was missed is exactly the one
+    // that must keep nagging. It clears only when the advisor acts on the lead (see _fuAck).
+    //
+    // Acknowledgement is keyed by lead + the exact planned timestamp, and kept in localStorage so a
+    // refresh doesn't resurrect a reminder the advisor already handled. Re-planning the lead for
+    // another slot today produces a NEW key, so the fresh appointment reminds again.
+    const _FU_ACK_KEY="wos_fu_ack";
+    let _fuAckMap:Record<string,string>={};
+    try{ _fuAckMap=JSON.parse(localStorage.getItem(_FU_ACK_KEY)||"{}")||{}; }catch(_){ _fuAckMap={}; }
+    function _fuAckSave(){ try{ localStorage.setItem(_FU_ACK_KEY,JSON.stringify(_fuAckMap)); }catch(_){} }
+    // Called whenever a lead's call status or planned follow-up is written — the two actions the
+    // spec says clear the reminder. Stores WHICH planned time was handled.
+    function _fuAck(leadId:any,plannedIso?:any){
+      const id=String(leadId||""); if(!id) return;
+      let iso=plannedIso;
+      if(iso===undefined){ const l=_advFindLead(id); iso=l&&l.nextFollowup; }
+      _fuAckMap[id]=String(iso||"*");   // "*" = handled regardless of which time was planned
+      _fuAckSave();
+      try{ _fuRenderReminders(); }catch(_){}
+    }
+    const _fuIsToday=(iso:any)=>{
+      const s=String(iso||""); if(!s) return false;
+      const d=new Date(s); if(isNaN(d.getTime())) return false;
+      const n=new Date();
+      return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate();
+    };
+    // The advisor's OWN due leads. haBook() is already role-scoped (an Advisor login only ever sees
+    // their own book), so this inherits "advisor-specific" for free rather than re-implementing it.
+    function _fuDueToday(){
+      let book:any[]=[]; try{ book=haBook(); }catch(_){ return []; }
+      const seen=new Set<string>();
+      return book.filter((l:any)=>{
+        const nf=_haFuNext(l); if(!_fuIsToday(nf)) return false;
+        const id=String(l.id); if(seen.has(id)) return false; seen.add(id);   // duplicate phone rows
+        const ack=_fuAckMap[id];
+        return !(ack&&(ack==="*"||ack===String(nf)));
+      }).sort((a:any,b:any)=>new Date(_haFuNext(a)).getTime()-new Date(_haFuNext(b)).getTime());
+    }
+    // ADMIN mode shows one card at a time, 30s each, then advances. Index + timer live here so a
+    // re-render (which happens on every dashboard refresh) doesn't restart the rotation.
+    let _fuSeqIdx=0, _fuSeqT:any=null;
+    function _fuRenderReminders(){
+      const el=root.querySelector("#fuReminders")as HTMLElement|null; if(!el) return;
+      // The rail belongs to the Advisor screen only — never leave it hanging over another module.
+      if(_activeScreenId()!=="advisor"){ el.innerHTML=""; if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;} return; }
+      const due=_fuDueToday();
+      if(!due.length){ el.innerHTML=""; if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;} _fuSeqIdx=0; return; }
+      const isAdvisor=_isAdvisorRole();
+      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const card=(l:any,seq?:string)=>{
+        const nf=_haFuNext(l);
+        const overdue=new Date(nf).getTime()<=Date.now();
+        return '<div class="fu-card'+(overdue?" due":"")+'">'
+          +'<div class="fu-hd">⏰ '+(overdue?"Follow-up due":"Follow-up today")+'</div>'
+          +'<div class="fu-nm">'+e(l.name||"Lead")+'</div>'
+          +'<div class="fu-when">'+e(l.phone||"")+'</div>'
+          +'<div class="fu-when">'+e(fmtIST(nf))+'</div>'
+          +'<div class="fu-act"><button class="btn bsm bp" onclick="window._fuOpen(\''+e(String(l.id))+'\')">Open lead</button></div>'
+          +(seq?'<div class="fu-seq">'+e(seq)+'</div>':'')
+          +'</div>';
+      };
+      if(isAdvisor){
+        // Every due lead, all the time — these stay until the advisor actually deals with them.
+        if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;}
+        el.innerHTML=due.map((l:any)=>card(l)).join("");
+        return;
+      }
+      // Admin: one at a time, auto-advancing every 30 seconds.
+      if(_fuSeqIdx>=due.length) _fuSeqIdx=0;
+      const cur=due[_fuSeqIdx];
+      el.innerHTML=card(cur,(_fuSeqIdx+1)+" of "+due.length+" · next in 30s");
+      if(_fuSeqT) clearTimeout(_fuSeqT);
+      _fuSeqT=setTimeout(()=>{ _fuSeqIdx++; _fuRenderReminders(); },30000);
+    }
+    // Opening from the reminder does NOT dismiss it — the spec is explicit that only a real update
+    // clears it, so a glance at the lead can't make a missed follow-up disappear.
+    w._fuOpen=(id:string)=>{ try{ w._openLeadProfile(id); }catch(_){} };
+    w._fuRefresh=()=>{ try{ _fuRenderReminders(); }catch(_){} };   // nav switch → show/clear the rail
+    // Re-check on a slow tick so a follow-up planned for later today appears without a reload, and
+    // so the rail clears itself after midnight.
+    setInterval(()=>{ try{ _fuRenderReminders(); }catch(_){} },60000);
+
     // Apply the staged top-filter selections → refresh dashboard AND assigned leads together.
     w._topFilterApply=()=>{
       _asnApplied={
@@ -4860,8 +4992,12 @@ export function initApp(root: HTMLElement) {
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
-      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,apptConfirmed:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
+      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,apptConfirmed:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
+      // MANUAL "Confirmed" milestone: counts only leads someone actually pressed Confirm on
+      // (leads.confirmed_at). Like Visited-ever it is NOT one of the mutually-exclusive stage
+      // buckets, so it is counted separately here and left out of the sum-to-Total partition.
+      counts.confirmed=book.filter((l:any)=>!!l.confirmedAt).length;
       // "Visited" is a JOURNEY MILESTONE, not a current-status bucket: it counts every lead that has
       // ACTUALLY visited (leads.visited_at), no matter how far they've progressed since. The bucket
       // version zeroed out the moment a visited lead enrolled — the dashboard read "Visited 0,
@@ -4915,6 +5051,7 @@ export function initApp(root: HTMLElement) {
         // (Per-service split cards were removed on request — the Service filter above still scopes
         // every card, so the per-line view is one dropdown away rather than permanent card clutter.)
         kpiEl.innerHTML=cards.join("");
+        try{ _fuRenderReminders(); }catch(_){}   // same data refresh that feeds the cards
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
       }
@@ -4988,8 +5125,11 @@ export function initApp(root: HTMLElement) {
         // The Visited CARD drills into its stage bucket (falling through below, so the table matches
         // the number on its face). Its sub-line drills here instead: everyone who has ever visited,
         // including those who have since moved on.
+        // Confirmed drills into the SAME set its count comes from: manually confirmed leads only,
+        // never anything inferred from a call status.
+        : (_haActiveBucket==="confirmed"?book.filter((l:any)=>!!l.confirmedAt)
         : (_haActiveBucket==="visitedEver"?book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))
-        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket))));
+        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket)))));
       // Search box above the table — applies to EVERY card's table, matching the fields the tables
       // actually show so what you type lines up with what you see.
       if(_haQuery){
@@ -5083,6 +5223,7 @@ export function initApp(root: HTMLElement) {
       const id=String(_advLeadId);
       const l=haBook().find((x:any)=>String(x.id)===id)||_metaLeads.find((x:any)=>String(x.id)===id);
       if(l) l.callStatus=label;
+      _fuAck(id);   // call status updated → today's reminder for this lead is dealt with
       renderHealthDashboard();
       try{ renderAssignedLeads(); }catch(_){}   // keep the Assigned-leads Call Status column live
       // AWAIT the write, then refresh every view derived from call_status. The Zoom check-in queue
@@ -5714,7 +5855,9 @@ export function initApp(root: HTMLElement) {
         campaign:r.campaign||"—",adName:r.ad_name||"",sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
         service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
         adAccountName:r.ad_account_name||"",isValid:r.is_valid,isDuplicate:r.is_duplicate,
-        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null};
+        isAssigned:r.is_assigned,inPool:!!r.in_pool,poolAddedAt:r.pool_added_at||null,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null,
+        confirmedAt:r.confirmed_at||null,
+        nextFollowup:r.next_followup||null};   // planned follow-up — see the Follow-up table note in routes/meta.ts
     }
     function liveRerenderAll(){
       _metaLeads.sort((a:any,b:any)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime());
@@ -8527,7 +8670,7 @@ export function initApp(root: HTMLElement) {
       if(_scr==="coach"&&("visitedAt" in m)&&m.visitedAt&&!_coachClients.some((x:any)=>String(x.id)===id)){ try{ loadCoachClients(); }catch(_){} }
       // If the affected lead is OPEN in this tab's Advisor / Coach profile, apply it live.
       try{ if(String(_advLeadId)===id&&m.callStatus!=null) _advApplyEnrolled(m.callStatus,m.enrolledAt,m.consStatus); }catch(_){}
-      try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt,m.callStatus); }catch(_){}
+      try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt,"",m.confirmedAt); }catch(_){}
       // Open Coach profile on a cross-tab ENROLL: flip the consultation-status pills (not just the pay
       // chip) so the panel matches, then refresh the chip.
       try{ if(String(_coachLeadId)===id){ const cs=String(m.consStatus||""); if(/enrol/i.test(String(m.callStatus||""))||/enrol/i.test(cs)){ const lvl=/l1\s*\+\s*l2/i.test(cs)?"L1 + L2":(/l2/i.test(cs)?"L2":"L1"); try{ const code=lvl==="L2"?"enrol2":"enrol1"; const pill=root.querySelector('#consStatus .pill[onclick*="'+code+'"]')as HTMLElement|null; if(pill){ root.querySelectorAll("#consStatus .pill").forEach((b:any)=>b.classList.remove("on")); pill.classList.add("on"); if(typeof consAct==="function") consAct(code,pill); } }catch(_){} _setPayEnrollDisplay(lvl,m.enrolledAt||""); _refreshPayEnrollChip(); } } }catch(_){}
@@ -8886,10 +9029,6 @@ export function initApp(root: HTMLElement) {
       // profile re-writes its (possibly stale) saved call_status back to the DB, silently un-enrolling
       // it on the dashboard. This mirrors the _advApplying guard already used for the activity log below.
       if(!_advApplying && w._haSetCallStatus) w._haSetCallStatus(_csLabelOf(v));
-      // The Visited-status pills are DERIVED from this dropdown (Open → Confirm → Visited), so they
-      // have to follow it the moment it changes rather than waiting for the next load/reconcile.
-      // Runs while applying a saved profile too — it only mirrors state, it never writes anything.
-      try{ const _vl=_advFindLead(String(_advLeadId)); _advApplyVisited(_vl&&_vl.visitedAt,_csLabelOf(v)); }catch(_){}
       try{ _advSyncReqMarks(); }catch(_){}   // no-contact statuses drop the * from Gender / Occupation
       // Audit: log a real status change (but not when restoring a saved profile).
       if(!_advApplying && _advLeadId) logActivity(_advLeadId,[{action:"Status Changed",field:"Call status",new:_csLabelOf(v)}]);
@@ -8897,7 +9036,19 @@ export function initApp(root: HTMLElement) {
     w.callStatusChange = callStatusChange;
     // Follow-up plan → push the entered "Planned date & time" into the canonical Next-follow-up
     // field so the existing save persists it to leads.next_followup and it drives the dashboard.
-    w._fuPlannedSync=()=>{ const p=(root.querySelector("#fuPlannedDt")as HTMLInputElement)?.value; const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null; if(nf&&p){ nf.disabled=false; nf.style.opacity="1"; nf.value=p; } };
+    w._fuPlannedSync=()=>{
+      const el=root.querySelector("#fuPlannedDt")as HTMLInputElement|null;
+      const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null;
+      if(!nf||!el) return;
+      const p=el.value; if(!p) return;
+      // BOTH run on this field's `change`: this mirror first, then the future-date guard, which
+      // rejects a past value and clears the box. Mirroring first meant a REJECTED date still landed
+      // in the canonical field — the advisor saw "past values aren't allowed" and an empty planner
+      // while the save quietly carried the bad date (or, once the guard cleared things, nothing at
+      // all — which is why a planned follow-up could vanish from the Follow-up table).
+      if(_isPastVal(el)) return;
+      nf.disabled=false; nf.style.opacity="1"; nf.value=p;
+    };
 
     // ===== Future-only date/time validation (scheduling fields) =====
     // Applied to fields that schedule a FUTURE activity (follow-up / planned / appointment /

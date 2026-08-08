@@ -83,11 +83,20 @@ async function getLeads(_req: Request, res: Response) {
         assignedTo: r.assigned_to || '',
         assignedAt: r.assigned_at || null,
         callStatus: r.call_status || '',
+        // The Advisor's Follow-up table shows the PLANNED date & time. It used to read that from a
+        // separate per-advisor detail fetch that only runs when the Advisor-load table renders and
+        // only covers that table's (deduped, advisor-filtered) row set — so opening the Follow-up
+        // card directly left every row showing "—". Carrying it on the lead itself makes it always
+        // present, for every lead, with no ordering dependency.
+        nextFollowup: r.next_followup || null,
         enrolledAt: r.enrolled_at || null,
         // The Advisor dashboard's "Visited" card is a JOURNEY milestone (did this lead ever visit),
         // not a current-status bucket — without this field every visited lead that later enrolled
         // read as never-visited and the card sat on 0.
         visitedAt: r.visited_at || null,
+        // Set BY HAND from the advisor's Visited-status row (never derived from the call status),
+        // so the dashboard's Confirmed card counts only appointments someone actually confirmed.
+        confirmedAt: r.confirmed_at || null,
       };
     });
 

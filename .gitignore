@@ -55,3 +55,8 @@ server/uploads/
 
 # database backups — full production dumps carry client PII and password hashes; never push
 *.backup
+
+# One-off deletion snapshots written by server/scripts/return-lead-to-pool.mjs. They hold a real
+# client's name, phone, appointments and payment rows — same reason the database backups above are
+# never pushed. Keep them locally; they exist so a mistaken removal can be re-inserted.
+server/scripts/deleted-lead-*.json
