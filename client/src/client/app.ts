@@ -4922,19 +4922,21 @@ export function initApp(root: HTMLElement) {
     // re-render (which happens on every dashboard refresh) doesn't restart the rotation.
     let _fuSeqIdx=0, _fuSeqT:any=null;
     let _fuSeqSig="", _fuSeqDone=false;   // admin sequence: which due set is playing, and whether it finished
-    let _fuCollapsed=false;
-    try{ _fuCollapsed=localStorage.getItem("wos_fu_collapsed")==="1"; }catch(_){}
+    // CLOSED by default — the drawer announces itself with a count on the edge and opens on click,
+    // so arriving at the dashboard is never interrupted. Only an explicit open/close is remembered.
+    let _fuCollapsed=true;
+    try{ const v=localStorage.getItem("wos_fu_collapsed"); if(v==="0") _fuCollapsed=false; }catch(_){}
     w._fuToggleCollapse=()=>{
       _fuCollapsed=!_fuCollapsed;
       try{ localStorage.setItem("wos_fu_collapsed",_fuCollapsed?"1":"0"); }catch(_){}
       _fuRenderReminders();
     };
-    // The panel is DOCKED beside the sidebar and the content is padded to match, so it can never
-    // cover the Assigned-leads table. Clearing both classes when it's hidden gives the space back.
-    function _fuSetSpace(state:""|"open"|"collapsed"){
+    // The drawer OVERLAYS the right edge and never displaces the page — opening it must not reflow
+    // the dashboard under the reader. This clears the padding classes the docked version used to set,
+    // so a stale one from an older bundle can't leave the content shifted.
+    function _fuSetSpace(_state?:string){
       const m=root.querySelector("#main")as HTMLElement|null; if(!m) return;
-      m.classList.toggle("has-fu",state==="open");
-      m.classList.toggle("has-fu-collapsed",state==="collapsed");
+      m.classList.remove("has-fu","has-fu-collapsed");
     }
     function _fuRenderReminders(){
       const el=root.querySelector("#fuReminders")as HTMLElement|null; if(!el) return;
@@ -4988,16 +4990,23 @@ export function initApp(root: HTMLElement) {
         return;
       }
 
-      // ---- ADVISOR: docked panel, every due lead, stays until the lead is actioned ----
-      el.className="fu-rem"+(_fuCollapsed?" collapsed":"");
+      // ---- ADVISOR: right-edge drawer, every due lead, stays until the lead is actioned ----
+      el.className="fu-rem";
+      _fuSetSpace();
+      if(_fuCollapsed){
+        // Closed: just the edge tab. The count is the whole message — one click opens the list.
+        el.innerHTML='<button class="fu-tab" onclick="window._fuToggleCollapse()" aria-expanded="false" '
+          +'aria-label="'+due.length+' follow-up'+(due.length===1?"":"s")+' due today" '
+          +'title="'+due.length+' follow-up'+(due.length===1?"":"s")+' due today — click to open">'
+          +'<span class="ic">⏰</span><span class="n">'+due.length+'</span></button>';
+        return;
+      }
       el.innerHTML='<div class="fu-panel">'
         +'<div class="fu-top"><span class="fu-ttl">⏰ Today’s follow-ups</span>'
         +'<span class="fu-count">'+due.length+'</span>'
-        +'<button class="fu-collapse" onclick="window._fuToggleCollapse()" aria-expanded="'+(!_fuCollapsed)+'" '
-        +'title="'+(_fuCollapsed?"Show today’s follow-ups":"Hide the panel")+'">'+(_fuCollapsed?"›":"‹")+'</button></div>'
-        +(_fuCollapsed?"":'<div class="fu-list">'+due.map(card).join("")+'</div>')
+        +'<button class="fu-collapse" onclick="window._fuToggleCollapse()" aria-expanded="true" title="Close">✕</button></div>'
+        +'<div class="fu-list">'+due.map(card).join("")+'</div>'
         +'</div>';
-      _fuSetSpace(_fuCollapsed?"collapsed":"open");
     }
     // Admin only: close the popup and stop the sequence for this due set.
     w._fuDismissSeq=()=>{ _fuSeqDone=true; try{ _fuRenderReminders(); }catch(_){} };
