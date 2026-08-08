@@ -4921,39 +4921,86 @@ export function initApp(root: HTMLElement) {
     // ADMIN mode shows one card at a time, 30s each, then advances. Index + timer live here so a
     // re-render (which happens on every dashboard refresh) doesn't restart the rotation.
     let _fuSeqIdx=0, _fuSeqT:any=null;
+    let _fuSeqSig="", _fuSeqDone=false;   // admin sequence: which due set is playing, and whether it finished
+    let _fuCollapsed=false;
+    try{ _fuCollapsed=localStorage.getItem("wos_fu_collapsed")==="1"; }catch(_){}
+    w._fuToggleCollapse=()=>{
+      _fuCollapsed=!_fuCollapsed;
+      try{ localStorage.setItem("wos_fu_collapsed",_fuCollapsed?"1":"0"); }catch(_){}
+      _fuRenderReminders();
+    };
+    // The panel is DOCKED beside the sidebar and the content is padded to match, so it can never
+    // cover the Assigned-leads table. Clearing both classes when it's hidden gives the space back.
+    function _fuSetSpace(state:""|"open"|"collapsed"){
+      const m=root.querySelector("#main")as HTMLElement|null; if(!m) return;
+      m.classList.toggle("has-fu",state==="open");
+      m.classList.toggle("has-fu-collapsed",state==="collapsed");
+    }
     function _fuRenderReminders(){
       const el=root.querySelector("#fuReminders")as HTMLElement|null; if(!el) return;
-      // The rail belongs to the Advisor screen only — never leave it hanging over another module.
-      if(_activeScreenId()!=="advisor"){ el.innerHTML=""; if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;} return; }
+      const hide=()=>{ el.innerHTML=""; el.classList.remove("collapsed"); _fuSetSpace(""); if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;} };
+      // Belongs to the Advisor screen only — never leave it hanging over another module.
+      if(_activeScreenId()!=="advisor"){ hide(); return; }
       const due=_fuDueToday();
-      if(!due.length){ el.innerHTML=""; if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;} _fuSeqIdx=0; return; }
+      if(!due.length){ hide(); _fuSeqIdx=0; return; }
       const isAdvisor=_isAdvisorRole();
+      // ADMIN: a transient notification, not furniture. It plays through today's follow-ups once —
+      // 15 seconds each — and then removes itself for good. Re-rendering (which happens on every
+      // dashboard refresh) must NOT restart it, or it would loop forever and sit there permanently,
+      // which is exactly what it was doing. The signature restarts it only when the due set changes.
+      const sig=due.map((l:any)=>String(l.id)+"@"+_haFuNext(l)).join("|");
+      if(!isAdvisor){
+        if(sig!==_fuSeqSig){ _fuSeqSig=sig; _fuSeqIdx=0; _fuSeqDone=false; }
+        if(_fuSeqDone){ hide(); return; }
+      }
       const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      const card=(l:any,seq?:string)=>{
+      const card=(l:any)=>{
         const nf=_haFuNext(l);
         const overdue=new Date(nf).getTime()<=Date.now();
         return '<div class="fu-card'+(overdue?" due":"")+'">'
           +'<div class="fu-hd">⏰ '+(overdue?"Follow-up due":"Follow-up today")+'</div>'
           +'<div class="fu-nm">'+e(l.name||"Lead")+'</div>'
-          +'<div class="fu-when">'+e(l.phone||"")+'</div>'
-          +'<div class="fu-when">'+e(fmtIST(nf))+'</div>'
+          +'<div class="fu-when">'+e(l.phone||"—")+'</div>'
+          +'<div class="fu-when at">'+e(fmtIST(nf))+'</div>'
           +'<div class="fu-act"><button class="btn bsm bp" onclick="window._fuOpen(\''+e(String(l.id))+'\')">Open lead</button></div>'
-          +(seq?'<div class="fu-seq">'+e(seq)+'</div>':'')
           +'</div>';
       };
-      if(isAdvisor){
-        // Every due lead, all the time — these stay until the advisor actually deals with them.
-        if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;}
-        el.innerHTML=due.map((l:any)=>card(l)).join("");
+      const seqMode=!isAdvisor;
+      if(_fuSeqT){ clearTimeout(_fuSeqT); _fuSeqT=null; }
+
+      if(seqMode){
+        // ---- ADMIN: floating popup, one lead, 15s, then the next; gone after the last ----
+        // Floats rather than docking, so it never reserves space or pins itself to the layout.
+        el.className="fu-rem float";
+        _fuSetSpace("");
+        el.innerHTML='<div class="fu-panel">'
+          +'<div class="fu-top"><span class="fu-ttl">⏰ Today’s follow-up</span>'
+          +'<span class="fu-count">'+(_fuSeqIdx+1)+'/'+due.length+'</span>'
+          +'<button class="fu-collapse" onclick="window._fuDismissSeq()" title="Dismiss">✕</button></div>'
+          +'<div class="fu-list">'+card(due[_fuSeqIdx])+'</div>'
+          +'<div class="fu-seq">Closes in 15s'+(_fuSeqIdx+1<due.length?" · then the next":"")+'</div>'
+          +'</div>';
+        _fuSeqT=setTimeout(()=>{
+          _fuSeqIdx++;
+          if(_fuSeqIdx>=due.length){ _fuSeqDone=true; }   // played them all → remove for good
+          _fuRenderReminders();
+        },15000);
         return;
       }
-      // Admin: one at a time, auto-advancing every 30 seconds.
-      if(_fuSeqIdx>=due.length) _fuSeqIdx=0;
-      const cur=due[_fuSeqIdx];
-      el.innerHTML=card(cur,(_fuSeqIdx+1)+" of "+due.length+" · next in 30s");
-      if(_fuSeqT) clearTimeout(_fuSeqT);
-      _fuSeqT=setTimeout(()=>{ _fuSeqIdx++; _fuRenderReminders(); },30000);
+
+      // ---- ADVISOR: docked panel, every due lead, stays until the lead is actioned ----
+      el.className="fu-rem"+(_fuCollapsed?" collapsed":"");
+      el.innerHTML='<div class="fu-panel">'
+        +'<div class="fu-top"><span class="fu-ttl">⏰ Today’s follow-ups</span>'
+        +'<span class="fu-count">'+due.length+'</span>'
+        +'<button class="fu-collapse" onclick="window._fuToggleCollapse()" aria-expanded="'+(!_fuCollapsed)+'" '
+        +'title="'+(_fuCollapsed?"Show today’s follow-ups":"Hide the panel")+'">'+(_fuCollapsed?"›":"‹")+'</button></div>'
+        +(_fuCollapsed?"":'<div class="fu-list">'+due.map(card).join("")+'</div>')
+        +'</div>';
+      _fuSetSpace(_fuCollapsed?"collapsed":"open");
     }
+    // Admin only: close the popup and stop the sequence for this due set.
+    w._fuDismissSeq=()=>{ _fuSeqDone=true; try{ _fuRenderReminders(); }catch(_){} };
     // Opening from the reminder does NOT dismiss it — the spec is explicit that only a real update
     // clears it, so a glance at the lead can't make a missed follow-up disappear.
     w._fuOpen=(id:string)=>{ try{ w._openLeadProfile(id); }catch(_){} };
