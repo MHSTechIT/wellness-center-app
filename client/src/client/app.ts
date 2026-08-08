@@ -2717,6 +2717,22 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Call status",filter:true,text:(l:any)=>haEffStatus(l)},
     ];
     regGrid("haResults", ()=>_haResCols, ()=>renderHaResults());
+    // The Follow-up card opens its OWN table (planned date, follow-up state) rather than the generic
+    // one above, so it needs its own grid or its headers render as plain <th> with no filter control —
+    // which is exactly why that table had none. These three derive the values ONCE so the filter
+    // dropdown always lists precisely what the rows display.
+    const _haFuNext=(l:any)=>String(((_advLeadsDet[String(l.id)]||{}).next_followup)||"");
+    const _haFuWhen=(l:any)=>{ const nf=_haFuNext(l); return nf?fmtIST(nf):"—"; };
+    const _haFuState=(l:any)=>{ const nf=_haFuNext(l); return (nf&&new Date(nf).getTime()<=Date.now())?"Overdue":"Pending"; };
+    const _haFuCols:any[]=[
+      {key:"lead",label:"Lead Name",filter:true,text:(l:any)=>l.name||""},
+      {key:"phone",label:"Lead Number",filter:true,text:(l:any)=>l.phone||"—"},
+      {key:"when",label:"Planned Follow-up Date & Time",filter:true,text:_haFuWhen},
+      {key:"src",label:"Source · Lang",filter:true,text:(l:any)=>l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"))},
+      {key:"assigned",label:"Assigned Advisor",filter:true,text:(l:any)=>l.assignedTo||"—"},
+      {key:"fustate",label:"Follow-up Status",filter:true,text:_haFuState},
+    ];
+    regGrid("haFu", ()=>_haFuCols, ()=>renderHaResults());
     // Lead-import KPI drill-down (defined far above, near the KPI cards it belongs to; registered
     // here because regGrid needs the `_grids` map declared above this line).
     regGrid("impDrill", _impDrillCols, ()=>renderImpDrill());
@@ -3596,7 +3612,30 @@ export function initApp(root: HTMLElement) {
     // saved under either wording keeps working.
     const _afzLabel=()=>_advLayoutBt?"Appointment Fixed – Home":"Appointment Fixed – Zoom";
     const _csLabelOf=(code:string)=>code==="afz"?_afzLabel():(HA_CODE2LABEL[code]||code);
-    const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so","nr","cbr"];
+    // "disc" (Disconnect) joins the retry family — the call ended without an answer, so the advisor
+    // must say when they will try again, exactly like RNR / Line Busy / Switched Off / Not Reachable.
+    const FU_REQUIRED_CODES=["cb","fu","rnr","busy","so","nr","cbr","disc"];
+    // Every field the advisor profile enforces. ONE list drives both the Save validation and the red
+    // "*" marks, so a field can never be starred-but-unchecked (or checked-but-unstarred).
+    const ADV_REQUIRED:[string,string][]=[["#advfName","Name"],["#advfPhone","Phone Number"],["#advfGender","Gender"],["#advfAge","Age"],["#advfOcc","Occupation"],["#advfLang","Language"],["#advfLoc","Location"],["#advfSugar","Sugar level"]];
+    // Statuses that mean the advisor never actually spoke to this person. Nothing was learned on the
+    // call, so NOTHING on the profile can be mandatory — otherwise recording "Wrong Number" would
+    // require inventing an age, a gender and a sugar reading first. Every other status is unchanged.
+    const NO_CONTACT_CODES=["rnr","dnd","busy","cb","so","nreg","oos","wn","nr","disc"];
+    function _advNoContact():boolean{
+      const v=String((root.querySelector("#callStatus")as HTMLSelectElement|null)?.value||"");
+      return NO_CONTACT_CODES.indexOf(v)>=0;
+    }
+    // Show the relaxation BEFORE Save rather than only in the error: every red * disappears the
+    // moment a no-contact status is picked, and all of them come back for any other status.
+    function _advSyncReqMarks(){
+      const off=_advNoContact();
+      ADV_REQUIRED.forEach(([sel])=>{
+        const fld=(root.querySelector(sel) as HTMLElement|null)?.closest(".fld") as HTMLElement|null;
+        const star=fld?fld.querySelector(".req") as HTMLElement|null:null;
+        if(star) star.style.display=off?"none":"";
+      });
+    }
     // Statuses where a next follow-up may be set but is NOT demanded. An appointment is a commitment
     // to a date, and advisors still want a reminder against it (a confirmation call the day before,
     // a nudge if the client no-shows) — the field used to be disabled and cleared for these, so that
@@ -3793,7 +3832,7 @@ export function initApp(root: HTMLElement) {
         try{
           const l=_advFindLead(String(_advLeadId));
           if(l){
-            if(l.visitedAt) _advApplyVisited(l.visitedAt);
+            _advApplyVisited(l.visitedAt,l.callStatus);   // also resolves Open vs Confirm, so it runs even when not visited
             // Always call _advApplyEnrolled (not only when enrolled): it also manages the call-status
             // dropdown lock, so a non-enrolled lead opened after an enrolled one must run it to UNLOCK.
             _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
@@ -4084,10 +4123,20 @@ export function initApp(root: HTMLElement) {
     // Visited status is READ-ONLY on the advisor page and driven ONLY by leads.visited_at,
     // which the reception "Confirm check-in" sets. Never toggled by advisor clicks or any
     // other action — this just mirrors the stored value (Visited if visited_at is set).
-    function _advApplyVisited(visitedAt:any){
+    // Three states, all derived — never toggled by a click:
+    //   Visited  visited_at is set (reception confirmed the check-in)
+    //   Confirm  not yet visited, but an appointment is fixed/confirmed on the call status
+    //   Open     neither
+    // callStatus is optional: when the caller doesn't have it, fall back to the in-memory lead so a
+    // refresh that only carries visited_at can't silently drop a lead back from Confirm to Open.
+    function _advApplyVisited(visitedAt:any,callStatus?:any){
       const isV=!!visitedAt;
+      let cs=String(callStatus==null?"":callStatus);
+      if(!cs){ try{ const l=_advFindLead(String(_advLeadId)); cs=String((l&&l.callStatus)||""); }catch(_){} }
+      const isC=!isV&&/appointment/i.test(cs);
+      const idx=isV?2:(isC?1:0);
       const cont=root.querySelector("#visStatusPills");
-      if(cont){ cont.querySelectorAll(".pill").forEach((b:any,i:number)=>b.classList.toggle("on", i===(isV?1:0))); }
+      if(cont){ cont.querySelectorAll(".pill").forEach((b:any,i:number)=>b.classList.toggle("on", i===idx)); }
       const vd=root.querySelector("#visDt")as HTMLInputElement|null;
       if(vd) vd.value=isV?fmtIST(visitedAt):"";
     }
@@ -4173,7 +4222,7 @@ export function initApp(root: HTMLElement) {
         }
         if(enrLvl) l.enrolledLevel=enrLvl;
         // Applied AFTER the profile restore so it always wins over any stale saved pill state.
-        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(row.visited_at); _advApplyEnrolled(row.call_status,row.enrolled_at,enrLvl); }
+        if(String(_advLeadId)===String(l.id)){ _advApplyVisited(row.visited_at,row.call_status); _advApplyEnrolled(row.call_status,row.enrolled_at,enrLvl); }
       }catch(_){/* network error — local copy already applied */}
     }
     function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
@@ -4218,10 +4267,14 @@ export function initApp(root: HTMLElement) {
       // Mandatory Basic-info fields — block save until ALL are filled. Highlight every missing
       // field at once (red border) and name them in a single notification, so the user sees
       // exactly what's still pending rather than one-at-a-time.
-      const _reqAdv:[string,string][]=[["#advfName","Name"],["#advfPhone","Phone Number"],["#advfGender","Gender"],["#advfAge","Age"],["#advfOcc","Occupation"],["#advfLang","Language"],["#advfLoc","Location"],["#advfSugar","Sugar level"]];
+      const _reqAdv:[string,string][]=ADV_REQUIRED;
       const _clrErr=(sel:string)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.classList.remove("err"); };
       _reqAdv.forEach(([sel])=>_clrErr(sel)); _clrErr("#occOth");
       const _missing:string[]=[]; let _firstBad:HTMLElement|null=null;
+      // A no-contact status drops EVERY mandatory field at once — the advisor learned nothing on the
+      // call, so there is nothing to demand. Skipping the whole loop (rather than field by field)
+      // keeps that intent obvious and can't be partially undone by a later exemption.
+      const _noContactNow=_advNoContact();
       for(const [sel,lbl] of _reqAdv){
         const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
         // A PHYSIOTHERAPY lead hides every ".adv-nonphysio" field (Occupation, Language, Email,
@@ -4233,6 +4286,7 @@ export function initApp(root: HTMLElement) {
         // medical profile section, so neither can be mandatory — the save would otherwise be blocked
         // on fields the user cannot even see. Scoped to this layout; every other service is unchanged.
         if(_advLayoutBt&&(sel==="#advfOcc"||sel==="#advfSugar")) continue;
+        if(_noContactNow) continue;   // no-contact status → nothing on this profile is mandatory
         const v=((el&&el.value)||"").trim();
         let bad=!v||/^--\s*select\s*--$/i.test(v);
         if(!bad&&sel==="#advfOcc"&&/^others$/i.test(v)){
@@ -4677,9 +4731,9 @@ export function initApp(root: HTMLElement) {
     // Removed on request (6 Aug 2026): Payment Pending, Payment Completed, Interested, Not
     // Interested, Callback Requested. They stay in the LABEL/CODE maps below so a lead that already
     // carries one of those stored values still displays it — the dropdown just no longer offers them.
-    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Not Reachable"];
-    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Open:"new"};
-    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested"};
+    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Not Reachable","Not Interested","Disconnect"];
+    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Disconnect:"disc",Open:"new"};
+    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested",disc:"Disconnect"};
     function haBucketOf(cs:string){
       const s=(cs||"").toLowerCase();
       if(/enrol/.test(s)) return "enrolled";
@@ -4691,7 +4745,9 @@ export function initApp(root: HTMLElement) {
       // (0 rows). Without that fallback it would silently drop into Open Leads.
       // "Zoom" was renamed to "Home" (same afz code). Match both so leads saved under the old label
       // still bucket correctly instead of silently falling into Appointment-Direct.
-      if(/appointment/.test(s)) return /zoom|home/.test(s)?"apptZoom":"apptDirect";
+      // "Appointment Confirmed" is its OWN bucket — checked before the Direct/Home split, which would
+      // otherwise swallow it into Direct (it names no mode) and hide the confirmed count entirely.
+      if(/appointment/.test(s)) return /confirm/.test(s)?"apptConfirmed":(/zoom|home/.test(s)?"apptZoom":"apptDirect");
       if(/visited/.test(s)) return "health";
       if(/follow up|call back|callback/.test(s)) return "followup";
       if(/not interested|no sugar|wrong number|dnd/.test(s)) return "closed";
@@ -4705,6 +4761,7 @@ export function initApp(root: HTMLElement) {
       {key:"open",label:"Open Leads",c:"g"},
       {key:"apptDirect",label:"Appointment Fixed – Direct",c:""},
       {key:"apptZoom",label:"Appointment Fixed – Zoom",c:""},
+      {key:"apptConfirmed",label:"Appointment Confirmed",c:""},
       {key:"health",label:"Visited",c:""},{key:"payment",label:"Payment Stage",c:"a"},
       {key:"enrolled",label:"Enrolled",c:"g"},{key:"followup",label:"Follow-up",c:""},
       {key:"closed",label:"Closed / Converted",c:"a"}
@@ -4803,7 +4860,7 @@ export function initApp(root: HTMLElement) {
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
-      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
+      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,apptConfirmed:0,health:0,payment:0,enrolled:0,followup:0,closed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       // "Visited" is a JOURNEY MILESTONE, not a current-status bucket: it counts every lead that has
       // ACTUALLY visited (leads.visited_at), no matter how far they've progressed since. The bucket
@@ -4836,7 +4893,7 @@ export function initApp(root: HTMLElement) {
         const _shownCards=_btView?HA_CARDS.filter(c=>_btKeys.indexOf(c.key)>=0):HA_CARDS;
         cards.push(..._shownCards.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
-          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Zoom + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number."':'')
+          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Appointment Confirmed + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number."':'')
           +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+((_btView&&c.key==="apptZoom")?"Appointment Fixed – Home":c.label)+'</div>'+mv(counts[c.key])+'</div>'));
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
@@ -4971,17 +5028,18 @@ export function initApp(root: HTMLElement) {
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
       // Follow-ups card → dedicated table: name, number, planned date & time, source, advisor, status.
       if(_haActiveBucket==="followup"){
-        const hd=root.querySelector("#haResultsHead"); if(hd)hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Planned Follow-up Date &amp; Time</th><th>Source · Lang</th><th>Assigned Advisor</th><th>Follow-up Status</th>';
-        const now=Date.now();
-        body.innerHTML=list.length?list.map((l:any)=>{ const nf=(_advLeadsDet[String(l.id)]||{}).next_followup; const due=nf&&new Date(nf).getTime()<=now;
+        const hd=root.querySelector("#haResultsHead"); if(hd)hd.innerHTML=gridHead("haFu");
+        const _fuR=gridApply("haFu",list);
+        body.innerHTML=_fuR.length?_fuR.map((l:any)=>{ const nf=_haFuNext(l); const overdue=_haFuState(l)==="Overdue";
           return '<tr>'
             +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
             +'<td class="mono">'+e(l.phone||"—")+'</td>'
-            +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(nf?fmtIST(nf):"—")+'</td>'
+            +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_haFuWhen(l))+'</td>'
             +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
             +'<td>'+e(l.assignedTo||"—")+'</td>'
-            +'<td>'+(nf?(due?'<span class="chipb al">Overdue</span>':'<span class="chipb warn">Pending</span>'):'<span class="chipb neu">Pending</span>')+'</td></tr>';
-        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No pending follow-ups')+'</td></tr>';
+            +'<td>'+(overdue?'<span class="chipb al">Overdue</span>':'<span class="chipb '+(nf?"warn":"neu")+'">Pending</span>')+'</td></tr>';
+        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'
+          +(_haQuery?('No match for “'+e(_haQuery)+'”'):(list.length?'No rows match the column filters':'No pending follow-ups'))+'</td></tr>';
         return;
       }
       // The Enrolled rows below render the DETAILED payment stage from _advProgPay. That map is loaded
@@ -8469,7 +8527,7 @@ export function initApp(root: HTMLElement) {
       if(_scr==="coach"&&("visitedAt" in m)&&m.visitedAt&&!_coachClients.some((x:any)=>String(x.id)===id)){ try{ loadCoachClients(); }catch(_){} }
       // If the affected lead is OPEN in this tab's Advisor / Coach profile, apply it live.
       try{ if(String(_advLeadId)===id&&m.callStatus!=null) _advApplyEnrolled(m.callStatus,m.enrolledAt,m.consStatus); }catch(_){}
-      try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt); }catch(_){}
+      try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt,m.callStatus); }catch(_){}
       // Open Coach profile on a cross-tab ENROLL: flip the consultation-status pills (not just the pay
       // chip) so the panel matches, then refresh the chip.
       try{ if(String(_coachLeadId)===id){ const cs=String(m.consStatus||""); if(/enrol/i.test(String(m.callStatus||""))||/enrol/i.test(cs)){ const lvl=/l1\s*\+\s*l2/i.test(cs)?"L1 + L2":(/l2/i.test(cs)?"L2":"L1"); try{ const code=lvl==="L2"?"enrol2":"enrol1"; const pill=root.querySelector('#consStatus .pill[onclick*="'+code+'"]')as HTMLElement|null; if(pill){ root.querySelectorAll("#consStatus .pill").forEach((b:any)=>b.classList.remove("on")); pill.classList.add("on"); if(typeof consAct==="function") consAct(code,pill); } }catch(_){} _setPayEnrollDisplay(lvl,m.enrolledAt||""); _refreshPayEnrollChip(); } } }catch(_){}
@@ -8819,7 +8877,7 @@ export function initApp(root: HTMLElement) {
       }
       // Follow-up plan "Planned date & time" mirrors the canonical Next-follow-up field.
       if(v==="fu"){ const _fp=root.querySelector("#fuPlannedDt")as HTMLInputElement|null; if(_fp) _fp.value=((root.querySelector("#nextFollowUp")as HTMLInputElement)?.value)||_fp.value; }
-      const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:[_advLayoutBt?"Appt Fixed (Home)":"Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"]};
+      const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:[_advLayoutBt?"Appt Fixed (Home)":"Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"],disc:["Disconnect","warn"]};
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
       if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=_todayLocal(); renderSlots(); }   // LOCAL date (not UTC) so an early-morning IST default isn't "yesterday" and rejected by bookSlot's _todayLocal check. no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
@@ -8828,6 +8886,11 @@ export function initApp(root: HTMLElement) {
       // profile re-writes its (possibly stale) saved call_status back to the DB, silently un-enrolling
       // it on the dashboard. This mirrors the _advApplying guard already used for the activity log below.
       if(!_advApplying && w._haSetCallStatus) w._haSetCallStatus(_csLabelOf(v));
+      // The Visited-status pills are DERIVED from this dropdown (Open → Confirm → Visited), so they
+      // have to follow it the moment it changes rather than waiting for the next load/reconcile.
+      // Runs while applying a saved profile too — it only mirrors state, it never writes anything.
+      try{ const _vl=_advFindLead(String(_advLeadId)); _advApplyVisited(_vl&&_vl.visitedAt,_csLabelOf(v)); }catch(_){}
+      try{ _advSyncReqMarks(); }catch(_){}   // no-contact statuses drop the * from Gender / Occupation
       // Audit: log a real status change (but not when restoring a saved profile).
       if(!_advApplying && _advLeadId) logActivity(_advLeadId,[{action:"Status Changed",field:"Call status",new:_csLabelOf(v)}]);
     }
@@ -13716,10 +13779,66 @@ export function initApp(root: HTMLElement) {
       }catch(e:any){ if(!reload) throw e; toastErr(/verified|column/i.test(e.message||"")?"Run supabase-migration-module-columns.sql first":"Verify failed"); }
     };
     w._accCollect=(id:number,name:string,amt:number,leadId:string)=>{ recOpen("",name,amt,leadId); if(_recCollect) _recCollect.payId=id; };   // settle this outstanding payment row (not a new insert)
-    w._accProcessRefund=async(id:number)=>{
-      try{ await supabase.from("payments").update({refund_status:"processed",refund_processed_at:new Date().toISOString()}).eq("id",id);
-        toast("Refund processed"); await loadAccountsData();
-      }catch(e:any){ toastErr("Refund failed: "+(e.message||"")); }
+    // Processing a refund moves real money, so it does NOT fire straight off the row button any more.
+    // "Process" opens a confirmation dialog that restates who is being refunded and what they paid,
+    // and makes the operator TYPE the amount rather than click past a pre-filled one — the same
+    // double-entry guard a bank transfer screen uses. The typed figure is what gets recorded, so a
+    // partial refund is expressible; if it differs from the requested amount the dialog says so
+    // rather than silently accepting it.
+    w._accProcessRefund=(id:number)=>{
+      const p=_accPays.find((r:any)=>String(r.id)===String(id));
+      if(!p){ toastErr("Refund row not found — reload the page"); return; }
+      const esc=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const paid=Number(p.amount||0), asked=Number(p.refund_amount||0);
+      const inr=(n:number)=>"₹"+Number(n||0).toLocaleString("en-IN");
+      const ov=document.createElement("div");
+      ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px";
+      const box=document.createElement("div");
+      box.style.cssText="background:var(--surf,#fff);border-radius:14px;padding:22px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
+      const row=(k:string,v:string,mono:boolean)=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line,#eee)">'
+        +'<span style="font-size:12px;color:var(--muted)">'+k+'</span>'
+        +'<span'+(mono?' class="mono"':'')+' style="font-size:13px;font-weight:600;color:var(--ink);text-align:right">'+v+'</span></div>';
+      box.innerHTML='<div style="font-weight:700;font-size:15px;margin-bottom:12px;color:var(--ink)">Process refund</div>'
+        +row("Client",esc(p.clientName||"—"),false)
+        +row("Paid",inr(paid),true)
+        +row("Refund requested",inr(asked),true)
+        +(p.refund_reason?row("Reason",esc(p.refund_reason),false):"")
+        +'<label style="display:block;font-size:12px;color:var(--muted);margin:14px 0 6px">Amount to refund (₹) — re-enter to confirm</label>'
+        +'<input class="input" id="rfAmt" inputmode="numeric" autocomplete="off" placeholder="Type the amount" style="width:100%">'
+        +'<div id="rfNote" style="font-size:11px;color:var(--faint);margin-top:6px;min-height:15px"></div>'
+        +'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px"><button class="btn bsm" id="rfCancel">Cancel</button>'
+        +'<button class="btn bsm bp" id="rfYes" disabled style="opacity:.5">Confirm refund</button></div>';
+      ov.appendChild(box); document.body.appendChild(ov);
+      const amtEl=box.querySelector("#rfAmt") as HTMLInputElement;
+      const noteEl=box.querySelector("#rfNote") as HTMLElement;
+      const yesEl=box.querySelector("#rfYes") as HTMLButtonElement;
+      const close=()=>{ document.removeEventListener("keydown",onKey); if(ov.parentNode)document.body.removeChild(ov); };
+      // Returns the amount to record, or 0 when what's typed can't be processed.
+      const val=()=>{
+        const raw=(amtEl.value||"").replace(/[₹,\s]/g,"");
+        const n=Math.round(Number(raw));
+        if(!raw){ noteEl.textContent=""; noteEl.style.color="var(--faint)"; return 0; }
+        if(!isFinite(n)||n<=0){ noteEl.textContent="Enter a valid amount."; noteEl.style.color="var(--alert-ink,#c0392b)"; return 0; }
+        if(n>paid){ noteEl.textContent="Cannot refund more than the "+inr(paid)+" paid."; noteEl.style.color="var(--alert-ink,#c0392b)"; return 0; }
+        if(n!==asked){ noteEl.textContent="Differs from the "+inr(asked)+" requested — "+inr(n)+" will be recorded."; noteEl.style.color="var(--warn-ink,#b26a00)"; }
+        else { noteEl.textContent="Matches the requested amount."; noteEl.style.color="var(--faint)"; }
+        return n;
+      };
+      const sync=()=>{ const ok=val()>0; yesEl.disabled=!ok; yesEl.style.opacity=ok?"1":".5"; };
+      amtEl.oninput=sync;
+      const go=async()=>{
+        const amt=val(); if(amt<=0) return;
+        yesEl.disabled=true; yesEl.textContent="Processing…";
+        const ok=await _dbOk(supabase.from("payments").update({refund_status:"processed",refund_amount:amt,refund_processed_at:new Date().toISOString()}).eq("id",id),"Refund");
+        if(!ok){ yesEl.disabled=false; yesEl.textContent="Confirm refund"; return; }
+        close(); toast("Refund of "+inr(amt)+" processed ✓"); await loadAccountsData();
+      };
+      yesEl.onclick=go;
+      (box.querySelector("#rfCancel") as HTMLElement).onclick=close;
+      ov.onclick=(ev)=>{ if(ev.target===ov) close(); };
+      const onKey=(ev:KeyboardEvent)=>{ if(ev.key==="Escape") close(); else if(ev.key==="Enter"&&document.activeElement===amtEl){ ev.preventDefault(); go(); } };
+      document.addEventListener("keydown",onKey);
+      setTimeout(()=>amtEl.focus(),30);
     };
     w._accExport=()=>{ if(!_accPays.length){toast("Nothing to export");return;}
       const out:string[][]=[["Date","Client","Service","Method","Amount","Status","Verified","Txn Ref"]];
