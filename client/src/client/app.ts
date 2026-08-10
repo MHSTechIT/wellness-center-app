@@ -14295,11 +14295,14 @@ export function initApp(root: HTMLElement) {
       {key:"lb",label:"Line Busy",group:"CALL STATUS",gcls:"g-call"},
       {key:"rnr",label:"RNR",group:"CALL STATUS",gcls:"g-call"},
       {key:"dnd",label:"DND",group:"CALL STATUS",gcls:"g-call"},
-      {key:"so",label:"Switched Off",group:"CALL STATUS",gcls:"g-call"},
+      {key:"so",label:"Not Reachable",group:"CALL STATUS",gcls:"g-call"},
       {key:"oos",label:"Out of Svc",group:"CALL STATUS",gcls:"g-call"},
       {key:"wn",label:"W/N",group:"CALL STATUS",gcls:"g-call"},
       {key:"open",label:"Open",group:"CALL STATUS",gcls:"g-call"},
-      {key:"blank",label:"Blank",group:"CALL STATUS",gcls:"g-call"},
+      // "blank" is the NO-STATUS bucket (_rpcCallKey returns it for an empty call_status), i.e. a
+      // lead nobody has actioned yet — hence "New". It must not read "Not Interested": that is the
+      // separate `ni` column below, and the two count completely different things.
+      {key:"blank",label:"New",group:"CALL STATUS",gcls:"g-call"},
       {key:"ni",label:"Not Int.",group:"CALL STATUS",gcls:"g-call"},
       {key:"nosugar",label:"No Sugar",group:"CALL STATUS",gcls:"g-call"},
       {key:"callTot",label:"Total Calls",group:"CALL STATUS",gcls:"g-call"},
@@ -14312,7 +14315,7 @@ export function initApp(root: HTMLElement) {
       {key:"sugarMid",label:"Sugar 150-250",group:"HEALTH PROFILE",gcls:"g-health"},
       {key:"sugarNo",label:"No Sugar",group:"HEALTH PROFILE",gcls:"g-health"},
       {key:"hafDone",label:"Screened",group:"HEALTH PROFILE",gcls:"g-health"},
-      {key:"consWJ",label:"Will Join",group:"CONSULTATION",gcls:"g-cons"},
+      {key:"consWJ",label:"Will Join Immediately",group:"CONSULTATION",gcls:"g-cons"},
       {key:"consTW",label:"This Week",group:"CONSULTATION",gcls:"g-cons"},
       {key:"consNW",label:"Next Week",group:"CONSULTATION",gcls:"g-cons"},
       {key:"consTM",label:"This/Next Month",group:"CONSULTATION",gcls:"g-cons"},
@@ -14321,10 +14324,10 @@ export function initApp(root: HTMLElement) {
       {key:"progL1",label:"L1 Only",group:"PROGRAM",gcls:"g-prog"},
       {key:"progL2",label:"L2 Only",group:"PROGRAM",gcls:"g-prog"},
       {key:"progBoth",label:"Both",group:"PROGRAM",gcls:"g-prog"},
-      {key:"enr",label:"Enrolled",group:"PAYMENT",gcls:"g-pay"},
-      {key:"fp",label:"Full Paid",group:"PAYMENT",gcls:"g-pay"},
-      {key:"pp",label:"Part Paid",group:"PAYMENT",gcls:"g-pay"},
-      {key:"inst",label:"Instalment",group:"PAYMENT",gcls:"g-pay"},
+      {key:"enr",label:"L1 Enrolled",group:"PAYMENT",gcls:"g-pay"},
+      {key:"fp",label:"L2 Full Paid",group:"PAYMENT",gcls:"g-pay"},
+      {key:"pp",label:"Total Pay",group:"PAYMENT",gcls:"g-pay"},
+      {key:"inst",label:"L2 Instalment",group:"PAYMENT",gcls:"g-pay"},
       {key:"emi",label:"EMI",group:"PAYMENT",gcls:"g-pay"},
       {key:"alrPaid",label:"Alr. Paid",group:"PAYMENT",gcls:"g-pay"},
       {key:"payCol",label:"Pay Collected",group:"PAYMENT",gcls:"g-pay"},
@@ -14332,8 +14335,8 @@ export function initApp(root: HTMLElement) {
       // permanent placeholders (spend hardcoded to 0, ROAS rendering a literal "—" for every row).
       // Revenue is what was BILLED (instalments still due included); Collected is what came in. They
       // were one number before, which hid every outstanding balance.
-      {key:"rev",label:"Revenue (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
-      {key:"revCol",label:"Collected (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"rev",label:"Total Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      {key:"revCol",label:"Instalment Collected",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revOut",label:"Outstanding (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL1",label:"L1 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL2",label:"L2 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
@@ -14836,7 +14839,11 @@ export function initApp(root: HTMLElement) {
       if(t.indexOf("line busy")>=0||t==="busy") return "lb";
       if(t.indexOf("rnr")>=0) return "rnr";
       if(t.indexOf("dnd")>=0) return "dnd";
-      if(t.indexOf("switched")>=0) return "so";
+      // The `so` column is labelled "Not Reachable", so a lead actually SET to "Not Reachable" has to
+      // land in it. It matched nothing before: the status fell through to "" and was counted in no
+      // call-status column and excluded from Total Calls, so the renamed column would have reported
+      // only the leads still on the older "Switched Off" wording.
+      if(t.indexOf("switched")>=0||t.indexOf("not reachable")>=0) return "so";
       if(t.indexOf("out of service")>=0) return "oos";
       if(t.indexOf("wrong")>=0) return "wn";
       if(t==="open"||t==="new") return "open";
