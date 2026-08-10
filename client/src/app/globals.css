@@ -626,6 +626,15 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .rpc .custom-range.show{display:flex}
 .rpc .ctrl2{padding:6px 14px;background:#F9FAFB;border-bottom:0.5px solid #E5E7EB;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .rpc .filter-sel{font-size:10px;padding:3px 7px;border:0.5px solid #D1D5DB;border-radius:7px;height:26px;background:#fff;color:#111827;max-width:150px}
+/* Which date each lead is counted on: off = created, on = latest completed process. Sits left of
+   Sort, and reads as a switch so the two states are obvious without opening the tooltip. */
+.rpc .rpc-tgl{display:inline-flex;align-items:center;gap:6px;height:26px;padding:3px 9px 3px 5px;margin-right:6px;
+  border:0.5px solid #D1D5DB;border-radius:7px;background:#fff;color:#6B7280;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap}
+.rpc .rpc-tgl .sw{width:24px;height:14px;border-radius:999px;background:#D1D5DB;position:relative;transition:background .15s;flex:none}
+.rpc .rpc-tgl .kn{position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.rpc .rpc-tgl[aria-pressed="true"]{border-color:var(--brand-600);color:var(--brand-700,#0B7A5A);background:var(--ok-bg,#ECFDF5)}
+.rpc .rpc-tgl[aria-pressed="true"] .sw{background:var(--brand-600)}
+.rpc .rpc-tgl[aria-pressed="true"] .kn{transform:translateX(10px)}
 .rpc .search-input{font-size:10px;padding:3px 8px;border:0.5px solid #D1D5DB;border-radius:7px;height:26px;background:#fff;color:#111827;width:130px}
 .rpc .btn-s{padding:3px 11px;border:0.5px solid #D1D5DB;border-radius:7px;font-size:10px;cursor:pointer;background:#fff;color:#111827;height:26px;white-space:nowrap;display:flex;align-items:center;gap:4px}
 .rpc .btn-s svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.5}

@@ -2869,6 +2869,12 @@ export function initApp(root: HTMLElement) {
     // from the DB so they flow through the SAME pool → assign pipeline.
     let _poolExtras:any[]=[];
     let _assignedExtras:any[]=[];
+    // EXACTLY the Visited-status pill's middle state: confirmed_at stamped by the Confirm button and
+    // not yet visited (_advApplyVisited: isC = !isV && !!cAt). Deliberately NOT derived from a
+    // booked appointment — "Appointment Fixed – Zoom/Direct" means a slot was chosen, not that the
+    // client confirmed it, and counting those made the card read the whole appointment book.
+    // Visited still wins: a lead who turned up is past the confirming stage and belongs to Visited.
+    const _advIsConfirmed=(l:any)=>!!(l&&l.confirmedAt&&!l.visitedAt);
     async function loadAssignmentExtras(){
       try{
         const [pr,ar]=await Promise.all([
@@ -4779,6 +4785,14 @@ export function initApp(root: HTMLElement) {
     // carries one of those stored values still displays it — the dropdown just no longer offers them.
     const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Visited","Enrolled","Not Reachable","Not Interested","Disconnect"];
     const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Disconnect:"disc",Open:"new"};
+    // Which appointment MODE a call-status label implies, or null when the label is not an
+    // appointment at all. Keyed off the afd/afz codes above so "Home" (the current wording) and
+    // "Zoom" (the older one, same afz code) both resolve to the stored "zoom" that the reports and
+    // the check-in queues match on.
+    const _apptModeFor=(label:string):string|null=>{
+      const code=HA_LABEL2CODE[String(label||"").trim()];
+      return code==="afz"?"zoom":code==="afd"?"direct":null;
+    };
     const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested",disc:"Disconnect"};
     function haBucketOf(cs:string){
       const s=(cs||"").toLowerCase();
@@ -5103,10 +5117,11 @@ export function initApp(root: HTMLElement) {
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
       const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
-      // MANUAL "Confirmed" milestone: counts only leads someone actually pressed Confirm on
-      // (leads.confirmed_at). Like Visited-ever it is NOT one of the mutually-exclusive stage
-      // buckets, so it is counted separately here and left out of the sum-to-Total partition.
-      counts.confirmed=book.filter((l:any)=>!!l.confirmedAt).length;
+      // "Confirmed" mirrors the Visited-status pill exactly — see _advIsConfirmed. It counts the
+      // leads sitting in the Confirm state, nothing inferred from an appointment being booked.
+      // It overlaps the status buckets, so like Visited-ever it stays out of the sum-to-Total
+      // partition and is counted separately here.
+      counts.confirmed=book.filter((l:any)=>_advIsConfirmed(l)).length;
       // "Visited" is a JOURNEY MILESTONE, not a current-status bucket: it counts every lead that has
       // ACTUALLY visited (leads.visited_at), no matter how far they've progressed since. The bucket
       // version zeroed out the moment a visited lead enrolled — the dashboard read "Visited 0,
@@ -5234,9 +5249,8 @@ export function initApp(root: HTMLElement) {
         // The Visited CARD drills into its stage bucket (falling through below, so the table matches
         // the number on its face). Its sub-line drills here instead: everyone who has ever visited,
         // including those who have since moved on.
-        // Confirmed drills into the SAME set its count comes from: manually confirmed leads only,
-        // never anything inferred from a call status.
-        : (_haActiveBucket==="confirmed"?book.filter((l:any)=>!!l.confirmedAt)
+        // Confirmed drills into the SAME set its count comes from — leads holding a live appointment.
+        : (_haActiveBucket==="confirmed"?book.filter((l:any)=>_advIsConfirmed(l))
         : (_haActiveBucket==="visitedEver"?book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))
         : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket)))));
       // Search box above the table — applies to EVERY card's table, matching the fields the tables
@@ -5343,6 +5357,12 @@ export function initApp(root: HTMLElement) {
       // OLD status. A status change can move a lead OUT of the queue too, so this runs for every
       // label, not just the Zoom one.
       await supabase.from("leads").update({call_status:label}).eq("meta_lead_id",id);
+      // The APPOINTMENTS columns read appointments.meeting_type, NOT the lead's call status, so
+      // switching a booked lead from Direct to Zoom left the appointment row untouched and the
+      // report kept counting it as Direct (reported for Sathya +918610277979: lead read
+      // "Appointment Fixed – Zoom" while appointment 194 still had meeting_type = null).
+      const _mode=_apptModeFor(label);
+      if(_mode) await _dbOk(supabase.from("appointments").update({meeting_type:_mode}).eq("lead_id",id).eq("status","expected"),"Appointment mode");
       try{ await loadZoomCheckins(); }catch(_){}
       _broadcastLeadSync({leadId:id,callStatus:label});   // other open tabs (Reception/Coach) update live
     };
@@ -8498,6 +8518,11 @@ export function initApp(root: HTMLElement) {
       const rp=root.querySelector("#recWbPlan"); if(rp) rp.textContent="Collection";
       const rd=root.querySelector("#recWbDue")as HTMLInputElement; if(rd) rd.value="₹"+(Number(amt)||0).toLocaleString("en-IN");
       const ra=root.querySelector("#recWbAmt")as HTMLInputElement; if(ra) ra.value=String(Number(amt)||0);
+      // Re-sync the Txn-ref field to whatever Mode currently reads. _syncCashTxn otherwise only runs
+      // at startup and on `change`, so a panel opening with Mode already on Cash — a value the
+      // browser restored, or one left behind by the previous collection — showed a Txn ref field
+      // that Cash does not use, still carrying the old reference.
+      try{ _syncCashTxn(); }catch(_){}
     }
     w._recOpen = recOpen;
     // Collect Payment routing: a patient whose services include Blood Test opens the dedicated Blood
@@ -9272,9 +9297,16 @@ export function initApp(root: HTMLElement) {
         const _exRes:any=await supabase.from("appointments").select("id").eq("lead_id",_advLeadId).eq("status","expected").order("appt_date",{ascending:true}).limit(50);
         if(_exRes&&_exRes.error){ toastErr("Booking failed: "+(_exRes.error.message||"database error")); return; }
         const existing=_exRes?.data||[];
+        // Carry the Direct/Zoom mode onto the row. Booking never recorded it, so every slot-board
+        // appointment stored meeting_type = null (90 of them) and the report's Appt Direct / Appt
+        // Zoom split — which reads meeting_type, not the lead's status — put all of them under
+        // Direct. Only written when the status actually names a mode, so booking before choosing one
+        // does not clobber a mode already set.
+        const _mode=_apptModeFor(lead?(lead.callStatus||""):"");
+        const _modeCol=_mode?{meeting_type:_mode}:{};
         const _wOk=existing[0]
-          ? await _dbOk(supabase.from("appointments").update({appt_date:date,appt_time:selSlot,hc_pt:hc,status:"expected"}).eq("id",existing[0].id),"Booking")
-          : await _dbOk(supabase.from("appointments").insert({lead_id:_advLeadId,client_name:name,phone:lead?(lead.phone||""):"",service:_leadApptService(lead),hc_pt:hc,appt_date:date,appt_time:selSlot,status:"expected",source:"Advisor slot board",language:lead?(lead.lang||"Tamil"):"Tamil"}),"Booking");
+          ? await _dbOk(supabase.from("appointments").update({appt_date:date,appt_time:selSlot,hc_pt:hc,status:"expected",..._modeCol}).eq("id",existing[0].id),"Booking")
+          : await _dbOk(supabase.from("appointments").insert({lead_id:_advLeadId,client_name:name,phone:lead?(lead.phone||""):"",service:_leadApptService(lead),hc_pt:hc,appt_date:date,appt_time:selSlot,status:"expected",source:"Advisor slot board",language:lead?(lead.lang||"Tamil"):"Tamil",..._modeCol}),"Booking");
         if(!_wOk) return;
         // A lead has ONE pending appointment. Any extra 'expected' rows are leftovers from the bug
         // above — cancel them so their slots are released instead of blocking the board forever.
@@ -10119,15 +10151,20 @@ export function initApp(root: HTMLElement) {
       const f=_scFiltered; const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Screened is a MILESTONE: saved vitals count no matter how far the stage has moved since
       // (enrolled/payment/…). Stage alone erased a screened client the moment they progressed.
-      const screened=f.filter((r:any)=>r.stage==="screened"||r.stage==="done"||r.hasSv);
+      const _scIsScreened=(r:any)=>r.stage==="screened"||r.stage==="done"||r.hasSv;
+      const screened=f.filter(_scIsScreened);
+      // Expected = STILL TO BE SCREENED, not "everyone booked today". It was the whole list, so a
+      // client who had already been screened kept sitting in Expected as well (reported for Sathya:
+      // Expected 1 / Screened 1, one person counted twice). Expected + Screened is the day's total.
+      const expected=f.filter((r:any)=>!_scIsScreened(r));
       const waiting=f.filter((r:any)=>r.stage==="screening"&&!r.hasSv&&!r.screenedAt);
       const inProg=f.filter((r:any)=>r.stage==="screening"&&_scOpenAppt&&_scOpenAppt.id===r.id);
       const eligible=screened.filter((r:any)=>r.eligible==="yes");
       const notEligible=screened.filter((r:any)=>r.eligible==="no");
       // Each KPI card owns the exact cohort it counts, so the number on the card and the list it
       // opens can never disagree — the count IS the list's length.
-      const _scCohorts:Record<string,any[]>={expected:f,screened,inprog:inProg,waiting,eligible,noteligible:notEligible};
-      const metrics=[{k:"expected",l:"Expected",v:f.length,c:""},{k:"screened",l:"Screened",v:screened.length,c:"g"},{k:"inprog",l:"In progress",v:inProg.length,c:"a"},
+      const _scCohorts:Record<string,any[]>={expected,screened,inprog:inProg,waiting,eligible,noteligible:notEligible};
+      const metrics=[{k:"expected",l:"Expected",v:expected.length,c:""},{k:"screened",l:"Screened",v:screened.length,c:"g"},{k:"inprog",l:"In progress",v:inProg.length,c:"a"},
         {k:"waiting",l:"Waiting",v:waiting.length,c:""},{k:"eligible",l:"Eligible",v:eligible.length,c:"g"},{k:"noteligible",l:"Not eligible",v:notEligible.length,c:"r"}];
       if(_scCardFilter&&!_scCohorts[_scCardFilter]) _scCardFilter="";   // stale key (shouldn't happen) → show everything
       // Click-to-filter, mirroring the Reception status cards: the active card gets a brand outline
@@ -10162,7 +10199,9 @@ export function initApp(root: HTMLElement) {
       }).join(""):'<div style="text-align:center;color:var(--faint);padding:14px;font-size:12px">'+(_scCardFilter?("No "+e(_cardLbl).toLowerCase()+" clients"+(_scSvcFilter?(" for "+e(_scSvcFilter)):"")+"."):"No clients in screening queue.")+'</div>');
       // Breakdown by service
       const bySvc:Record<string,{screened:number;waiting:number}>={};
-      f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(r.screenedAt||r.hasSv) bySvc[s].screened++; else bySvc[s].waiting++; });
+      // Same screened test as the cards (_scIsScreened) — this used to check only screenedAt/hasSv,
+      // so a row marked stage "screened"/"done" could read Screened above and Waiting here.
+      f.forEach((r:any)=>{ const s=r.service||"Other"; if(!bySvc[s]) bySvc[s]={screened:0,waiting:0}; if(_scIsScreened(r)) bySvc[s].screened++; else bySvc[s].waiting++; });
       const svcIcon=(s:string)=>s.toLowerCase().includes("blood")?"🩸":s.toLowerCase().includes("physio")?"💪":"🩺";
       const bd=root.querySelector("#scBreakdown"); if(bd) bd.innerHTML=Object.keys(bySvc).length?'<table class="tbl"><tbody>'+Object.entries(bySvc).map(([s,d])=>{
         const on=_scSvcFilter===s;
@@ -14304,7 +14343,13 @@ export function initApp(root: HTMLElement) {
       // separate `ni` column below, and the two count completely different things.
       {key:"blank",label:"New",group:"CALL STATUS",gcls:"g-call"},
       {key:"ni",label:"Not Int.",group:"CALL STATUS",gcls:"g-call"},
-      {key:"nosugar",label:"No Sugar",group:"CALL STATUS",gcls:"g-call"},
+      // Disconnect is a selectable call status, but had no column and no _rpcCallKey mapping, so
+      // those leads were counted nowhere and silently dropped from Total Calls.
+      {key:"disc",label:"Disconnect",group:"CALL STATUS",gcls:"g-call"},
+      // Distinct from HEALTH PROFILE's "No Sugar", which reads sugar_poll. This one is a CALL
+      // OUTCOME (call_status = "No Sugar"). Two columns carrying the same label had people setting a
+      // lead's sugar level and waiting for this column to move, which it never will.
+      {key:"nosugar",label:"No Sugar (call)",group:"CALL STATUS",gcls:"g-call"},
       {key:"callTot",label:"Total Calls",group:"CALL STATUS",gcls:"g-call"},
       {key:"apptD",label:"Appt Direct",group:"APPOINTMENTS",gcls:"g-appt"},
       {key:"apptZ",label:"Appt Zoom",group:"APPOINTMENTS",gcls:"g-appt"},
@@ -14313,7 +14358,7 @@ export function initApp(root: HTMLElement) {
       {key:"vis",label:"Visited",group:"APPOINTMENTS",gcls:"g-appt"},
       {key:"sugarHi",label:"Sugar >250",group:"HEALTH PROFILE",gcls:"g-health"},
       {key:"sugarMid",label:"Sugar 150-250",group:"HEALTH PROFILE",gcls:"g-health"},
-      {key:"sugarNo",label:"No Sugar",group:"HEALTH PROFILE",gcls:"g-health"},
+      {key:"sugarNo",label:"Sugar — None",group:"HEALTH PROFILE",gcls:"g-health"},
       {key:"hafDone",label:"Screened",group:"HEALTH PROFILE",gcls:"g-health"},
       {key:"consWJ",label:"Will Join Immediately",group:"CONSULTATION",gcls:"g-cons"},
       {key:"consTW",label:"This Week",group:"CONSULTATION",gcls:"g-cons"},
@@ -14805,7 +14850,7 @@ export function initApp(root: HTMLElement) {
     async function loadReportsData(){
       try{
         const [lr,ar,pr,rr]=await Promise.all([
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).limit(5000),
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,confirmed_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).limit(5000),
           supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).limit(3000),
           supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).limit(3000),
           supabase.from("office_recordings").select("lead_id,created_at").limit(3000)
@@ -14848,6 +14893,7 @@ export function initApp(root: HTMLElement) {
       if(t.indexOf("wrong")>=0) return "wn";
       if(t==="open"||t==="new") return "open";
       if(t.indexOf("not interested")>=0) return "ni";
+      if(t.indexOf("disconnect")>=0) return "disc";
       if(t.indexOf("no sugar")>=0) return "nosugar";
       return "";   // Visited / Enrolled / Appointment Fixed… are tracked by their own columns
     }
@@ -14859,7 +14905,18 @@ export function initApp(root: HTMLElement) {
       if(t.indexOf("150")>=0||t.indexOf("200")>=0) return "mid";
       return "";
     }
-    const _rpcIsZoomAppt=(a:any)=>a.meeting_type==="zoom"||/zoom/i.test(a.source||"");
+    // Zoom/Home vs Direct for one appointment. meeting_type is authoritative, but it was never
+    // written by the slot board until now, so 167 existing rows hold null — and treating null as
+    // "not zoom" filed every one of them under Appt Direct (reported for Sathya +918610277979:
+    // status "Appointment Fixed – Zoom", slot 6:00 PM, yet Appt Zoom stayed 0). Where the row says
+    // nothing, fall back to the LEAD's own appointment status, which is the same fact recorded in
+    // the other place. This keeps historical rows correct without a data migration; rows written
+    // from now on carry meeting_type and never reach the fallback.
+    const _rpcIsZoomAppt=(a:any,lead?:any)=>{
+      if(a.meeting_type) return a.meeting_type==="zoom";
+      if(/zoom/i.test(a.source||"")) return true;
+      return /zoom|home/i.test(String(lead&&lead.call_status||""));
+    };
     // lead_id → its payments / appointments / recordings (built once per render for O(1) lookups)
     function _rpcIndex(rows:any[],key:string){ const m:Record<string,any[]>={}; rows.forEach((r:any)=>{ const k=String(r[key]||""); if(!k)return; (m[k]=m[k]||[]).push(r); }); return m; }
     // A lead's program set from its PAID payments ("L1"/"L2"/"L1 + L2"), falling back to the coach
@@ -14959,7 +15016,7 @@ export function initApp(root: HTMLElement) {
     // so the bounds stop mattering and the row is about them. Lead-acquisition counts keep reading
     // `L` (leads created inside the bucket) because "leads received on 4 Aug" has no payment date.
     function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>, scope:{leads:any[],from:number,to:number}){
-      const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,nosugar:0,callTot:0,
+      const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,disc:0,nosugar:0,callTot:0,
         apptD:0,apptZ:0,apptTot:0,conf:0,vis:0,sugarHi:0,sugarMid:0,sugarNo:0,hafDone:0,consWJ:0,consTW:0,consNW:0,consTM:0,consQD:0,recDone:0,
         progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revCol:0,revOut:0,revL1:0,revL2:0,avgTicket:0,
         l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,fuSched:0,chen:0,oth:0};
@@ -14982,7 +15039,7 @@ export function initApp(root: HTMLElement) {
         });
         const cs=String((l.coach_profile&&l.coach_profile.consStatus)||"");
         if(/will join/i.test(cs))r.consWJ++; else if(/this week/i.test(cs))r.consTW++; else if(/next week/i.test(cs))r.consNW++; else if(/month/i.test(cs))r.consTM++; else if(/quer/i.test(cs))r.consQD++;
-        if(l.screening_vitals) r.hafDone++;
+        // (Screened is NOT counted here — it is an event with its own date. See r.hafDone below.)
         if(l.next_followup) r.fuSched++;
         if(/already paid/i.test(l.call_status||"")) r.alrPaid++;
         if((recsBy[id]||[]).length) r.recDone++;
@@ -14995,13 +15052,29 @@ export function initApp(root: HTMLElement) {
         const id=String(l.meta_lead_id);
         leadSvcById[id]=l.service||"";
         // Enrolment belongs to the day it happened; enrolled_at is the canonical stamp.
-        const et=l.enrolled_at?new Date(l.enrolled_at).getTime():NaN;
+        const etRaw=l.enrolled_at?new Date(l.enrolled_at).getTime():NaN;
+        const et=isNaN(etRaw)?NaN:_rpcEvtAt(etRaw,l);   // milestone must exist either way
         if(!isNaN(et)&&et>=scope.from&&et<=scope.to) r.enr++;
+        // Screening belongs to the day it was DONE, not the day the lead arrived. It used to be
+        // counted in the created-date loop above, so screening a lead today put the tick on that
+        // lead's creation date instead — Sathya was screened on 10 Aug and the count landed on her
+        // 09 Aug row, leaving today's Screened column empty. screening_vitals.screened_at is the
+        // stamp the screening page writes; without it a row cannot be dated and is not counted.
+        const stRaw=l.screening_vitals&&l.screening_vitals.screened_at
+          ? new Date(l.screening_vitals.screened_at).getTime() : NaN;
+        const st=isNaN(stRaw)?NaN:_rpcEvtAt(stRaw,l);
+        if(!isNaN(st)&&st>=scope.from&&st<=scope.to) r.hafDone++;
         (apptsBy[id]||[]).forEach((a:any)=>{
-          const d=_visitDate(a); if(!d) return;
-          const t=d.getTime(); if(t<scope.from||t>scope.to) return;
-          if(_rpcIsZoomAppt(a))r.apptZ++; else r.apptD++;
-          if(a.status!=="cancelled")r.conf++;
+          const d=_visitDate(a);
+          const t=_rpcEvtAt(d?d.getTime():NaN,l);
+          if(isNaN(t)||t<scope.from||t>scope.to) return;
+          if(_rpcIsZoomAppt(a,l))r.apptZ++; else r.apptD++;
+          // "Confirmed" means the ADVISOR confirmed it with the client — leads.confirmed_at, set only
+          // by the Confirm button — not merely that a slot is booked and uncancelled. Counting every
+          // non-cancelled appointment made this column equal Total Appt and disagree with the Advisor
+          // dashboard's Confirmed card (10 Aug: report 1, card 0, same single Zoom booking). Visited
+          // wins, exactly as the Visited-status pill does, so a lead who turned up moves to Visited.
+          if(a.status!=="cancelled"&&l.confirmed_at&&!l.visited_at)r.conf++;
           if(a.visited_at) visited.add(id);
         });
       });
@@ -15012,8 +15085,9 @@ export function initApp(root: HTMLElement) {
       scope.leads.forEach((l:any)=>{
         (paysBy[String(l.meta_lead_id)]||[]).forEach((p:any)=>{
           if(!_rpcSvcAllows(p)) return;
-          const d=_payDate(p); if(!d) return;
-          const t=d.getTime(); if(t<scope.from||t>scope.to) return;
+          const d=_payDate(p);
+          const t=_rpcEvtAt(d?d.getTime():NaN,l);
+          if(isNaN(t)||t<scope.from||t>scope.to) return;
           winPays.push(p);
         });
       });
@@ -15073,19 +15147,58 @@ export function initApp(root: HTMLElement) {
     }
 
     // ---- rows for the current period / view ----
+    // OFF (default): a lead is counted on the day it was CREATED — the report's original basis.
+    // ON: it is counted on the day its LATEST process actually completed, so a 9-Aug lead whose
+    // consultation finished on 10 Aug moves to the 10-Aug row.
+    //
+    // Only the lead-cohort columns follow this switch (Leads, CALL STATUS, HEALTH PROFILE's sugar
+    // readings, CONSULTATION, FOLLOW-UP, LOCATION). Everything already keyed to its own event date
+    // — appointments by visit date, payments/revenue by payment date, enrolments by enrolled_at,
+    // Screened by screened_at — is unaffected, because those are already "the date it happened".
+    //
+    // A lead lands in exactly ONE bucket either way: this picks a single timestamp per lead rather
+    // than counting it once per activity, so toggling can never duplicate anyone.
+    let _rpcByActivity=false;
+    // Which timestamp puts an EVENT (appointment, payment, enrolment, screening) in a bucket.
+    // ON  → the event's own date, so it lands on the day it happened.
+    // OFF → the lead's created date, so the ENTIRE row shares one basis and an appointment kept on
+    //       a visit date could not drift away from the lead it belongs to. Returns NaN when the
+    //       required date is missing, and the callers treat NaN as "not in this bucket".
+    function _rpcEvtAt(evtAt:number,l:any){
+      return _rpcByActivity?evtAt:new Date(l.created_at||0).getTime();
+    }
+    function _rpcActivityAt(l:any,apptsBy:Record<string,any[]>,paysBy:Record<string,any[]>){
+      const created=new Date(l.created_at||0).getTime();
+      if(!_rpcByActivity) return created;
+      const id=String(l.meta_lead_id||"");
+      let best=created;
+      const bump=(v:any)=>{ if(!v) return; const t=new Date(v).getTime(); if(!isNaN(t)&&t>best) best=t; };
+      bump(l.visited_at); bump(l.confirmed_at); bump(l.enrolled_at);
+      bump(l.screening_vitals&&l.screening_vitals.screened_at);
+      // The consultation outcome the Coach records has no timestamp of its own, so the appointment
+      // it was captured at stands in for it.
+      (apptsBy[id]||[]).forEach((a:any)=>{ bump(_visitDate(a)); bump(a.created_at); });
+      (paysBy[id]||[]).forEach((p:any)=>{ bump(p.paid_at||p.created_at); });
+      return best;   // no activity anywhere → still the created date, per spec
+    }
     function _rpcBuildRows(){
       const apptsBy=_rpcIndex(_rpcAppts,"lead_id"), paysBy=_rpcIndex(_rpcPays,"lead_id"), recsBy=_rpcIndex(_rpcRecs,"lead_id");
       const win=_rpcWindow();
       const leads=_rpcFilteredLeads(apptsBy,paysBy);
       const wFrom=win.buckets.length?win.buckets[0].from:0, wTo=win.buckets.length?win.buckets[win.buckets.length-1].to:Date.now();
-      const inWin=leads.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=wFrom&&t<=wTo; });
+      // One date per lead, resolved once, then reused for the window and the bucket — so the two can
+      // never disagree about where a lead belongs.
+      const basisAt=new Map<any,number>();
+      leads.forEach((l:any)=>basisAt.set(l,_rpcActivityAt(l,apptsBy,paysBy)));
+      const _at=(l:any)=>basisAt.get(l)??0;
+      const inWin=leads.filter((l:any)=>{ const t=_at(l); return t>=wFrom&&t<=wTo; });
       let rows:any[]=[];
       if(_rpcRowView==="period"){
         // Money and visits are selected by the bucket's DATES over every filtered lead, so a payment
         // taken on 4 Aug counts on 4 Aug even when the client arrived in July. Only the lead-count
         // side of the row is the created-date cohort.
         rows=win.buckets.map(b=>_rpcAgg(b.label,
-          inWin.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=b.from&&t<=b.to; }),
+          inWin.filter((l:any)=>{ const t=_at(l); return t>=b.from&&t<=b.to; }),
           apptsBy,paysBy,recsBy,{leads,from:b.from,to:b.to}));
       } else if(_rpcRowView==="person"){
         // Advisors from lead assignment + HC/PTs from the appointments they hosted.
@@ -15123,7 +15236,13 @@ export function initApp(root: HTMLElement) {
       "INFO":"lead created date","CALL STATUS":"lead created date","HEALTH PROFILE":"lead created date",
       "CONSULTATION":"lead created date","FOLLOW-UP":"lead created date","LOCATION":"lead created date",
     };
-    const _RPC_BASIS=(g:string)=>{ const b=_RPC_BASIS_MAP[g]; return b?'<span style="font-weight:500;opacity:.72;text-transform:none;letter-spacing:0"> — by '+b+'</span>':''; };
+    // With the toggle ON the created-date groups are keyed to each lead's latest completed process,
+    // so the header has to say that — leaving "by lead created date" there would be a lie.
+    const _RPC_BASIS=(g:string)=>{ const raw=_RPC_BASIS_MAP[g];
+      // OFF puts the whole row on one basis, so every group says "lead created date". ON lets each
+      // group keep its own event date, and the lead-cohort groups read "activity date".
+      const b=_rpcByActivity?(raw==="lead created date"?"activity date":raw):"lead created date";
+      return b?'<span style="font-weight:500;opacity:.72;text-transform:none;letter-spacing:0"> — by '+b+'</span>':''; };
     function _rpcHeader(){
       const vis=_rpcVisCols(); const gc:Record<string,number>={}; const seen:Record<string,boolean>={};
       vis.forEach((c:any)=>{gc[c.group]=(gc[c.group]||0)+1;});
@@ -15251,7 +15370,7 @@ export function initApp(root: HTMLElement) {
       // Say what the table is showing: the cohort basis, how many rows survived the filters, and any
       // truncation — silent capping reads as "that's all there is".
       const sub=root.querySelector("#rpcSecSub");
-      if(sub) sub.textContent="Live data · rows are leads by their created date"
+      if(sub) sub.textContent="Live data · rows are leads by their "+(_rpcByActivity?"latest activity date":"created date")
         +" · showing "+shown+" of "+rows.length+" row"+(rows.length===1?"":"s")
         +" · click a card or a column header to filter";
     }
@@ -15264,6 +15383,18 @@ export function initApp(root: HTMLElement) {
     }
     w._rpcRender=()=>_rpcRenderAll();
     w._rpcRenderBody=()=>{ _rpcHeader(); _rpcBody(_rpcWindow()); };
+    // Flip the date basis for the lead-cohort columns. Re-renders the header too, because the group
+    // captions state which basis is in force.
+    w._rpcToggleBasis=()=>{
+      _rpcByActivity=!_rpcByActivity;
+      const b=root.querySelector("#rpcBasisTgl")as HTMLButtonElement|null;
+      if(b) b.setAttribute("aria-pressed",_rpcByActivity?"true":"false");
+      const t=root.querySelector("#rpcBasisTxt"); if(t) t.textContent=_rpcByActivity?"Date: Activity":"Date: Created";
+      // MUST be the full render: _rpcRenderBody only repaints the cached _rpcRows, so it redrew the
+      // same numbers and the toggle looked dead. Only _rpcRenderAll re-runs _rpcBuildRows, which is
+      // where the date basis is actually applied.
+      _rpcRenderAll();
+    };
 
     // ---- period / view controls ----
     w._rpcSetPeriod=(p:string,el:any)=>{

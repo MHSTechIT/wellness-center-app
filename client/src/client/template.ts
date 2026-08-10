@@ -1563,6 +1563,11 @@ export function getMainContent(): string {
           <div class="sec-title" id="rpcSecTitle">Daily Report — Period View</div>
           <div class="sec-sub" id="rpcSecSub">Live data · Click column header to filter</div>
         </div>
+        <button type="button" class="rpc-tgl" id="rpcBasisTgl" onclick="window._rpcToggleBasis()" aria-pressed="false"
+          title="Off: count each lead on the day it was created. On: count it on the day its latest process was completed.">
+          <span class="sw"><span class="kn"></span></span>
+          <span class="tx" id="rpcBasisTxt">Date: Created</span>
+        </button>
         <select class="filter-sel" id="rpcSort" onchange="window._rpcRenderBody()">
           <option value="leads">Sort: Leads</option>
           <option value="apptTot">Sort: Appt Fixed</option>
