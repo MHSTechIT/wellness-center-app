@@ -918,7 +918,9 @@ html{scroll-behavior:smooth}
 .fu-rem:empty{display:none}
 
 /* ---- Closed: the edge puck ---- */
-.fu-tab{pointer-events:auto;position:absolute;right:0;top:50%;transform:translateY(-50%);
+/* Anchored to the TOP of the right edge, level with the first table/panel rather than floating at
+   mid-height — that is where the eye already is when scanning a list. */
+.fu-tab{pointer-events:auto;position:absolute;right:0;top:var(--fu-top,96px);
         width:46px;height:52px;padding:0;display:flex;flex-direction:column;align-items:center;
         justify-content:center;gap:1px;cursor:pointer;
         background:var(--surface);border:1px solid var(--line);border-right:0;
@@ -930,6 +932,25 @@ html{scroll-behavior:smooth}
 .fu-tab .n{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:10.5px;font-weight:800;
            color:#fff;background:var(--alert-ink,#D8442B);border-radius:999px;
            min-width:18px;padding:1px 5px;text-align:center;line-height:1.5}
+/* Nothing due: the tab still sits on the rail, but stops shouting. */
+.fu-tab.zero{opacity:.72;box-shadow:-3px 0 12px rgba(17,34,27,.08)}
+.fu-tab.zero:hover{opacity:1}
+.fu-tab.zero .n{background:var(--surface-2);color:var(--muted)}
+
+/* ---- Per-service strip inside the open drawer ---- */
+.fu-svc{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;flex:none;
+        border-bottom:1px solid var(--line-soft)}
+.fu-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+         font-size:11px;font-weight:600;line-height:1;padding:5px 8px;
+         color:var(--muted);background:var(--surface-2);
+         border:1px solid var(--line);border-radius:999px;
+         transition:background .14s ease,color .14s ease,border-color .14s ease}
+.fu-chip:hover{color:var(--ink)}
+.fu-chip.on{background:var(--brand,#0F5832);border-color:var(--brand,#0F5832);color:#fff}
+.fu-chip .c{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:10px;font-weight:800;
+            background:rgba(0,0,0,.07);border-radius:999px;padding:1px 5px}
+.fu-chip.on .c{background:rgba(255,255,255,.22)}
+.fu-none{font-size:12.5px;color:var(--faint);text-align:center;padding:26px 12px}
 
 /* ---- Open: full-height drawer, flush to the edge ---- */
 .fu-panel{pointer-events:auto;position:absolute;top:0;right:0;bottom:0;width:var(--fu-w);
@@ -977,3 +998,59 @@ html{scroll-behavior:smooth}
   .fu-tab{top:auto;bottom:18px;transform:none;border-radius:26px 0 0 26px}
   .fu-rem.float .fu-panel{left:10px;right:10px;bottom:10px;max-width:none}
 }
+
+/* ===== Meta leads → form picker =====
+   Search / header / legend are static markup; only .mlfm-list is re-rendered, so typing in the
+   search box never loses focus. */
+.mlfm{position:absolute;z-index:40;top:calc(100% + 5px);left:0;right:0;min-width:376px;
+      background:var(--surface);border:1px solid var(--line);border-radius:12px;
+      box-shadow:0 14px 36px rgba(17,34,27,.17);overflow:hidden}
+.mlfm-search{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line-soft)}
+.mlfm-search .ic{font-size:13px;line-height:1;opacity:.75}
+.mlfm-search input{flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:13px;
+                   color:var(--ink);min-width:0}
+.mlfm-search input::placeholder{color:var(--faint)}
+.mlfm-hd{display:flex;align-items:center;gap:8px;padding:9px 12px 7px;font-size:12px;
+         font-weight:600;color:var(--muted)}
+.mlfm-hd .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.mlfm-clear{margin-left:auto;background:none;border:1px solid var(--line);border-radius:7px;
+            padding:2px 9px;font-size:11px;color:var(--muted);cursor:pointer}
+.mlfm-clear:hover{background:var(--surface-2);color:var(--ink)}
+.mlfm-key{display:flex;flex-wrap:wrap;gap:4px 13px;padding:0 12px 9px;font-size:10.5px;color:var(--faint);
+          border-bottom:1px solid var(--line-soft)}
+.mlfm-key b{font-weight:400;font-size:10.5px}
+.mlfm-list{max-height:300px;overflow-y:auto;padding:5px}
+.mlfm-row{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;cursor:pointer;
+          font-size:12.5px;color:var(--ink)}
+.mlfm-row:hover{background:var(--surface-2)}
+.mlfm-row .st{width:15px;text-align:center;font-size:11px;flex:none;line-height:1}
+.mlfm-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mlfm-row .n{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:12px;font-weight:700;
+             color:var(--brand-600,#0F5832);flex:none}
+.mlfm-row .n.zero{color:var(--faint);font-weight:500}
+.mlfm-row .pill-l{font-size:10px;font-weight:600;background:var(--ok-bg,#E7F4EE);color:var(--brand-600,#0F5832);
+                  border-radius:999px;padding:2px 8px;flex:none}
+.mlfm-row .pill-l.zero{background:var(--surface-2);color:var(--faint)}
+.mlfm-empty{padding:16px;text-align:center;color:var(--faint);font-size:12px}
+/* Explains a menu full of grey "Unknown" dots when Meta's status lookup came back empty. */
+.mlfm-note{padding:7px 12px;font-size:11px;line-height:1.4;color:var(--warn-ink);background:var(--warn-bg);border-bottom:1px solid var(--line)}
+
+/* ===== Meta leads → campaign picker (shares .mlfm shell with the form picker) ===== */
+.mlfm-all{display:flex;align-items:center;gap:9px;padding:10px 12px;font-size:13px;font-weight:600;
+          color:var(--ink);border-bottom:1px solid var(--line-soft);cursor:pointer}
+.mlfm-all input{accent-color:var(--brand);flex:none}
+.mlfm-crow{display:flex;align-items:flex-start;gap:10px;padding:9px 11px;border-radius:9px;
+           cursor:pointer;border-left:3px solid transparent}
+.mlfm-crow:hover{background:var(--surface-2)}
+/* Live campaigns get a soft tint so what is actually running reads at a glance. */
+.mlfm-crow.on-air{background:var(--ok-bg,#E7F4EE);border-left-color:var(--ok-ink,#17A87B)}
+.mlfm-crow.on-air:hover{background:var(--ok-bg,#E7F4EE);filter:brightness(.985)}
+.mlfm-crow input{accent-color:var(--brand);flex:none;margin-top:3px}
+.mlfm-crow .dot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px}
+.mlfm-crow .bd{flex:1;min-width:0}
+.mlfm-crow .nm2{font-size:12.5px;line-height:1.35;color:var(--ink);word-break:break-word}
+.mlfm-crow .stt{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+                color:var(--muted);margin-top:3px}
+.mlfm-crow .n2{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:11.5px;font-weight:700;
+               color:var(--brand-600,#0F5832);flex:none;margin-top:2px}
+.mlfm-crow .n2.zero{color:var(--faint);font-weight:500}

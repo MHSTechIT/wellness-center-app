@@ -1387,7 +1387,7 @@ export function initApp(root: HTMLElement) {
           if (mainEl) mainEl.scrollTop = 0;
           // Flush any render deferred while this screen was off-screen during a sync.
           const _scr=(b as HTMLElement).dataset.s; if(_scr&&(w as any)._flushDirtyScreen) (w as any)._flushDirtyScreen(_scr);
-          // The follow-up rail belongs to the Advisor screen: show it on arrival, clear it on leaving.
+          // The follow-up rail rides every screen — re-render on arrival so its count is current.
           try{ (w as any)._fuRefresh&&(w as any)._fuRefresh(); }catch(_){}
         };
       });
@@ -3736,6 +3736,8 @@ export function initApp(root: HTMLElement) {
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
       setV("#advfName",l.name||"");setV("#advfPhone",l.phone||"");setV("#advfWhats",l.phone||"");setV("#advfEmail",l.email||"");
+      // Rebuild the WhatsApp message for THIS lead — otherwise it keeps the previous lead's name.
+      try{ waTpl(); }catch(_){}
       // Lead generated (AUTO): the lead's real creation timestamp. Stored so it survives a profile restore.
       const _fmtGen=(v:any)=>{ if(!v)return""; const d=new Date(v); if(isNaN(d.getTime()))return""; const mon=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()]; const p=(n:number)=>String(n).padStart(2,"0"); return p(d.getDate())+"-"+mon+"-"+d.getFullYear()+" "+p(d.getHours())+":"+p(d.getMinutes()); };
       _advLeadGenStr=_fmtGen(l.createdAt||l.date||l.leadDate||l.created_at);
@@ -4775,7 +4777,7 @@ export function initApp(root: HTMLElement) {
     // Removed on request (6 Aug 2026): Payment Pending, Payment Completed, Interested, Not
     // Interested, Callback Requested. They stay in the LABEL/CODE maps below so a lead that already
     // carries one of those stored values still displays it — the dropdown just no longer offers them.
-    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled","Not Reachable","Not Interested","Disconnect"];
+    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Visited","Enrolled","Not Reachable","Not Interested","Disconnect"];
     const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Disconnect:"disc",Open:"new"};
     const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested",disc:"Disconnect"};
     function haBucketOf(cs:string){
@@ -4783,15 +4785,13 @@ export function initApp(root: HTMLElement) {
       if(/enrol/.test(s)) return "enrolled";
       if(/payment completed|converted/.test(s)) return "closed";
       if(/payment pending|already paid/.test(s)) return "payment";
-      // Appointments split by TYPE into their own cards (the old single "Walk-in Sales Stage"
-      // lumped them together). Zoom is checked first; every other appointment status counts as
-      // Direct — including "Appointment Confirmed", which is selectable but currently unused
-      // (0 rows). Without that fallback it would silently drop into Open Leads.
-      // "Zoom" was renamed to "Home" (same afz code). Match both so leads saved under the old label
-      // still bucket correctly instead of silently falling into Appointment-Direct.
-      // "Appointment Confirmed" is its OWN bucket — checked before the Direct/Home split, which would
-      // otherwise swallow it into Direct (it names no mode) and hide the confirmed count entirely.
-      if(/appointment/.test(s)) return /confirm/.test(s)?"apptConfirmed":(/zoom|home/.test(s)?"apptZoom":"apptDirect");
+      // Appointments split by TYPE into their own cards (the old single "Walk-in Sales Stage" lumped
+      // them together). "Zoom" was renamed to "Home" (same afz code), so match both — otherwise a
+      // lead saved under the old label silently falls into Appointment-Direct.
+      // "Appointment Confirmed" was RETIRED as a call status (its card and dropdown option are gone;
+      // confirming is now the manual Confirm button). A lead still carrying the old status lands in
+      // Appointment-Direct here rather than vanishing, so the cards still sum to Total.
+      if(/appointment/.test(s)) return /zoom|home/.test(s)?"apptZoom":"apptDirect";
       if(/visited/.test(s)) return "health";
       if(/follow up|call back|callback/.test(s)) return "followup";
       if(/not interested|no sugar|wrong number|dnd/.test(s)) return "closed";
@@ -4805,7 +4805,6 @@ export function initApp(root: HTMLElement) {
       {key:"open",label:"Open Leads",c:"g"},
       {key:"apptDirect",label:"Appointment Fixed – Direct",c:""},
       {key:"apptZoom",label:"Appointment Fixed – Zoom",c:""},
-      {key:"apptConfirmed",label:"Appointment Confirmed",c:""},
       // MILESTONE card, not a status bucket: it counts leads the advisor manually pressed Confirm on
       // (leads.confirmed_at), so it deliberately overlaps the status cards and is excluded from the
       // "cards sum to Total" partition — same treatment as Visited. See counts.confirmed below.
@@ -4833,7 +4832,7 @@ export function initApp(root: HTMLElement) {
     function _checkFuReminders(){
       if(!_currentUser) return;
       const now=Date.now(); const live=new Set<string>();
-      haBook().forEach((l:any)=>{
+      _fuScopedBook().forEach((l:any)=>{   // same ownership scope as the drawer — never nag about another advisor's lead
         if(haBucketOf(haEffStatus(l))!=="followup") return;
         const key=String(l.id); live.add(key);
         const nf=_haFuNext(l); if(!nf) return;   // same source as the Follow-up table, so a planned reminder can't be missed
@@ -4908,8 +4907,34 @@ export function initApp(root: HTMLElement) {
     };
     // The advisor's OWN due leads. haBook() is already role-scoped (an Advisor login only ever sees
     // their own book), so this inherits "advisor-specific" for free rather than re-implementing it.
-    function _fuDueToday(){
+    // The reminder book = leads THIS user is allowed to see. haBook() is unscoped — role enforcement
+    // normally happens downstream in haCommonFilter(), which the reminders never went through, so an
+    // advisor's clock badge counted every advisor's follow-ups (reported: badge 15 vs 2 of their own).
+    // Only the ownership locks are applied, NOT the dashboard's top filters — a follow-up due today
+    // must not disappear because someone narrowed the dashboard by date, source or service.
+    function _fuScopedBook(){
       let book:any[]=[]; try{ book=haBook(); }catch(_){ return []; }
+      const svcScope=_serviceScope();
+      // Advisor role → locked to self. Full-view roles → follow the dashboard's advisor picker, so
+      // an admin looking at "Deepak" is reminded about Deepak's follow-ups, not the whole clinic's.
+      const scope=_advisorScope()||(_asnApplied.advisor&&_asnApplied.advisor!=="all"?_asnApplied.advisor:"");
+      if(!scope&&!svcScope) return book;
+      return book.filter((l:any)=>{
+        if(scope&&(l.assignedTo||"")!==scope) return false;
+        if(!_serviceAllows(l,svcScope)) return false;
+        return true;
+      });
+    }
+    // A due lead's service line, normalised to the SERVICE_MASTER label so the drawer's per-service
+    // split uses the same vocabulary as every other service filter in the app. Leads that name no
+    // service land under "Unassigned" rather than being silently dropped from the breakdown.
+    const _fuSvcOf=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return normService(String((d&&d.service)||l.service||""))||SVC_UNASSIGNED; };
+    // The rail is 360px wide — the full master labels ("HBOT (Hyperbaric Oxygen Therapy)") would wrap
+    // three chips deep, so the strip shows the short form of the SAME canonical service.
+    const _fuSvcShort=(s:string)=>String(s).replace(/\s*\(.*\)\s*/,"").replace(/\s+Counselling$/i,"").trim()||s;
+    let _fuSvc="all";   // which service the drawer is filtered to (the chip strip at its top)
+    function _fuDueToday(){
+      const book=_fuScopedBook(); if(!book.length) return [];
       const seen=new Set<string>();
       return book.filter((l:any)=>{
         const nf=_haFuNext(l); if(!_fuIsToday(nf)) return false;
@@ -4931,6 +4956,8 @@ export function initApp(root: HTMLElement) {
       try{ localStorage.setItem("wos_fu_collapsed",_fuCollapsed?"1":"0"); }catch(_){}
       _fuRenderReminders();
     };
+    // Service chip → filter the drawer to one line. "all" is the combined view.
+    w._fuSetSvc=(s:string)=>{ _fuSvc=s||"all"; _fuRenderReminders(); };
     // The drawer OVERLAYS the right edge and never displaces the page — opening it must not reflow
     // the dashboard under the reader. This clears the padding classes the docked version used to set,
     // so a stale one from an older bundle can't leave the content shifted.
@@ -4941,33 +4968,52 @@ export function initApp(root: HTMLElement) {
     function _fuRenderReminders(){
       const el=root.querySelector("#fuReminders")as HTMLElement|null; if(!el) return;
       const hide=()=>{ el.innerHTML=""; el.classList.remove("collapsed"); _fuSetSpace(""); if(_fuSeqT){clearTimeout(_fuSeqT);_fuSeqT=null;} };
-      // Belongs to the Advisor screen only — never leave it hanging over another module.
-      if(_activeScreenId()!=="advisor"){ hide(); return; }
-      const due=_fuDueToday();
-      if(!due.length){ hide(); _fuSeqIdx=0; return; }
+      // Follow-ups are due wherever you happen to be working, so the rail rides EVERY screen — it is
+      // an overlay pinned to the right edge and reserves no layout space (see _fuSetSpace), so it
+      // can't reflow the module underneath. Only the sign-in screen is excluded.
+      if(!_currentUser||!_activeScreenId()){ hide(); return; }
+      const dueAll=_fuDueToday();
+      // The strip is rendered from the FULL due set, so a service chip never disappears just because
+      // the drawer is currently filtered to a different one.
+      const due=_fuSvc==="all"?dueAll:dueAll.filter((l:any)=>_fuSvcOf(l)===_fuSvc);
       const isAdvisor=_isAdvisorRole();
+      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      if(!dueAll.length) _fuSeqIdx=0;
       // ADMIN: a transient notification, not furniture. It plays through today's follow-ups once —
       // 15 seconds each — and then removes itself for good. Re-rendering (which happens on every
       // dashboard refresh) must NOT restart it, or it would loop forever and sit there permanently,
       // which is exactly what it was doing. The signature restarts it only when the due set changes.
+      // ...but "not furniture" must not mean "unreachable". Once the sequence has played (or been
+      // dismissed) it now falls through to the SAME collapsed edge tab the advisor gets — a count on
+      // the rail, nothing docked, nothing covering the table — so a full-view role can still open
+      // today's follow-ups instead of losing them for the rest of the session (reported: "I don't
+      // see Today's follow-ups").
       const sig=due.map((l:any)=>String(l.id)+"@"+_haFuNext(l)).join("|");
-      if(!isAdvisor){
-        if(sig!==_fuSeqSig){ _fuSeqSig=sig; _fuSeqIdx=0; _fuSeqDone=false; }
-        if(_fuSeqDone){ hide(); return; }
-      }
-      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      if(!isAdvisor && sig!==_fuSeqSig){ _fuSeqSig=sig; _fuSeqIdx=0; _fuSeqDone=false; }
       const card=(l:any)=>{
         const nf=_haFuNext(l);
         const overdue=new Date(nf).getTime()<=Date.now();
         return '<div class="fu-card'+(overdue?" due":"")+'">'
           +'<div class="fu-hd">⏰ '+(overdue?"Follow-up due":"Follow-up today")+'</div>'
           +'<div class="fu-nm">'+e(l.name||"Lead")+'</div>'
-          +'<div class="fu-when">'+e(l.phone||"—")+'</div>'
+          +'<div class="fu-when">'+e(l.phone||"—")+' · '+e(_fuSvcShort(_fuSvcOf(l)))+'</div>'
           +'<div class="fu-when at">'+e(fmtIST(nf))+'</div>'
           +'<div class="fu-act"><button class="btn bsm bp" onclick="window._fuOpen(\''+e(String(l.id))+'\')">Open lead</button></div>'
           +'</div>';
       };
-      const seqMode=!isAdvisor;
+      // Per-service strip, counted off the FULL due set so a chip never vanishes because the drawer
+      // is filtered to another line. Only services that actually have work today get a chip.
+      const svcCount:Record<string,number>={};
+      dueAll.forEach((l:any)=>{ const s=_fuSvcOf(l); svcCount[s]=(svcCount[s]||0)+1; });
+      const svcOrder=[...SERVICE_MASTER,SVC_UNASSIGNED].filter(s=>svcCount[s]);
+      if(_fuSvc!=="all"&&!svcCount[_fuSvc]) _fuSvc="all";   // the line cleared its work → fall back to All
+      const chip=(key:string,label:string,n:number)=>'<button class="fu-chip'+(_fuSvc===key?" on":"")+'" '
+        +'onclick="window._fuSetSvc(\''+e(key)+'\')" title="'+e(label)+' — '+n+' today">'
+        +e(label)+'<span class="c">'+n+'</span></button>';
+      const strip='<div class="fu-svc">'+chip("all","All services",dueAll.length)
+        +svcOrder.map(s=>chip(s,_fuSvcShort(s),svcCount[s])).join("")+'</div>';
+
+      const seqMode=!isAdvisor&&!_fuSeqDone&&dueAll.length>0;   // finished/dismissed/empty → edge tab, don't vanish
       if(_fuSeqT){ clearTimeout(_fuSeqT); _fuSeqT=null; }
 
       if(seqMode){
@@ -4975,6 +5021,7 @@ export function initApp(root: HTMLElement) {
         // Floats rather than docking, so it never reserves space or pins itself to the layout.
         el.className="fu-rem float";
         _fuSetSpace("");
+        if(_fuSeqIdx>=due.length) _fuSeqIdx=0;   // a service filter can shorten the set mid-sequence
         el.innerHTML='<div class="fu-panel">'
           +'<div class="fu-top"><span class="fu-ttl">⏰ Today’s follow-up</span>'
           +'<span class="fu-count">'+(_fuSeqIdx+1)+'/'+due.length+'</span>'
@@ -4990,25 +5037,31 @@ export function initApp(root: HTMLElement) {
         return;
       }
 
-      // ---- ADVISOR: right-edge drawer, every due lead, stays until the lead is actioned ----
+      // ---- EDGE DRAWER: every due lead, stays until the lead is actioned ----
+      // The advisor's default view, and where a full-view role lands once its popup has played.
       el.className="fu-rem";
       _fuSetSpace();
       if(_fuCollapsed){
         // Closed: just the edge tab. The count is the whole message — one click opens the list.
-        el.innerHTML='<button class="fu-tab" onclick="window._fuToggleCollapse()" aria-expanded="false" '
-          +'aria-label="'+due.length+' follow-up'+(due.length===1?"":"s")+' due today" '
-          +'title="'+due.length+' follow-up'+(due.length===1?"":"s")+' due today — click to open">'
-          +'<span class="ic">⏰</span><span class="n">'+due.length+'</span></button>';
+        // It renders at 0 too (muted, not red), so the control is always where the user left it.
+        const n=dueAll.length;
+        const lbl=n?(n+" follow-up"+(n===1?"":"s")+" due today"):"No follow-ups due today";
+        el.innerHTML='<button class="fu-tab'+(n?"":" zero")+'" onclick="window._fuToggleCollapse()" aria-expanded="false" '
+          +'aria-label="'+lbl+'" title="'+lbl+' — click to open">'
+          +'<span class="ic">⏰</span><span class="n">'+n+'</span></button>';
         return;
       }
       el.innerHTML='<div class="fu-panel">'
         +'<div class="fu-top"><span class="fu-ttl">⏰ Today’s follow-ups</span>'
         +'<span class="fu-count">'+due.length+'</span>'
         +'<button class="fu-collapse" onclick="window._fuToggleCollapse()" aria-expanded="true" title="Close">✕</button></div>'
-        +'<div class="fu-list">'+due.map(card).join("")+'</div>'
+        +(dueAll.length?strip:"")
+        +'<div class="fu-list">'+(due.length?due.map(card).join("")
+          :'<div class="fu-none">'+(dueAll.length?"Nothing due today for this service.":"No follow-ups due today.")+'</div>')+'</div>'
         +'</div>';
     }
-    // Admin only: close the popup and stop the sequence for this due set.
+    // Full-view roles: stop the popup sequence for this due set. It does NOT remove the reminder —
+    // the next render falls through to the collapsed edge tab, so the count stays reachable.
     w._fuDismissSeq=()=>{ _fuSeqDone=true; try{ _fuRenderReminders(); }catch(_){} };
     // Opening from the reminder does NOT dismiss it — the spec is explicit that only a real update
     // clears it, so a glance at the lead can't make a missed follow-up disappear.
@@ -5048,7 +5101,7 @@ export function initApp(root: HTMLElement) {
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
-      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,apptConfirmed:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
+      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       // MANUAL "Confirmed" milestone: counts only leads someone actually pressed Confirm on
       // (leads.confirmed_at). Like Visited-ever it is NOT one of the mutually-exclusive stage
@@ -5085,7 +5138,7 @@ export function initApp(root: HTMLElement) {
         const _shownCards=_btView?HA_CARDS.filter(c=>_btKeys.indexOf(c.key)>=0):HA_CARDS;
         cards.push(..._shownCards.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
-          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Appointment Confirmed + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number."':'')
+          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number. (Confirmed is a milestone that overlaps them, so it is not part of the sum.)"':'')
           +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+((_btView&&c.key==="apptZoom")?"Appointment Fixed – Home":c.label)+'</div>'+mv(counts[c.key])+'</div>'));
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
@@ -9818,8 +9871,68 @@ export function initApp(root: HTMLElement) {
     }
     w.applyCouponEmi = applyCouponEmi;
 
-    function waTpl(){const el=root.querySelector("#waPrev")as HTMLTextAreaElement;if(el)el.value="Template preview loaded";}
+    // ===== WhatsApp messaging (Advisor lead detail) =====
+    // No WATI API call: the button hands the conversation to WhatsApp itself via a wa.me/api link,
+    // pre-filled with the message. The advisor still presses send inside WhatsApp, so nothing leaves
+    // this app on click — which also means it works with a plain WhatsApp account, no gateway.
+    const WA_TPLS:Record<string,string>={
+      welcome:"Hi {{name}} 👋\n\n"
+        +"Welcome to My Health School! 🌿\n\n"
+        +"Thank you for connecting with us. We’re happy to help you take the next step towards better health and wellness.\n\n"
+        +"Our team will get in touch with you shortly to understand your requirements and guide you with the right program.\n\n"
+        +"Thank you,\nTeam My Health School",
+      appt:"Hi {{name}} 👋\n\n"
+        +"Your appointment with My Health School is confirmed. 🌿\n\n"
+        +"Please reach us a few minutes early, and carry any recent reports you may have.\n\n"
+        +"If you need to reschedule, just reply to this message.\n\n"
+        +"Thank you,\nTeam My Health School",
+      fu:"Hi {{name}} 👋\n\n"
+        +"This is a gentle reminder from My Health School. 🌿\n\n"
+        +"We tried reaching you regarding your enquiry. Do let us know a convenient time and our team will call you back.\n\n"
+        +"Thank you,\nTeam My Health School",
+      pay:"Hi {{name}} 👋\n\n"
+        +"Thank you for choosing My Health School. 🌿\n\n"
+        +"Here is your payment link to complete the enrolment:\n<paste payment link here>\n\n"
+        +"Do reply once done and we will confirm your program.\n\n"
+        +"Thank you,\nTeam My Health School",
+    };
+    // Placeholders resolve from the OPEN lead's own fields, so the advisor never edits a name by hand.
+    function _waFill(t:string){
+      const v=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|null)?.value||"").trim();
+      // Service has no field in Basic info — it comes off the open lead record itself.
+      const svc=String((_advLeadsDet[String(_advLeadId)]||{}).service||"").trim();
+      const map:Record<string,string>={name:v("#advfName")||"there",service:svc||"our programs"};
+      return t.replace(/\{\{\s*(\w+)\s*\}\}/g,(m,k)=>map[k]!==undefined?map[k]:m);
+    }
+    // WhatsApp wants a country-coded number with no punctuation. Stored numbers vary ("+91 98…",
+    // "098…", bare 10 digits), so normalise to the last 10 digits and add 91 unless the raw value
+    // already carries a different country code.
+    function _waPhone(){
+      const v=(sel:string)=>((root.querySelector(sel)as HTMLInputElement|null)?.value||"").trim();
+      const raw=(v("#advfWhats")||v("#advfPhone")).replace(/[^0-9]/g,"");
+      if(!raw) return "";
+      const last10=raw.slice(-10);
+      if(raw.length>10&&!/^0+/.test(raw.slice(0,raw.length-10))) return raw;   // already country-coded
+      return "91"+last10;
+    }
+    function waTpl(){
+      const el=root.querySelector("#waPrev")as HTMLTextAreaElement|null; if(!el) return;
+      const key=(root.querySelector("#waTplSel")as HTMLSelectElement|null)?.value||"welcome";
+      el.value=_waFill(WA_TPLS[key]||WA_TPLS.welcome);
+      const to=root.querySelector("#waTo"); const p=_waPhone();
+      if(to) to.textContent=p?("Opens WhatsApp chat with +"+p):"No phone number on this lead";
+    }
     w.waTpl = waTpl;
+    w._waSend=()=>{
+      const p=_waPhone();
+      if(!p){ toastErr("This lead has no phone number — add one before messaging"); return; }
+      // Whatever is in the box wins, so an edited message is what gets sent, not the stock template.
+      const txt=((root.querySelector("#waPrev")as HTMLTextAreaElement|null)?.value||"").trim()
+        ||_waFill(WA_TPLS.welcome);
+      const url="https://api.whatsapp.com/send?phone="+encodeURIComponent(p)+"&text="+encodeURIComponent(txt);
+      window.open(url,"_blank","noopener,noreferrer");
+      toast("WhatsApp opened for +"+p+" — press send there");
+    };
 
     // addFuNoteA + Add-report (blood) are defined earlier with DB persistence + activity logging.
 
@@ -14177,7 +14290,6 @@ export function initApp(root: HTMLElement) {
       {key:"leads",label:"Leads",group:"INFO",gcls:"g-info",always:true,sticky:"sl2"},
       {key:"svc",label:"Service",group:"INFO",gcls:"g-info",isText:true},
       {key:"src",label:"Lead Source",group:"INFO",gcls:"g-info",isText:true},
-      {key:"loc",label:"Location",group:"INFO",gcls:"g-info",isText:true},
       {key:"fu",label:"Follow Up",group:"CALL STATUS",gcls:"g-call"},
       {key:"cb",label:"Call Back",group:"CALL STATUS",gcls:"g-call"},
       {key:"lb",label:"Line Busy",group:"CALL STATUS",gcls:"g-call"},
@@ -14209,7 +14321,6 @@ export function initApp(root: HTMLElement) {
       {key:"progL1",label:"L1 Only",group:"PROGRAM",gcls:"g-prog"},
       {key:"progL2",label:"L2 Only",group:"PROGRAM",gcls:"g-prog"},
       {key:"progBoth",label:"Both",group:"PROGRAM",gcls:"g-prog"},
-      {key:"doi",label:"Date of Joining",group:"PROGRAM",gcls:"g-prog",isText:true},
       {key:"enr",label:"Enrolled",group:"PAYMENT",gcls:"g-pay"},
       {key:"fp",label:"Full Paid",group:"PAYMENT",gcls:"g-pay"},
       {key:"pp",label:"Part Paid",group:"PAYMENT",gcls:"g-pay"},
@@ -14226,12 +14337,9 @@ export function initApp(root: HTMLElement) {
       {key:"revOut",label:"Outstanding (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL1",label:"L1 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL2",label:"L2 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
-      {key:"avgTicket",label:"Avg Ticket",group:"REVENUE",gcls:"g-roas",isMoney:true},
-      {key:"l1fp",label:"L1 FP",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
-      {key:"l1tot",label:"L1 Total",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
-      {key:"l2fp",label:"L2 FP",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
-      {key:"l2pp",label:"L2 PP",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
-      {key:"l2tot",label:"L2 Total",group:"L1/L2 BREAKDOWN",gcls:"g-l1l2"},
+      // Removed from the table on request: Location, Date of Joining, Avg Ticket and the whole
+      // L1/L2 BREAKDOWN group (L1 FP / L1 Total / L2 FP / L2 PP / L2 Total). _rpcAgg still COMPUTES
+      // all of them — only the columns are gone — so restoring any one is a single line here.
       {key:"m_l2a",label:"Lead→Appt%",group:"CONVERSION METRICS",gcls:"g-metric",isPct:true},
       {key:"m_a2v",label:"Appt→Visit%",group:"CONVERSION METRICS",gcls:"g-metric",isPct:true},
       {key:"m_v2e",label:"Visit→Enrol%",group:"CONVERSION METRICS",gcls:"g-metric",isPct:true},
@@ -14256,11 +14364,12 @@ export function initApp(root: HTMLElement) {
     RPC_COLS.forEach((c:any)=>{_rpcColVis[c.key]=c.group!=="REVENUE BY SERVICE";});
     const RPC_PRESETS:Record<string,string[]|null>={
       all:null,
-      sales:["period","leads","svc","src","loc","fu","cb","lb","rnr","dnd","so","oos","wn","open","blank","ni","nosugar","callTot","apptD","apptZ","apptTot","conf","vis","m_l2a","m_a2v","m_l2v","m_l2c"],
+      sales:["period","leads","svc","src","fu","cb","lb","rnr","dnd","so","oos","wn","open","blank","ni","nosugar","callTot","apptD","apptZ","apptTot","conf","vis","m_l2a","m_a2v","m_l2v","m_l2c"],
       health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","enr","fp","pp","inst","emi","payCol"],
-      roas:["period","leads","enr","fp","pp","inst","emi","rev","revCol","revOut","revL1","revL2","avgTicket","payCol"],
+      roas:["period","leads","enr","fp","pp","inst","emi","rev","revCol","revOut","revL1","revL2","payCol"],
       metric:["period","leads","apptD","apptZ","conf","vis","enr","fp","pp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
-      l1l2:["period","leads","enr","fp","pp","inst","l1fp","l1tot","l2fp","l2pp","l2tot","rev","revL1","revL2"],
+      // The FP/PP count columns this view was built around are gone; it keeps the L1/L2 REVENUE split.
+      l1l2:["period","leads","enr","fp","pp","inst","rev","revL1","revL2"],
       audit:["period","leads","vis","enr","hafDone","recDone","fuSched","payCol"],
       // Every service side by side, billed against collected — the gap between the two pairs is that
       // service's outstanding balance.
@@ -14279,7 +14388,11 @@ export function initApp(root: HTMLElement) {
     // campaigns the user has ticked. Empty set = no filter (show everything), per spec.
     let _mlCampStatus:Record<string,string>={};
     let _mlFormStatus:Record<string,string>={};
+    let _mlAdStatus:Record<string,string>={};   // ad name → Meta effective_status (ACTIVE / ADSET_PAUSED / …)
+    let _mlAdStatusNote="";                     // why the dots are grey, when Meta wouldn't say
+    let _mlAdActiveOnly=false;                  // map holds ONLY delivering ads → absent means paused/archived
     const _mlCampSel=new Set<string>();
+    const _mlAdSel=new Set<string>();
     const _mlFormSel=new Set<string>();
     // Meta returns a long tail of effective_status values; collapse them into the three buckets the
     // filter shows. Anything unrecognised is treated as non-active (red) rather than silently green.
@@ -14338,6 +14451,23 @@ export function initApp(root: HTMLElement) {
           _mlFormStatus={};
           (fj&&fj.forms||[]).forEach((f:any)=>{ const nm=String(f&&f.name||"").trim(); if(nm) _mlFormStatus[nm]=String(f.status||""); });
         }catch(_){ /* keep whatever we had */ }
+        // LIVE ad status (effective_status, so a live ad under a paused adset reads ADSET_PAUSED).
+        // Same contract as the two above: unreachable Meta just leaves every ad "Unknown".
+        try{
+          const ar=await fetch(_api("/api/meta/ads"),{headers:authHeaders()});
+          const aj=await ar.json().catch(()=>null);
+          _mlAdStatus={};
+          (aj&&aj.ads||[]).forEach((a:any)=>{ const nm=String(a&&a.name||"").trim(); if(nm) _mlAdStatus[nm]=String(a.status||""); });
+          // A grey "Unknown" on every row is indistinguishable from "Meta says these are all
+          // unknown", so carry the real reason through and say it in the menu.
+          const aerr=(aj&&aj.errors||[])[0];
+          // activeOnly = Meta's budget refused the full sweep and we asked only for what is
+          // delivering. Anything absent is then NOT running — a real answer, not a gap.
+          _mlAdActiveOnly=!!(aj&&aj.activeOnly);
+          _mlAdStatusNote=Object.keys(_mlAdStatus).length
+            ?(_mlAdActiveOnly?"Meta’s API budget allowed only the live-ads check, so paused and archived ads are grouped as “Not active”.":"")
+            :(aerr&&aerr.reason?("Meta didn’t return ad status: "+aerr.reason):"");
+        }catch(_){ /* keep whatever we had */ }
       }catch(_){ _mlAll=[]; }
       _mlFillSelects(); try{ w._mlRender(); }catch(_){}
     }
@@ -14350,6 +14480,7 @@ export function initApp(root: HTMLElement) {
       const uniq=(f:(r:any)=>string)=>Array.from(new Set(_mlAll.map(f).map(s=>String(s||"").trim()).filter(Boolean))).sort();
       fill("mlAcct",uniq(_mlAcctLabel),"All ad accounts");
       _mlRenderCampMenu();   // campaign is a multi-select with live status, not a plain <select>
+      _mlRenderAdMenu();     // ad name likewise
       _mlRenderFormMenu();   // form is a multi-select with live status + per-period counts
     }
     // `skip` lets a facet's own menu count leads WITHOUT its own selection applied — so the numbers
@@ -14372,6 +14503,7 @@ export function initApp(root: HTMLElement) {
       return _mlAll.filter((r:any)=>{
         if(acct!=="all"&&_mlAcctLabel(r)!==acct) return false;
         if(skip!=="camp"&&_mlCampSel.size&&!_mlCampSel.has(String(r.campaign||"").trim())) return false;   // none ticked = all campaigns
+        if(skip!=="ad"&&_mlAdSel.size&&!_mlAdSel.has(String(r.ad_name||"").trim())) return false;           // none ticked = all ads
         if(skip!=="form"&&_mlFormSel.size&&!_mlFormSel.has(String(r.form_name||"").trim())) return false;   // none ticked = all forms
         const day=_istDay(r._d.toISOString());
         if(rng==="today"){ if(day!==todayIST) return false; }
@@ -14437,19 +14569,26 @@ export function initApp(root: HTMLElement) {
     }
     function _mlRenderCampMenu(){
       const menu=root.querySelector("#mlCampMenu")as HTMLElement|null; if(!menu) return;
-      const list=_mlCampList();
-      const head='<div style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-bottom:1px solid var(--line);margin-bottom:4px">'
-        +'<span style="font-size:11px;color:var(--muted)">'+list.length+' campaign'+(list.length===1?"":"s")+'</span>'
-        +'<button type="button" class="pill" style="font-size:11px;margin-left:auto" onclick="event.stopPropagation();window._mlCampClear()">Clear all</button></div>';
-      menu.innerHTML=head+(list.length?list.map((c)=>{
+      // Only the LIST is rewritten — search + Select All live in static markup above it.
+      const box=root.querySelector("#mlCampList")as HTMLElement|null;
+      const q=_mlCampQuery.trim().toLowerCase();
+      const all=_mlCampList();
+      const list=q?all.filter((c)=>c.name.toLowerCase().indexOf(q)>=0):all;
+      if(box) box.innerHTML=list.length?list.map((c)=>{
         const on=_mlCampSel.has(c.name);
-        return '<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;cursor:pointer;font-size:12.5px"'
-          +' onmouseover="this.style.background=\'var(--brand-tint)\'" onmouseout="this.style.background=\'\'">'
-          +'<input type="checkbox" '+(on?"checked":"")+' style="accent-color:var(--brand)" onchange="event.stopPropagation();window._mlCampToggleOne(this,\''+_orgEsc(c.name).replace(/'/g,"&#39;")+'\')">'
-          +'<span style="width:8px;height:8px;border-radius:50%;background:'+c.st.dot+';flex:none"></span>'
-          +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_orgEsc(c.name)+'</span>'
-          +'<span style="font-size:10.5px;color:var(--muted)">'+c.st.label+(c.n?(" · "+c.n):"")+'</span></label>';
-      }).join(""):'<div style="padding:10px;text-align:center;color:var(--faint);font-size:12px">No campaigns yet.</div>');
+        const arg=_orgEsc(c.name).replace(/'/g,"&#39;");
+        return '<label class="mlfm-crow'+(c.st.k==="active"?" on-air":"")+'">'
+          +'<input type="checkbox" '+(on?"checked":"")+' onchange="event.stopPropagation();window._mlCampToggleOne(this,\''+arg+'\')">'
+          +'<span class="dot" style="background:'+c.st.dot+'"></span>'
+          +'<span class="bd"><span class="nm2">'+_orgEsc(c.name)+'</span>'
+          +'<div class="stt">'+_orgEsc(c.st.label)+'</div></span>'
+          +'<span class="n2'+(c.n?"":" zero")+'">'+(c.n?c.n.toLocaleString("en-IN"):"0")+'</span></label>';
+      }).join(""):'<div class="mlfm-empty">'+(q?('No campaign matches “'+_orgEsc(_mlCampQuery)+'”'):'No campaigns yet.')+'</div>';
+      // Select All reflects the CURRENTLY VISIBLE rows, so it can't silently act on filtered-out ones.
+      const allBox=root.querySelector("#mlCampAll")as HTMLInputElement|null;
+      if(allBox){ const sel=list.filter((c)=>_mlCampSel.has(c.name)).length;
+        allBox.checked=list.length>0&&sel===list.length;
+        allBox.indeterminate=sel>0&&sel<list.length; }
       // Button label + removable chips
       const lbl=root.querySelector("#mlCampLabel")as HTMLElement|null;
       if(lbl){ const n=_mlCampSel.size;
@@ -14463,6 +14602,82 @@ export function initApp(root: HTMLElement) {
           +'<span style="cursor:pointer;font-weight:700" onclick="window._mlCampToggleOne(null,\''+_orgEsc(c).replace(/'/g,"&#39;")+'\')">×</span></span>';
       }).join("");
     }
+    // ---- Ad multi-select: same contract as Campaign, keyed on the creative's ad name ----
+    function _mlAdList(){
+      const seen:Record<string,boolean>={};
+      const out:{name:string;st:any;n:number}[]=[];
+      const counts:Record<string,number>={};
+      _mlFiltered("ad").forEach((r:any)=>{ const a=String(r.ad_name||"").trim(); if(a) counts[a]=(counts[a]||0)+1; });
+      // Local to the ad menu so the shared mapper (campaigns, forms) keeps its exact behaviour.
+      const NOT_ACTIVE={k:"inactive",label:"Not active",dot:"var(--faint)",rank:2};
+      const info=(a:string)=>_mlAdStatus[a]?_mlStatusInfo(_mlAdStatus[a]):(_mlAdActiveOnly?NOT_ACTIVE:_mlStatusInfo(""));
+      Object.keys(counts).forEach((a)=>{ seen[a]=true; out.push({name:a,st:info(a),n:counts[a]}); });
+      Object.keys(_mlAdStatus).forEach((a)=>{ if(!seen[a]) out.push({name:a,st:info(a),n:0}); });
+      out.sort((a,b)=>(a.st.rank-b.st.rank)||a.name.localeCompare(b.name));
+      return out;
+    }
+    function _mlRenderAdMenu(){
+      const menu=root.querySelector("#mlAdMenu")as HTMLElement|null; if(!menu) return;
+      const box=root.querySelector("#mlAdList")as HTMLElement|null;
+      const q=_mlAdQuery.trim().toLowerCase();
+      const all=_mlAdList();
+      const list=q?all.filter((a)=>a.name.toLowerCase().indexOf(q)>=0):all;
+      if(box) box.innerHTML=list.length?list.map((a)=>{
+        const on=_mlAdSel.has(a.name);
+        const arg=_orgEsc(a.name).replace(/'/g,"&#39;");
+        return '<label class="mlfm-crow'+(a.st.k==="active"?" on-air":"")+'">'
+          +'<input type="checkbox" '+(on?"checked":"")+' onchange="event.stopPropagation();window._mlAdToggleOne(this,\''+arg+'\')">'
+          +'<span class="dot" style="background:'+a.st.dot+'"></span>'
+          +'<span class="bd"><span class="nm2">'+_orgEsc(a.name)+'</span>'
+          +'<div class="stt">'+_orgEsc(a.st.label)+'</div></span>'
+          +'<span class="n2'+(a.n?"":" zero")+'">'+(a.n?a.n.toLocaleString("en-IN"):"0")+'</span></label>';
+      }).join(""):'<div class="mlfm-empty">'+(q?('No ad matches “'+_orgEsc(_mlAdQuery)+'”'):'No ads yet.')+'</div>';
+      // Names and counts come from the synced leads, so the filter still works — only the dots are
+      // missing. Say so rather than letting a wall of grey read as a data problem.
+      if(box&&list.length&&_mlAdStatusNote) box.insertAdjacentHTML("afterbegin",'<div class="mlfm-note">'+_orgEsc(_mlAdStatusNote)+'</div>');
+      const allBox=root.querySelector("#mlAdAll")as HTMLInputElement|null;
+      if(allBox){ const sel=list.filter((a)=>_mlAdSel.has(a.name)).length;
+        allBox.checked=list.length>0&&sel===list.length;
+        allBox.indeterminate=sel>0&&sel<list.length; }
+      const lbl=root.querySelector("#mlAdLabel")as HTMLElement|null;
+      if(lbl){ const n=_mlAdSel.size;
+        lbl.textContent=n?(n===1?Array.from(_mlAdSel)[0]:(n+" ads selected")):"All ads";
+        lbl.style.color=n?"var(--ink)":"var(--muted)"; }
+      const chips=root.querySelector("#mlAdChips")as HTMLElement|null;
+      if(chips) chips.innerHTML=Array.from(_mlAdSel).map((a)=>{
+        const st=_mlStatusInfo(_mlAdStatus[a]||"");
+        return '<span class="chipb neu" style="display:inline-flex;align-items:center;gap:5px;font-size:11px">'
+          +'<span style="width:7px;height:7px;border-radius:50%;background:'+st.dot+'"></span>'+_orgEsc(a)
+          +'<span style="cursor:pointer;font-weight:700" onclick="window._mlAdToggleOne(null,\''+_orgEsc(a).replace(/'/g,"&#39;")+'\')">×</span></span>';
+      }).join("");
+    }
+    let _mlAdQuery="";
+    w._mlAdSearch=(v:string)=>{ _mlAdQuery=String(v||""); _mlRenderAdMenu(); };
+    w._mlAdSelectAll=(on:boolean)=>{
+      const q=_mlAdQuery.trim().toLowerCase();
+      const list=_mlAdList().filter((a)=>!q||a.name.toLowerCase().indexOf(q)>=0);
+      list.forEach((a)=>{ if(on) _mlAdSel.add(a.name); else _mlAdSel.delete(a.name); });
+      _mlPageN=1; _mlRenderAdMenu(); w._mlRender();
+    };
+    w._mlAdToggle=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation();
+      const m=root.querySelector("#mlAdMenu")as HTMLElement|null; if(!m) return;
+      const show=m.style.display==="none"||!m.style.display;
+      if(show){
+        _mlAdQuery=""; const s=root.querySelector("#mlAdSearch")as HTMLInputElement|null; if(s) s.value="";
+        _mlRenderAdMenu();
+      }
+      m.style.display=show?"block":"none";
+      if(show) setTimeout(()=>{ try{ (root.querySelector("#mlAdSearch")as HTMLInputElement|null)?.focus(); }catch(_){} },0);
+    };
+    w._mlAdToggleOne=(_el:any,name:string)=>{
+      const a=String(name||"").replace(/&#39;/g,"'");
+      if(_mlAdSel.has(a))_mlAdSel.delete(a); else _mlAdSel.add(a);
+      _mlPageN=1; _mlRenderAdMenu(); w._mlRender(); };
+    w._mlAdClear=()=>{ _mlAdSel.clear(); _mlPageN=1; _mlRenderAdMenu(); w._mlRender(); };
+    document.addEventListener("click",(e:any)=>{
+      const wrap=root.querySelector("#mlAdWrap"); const m=root.querySelector("#mlAdMenu")as HTMLElement|null;
+      if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none";
+    },true);
     // ---- Form multi-select: same contract as Campaign (live status dots, period-aware counts) ----
     function _mlFormList(){
       const counts:Record<string,number>={}; const seen:Record<string,boolean>={};
@@ -14477,20 +14692,26 @@ export function initApp(root: HTMLElement) {
     }
     function _mlRenderFormMenu(){
       const menu=root.querySelector("#mlFormMenu")as HTMLElement|null; if(!menu) return;
-      const list=_mlFormList();
-      const tot=list.reduce((s,x)=>s+x.n,0);
-      const head='<div style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-bottom:1px solid var(--line);margin-bottom:4px">'
-        +'<span style="font-size:11px;color:var(--muted)">'+list.length+' form'+(list.length===1?"":"s")+' · '+tot+' lead'+(tot===1?"":"s")+'</span>'
-        +'<button type="button" class="pill" style="font-size:11px;margin-left:auto" onclick="event.stopPropagation();window._mlFormClear()">Clear all</button></div>';
-      menu.innerHTML=head+(list.length?list.map((c)=>{
+      // Only the LIST is rewritten — the search box lives in static markup above it, so a keystroke
+      // can never rebuild the input out from under the cursor.
+      const box=root.querySelector("#mlFormList")as HTMLElement|null;
+      const q=_mlFormQuery.trim().toLowerCase();
+      const all=_mlFormList();
+      const list=q?all.filter((c)=>c.name.toLowerCase().indexOf(q)>=0):all;
+      if(box) box.innerHTML=list.length?list.map((c)=>{
         const on=_mlFormSel.has(c.name);
-        return '<label style="display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;cursor:pointer;font-size:12.5px"'
-          +' onmouseover="this.style.background=\'var(--brand-tint)\'" onmouseout="this.style.background=\'\'">'
-          +'<input type="checkbox" '+(on?"checked":"")+' style="accent-color:var(--brand)" onchange="event.stopPropagation();window._mlFormToggleOne(this,\''+_orgEsc(c.name).replace(/'/g,"&#39;")+'\')">'
-          +'<span style="width:8px;height:8px;border-radius:50%;background:'+c.st.dot+';flex:none"></span>'
-          +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_orgEsc(c.name)+'</span>'
-          +'<span style="font-size:10.5px;color:var(--muted)">'+c.st.label+' · '+c.n+'</span></label>';
-      }).join(""):'<div style="padding:10px;text-align:center;color:var(--faint);font-size:12px">No forms yet.</div>');
+        const arg=_orgEsc(c.name).replace(/'/g,"&#39;");
+        // Leftmost glyph = why this form is or isn't delivering. ⚡ live on Meta · ⚠️ we could not
+        // read its status (an access/sync problem, not "no leads") · ○ known but not active.
+        const st=c.st.k==="active"?'<span class="st" title="Active on Meta">⚡</span>'
+          :(c.st.k==="unknown"?'<span class="st" title="Status unavailable from Meta — possible sync/access issue">⚠️</span>'
+          :'<span class="st" title="'+_orgEsc(c.st.label)+'" style="color:'+c.st.dot+'">●</span>');
+        return '<label class="mlfm-row">'+st
+          +'<input type="checkbox" '+(on?"checked":"")+' style="accent-color:var(--brand);flex:none" onchange="event.stopPropagation();window._mlFormToggleOne(this,\''+arg+'\')">'
+          +'<span class="nm" title="'+_orgEsc(c.name)+'">'+_orgEsc(c.name)+'</span>'
+          +'<span class="n'+(c.n?"":" zero")+'">'+(c.n?c.n.toLocaleString("en-IN"):"0")+'</span>'
+          +'<span class="pill-l'+(c.n?"":" zero")+'">'+(c.n?"Leads":"None")+'</span></label>';
+      }).join(""):'<div class="mlfm-empty">'+(q?('No form matches “'+_orgEsc(_mlFormQuery)+'”'):'No forms yet.')+'</div>';
       const lbl=root.querySelector("#mlFormLabel")as HTMLElement|null;
       if(lbl){ const n=_mlFormSel.size;
         lbl.textContent=n?(n===1?Array.from(_mlFormSel)[0]:(n+" forms selected")):"All forms";
@@ -14503,10 +14724,18 @@ export function initApp(root: HTMLElement) {
           +'<span style="cursor:pointer;font-weight:700" onclick="window._mlFormToggleOne(null,\''+_orgEsc(c).replace(/'/g,"&#39;")+'\')">×</span></span>';
       }).join("");
     }
+    let _mlFormQuery="";
+    w._mlFormSearch=(v:string)=>{ _mlFormQuery=String(v||""); _mlRenderFormMenu(); };
     w._mlFormToggle=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation();
       const m=root.querySelector("#mlFormMenu")as HTMLElement|null; if(!m) return;
-      const show=m.style.display==="none"||!m.style.display; if(show) _mlRenderFormMenu();
-      m.style.display=show?"block":"none"; };
+      const show=m.style.display==="none"||!m.style.display;
+      if(show){
+        _mlFormQuery=""; const s=root.querySelector("#mlFormSearch")as HTMLInputElement|null; if(s) s.value="";
+        _mlRenderFormMenu();
+      }
+      m.style.display=show?"block":"none";
+      if(show) setTimeout(()=>{ try{ (root.querySelector("#mlFormSearch")as HTMLInputElement|null)?.focus(); }catch(_){} },0);
+    };
     w._mlFormToggleOne=(_el:any,name:string)=>{
       const c=String(name||"").replace(/&#39;/g,"'");
       if(_mlFormSel.has(c))_mlFormSel.delete(c); else _mlFormSel.add(c);
@@ -14516,10 +14745,26 @@ export function initApp(root: HTMLElement) {
       const wrap=root.querySelector("#mlFormWrap"); const m=root.querySelector("#mlFormMenu")as HTMLElement|null;
       if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none";
     },true);
+    let _mlCampQuery="";
+    w._mlCampSearch=(v:string)=>{ _mlCampQuery=String(v||""); _mlRenderCampMenu(); };
+    // Select All acts on the rows CURRENTLY VISIBLE (i.e. after the search filter), never on hidden
+    // ones — otherwise ticking it while searching would quietly select the whole account.
+    w._mlCampSelectAll=(on:boolean)=>{
+      const q=_mlCampQuery.trim().toLowerCase();
+      const list=_mlCampList().filter((c)=>!q||c.name.toLowerCase().indexOf(q)>=0);
+      list.forEach((c)=>{ if(on) _mlCampSel.add(c.name); else _mlCampSel.delete(c.name); });
+      _mlPageN=1; _mlRenderCampMenu(); w._mlRender();
+    };
     w._mlCampToggle=(e:any)=>{ if(e&&e.stopPropagation)e.stopPropagation();
       const m=root.querySelector("#mlCampMenu")as HTMLElement|null; if(!m) return;
-      const show=m.style.display==="none"||!m.style.display; if(show) _mlRenderCampMenu();
-      m.style.display=show?"block":"none"; };
+      const show=m.style.display==="none"||!m.style.display;
+      if(show){
+        _mlCampQuery=""; const s=root.querySelector("#mlCampSearch")as HTMLInputElement|null; if(s) s.value="";
+        _mlRenderCampMenu();
+      }
+      m.style.display=show?"block":"none";
+      if(show) setTimeout(()=>{ try{ (root.querySelector("#mlCampSearch")as HTMLInputElement|null)?.focus(); }catch(_){} },0);
+    };
     w._mlCampToggleOne=(_el:any,name:string)=>{
       const c=String(name||"").replace(/&#39;/g,"'");
       if(_mlCampSel.has(c))_mlCampSel.delete(c); else _mlCampSel.add(c);
@@ -14541,8 +14786,8 @@ export function initApp(root: HTMLElement) {
         if(tEl&&!tEl.value) tEl.value=today;
         if(fEl&&!fEl.value){ const d=new Date(); d.setDate(d.getDate()-6); fEl.value=_istDay(d.toISOString()); }
       }
-      // The per-option counts are period-scoped, so both menus must be rebuilt when it changes.
-      _mlPageN=1; try{ _mlRenderCampMenu(); _mlRenderFormMenu(); }catch(_){}
+      // The per-option counts are period-scoped, so every menu must be rebuilt when it changes.
+      _mlPageN=1; try{ _mlRenderCampMenu(); _mlRenderAdMenu(); _mlRenderFormMenu(); }catch(_){}
       w._mlRender();
     };
     w._mlPage=(d:string)=>{ const pages=Math.max(1,Math.ceil(_mlFiltered().length/ML_PER));
@@ -14577,7 +14822,6 @@ export function initApp(root: HTMLElement) {
       const fill=(id:string,vals:string[],allLabel:string)=>{ const el=root.querySelector("#"+id)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map(v=>'<option>'+String(v).replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
       const svcEl=root.querySelector("#rpcFService")as HTMLSelectElement|null;
       if(svcEl&&svcEl.options.length<=1) svcEl.innerHTML='<option value="all">All Services</option>'+SERVICE_MASTER.map(s=>'<option>'+s+'</option>').join("");
-      fill("rpcFLang",_rpcLeads.map((l:any)=>l.language),"All Languages");
       fill("rpcFSales",_rpcLeads.map((l:any)=>l.assigned_to),"All Salespersons");
       fill("rpcFHc",_rpcAppts.map((a:any)=>a.hc_pt),"All HCs");
       fill("rpcFSource",_rpcLeads.map((l:any)=>l.source),"All Sources");
@@ -14633,10 +14877,12 @@ export function initApp(root: HTMLElement) {
       return (paysBy[id]||[]).some((p:any)=>p.status==="paid"&&_svcCanonMatch(p.service||"",svc));
     }
     function _rpcFilteredLeads(apptsBy:Record<string,any[]>,paysBy:Record<string,any[]>){
-      const svc=_rpcSelVal("rpcFService"), lang=_rpcSelVal("rpcFLang"), sales=_rpcSelVal("rpcFSales"), hc=_rpcSelVal("rpcFHc"), src=_rpcSelVal("rpcFSource"), prog=_rpcSelVal("rpcFProg");
+      // No language filter — the control was removed from the report (the stored `language` column
+      // carries occupation-style values like "Business"/"Private Job", so it never filtered by
+      // language at all). _rpcSelVal on a missing element would return "" and drop every row.
+      const svc=_rpcSelVal("rpcFService"), sales=_rpcSelVal("rpcFSales"), hc=_rpcSelVal("rpcFHc"), src=_rpcSelVal("rpcFSource"), prog=_rpcSelVal("rpcFProg");
       return _rpcLeads.filter((l:any)=>{
         if(svc!=="all"&&!_rpcLeadHasSvc(l,svc,apptsBy,paysBy)) return false;
-        if(lang!=="all"&&(l.language||"")!==lang) return false;
         if(sales!=="all"&&(l.assigned_to||"")!==sales) return false;
         if(src!=="all"&&(l.source||"")!==src) return false;
         if(hc!=="all"&&!(apptsBy[String(l.meta_lead_id)]||[]).some((a:any)=>(a.hc_pt||"")===hc)) return false;
@@ -14820,9 +15066,7 @@ export function initApp(root: HTMLElement) {
     }
 
     // ---- rows for the current period / view ----
-    let _rpcTrunc=0;   // client view: how many leads were capped away (0 = nothing dropped)
     function _rpcBuildRows(){
-      _rpcTrunc=0;
       const apptsBy=_rpcIndex(_rpcAppts,"lead_id"), paysBy=_rpcIndex(_rpcPays,"lead_id"), recsBy=_rpcIndex(_rpcRecs,"lead_id");
       const win=_rpcWindow();
       const leads=_rpcFilteredLeads(apptsBy,paysBy);
@@ -14845,17 +15089,9 @@ export function initApp(root: HTMLElement) {
         const byHc:Record<string,Set<string>>={};
         _rpcAppts.forEach((a:any)=>{ const h=(a.hc_pt||"").trim(); if(!h)return; const lid=String(a.lead_id||""); if(!leadById[lid])return; (byHc[h]=byHc[h]||new Set()).add(lid); });
         Object.keys(byHc).sort().forEach(h=>{ const hl=Array.from(byHc[h]).map(id=>leadById[id]); rows.push(_rpcAgg(h+" (HC/PT)",hl,apptsBy,paysBy,recsBy,{leads:hl,from:wFrom,to:wTo})); });
-      } else {
-        // client view — one row per lead in the window (newest first, capped for render weight).
-        // _rpcTrunc carries the real count so the cap is stated instead of silently swallowing rows.
-        _rpcTrunc=inWin.length>400?inWin.length:0;
-        rows=inWin.slice(0,400).map((l:any)=>{
-          const r=_rpcAgg(l.name||l.phone||"Lead",[l],apptsBy,paysBy,recsBy,{leads:[l],from:wFrom,to:wTo});
-          r.doi=l.enrolled_at?new Date(l.enrolled_at).getDate()+" "+_RPC_MN[new Date(l.enrolled_at).getMonth()]+" "+new Date(l.enrolled_at).getFullYear():"—";
-          r.svc=l.service||"—"; r.src=l.source||"—"; r.loc=(l.city||"—");
-          return r;
-        });
       }
+      // The per-Client/Lead row view was removed from the report; _rpcSetRowView now only ever
+      // yields "period" or "person", so there is no third branch to fall through to.
       return {rows,win};
     }
 
@@ -14999,7 +15235,6 @@ export function initApp(root: HTMLElement) {
         }
         if(c.key==="period"){ html+='<td class="sl" style="color:#5B21B6">TOTAL / AVG</td>'; return; }
         if(c.key==="leads"){ html+='<td class="sl2 num-hi">'+totals.leads.toLocaleString("en-IN")+"</td>"; return; }
-        if(c.key==="avgTicket"){ html+='<td style="color:#059669;font-weight:500">'+_rpcMoney(totals.payCol?Math.round(totals.rev/totals.payCol):0)+"</td>"; return; }
         if(c.isMoney){ html+='<td style="color:#059669;font-weight:500">'+_rpcMoney(totals[c.key]||0)+"</td>"; return; }
         if(c.isText){ html+="<td>—</td>"; return; }
         html+='<td style="font-weight:500">'+(totals[c.key]||0)+"</td>";
@@ -15011,12 +15246,11 @@ export function initApp(root: HTMLElement) {
       const sub=root.querySelector("#rpcSecSub");
       if(sub) sub.textContent="Live data · rows are leads by their created date"
         +" · showing "+shown+" of "+rows.length+" row"+(rows.length===1?"":"s")
-        +(_rpcTrunc?" (capped from "+_rpcTrunc+" leads)":"")
         +" · click a card or a column header to filter";
     }
     function _rpcRenderAll(){
       const {rows,win}=_rpcBuildRows(); _rpcRows=rows;
-      const titles:any={period:"Period View",person:"Per Salesperson / HC",client:"Per Client / Lead"};
+      const titles:any={period:"Period View",person:"Per Salesperson / HC"};
       const st=root.querySelector("#rpcSecTitle"); if(st) st.textContent=_rpcPeriod.charAt(0).toUpperCase()+_rpcPeriod.slice(1)+" Report — "+(titles[_rpcRowView]||"Period View");
       const pl=root.querySelector("#rpcPeriodLabel"); if(pl) pl.textContent=win.winLabel;
       _rpcSummary(rows); _rpcHeader(); _rpcBody(win);
@@ -15036,7 +15270,9 @@ export function initApp(root: HTMLElement) {
     w._rpcNav=(dir:number)=>{ _rpcNavOff+=dir; _rpcRenderAll(); };
     w._rpcNavToday=()=>{ _rpcNavOff=0; _rpcRenderAll(); };
     w._rpcSetRowView=(v:string,el:any)=>{
-      _rpcRowView=v;
+      // Only Period and Person exist now — anything else (a stale caller, an old bundle) falls back
+      // to Period rather than leaving the table with no branch to build rows from.
+      _rpcRowView=(v==="person")?"person":"period";
       root.querySelectorAll("#rpcRowviewTog .tog-btn").forEach((b:any)=>b.classList.toggle("on",b===el));
       _rpcRenderAll();
     };

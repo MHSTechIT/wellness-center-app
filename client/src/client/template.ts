@@ -175,7 +175,7 @@ export function getMainContent(): string {
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
               <select  class="select" id="callStatus" onchange="callStatusChange(this.value)">
-                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="apc">Appointment Confirmed</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option><option value="ni">Not Interested</option><option value="disc">Disconnect</option>
+                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option><option value="ni">Not Interested</option><option value="disc">Disconnect</option>
               </select></div>
             <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
@@ -204,13 +204,19 @@ export function getMainContent(): string {
           <div id="advBtPlanCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:12px"></div>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-msg"></use></svg> WhatsApp messaging — WATI templates <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-msg"></use></svg> WhatsApp messaging <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
           <div class="g3">
             <div class="fld"><label class="lbl" for="waTplSel">Template</label><select  class="select" id="waTplSel" onchange="waTpl()"><option value="welcome" selected>Welcome &amp; intro</option><option value="appt">Appointment confirmation</option><option value="fu">Follow-up reminder</option><option value="pay">Payment link</option></select></div>
-            <div class="fld" style="grid-column:span 2"><label class="lbl" for="waPrev">Preview</label><textarea  class="area" id="waPrev" rows="3" placeholder="Template preview will appear here"></textarea></div>
+            <!-- The preview IS the message: it is pre-filled from the template with the lead's own
+                 details, and whatever is typed here is exactly what WhatsApp opens with. -->
+            <div class="fld" style="grid-column:span 2"><label class="lbl" for="waPrev">Message — edit before sending</label><textarea  class="area" id="waPrev" rows="8" placeholder="Pick a template, or type your message here"></textarea></div>
           </div>
-          <div style="display:flex;gap:9px;margin-top:6px"><button class="btn bsm bp" onclick="toast('WA template sent via WATI')"><svg aria-hidden="true" focusable="false" class="icon" style="width:14px;height:14px"><use href="#i-msg"></use></svg> Send via WATI</button></div>
+          <div style="display:flex;gap:9px;margin-top:6px;align-items:center;flex-wrap:wrap">
+            <button class="btn bsm bp" onclick="window._waSend()"><svg aria-hidden="true" focusable="false" class="icon" style="width:14px;height:14px"><use href="#i-msg"></use></svg> Send Via WhatsApp</button>
+            <button class="btn bsm" onclick="window.waTpl()" title="Discard edits and rebuild this template from the lead's details">↺ Reset to template</button>
+            <span id="waTo" style="font-size:11px;color:var(--faint)"></span>
+          </div>
         </div></div>
 
       <div class="sec hideblock" id="apptSec" style="display:none"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-cal"></use></svg> Appointment — slot board <span class="chipb info" id="apptMode" style="margin-left:6px">Direct (Walk-in)</span> <span class="arr">▾</span></div>
@@ -606,14 +612,39 @@ export function getMainContent(): string {
         <div class="fld"><label class="lbl">Campaign</label>
           <div id="mlCampWrap" style="position:relative">
             <button type="button" class="select" id="mlCampBtn" onclick="window._mlCampToggle(event)" style="cursor:pointer;width:100%;text-align:left;display:flex;align-items:center;gap:6px;font-weight:500"><span id="mlCampLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">All campaigns</span><span style="color:var(--faint);font-size:11px">▾</span></button>
-            <div id="mlCampMenu" style="display:none;position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;min-width:320px;background:var(--surface);border:1px solid var(--line);border-radius:9px;max-height:320px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14);padding:5px"></div>
+            <!-- Search + Select All are STATIC: only the list below re-renders, so a keystroke can't
+                 rebuild the input and steal focus mid-typing. -->
+            <div id="mlCampMenu" class="mlfm" style="display:none">
+              <div class="mlfm-search"><span class="ic">🔍</span><input id="mlCampSearch" placeholder="Search…" autocomplete="off" oninput="window._mlCampSearch(this.value)" onclick="event.stopPropagation()"></div>
+              <label class="mlfm-all"><input type="checkbox" id="mlCampAll" onchange="event.stopPropagation();window._mlCampSelectAll(this.checked)"><span>Select All</span><button type="button" class="mlfm-clear" onclick="event.stopPropagation();window._mlCampClear()">Clear</button></label>
+              <div id="mlCampList" class="mlfm-list"></div>
+            </div>
           </div>
           <div id="mlCampChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px"></div>
+        </div>
+        <div class="fld"><label class="lbl">Ad name</label>
+          <div id="mlAdWrap" style="position:relative">
+            <button type="button" class="select" id="mlAdBtn" onclick="window._mlAdToggle(event)" style="cursor:pointer;width:100%;text-align:left;display:flex;align-items:center;gap:6px;font-weight:500"><span id="mlAdLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">All ads</span><span style="color:var(--faint);font-size:11px">▾</span></button>
+            <!-- Search + Select All are STATIC so a keystroke never rebuilds the input under the cursor. -->
+            <div id="mlAdMenu" class="mlfm" style="display:none">
+              <div class="mlfm-search"><span class="ic">🔍</span><input id="mlAdSearch" placeholder="Search…" autocomplete="off" oninput="window._mlAdSearch(this.value)" onclick="event.stopPropagation()"></div>
+              <label class="mlfm-all"><input type="checkbox" id="mlAdAll" onchange="event.stopPropagation();window._mlAdSelectAll(this.checked)"><span>Select All</span><button type="button" class="mlfm-clear" onclick="event.stopPropagation();window._mlAdClear()">Clear</button></label>
+              <div id="mlAdList" class="mlfm-list"></div>
+            </div>
+          </div>
+          <div id="mlAdChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px"></div>
         </div>
         <div class="fld"><label class="lbl">Form</label>
           <div id="mlFormWrap" style="position:relative">
             <button type="button" class="select" id="mlFormBtn" onclick="window._mlFormToggle(event)" style="cursor:pointer;width:100%;text-align:left;display:flex;align-items:center;gap:6px;font-weight:500"><span id="mlFormLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">All forms</span><span style="color:var(--faint);font-size:11px">▾</span></button>
-            <div id="mlFormMenu" style="display:none;position:absolute;z-index:40;top:calc(100% + 4px);left:0;right:0;min-width:340px;background:var(--surface);border:1px solid var(--line);border-radius:9px;max-height:320px;overflow:auto;box-shadow:0 10px 28px rgba(0,0,0,.14);padding:5px"></div>
+            <!-- Search + header + legend are STATIC: the list below re-renders on every keystroke,
+                 and rebuilding the input with it would steal focus mid-typing. -->
+            <div id="mlFormMenu" class="mlfm" style="display:none">
+              <div class="mlfm-search"><span class="ic">🔍</span><input id="mlFormSearch" placeholder="Search form…" autocomplete="off" oninput="window._mlFormSearch(this.value)" onclick="event.stopPropagation()"></div>
+              <div class="mlfm-hd"><span class="dot"></span><span>Select a Form</span><button type="button" class="mlfm-clear" onclick="event.stopPropagation();window._mlFormClear()">Clear all</button></div>
+              <div class="mlfm-key"><span><b class="k-act">⚡</b> Active</span><span><b class="k-has">✅</b> Has leads</span><span><b class="k-non">❌</b> None</span><span><b class="k-warn">⚠️</b> Sync issue</span></div>
+              <div id="mlFormList" class="mlfm-list"></div>
+            </div>
           </div>
           <div id="mlFormChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px"></div>
         </div>
@@ -1485,13 +1516,11 @@ export function getMainContent(): string {
         <div class="tog" id="rpcRowviewTog">
           <button class="tog-btn on blue" data-v="period" onclick="window._rpcSetRowView('period',this)">Period</button>
           <button class="tog-btn" data-v="person" onclick="window._rpcSetRowView('person',this)">Person</button>
-          <button class="tog-btn" data-v="client" onclick="window._rpcSetRowView('client',this)">Client</button>
         </div>
       </div>
       <!-- CONTROL BAR 2 — Filters -->
       <div class="ctrl2">
         <select class="filter-sel" id="rpcFService" onchange="window._rpcRender()"><option value="all">All Services</option></select>
-        <select class="filter-sel" id="rpcFLang" onchange="window._rpcRender()"><option value="all">All Languages</option></select>
         <select class="filter-sel" id="rpcFSales" onchange="window._rpcRender()"><option value="all">All Salespersons</option></select>
         <select class="filter-sel" id="rpcFHc" onchange="window._rpcRender()"><option value="all">All HCs</option></select>
         <select class="filter-sel" id="rpcFSource" onchange="window._rpcRender()"><option value="all">All Sources</option></select>
@@ -1816,7 +1845,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Eligibility exclusions</label><textarea class="area">Cancer, Brain Tumor, Recent Heart Surgery, Organ Transplant, Pregnancy, Age Above 75, Already Paid, Other Language, Others</textarea></div>
           <div class="fld"><label class="lbl">Occupations</label><textarea class="area">Private Job, Govt Job, Business, Self-employed, Homemaker, Retired, Student, Daily Wage, Others</textarea></div>
-          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Home, Appointment Confirmed, Visited, Enrolled, Not Reachable, Not Interested, Disconnect</textarea></div>
+          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Home, Visited, Enrolled, Not Reachable, Not Interested, Disconnect</textarea></div>
           <div class="fld"><label class="lbl">Languages</label><textarea class="area">Tamil, Telugu, Kannada, Malayalam, Hindi, Marathi, Bengali, Gujarati, Punjabi, Urdu</textarea></div>
           <div class="fld"><label class="lbl">Locations</label><textarea class="area">Poonamalle, Porur, Maduravoyal, Ambattur, Avadi, Tambaram, Nagapattinam</textarea></div>
           <div class="fld"><label class="lbl">Physio conditions</label><textarea class="area">Frozen shoulder, Knee rehab, Lower back pain, Cervical spondylosis, Sports injury, Post-surgical, Sciatica, Others</textarea></div>
