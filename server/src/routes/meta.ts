@@ -10,6 +10,7 @@ import {
   metaTargetAdAccounts,
   metaTargetFormIds,
   fetchCampaignStatuses,
+  fetchAdStatuses,
   fetchFormStatuses,
 } from '../services/meta';
 
@@ -330,6 +331,17 @@ export function registerMetaRoutes(app: Express) {
       res.json(await fetchCampaignStatuses(ids));
     } catch (e: any) {
       res.json({ campaigns: [], errors: [{ account: 'all', reason: e?.message || 'lookup failed' }] });
+    }
+  });
+  // Live status for every ad in the target accounts. Same failure contract as /campaigns: on error
+  // it returns an empty list plus the reason, and the Ad-name filter falls back to the names already
+  // present in the synced leads (status simply reads Unknown).
+  app.get('/api/meta/ads', requireAuth, async (_req, res) => {
+    try {
+      const ids = metaTargetAdAccounts();
+      res.json(await fetchAdStatuses(ids));
+    } catch (e: any) {
+      res.json({ ads: [], errors: [{ account: 'all', reason: e?.message || 'lookup failed' }] });
     }
   });
   // Live status for the allowlisted lead forms. Same failure contract as /campaigns.

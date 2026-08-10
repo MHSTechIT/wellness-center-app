@@ -127,6 +127,92 @@ export async function fetchCampaignStatuses(adAccountIds: string[]) {
   return data;
 }
 
+// Live status for the AD creatives in the target accounts. Same contract and failure behaviour as
+// fetchCampaignStatuses — the Ad-name filter shows what Meta says right now rather than a stored
+// value, so "ADSET_PAUSED" on a still-listed ad is visible instead of looking merely quiet.
+//
+// This account sits on Meta's `development_access` tier, and its ads_management budget prices a
+// request by how much DATA it moves, not just by call count: when the budget is drained a
+// `limit=1` request still returns 200 while a `limit=500` page is refused with error 17. Enumerating
+// ~965 ads is therefore a request that can simply be too big to ever land on a busy day — the lead
+// crawl shares this budget and spends far more of it than this filter does.
+//
+// So there are two passes, richest first:
+//   FULL     — every ad + an explicit archived sweep. Exact per-ad status ("Adset paused"), ~3 calls.
+//   ACTIVE   — the 10-odd currently-delivering ads only. Tiny, and survives a drained budget.
+// The ACTIVE fallback still answers the question the filter exists to answer — is this ad running? —
+// so `activeOnly` tells the client that a name it cannot find is genuinely NOT ACTIVE rather than
+// merely unknown. Without that flag the two cases are indistinguishable and every dot goes grey.
+//
+// If both passes fail the dropdown still works: it lists the ad names present in the leads, shows
+// every dot as "Unknown", and says why.
+const AD_CACHE_TTL = Number(process.env.META_AD_CACHE_TTL_MS || 60 * 60 * 1000);
+const AD_PAGE_CAP = 4;
+const adStatusFilter = (states: string[]) =>
+  encodeURIComponent(JSON.stringify([{ field: 'ad.effective_status', operator: 'IN', value: states }]));
+const AD_ARCHIVED_FILTER = adStatusFilter(['ARCHIVED']);
+const AD_ACTIVE_FILTER = adStatusFilter(['ACTIVE']);
+const AD_ACTIVE_PAGE = 50;   // headroom over the ~10 ads this account runs; 2 pages is the cap
+// A FAILURE is cached too, briefly. Not caching it at all sounds safer but is the opposite: Meta
+// throttles this edge with "User request limit reached", and an uncached failure means every page
+// load re-hits a rate-limited endpoint — spending the same app quota the lead crawl depends on and
+// keeping the throttle alive. Five minutes is short enough that recovery is still prompt.
+const AD_FAIL_TTL = Number(process.env.META_AD_FAIL_TTL_MS || 5 * 60 * 1000);
+let _adStatusCache: { at: number; data: any } | null = null;
+let _adFail: { at: number; data: any } | null = null;
+export async function fetchAdStatuses(adAccountIds: string[]) {
+  if (_adStatusCache && Date.now() - _adStatusCache.at < AD_CACHE_TTL) return _adStatusCache.data;
+  if (_adFail && Date.now() - _adFail.at < AD_FAIL_TTL) return _adFail.data;
+  const names = adAccountNames();
+  const tokens = adsTokenCandidates();
+  const ads: any[] = [];
+  const errors: { account: string; reason: string }[] = [];
+  // Only claim "everything missing is inactive" if EVERY account fell back — one full result mixed
+  // with one partial would make absent names ambiguous again.
+  let full = 0, activeOnly = 0;
+  for (const acctId of adAccountIds) {
+    let got = false;
+    // Report the FIRST token's failure, not the last: the later candidates are fallbacks that are
+    // expected to lack ads permission, and letting their (#200) drown out a real rate-limit or
+    // expiry on the primary token sends whoever reads this straight down the wrong path.
+    let firstErr = '';
+    const push = (a: any) => ads.push({
+      id: a.id,
+      name: a.name,
+      // effective_status rolls up the parent adset/campaign — an ACTIVE ad under a paused adset
+      // still cannot deliver, and that is exactly what the filter needs to show.
+      status: String(a.effective_status || a.status || 'UNKNOWN').toUpperCase(),
+      accountId: acctId,
+      accountName: names[acctId] || acctId
+    });
+    for (const tk of tokens) {
+      const edge = (limit: number, filtering?: string) =>
+        `${GRAPH_API}/act_${acctId}/ads?fields=id,name,status,effective_status&limit=${limit}`
+        + (filtering ? `&filtering=${filtering}` : '') + `&access_token=${tk}`;
+      const live = await fetchAllPages(edge(500), AD_PAGE_CAP);
+      if (!live.error) {
+        // The archived pass is best-effort: it only adds history, so its failure must not discard
+        // the live statuses we already hold.
+        const archived = await fetchAllPages(edge(500, AD_ARCHIVED_FILTER), 2);
+        [...live.items, ...archived.items].forEach(push);
+        got = true; full++;
+        break;
+      }
+      if (!firstErr) firstErr = live.error;
+      // Too big to land right now — ask only for what is delivering, at the smallest page that can
+      // hold it (this account runs ~10 ads at a time). Meta prices a request by the size asked for,
+      // so the retry has to shrink the limit as well as the result, or it is refused all over again.
+      const running = await fetchAllPages(edge(AD_ACTIVE_PAGE, AD_ACTIVE_FILTER), 2);
+      if (!running.error) { running.items.forEach(push); got = true; activeOnly++; break; }
+    }
+    if (!got) errors.push({ account: acctId, reason: firstErr || 'no token could read this account' });
+  }
+  const data = { ads, errors, activeOnly: activeOnly > 0 && full === 0, fetchedAt: new Date().toISOString() };
+  if (ads.length) { _adStatusCache = { at: Date.now(), data }; _adFail = null; }
+  else _adFail = { at: Date.now(), data };   // short backoff, not the hour a success gets
+  return data;
+}
+
 // Live status for the allowlisted lead forms (Marketing API). Same purpose as
 // fetchCampaignStatuses: the Form filter shows what Meta says right now, not a stored value.
 // Forms are fetched BY ID (not by enumerating pages) so a form on a page our token cannot list
@@ -172,7 +258,13 @@ export async function fetchFormStatuses(formIds: string[]) {
 // MHS DF 01 rows are 134 leads whose newest is 15 Jun 2026, i.e. that account is not in use).
 // Listing a second account only widened the crawl into something nobody reads and made the
 // "unreadable account" warning fire for an account that does not matter.
-const DEFAULT_TARGET_FORM_IDS = '2449233332261397,818636004640541,968880282530796,1325107116305272,1029626479628890,26854157430943728';
+// Scope lives in code, not in one machine's .env — see the deploy notes. Add a form here when a new
+// campaign starts running one, otherwise its leads never reach the CRM.
+//   2110678129485711 — "LLW - Contitional Logic Form [06/08/2026]", the form behind the LLW BYTE /
+//   LLW OGA ads. Added 2026-08-10: it went live on 06/08 and every lead it collected was invisible,
+//   because the ad-account crawl (the catch-all that does not care which form an ad uses) had been
+//   blocked since 2026-08-08 and the sync kept reporting success.
+const DEFAULT_TARGET_FORM_IDS = '2449233332261397,818636004640541,968880282530796,1325107116305272,1029626479628890,26854157430943728,2110678129485711';
 const DEFAULT_TARGET_AD_ACCOUNTS = '384231607347196';
 const DEFAULT_AD_ACCOUNT_NAMES = '384231607347196:MHS Ad Account (2024)';
 export function metaTargetFormIds(): string[] {
@@ -190,6 +282,20 @@ export function adAccountNames(): Record<string, string> {
   });
   return out;
 }
+
+// An ad that stops delivering can still have produced leads earlier the same day, and a routine
+// (active-only) run would never look at it again. So a FULL sweep still happens — just on its own
+// slow clock instead of every five minutes.
+const AD_SWEEP_INTERVAL_MS = Number(process.env.META_AD_SWEEP_INTERVAL_MS || 6 * 60 * 60 * 1000);
+let _lastAdSweepAt = 0;
+
+// Meta's rate limit needs QUIET to clear, and a failed call still spends budget. The sync fires
+// every few minutes from every open tab, so a rate-limited crawl used to re-hit the same wall
+// forever: each retry renewed the limit that caused it, and the account stayed unreadable for days
+// (2026-08-08 to 2026-08-10) with no way out. Backing off gives the window the silence it needs.
+const AD_CRAWL_BACKOFF_MS = Number(process.env.META_AD_CRAWL_BACKOFF_MS || 30 * 60 * 1000);
+const isRateLimited = (msg: string) => /request limit|rate limit|too many calls|\(#(4|17|32|613)\)/i.test(msg || '');
+let _adCrawlBlockedUntil = 0;
 
 export interface AdAccountCrawl {
   leads: any[];
@@ -211,20 +317,53 @@ export async function crawlAdAccountLeads(adAccountIds: string[]): Promise<AdAcc
   const blockedAccounts: { id: string; reason: string }[] = [];
   let adErrors = 0;
 
+  // Still inside a rate-limit backoff: spend nothing, and say so rather than reporting an empty
+  // crawl as if the account were simply quiet.
+  if (Date.now() < _adCrawlBlockedUntil) {
+    const mins = Math.ceil((_adCrawlBlockedUntil - Date.now()) / 60000);
+    return {
+      leads: [],
+      accessibleAccounts: [],
+      blockedAccounts: adAccountIds.map((id) => ({ id, reason: `rate limited by Meta — backing off ${mins} more min` })),
+      adErrors: 0
+    };
+  }
+
+  // A full sweep is only worth its price occasionally — see AD_SWEEP_INTERVAL_MS.
+  const fullSweep = Date.now() - _lastAdSweepAt >= AD_SWEEP_INTERVAL_MS;
+  let sweptThisRun = false;
+
   for (const acctId of adAccountIds) {
     // Find a token that can list this account's ads.
     let token: string | null = null;
     let ads: any[] = [];
-    let lastErr = 'no token could read this account';
+    // FIRST failure, not last. The later tokens are fallbacks that are expected to lack ads
+    // permission, so reporting the last one buried the real cause behind "(#200) Ad account owner
+    // has NOT grant ads_management" — a permissions red herring for what is actually the primary
+    // token being rate-limited.
+    let firstErr = '';
     for (const tk of tokens) {
+      // ROUTINE RUNS ASK ONLY FOR DELIVERING ADS. A paused or archived ad cannot produce a new
+      // lead, and everything it produced already sits in the database — yet crawling all ~965 of
+      // them costs one /{ad}/leads call EACH, every five minutes. That is what drained this
+      // account's Marketing-API budget until the crawl could no longer read the account at all:
+      // on 2026-08-08 it stopped resolving, the sync kept reporting success, and leads from any ad
+      // whose form is not on the six-form allowlist silently stopped arriving. ~20 active ads
+      // instead of ~965 is a 45x cut and keeps the crawl inside the budget it depends on.
+      const scope = fullSweep ? '' : `&filtering=${AD_ACTIVE_FILTER}`;
       const { items, error } = await fetchAllPages(
-        `${GRAPH_API}/act_${acctId}/ads?fields=id,name&limit=200&access_token=${tk}`,
-        20
+        `${GRAPH_API}/act_${acctId}/ads?fields=id,name&limit=200${scope}&access_token=${tk}`,
+        fullSweep ? 20 : 2
       );
-      if (error) { lastErr = error; continue; }
-      token = tk; ads = items; break;
+      if (error) { if (!firstErr) firstErr = error; continue; }
+      token = tk; ads = items; sweptThisRun = sweptThisRun || fullSweep; break;
     }
-    if (!token) { blockedAccounts.push({ id: acctId, reason: lastErr }); continue; }
+    if (!token) {
+      const reason = firstErr || 'no token could read this account';
+      if (isRateLimited(reason)) _adCrawlBlockedUntil = Date.now() + AD_CRAWL_BACKOFF_MS;
+      blockedAccounts.push({ id: acctId, reason });
+      continue;
+    }
 
     // Fetch leads for every ad (batched), within the date window.
     let acctLeadCount = 0;
@@ -259,6 +398,9 @@ export async function crawlAdAccountLeads(adAccountIds: string[]): Promise<AdAcc
     }
     accessibleAccounts.push({ id: acctId, name: names[acctId] || acctId, ads: ads.length, leads: acctLeadCount });
   }
+  // Only bank the sweep if one actually completed, so a run blocked before it listed any ads does
+  // not push the next full sweep six hours away.
+  if (sweptThisRun) _lastAdSweepAt = Date.now();
 
   // De-duplicate by Meta lead id (an ad's leads are unique, but guard anyway)
   const seen = new Set<string>();
@@ -436,7 +578,15 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
 
     // ENRICHMENT: paid leads from the accessible ad accounts → attribute by lead id.
     let adCrawl: AdAccountCrawl = { leads: [], accessibleAccounts: [], blockedAccounts: [], adErrors: 0 };
-    try { adCrawl = await crawlAdAccountLeads(adAccountIds); } catch (_) {}
+    // A THROW here used to vanish, leaving both accessibleAccounts and blockedAccounts empty — which
+    // the status logic below reads as "nothing was blocked" and writes as a clean success. That is
+    // the exact shape of the rows that ran from 2026-08-08 onward: status success, error null,
+    // accounts_accessible empty, and no new leads. Turning the throw into a blocked account makes it
+    // impossible for this failure to look like a healthy sync again.
+    try { adCrawl = await crawlAdAccountLeads(adAccountIds); }
+    catch (e: any) {
+      adCrawl.blockedAccounts = adAccountIds.map((id) => ({ id, reason: e?.message || 'ad-account crawl threw' }));
+    }
     const attrMap = new Map<string, { id: string; name: string }>();
     adCrawl.leads.forEach((l: any) => {
       if (l.adAccountId) attrMap.set(l.id, { id: l.adAccountId, name: l.adAccountName });
@@ -637,13 +787,22 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
     };
 
     if (syncId != null) {
+      // A crawl that could read NONE of its configured ad accounts is NOT a success — it returns no
+      // new leads and the dashboards simply flatline. Recording it as 'success' is why a revoked
+      // ads_read permission went unnoticed for two days: every row said success while the newest
+      // lead stopped advancing. Blocked accounts and their reason are now written to the row.
+      const blocked = adCrawl.blockedAccounts || [];
+      const noAccess = adCrawl.accessibleAccounts.length === 0 && blocked.length > 0;
       await supabase.from('meta_sync_state').update({
-        status: 'success',
+        status: noAccess ? 'blocked' : 'success',
         finished_at: new Date().toISOString(),
         leads_synced: upserted,
         forms_scanned: formCrawl.formsScanned,
         campaigns_matched: adCrawl.accessibleAccounts.length,
-        accounts_accessible: adCrawl.accessibleAccounts.map((a) => a.name).join(', ')
+        accounts_accessible: adCrawl.accessibleAccounts.map((a) => a.name).join(', '),
+        error: noAccess
+          ? 'No ad account could be read — ' + blocked.map((b: any) => b.id + ': ' + b.reason).join(' | ')
+          : null
       }).eq('id', syncId);
     }
 
