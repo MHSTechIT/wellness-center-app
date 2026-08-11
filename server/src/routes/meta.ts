@@ -11,6 +11,7 @@ import {
   metaTargetFormIds,
   fetchCampaignStatuses,
   fetchAdStatuses,
+  fetchAdInsights,
   fetchFormStatuses,
 } from '../services/meta';
 
@@ -351,6 +352,21 @@ export function registerMetaRoutes(app: Express) {
       res.json(await fetchFormStatuses(ids));
     } catch (e: any) {
       res.json({ forms: [], errors: [{ form: 'all', reason: e?.message || 'lookup failed' }] });
+    }
+  });
+  // Ad-level spend + delivery for the Campaign Tracker, for one date range. `blocked` carries the
+  // real reason when an account cannot be read, so the page can say "no ads_read" rather than
+  // drawing a table of zeros that looks like a month of campaigns that spent nothing.
+  app.get('/api/meta/insights', requireAuth, async (req, res) => {
+    const day = (v: any, fallback: string) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : fallback);
+    const today = new Date().toISOString().slice(0, 10);
+    const monthAgo = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const since = day(req.query.since, monthAgo);
+    const until = day(req.query.until, today);
+    try {
+      res.json(await fetchAdInsights(metaTargetAdAccounts(), since, until));
+    } catch (e: any) {
+      res.json({ rows: [], blocked: [{ account: 'all', reason: e?.message || 'insights lookup failed' }], since, until });
     }
   });
   app.get('/api/meta/accounts', requireAuth, (_req, res) => {

@@ -1063,3 +1063,258 @@ html{scroll-behavior:smooth}
 .mlfm-crow .n2{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:11.5px;font-weight:700;
                color:var(--brand-600,#0F5832);flex:none;margin-top:2px}
 .mlfm-crow .n2.zero{color:var(--faint);font-weight:500}
+
+/* ============================================================================
+   MARKETING — Campaign Tracker (.ctk)
+   Everything is scoped under .ctk so this screen's heavier visual treatment cannot
+   leak into the rest of the app. Motion is layered: a page-level entrance, a
+   per-row stagger, and hover-level micro-interactions. Every one of them is
+   switched off under prefers-reduced-motion at the bottom of this block.
+   ============================================================================ */
+.ctk{--ctk-r:16px;--ctk-line:rgba(15,88,50,.10);--ctk-soft:rgba(15,88,50,.045)}
+
+/* ---- Hero ---- */
+.ctk-hero{position:relative;overflow:hidden;border-radius:var(--ctk-r);padding:22px 24px;margin-bottom:14px;
+          background:linear-gradient(120deg,#0B3D26 0%,#12603C 45%,#0E4A2F 100%);
+          box-shadow:0 14px 40px rgba(11,61,38,.22);animation:ctkIn .5s cubic-bezier(.22,.61,.36,1) both}
+/* A slow drifting light. Purely decorative, sits under the content, never intercepts a click. */
+.ctk-hero-glow{position:absolute;inset:-60% -20% auto -20%;height:220%;pointer-events:none;
+               background:radial-gradient(closest-side,rgba(120,255,190,.20),transparent 70%);
+               animation:ctkDrift 14s ease-in-out infinite alternate}
+@keyframes ctkDrift{from{transform:translate3d(-8%,-4%,0) scale(1)}to{transform:translate3d(10%,6%,0) scale(1.15)}}
+.ctk-hero-in{position:relative;display:flex;gap:16px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap}
+.ctk-eyebrow{display:inline-flex;align-items:center;gap:7px;font-size:10.5px;font-weight:800;letter-spacing:.12em;
+             text-transform:uppercase;color:#9FE9C4;margin-bottom:8px}
+.ctk-dot{width:7px;height:7px;border-radius:50%;background:#48E39B;box-shadow:0 0 0 0 rgba(72,227,155,.7);
+         animation:ctkPulse 2s ease-out infinite}
+@keyframes ctkPulse{0%{box-shadow:0 0 0 0 rgba(72,227,155,.65)}70%{box-shadow:0 0 0 9px rgba(72,227,155,0)}100%{box-shadow:0 0 0 0 rgba(72,227,155,0)}}
+.ctk-title{margin:0;font-size:27px;line-height:1.15;font-weight:800;color:#fff;letter-spacing:-.02em}
+.ctk-sub{margin:5px 0 0;font-size:12.5px;color:rgba(226,247,236,.72)}
+.ctk-hero-act{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.ctk-stamp{font-size:11px;color:rgba(226,247,236,.62);font-family:var(--mono,ui-monospace,Consolas,monospace)}
+.ctk-btn{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;font-weight:700;
+         padding:8px 14px;border-radius:10px;color:#08301D;background:#8FF0C0;border:1px solid transparent;
+         transition:transform .16s cubic-bezier(.22,.61,.36,1),box-shadow .16s ease,background .16s ease}
+.ctk-btn:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(0,0,0,.22);background:#A6F5CE}
+.ctk-btn:active{transform:translateY(0) scale(.985)}
+.ctk-btn.ghost{background:rgba(255,255,255,.10);color:#DCF6E8;border-color:rgba(255,255,255,.18)}
+.ctk-btn.ghost:hover{background:rgba(255,255,255,.17)}
+.ctk-btn.loading .ctk-spin{display:inline-block;animation:ctkRot .8s linear infinite}
+@keyframes ctkRot{to{transform:rotate(360deg)}}
+
+/* ---- Permission / failure banner ---- */
+.ctk-alert{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin-bottom:14px;border-radius:12px;
+           font-size:12.5px;line-height:1.5;color:#7A2E1E;background:#FDEDE8;border:1px solid #F3C9BC;
+           animation:ctkIn .35s ease both}
+
+/* ---- Filter bar ---- */
+.ctk-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:11px 13px;margin-bottom:14px;
+         background:var(--surface,#fff);border:1px solid var(--ctk-line);border-radius:13px;
+         animation:ctkIn .45s .04s cubic-bezier(.22,.61,.36,1) both}
+.ctk-f{display:flex;align-items:center;gap:7px}
+.ctk-f label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.ctk-f input{height:32px;padding:0 9px;font-size:12px;border-radius:9px;border:1px solid var(--line);
+             background:var(--surface,#fff);color:var(--ink);transition:border-color .15s ease,box-shadow .15s ease}
+.ctk-f input:focus{outline:none;border-color:var(--brand,#0F5832);box-shadow:0 0 0 3px rgba(15,88,50,.12)}
+.ctk-quick,.ctk-seg{display:inline-flex;background:var(--ctk-soft);border-radius:10px;padding:3px;gap:2px}
+.ctk-quick button,.ctk-seg button{border:0;background:transparent;cursor:pointer;border-radius:8px;
+   font-size:11.5px;font-weight:700;color:var(--muted);padding:6px 11px;position:relative;
+   transition:color .18s ease,background .18s ease,transform .18s cubic-bezier(.22,.61,.36,1)}
+.ctk-quick button:hover,.ctk-seg button:hover{color:var(--ink)}
+.ctk-quick button.on,.ctk-seg button.on{background:var(--brand,#0F5832);color:#fff;
+   box-shadow:0 3px 10px rgba(15,88,50,.26);transform:translateY(-1px)}
+.ctk-search{flex:1;min-width:180px;height:32px;padding:0 11px;font-size:12px;border-radius:9px;
+            border:1px solid var(--line);background:var(--surface,#fff);color:var(--ink);
+            transition:border-color .15s ease,box-shadow .15s ease}
+.ctk-search:focus{outline:none;border-color:var(--brand,#0F5832);box-shadow:0 0 0 3px rgba(15,88,50,.12)}
+
+/* ---- KPI cards ---- */
+.ctk-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:11px;margin-bottom:14px}
+.ctk-k{position:relative;overflow:hidden;padding:14px 15px;border-radius:13px;background:var(--surface,#fff);
+       border:1px solid var(--ctk-line);box-shadow:0 2px 10px rgba(15,88,50,.05);
+       animation:ctkRise .5s cubic-bezier(.22,.61,.36,1) both;
+       transition:transform .2s cubic-bezier(.22,.61,.36,1),box-shadow .2s ease}
+.ctk-k:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(15,88,50,.13)}
+/* A one-pass sheen when the card arrives — the "nano" motion, gone in under a second. */
+.ctk-k::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.55) 50%,transparent 65%);
+  transform:translateX(-120%);animation:ctkSheen 1.5s .35s ease-out 1 both}
+@keyframes ctkSheen{to{transform:translateX(120%)}}
+.ctk-k .kl{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.ctk-k .kv{font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink);margin-top:5px;
+           font-variant-numeric:tabular-nums}
+.ctk-k .ks{font-size:11px;color:var(--faint);margin-top:3px}
+.ctk-k .kbar{height:3px;border-radius:2px;background:var(--ctk-soft);margin-top:9px;overflow:hidden}
+.ctk-k .kbar i{display:block;height:100%;border-radius:2px;background:var(--brand,#0F5832);
+               animation:ctkGrow .9s .2s cubic-bezier(.22,.61,.36,1) both}
+.ctk-k.g{border-left:3px solid #10794A}.ctk-k.a{border-left:3px solid #C07F0E}.ctk-k.b{border-left:3px solid #1E5FA8}
+
+/* ---- Panels ---- */
+.ctk-panel{background:var(--surface,#fff);border:1px solid var(--ctk-line);border-radius:var(--ctk-r);
+           margin-bottom:14px;overflow:hidden;animation:ctkIn .5s .08s cubic-bezier(.22,.61,.36,1) both}
+.ctk-ph{display:flex;align-items:baseline;gap:10px;padding:13px 16px;border-bottom:1px solid var(--ctk-line);flex-wrap:wrap}
+.ctk-ph-t{font-size:13px;font-weight:800;color:var(--ink);letter-spacing:-.01em}
+.ctk-ph-s{font-size:11.5px;color:var(--faint)}
+
+/* ---- Funnel: one CARD per stage ----
+   Deliberately NOT a shared-scale bar chart. Clicks outnumber enrolments by four orders of
+   magnitude, so on one scale every stage after the first renders as an identical sliver and the
+   chart says nothing. Each card carries its own conversion FROM THE PREVIOUS STAGE, which is the
+   number anyone actually reads a funnel for, and its meter is scaled to that. */
+.ctk-funnel{display:grid;grid-template-columns:repeat(auto-fit,minmax(186px,1fr));gap:11px;padding:14px 16px 18px}
+.ctk-fc{position:relative;overflow:hidden;padding:14px 15px 13px;border-radius:13px;
+  background:var(--surface,#fff);border:1px solid var(--ctk-line);
+  box-shadow:0 2px 10px rgba(15,88,50,.05);
+  animation:ctkRise .5s cubic-bezier(.22,.61,.36,1) both;
+  transition:transform .2s cubic-bezier(.22,.61,.36,1),box-shadow .2s ease,border-color .2s ease}
+.ctk-fc:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(15,88,50,.14);border-color:rgba(15,88,50,.28)}
+/* Step index — reads as an ordered journey rather than six unrelated tiles. */
+.ctk-fc .st{position:absolute;top:11px;right:12px;font-size:10px;font-weight:800;color:var(--faint);
+  font-variant-numeric:tabular-nums}
+.ctk-fc .fl{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.ctk-fc .fv{font-size:26px;font-weight:800;letter-spacing:-.025em;color:var(--ink);margin-top:6px;
+  line-height:1.05;font-variant-numeric:tabular-nums}
+.ctk-fc .fm{height:4px;border-radius:3px;background:var(--ctk-soft);margin-top:11px;overflow:hidden}
+.ctk-fc .fm i{display:block;height:100%;border-radius:3px;
+  background:linear-gradient(90deg,#12603C,#3FBF83);animation:ctkGrow .9s cubic-bezier(.22,.61,.36,1) both}
+.ctk-fc .fp{display:flex;align-items:baseline;gap:6px;margin-top:8px;font-size:11px;color:var(--faint)}
+.ctk-fc .fp b{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.ctk-fc.hi .fp b{color:#10794A}.ctk-fc.md .fp b{color:#9A6608}.ctk-fc.lo .fp b{color:#B5402A}
+.ctk-fc.top{border-left:3px solid #12603C}
+.ctk-fc.top .fp b{color:var(--muted)}
+/* The drop lost at this step, stated plainly — the point of a funnel is where people leave. */
+.ctk-fc .fd{font-size:10.5px;color:var(--faint);margin-top:3px}
+
+/* ---- Table ---- */
+.ctk-tw{overflow:auto;max-height:min(64vh,720px)}
+.ctk-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+.ctk-tbl thead th{position:sticky;background:#0E4A2F;color:#CFEEDD;text-align:left;z-index:3;
+  font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;padding:9px 10px;white-space:nowrap}
+.ctk-tbl thead tr.grp th{top:0;background:#0B3D26;color:#8FD9B4;font-size:9px;text-align:center;letter-spacing:.1em}
+.ctk-tbl thead tr.col th{top:27px}
+.ctk-tbl tbody td{padding:9px 10px;border-bottom:1px solid var(--ctk-line);white-space:nowrap;color:var(--ink)}
+.ctk-tbl tbody tr{animation:ctkRow .42s cubic-bezier(.22,.61,.36,1) both}
+.ctk-tbl tbody tr:hover td{background:var(--ctk-soft)}
+.ctk-tbl tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--brand,#0F5832)}
+.ctk-tbl td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono,ui-monospace,Consolas,monospace)}
+.ctk-tbl td.name{font-weight:700;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.ctk-tbl tfoot td{position:sticky;bottom:0;background:#F3F8F5;font-weight:800;padding:10px;
+  border-top:2px solid var(--ctk-line);font-variant-numeric:tabular-nums;text-align:right}
+.ctk-tbl tfoot td.name{text-align:left}
+.ctk-pill{display:inline-block;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:800;
+          font-variant-numeric:tabular-nums}
+.ctk-pill.hi{background:#E4F5EC;color:#10794A}
+.ctk-pill.md{background:#FBF0DA;color:#9A6608}
+.ctk-pill.lo{background:#FBE7E2;color:#B5402A}
+.ctk-none{padding:34px 16px;text-align:center;color:var(--faint);font-size:12.5px}
+
+/* ---- Empty state (Leads View) ---- */
+.ctk-empty{padding:56px 24px;text-align:center;animation:ctkIn .5s .1s ease both}
+.ctk-empty-ic{font-size:32px;color:var(--brand,#0F5832);opacity:.5;animation:ctkFloat 3.2s ease-in-out infinite}
+@keyframes ctkFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.ctk-empty-t{font-size:15px;font-weight:800;color:var(--ink);margin-top:10px}
+.ctk-empty-s{font-size:12.5px;color:var(--faint);margin-top:6px;max-width:430px;margin-left:auto;margin-right:auto;line-height:1.6}
+
+/* ---- Shared entrance keyframes ---- */
+@keyframes ctkIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes ctkRise{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes ctkRow{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+
+@media(max-width:820px){
+  .ctk-title{font-size:22px}
+  .ctk-fs{grid-template-columns:84px 1fr 84px}
+  .ctk-bar{gap:8px}
+}
+/* Motion is decoration here — every animation above is optional, and none of it carries
+   information that is lost when it is switched off. */
+@media(prefers-reduced-motion:reduce){
+  .ctk-hero,.ctk-bar,.ctk-panel,.ctk-k,.ctk-empty,.ctk-tbl tbody tr{animation:none!important}
+  .ctk-hero-glow,.ctk-dot,.ctk-empty-ic,.ctk-btn.loading .ctk-spin{animation:none!important}
+  .ctk-k::after{display:none}
+  .ctk-k .kbar i,.ctk-fs .ft i{animation:none!important}
+  .ctk-k:hover,.ctk-btn:hover,.ctk-quick button.on,.ctk-seg button.on{transform:none}
+}
+
+/* ---- Date-range picker (Meta Ads Manager layout, app palette) ---- */
+.ctk-dbtn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;cursor:pointer;
+  font-size:12px;font-weight:700;color:var(--ink);background:var(--surface,#fff);
+  border:1px solid var(--line);border-radius:9px;
+  transition:border-color .15s ease,box-shadow .15s ease,transform .15s cubic-bezier(.22,.61,.36,1)}
+.ctk-dbtn:hover{border-color:var(--brand,#0F5832);transform:translateY(-1px);box-shadow:0 4px 14px rgba(15,88,50,.12)}
+.ctk-dbtn .cv{font-size:9px;color:var(--muted)}
+.ctk-cmp{font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;
+  background:rgba(15,88,50,.08);color:var(--brand,#0F5832)}
+
+.ctk-dp{position:fixed;inset:0;z-index:100001;background:rgba(10,26,18,.42);
+  display:flex;align-items:center;justify-content:center;padding:18px;animation:ctkFade .16s ease both}
+@keyframes ctkFade{from{opacity:0}to{opacity:1}}
+.ctk-dp-box{width:100%;max-width:1000px;max-height:92vh;overflow:auto;background:var(--surface,#fff);
+  border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.32);animation:ctkPop .22s cubic-bezier(.22,.61,.36,1) both}
+@keyframes ctkPop{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+.ctk-dp-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:15px 18px;border-bottom:1px solid var(--line)}
+.ctk-dp-hd .t{display:flex;align-items:center;gap:9px;font-size:14.5px;color:var(--ink)}
+.ctk-dp-x{background:none;border:0;cursor:pointer;font-size:15px;color:var(--muted);
+  width:30px;height:30px;border-radius:8px;transition:background .15s ease,color .15s ease}
+.ctk-dp-x:hover{background:var(--surface-2);color:var(--ink)}
+.ctk-dp-bd{display:grid;grid-template-columns:212px 1fr}
+.ctk-dp-rail{border-right:1px solid var(--line);padding:12px 0;max-height:460px;overflow:auto}
+.ctk-dp-rail .rh{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);padding:4px 16px 8px}
+.ctk-dp-p{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;cursor:pointer;
+  text-align:left;padding:8px 16px;font-size:12.5px;font-weight:600;color:var(--ink);
+  transition:background .14s ease,color .14s ease}
+.ctk-dp-p:hover{background:var(--ctk-soft,rgba(15,88,50,.045))}
+.ctk-dp-p .r{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line);flex:0 0 auto;
+  position:relative;transition:border-color .14s ease}
+.ctk-dp-p.on{color:var(--brand,#0F5832);font-weight:800}
+.ctk-dp-p.on .r{border-color:var(--brand,#0F5832)}
+.ctk-dp-p.on .r::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--brand,#0F5832)}
+.ctk-dp-cal{padding:14px 16px 4px}
+.ctk-dp-months{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.ctk-m-hd{display:flex;align-items:center;gap:6px;margin-bottom:9px}
+.ctk-m-nav{background:none;border:1px solid transparent;cursor:pointer;width:26px;height:26px;border-radius:7px;
+  color:var(--muted);font-size:14px;line-height:1;transition:background .14s ease,color .14s ease}
+.ctk-m-nav:hover:not(:disabled){background:var(--surface-2);color:var(--ink)}
+.ctk-m-nav:disabled{opacity:.28;cursor:default}
+.ctk-m-sel{flex:1;display:flex;gap:5px}
+.ctk-m-sel select{flex:1;height:28px;font-size:12px;font-weight:700;border-radius:7px;
+  border:1px solid var(--line);background:var(--surface,#fff);color:var(--ink);padding:0 5px;cursor:pointer}
+.ctk-dow,.ctk-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.ctk-dow span{text-align:center;font-size:10px;font-weight:700;color:var(--faint);padding:3px 0}
+.ctk-d{height:32px;border:0;background:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--ink);
+  border-radius:0;position:relative;transition:background .12s ease,color .12s ease}
+.ctk-d:disabled{color:var(--line);cursor:default}
+.ctk-d.pad{visibility:hidden}
+.ctk-d:hover:not(:disabled):not(.in){background:var(--surface-2);border-radius:8px}
+.ctk-d.in{background:rgba(15,88,50,.10)}
+.ctk-d.edge{background:var(--brand,#0F5832);color:#fff;border-radius:8px;font-weight:800}
+.ctk-d.today:not(.edge){color:var(--brand,#0F5832);font-weight:800}
+.ctk-d.today:not(.edge)::after{content:"";position:absolute;left:50%;bottom:4px;width:3px;height:3px;
+  margin-left:-1.5px;border-radius:50%;background:var(--brand,#0F5832)}
+.ctk-dp-cmp{display:flex;align-items:center;gap:9px;margin-top:16px;padding:12px 2px 4px;
+  border-top:1px solid var(--line);font-size:12.5px;color:var(--ink);cursor:pointer}
+.ctk-dp-cmp input{accent-color:var(--brand,#0F5832);width:15px;height:15px;cursor:pointer}
+.ctk-dp-ft{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:13px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.ctk-dp-ft .tz{font-size:11.5px;color:var(--faint)}
+.ctk-dp-ft .acts{display:flex;gap:9px}
+.ctk-dp-btn{cursor:pointer;font-size:12.5px;font-weight:700;padding:8px 18px;border-radius:9px;
+  border:1px solid var(--line);background:var(--surface,#fff);color:var(--ink);
+  transition:background .15s ease,transform .15s cubic-bezier(.22,.61,.36,1),box-shadow .15s ease}
+.ctk-dp-btn:hover{background:var(--surface-2);transform:translateY(-1px)}
+.ctk-dp-btn.primary{background:var(--brand,#0F5832);border-color:var(--brand,#0F5832);color:#fff}
+.ctk-dp-btn.primary:hover{box-shadow:0 8px 20px rgba(15,88,50,.28)}
+/* Previous-period delta on a KPI card — only rendered when Compare is on. */
+.ctk-k .kd{font-size:11px;font-weight:800;margin-top:4px}
+.ctk-k .kd.up{color:#10794A}.ctk-k .kd.dn{color:#B5402A}.ctk-k .kd.flat{color:var(--faint)}
+
+@media(max-width:860px){
+  .ctk-dp-bd{grid-template-columns:1fr}
+  .ctk-dp-rail{border-right:0;border-bottom:1px solid var(--line);max-height:170px}
+  .ctk-dp-months{grid-template-columns:1fr;gap:18px}
+}
+@media(prefers-reduced-motion:reduce){
+  .ctk-dp,.ctk-dp-box{animation:none!important}
+  .ctk-dbtn:hover,.ctk-dp-btn:hover{transform:none}
+}

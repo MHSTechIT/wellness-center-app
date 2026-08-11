@@ -1495,8 +1495,29 @@ export function getMainContent(): string {
       <div class="metrics" id="accThyroCards" style="margin-bottom:12px"></div>
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Blood test — Thyrocare reconciliation <span style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px">one row per day · by visit date</span></span>
-        <button class="btn bsm" onclick="window._accThyroDownload()">⬇ Download</button></div>
-        <div class="sec-bd" id="accThyroBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
+        <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <span id="accThyroSelInfo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="btn bsm" id="accThyroClearSel" style="display:none" onclick="window._accThyroSelClear()">Clear</button>
+          <button class="btn bsm" onclick="window._accThyroDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd" id="accThyroBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
+      <!-- Payout ledger — real money SENT to Thyrocare. The reconciliation table above only ever
+           recognizes what we OWE (a record's cost once its lab report is received, per the
+           "Paid to Thyrocare" column) — it never recorded an actual transfer. This is that record,
+           and the balance line reconciles the two live, so it can never drift out of sync. -->
+      <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-coin"></use></svg> Payout — money sent to Thyrocare <span id="accThyroPayoutCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
+        <span id="accThyroBalance" style="font-size:12.5px;font-weight:700;white-space:nowrap"></span></div>
+        <div class="sec-bd">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+            <div class="fld" style="margin:0"><label class="lbl" for="thpAmt">Amount (₹) <span class="req">*</span></label><input class="input mono" id="thpAmt" type="number" min="1" placeholder="e.g. 5000" style="height:34px;width:130px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="thpDate">Paid on <span class="req">*</span></label><input class="input" id="thpDate" type="date" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="thpMethod">Method</label><select class="select" id="thpMethod" style="height:34px;width:150px"><option value="">— Select —</option><option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Other</option></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="thpRef">Txn ref / notes</label><input class="input" id="thpRef" placeholder="UTR / cheque no. / notes" style="height:34px;width:220px"></div>
+            <button class="btn bp" onclick="window._accThyroPayoutSave()" style="height:34px">+ Record payout</button>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr><th scope="col">Paid on</th><th scope="col">Amount</th><th scope="col">Method</th><th scope="col">Reference / notes</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroPayoutBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn bsm" onclick="window._accThyroPayoutDownload()">⬇ Download</button></div>
+        </div></div>
   </div></section>
 
   <!-- REPORTS (Admin Report redesign — all styling scoped under .rpc) -->
@@ -1628,6 +1649,113 @@ export function getMainContent(): string {
           <button class="cp-act" onclick="window._rpcPreset(null,'roas')">Revenue</button>
         </div>
         <div class="cp-list" id="rpcCpList"></div>
+      </div>
+    </div>
+  </div></section>
+
+  <!-- ============================================================================
+       MARKETING — CAMPAIGN TRACKER
+       Spend and delivery come from Meta (ads_read); everything past the click — leads,
+       appointments, visits, enrolments — comes from our own tables and is joined by ad NAME.
+       All styling is scoped under .ctk so nothing here can leak into another screen.
+       ============================================================================ -->
+  <section class="screen" id="s-campaigns"><div class="wrap ctk" style="max-width:1720px;padding:16px 20px 60px">
+    <div class="ctk-hero">
+      <div class="ctk-hero-glow"></div>
+      <div class="ctk-hero-in">
+        <div>
+          <div class="ctk-eyebrow"><span class="ctk-dot"></span> Live from Meta</div>
+          <h1 class="ctk-title">Campaign Tracker</h1>
+          <p class="ctk-sub">Every rupee spent, followed all the way to an enrolment.</p>
+        </div>
+        <div class="ctk-hero-act">
+          <span class="ctk-stamp" id="ctkStamp"></span>
+          <button class="ctk-btn ghost" onclick="window._ctkExport()"><span>⬇</span> Export</button>
+          <button class="ctk-btn" id="ctkRefreshBtn" onclick="window._ctkLoad(true)"><span class="ctk-spin">↻</span> Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Blocked-permission banner. Shown ONLY when Meta refuses the ad account, because a table of
+         zeros is indistinguishable from campaigns that genuinely spent nothing. -->
+    <div class="ctk-alert" id="ctkAlert" style="display:none"></div>
+
+    <div class="ctk-bar">
+      <!-- The range lives in these two hidden inputs; the picker below writes them, and every
+           loader still reads them, so nothing downstream needs to know a picker exists. -->
+      <input type="hidden" id="ctkFrom"><input type="hidden" id="ctkTo">
+      <button class="ctk-dbtn" id="ctkDateBtn" onclick="window._ctkDpOpen()">
+        <svg aria-hidden="true" focusable="false" class="icon" style="width:14px;height:14px"><use href="#i-cal"></use></svg>
+        <span id="ctkDateLbl">Last 30 days</span><span class="cv">▾</span>
+      </button>
+      <span class="ctk-cmp" id="ctkCmpTag" style="display:none"></span>
+      <div class="ctk-seg" id="ctkLevel">
+        <button data-l="ad" class="on" onclick="window._ctkLevel('ad',this)">By ad</button>
+        <button data-l="adset" onclick="window._ctkLevel('adset',this)">By adset</button>
+        <button data-l="campaign" onclick="window._ctkLevel('campaign',this)">By campaign</button>
+      </div>
+      <input class="ctk-search" id="ctkSearch" placeholder="Search campaign / adset / ad…" oninput="window._ctkSearch()">
+    </div>
+
+    <div class="ctk-kpis" id="ctkKpis"></div>
+
+    <!-- Funnel: one bar per stage, width proportional to the top of the funnel. -->
+    <div class="ctk-panel">
+      <div class="ctk-ph"><span class="ctk-ph-t">Funnel</span><span class="ctk-ph-s">click → enrolment, for the current filters</span></div>
+      <div class="ctk-funnel" id="ctkFunnel"></div>
+    </div>
+
+    <div class="ctk-panel">
+      <div class="ctk-ph"><span class="ctk-ph-t">Performance</span><span class="ctk-ph-s" id="ctkRowInfo"></span></div>
+      <div class="ctk-tw"><table class="ctk-tbl"><thead id="ctkHead"></thead><tbody id="ctkBody"></tbody><tfoot id="ctkFoot"></tfoot></table></div>
+    </div>
+
+    <!-- Date-range picker. Built to the Meta Ads Manager pattern: preset rail on the left, two
+         months side by side, compare toggle, Cancel / Update. Nothing is applied until Update. -->
+    <div class="ctk-dp" id="ctkDp" style="display:none" role="dialog" aria-modal="true" aria-label="Select date range">
+      <div class="ctk-dp-box">
+        <div class="ctk-dp-hd">
+          <span class="t"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-cal"></use></svg> <b id="ctkDpTitle">Last 30 days</b></span>
+          <button class="ctk-dp-x" onclick="window._ctkDpClose()" aria-label="Close">✕</button>
+        </div>
+        <div class="ctk-dp-bd">
+          <div class="ctk-dp-rail">
+            <div class="rh">Recently used</div>
+            <div id="ctkDpPresets"></div>
+          </div>
+          <div class="ctk-dp-cal">
+            <div class="ctk-dp-months" id="ctkDpMonths"></div>
+            <label class="ctk-dp-cmp"><input type="checkbox" id="ctkDpCompare" onchange="window._ctkDpCmp()"> Compare with the previous period</label>
+          </div>
+        </div>
+        <div class="ctk-dp-ft">
+          <span class="tz">Dates are shown in Kolkata Time</span>
+          <span class="acts">
+            <button class="ctk-dp-btn" onclick="window._ctkDpClose()">Cancel</button>
+            <button class="ctk-dp-btn primary" onclick="window._ctkDpApply()">Update</button>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div></section>
+
+  <!-- MARKETING — LEADS VIEW (shell; the spec for this page is still to come) -->
+  <section class="screen" id="s-leadsview"><div class="wrap ctk" style="max-width:1720px;padding:16px 20px 60px">
+    <div class="ctk-hero">
+      <div class="ctk-hero-glow"></div>
+      <div class="ctk-hero-in">
+        <div>
+          <div class="ctk-eyebrow"><span class="ctk-dot"></span> Marketing</div>
+          <h1 class="ctk-title">Leads View</h1>
+          <p class="ctk-sub">A marketing-side read of every lead, by source and creative.</p>
+        </div>
+      </div>
+    </div>
+    <div class="ctk-panel">
+      <div class="ctk-empty">
+        <div class="ctk-empty-ic">◷</div>
+        <div class="ctk-empty-t">Waiting on the spec</div>
+        <div class="ctk-empty-s">The page shell, navigation and styling are in place. Tell me which columns and filters this view needs and it gets built here.</div>
       </div>
     </div>
   </div></section>

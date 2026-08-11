@@ -13683,6 +13683,493 @@ export function initApp(root: HTMLElement) {
         r.payStatus, r.payMethod, String(r.payStatus==="paid"?r.payAmt:r.packPrice), r.nextDate?_recFmtDate(r.nextDate):""]));
       _downloadCsv("physio_export.csv",out); toast("Exported"); };
 
+
+    // ========== MARKETING — CAMPAIGN TRACKER ==========
+    // Two sources, joined by NAME:
+    //   Meta   — spend, impressions, clicks, 3-second video plays (needs ads_read)
+    //   ours   — leads, qualified, appointments, visits, enrolments (leads/appointments/payments)
+    // The join key is the ad / adset / campaign NAME, because that is what leads.ad_name and
+    // leads.campaign carry; Meta's numeric ids never reach our tables.
+    let _ctkIns:any[]=[];        // insight rows from Meta
+    let _ctkBlocked:any[]=[];    // accounts Meta refused, with the reason
+    let _ctkRows:any[]=[];       // joined + aggregated rows currently rendered
+    let _ctkLevel_:"ad"|"adset"|"campaign"="ad";
+    let _ctkQ="";
+    let _ctkSearchT:any=null;
+    let _ctkLoading=false;
+
+    const _ctkDay=(d:Date)=>{ const p=(n:number)=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); };
+    const _ctkRange=()=>{
+      const f=(root.querySelector("#ctkFrom") as HTMLInputElement|null)?.value||"";
+      const t=(root.querySelector("#ctkTo") as HTMLInputElement|null)?.value||"";
+      return {from:f,to:t};
+    };
+    const _ctkMoney=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+    const _ctkPct=(a:number,b:number)=>b>0?((a/b)*100):0;
+    const _ctkPctTxt=(a:number,b:number)=>b>0?(Math.round(_ctkPct(a,b)*10)/10).toFixed(1)+"%":"—";
+    // A cost-per is only meaningful when something was actually bought. 0 conversions with real
+    // spend is NOT "₹0" — it is undefined, and printing ₹0 would read as free.
+    const _ctkCost=(spend:number,n:number)=>n>0?_ctkMoney(spend/n):"—";
+    const _ctkPill=(v:number,good:number,ok:number)=>{
+      const c=v>=good?"hi":(v>=ok?"md":"lo");
+      return '<span class="ctk-pill '+c+'">'+(Math.round(v*10)/10).toFixed(1)+'%</span>';
+    };
+
+    // Default window: Last 30 days, matching the picker's own preset (the 30 days ending
+    // YESTERDAY, not including today's partial day). Never clobbers a range already chosen.
+    function _ctkInitDates(){
+      const f=root.querySelector("#ctkFrom") as HTMLInputElement|null;
+      const t=root.querySelector("#ctkTo") as HTMLInputElement|null;
+      if(f&&t&&!f.value&&!t.value){
+        const y=new Date(); y.setHours(0,0,0,0); y.setDate(y.getDate()-1);
+        const s=new Date(y); s.setDate(s.getDate()-29);
+        f.value=_ctkDay(s); t.value=_ctkDay(y);
+        _dpFrom=f.value; _dpTo=t.value; _dpPreset="l30";
+        const lbl=root.querySelector("#ctkDateLbl"); if(lbl) lbl.textContent="Last 30 days";
+      }
+    }
+    w._ctkLevel=(lv:any,el:any)=>{
+      _ctkLevel_=lv;
+      root.querySelectorAll("#ctkLevel button").forEach((b:any)=>b.classList.toggle("on",b===el));
+      _ctkRender();
+    };
+    w._ctkSearch=()=>{
+      if(_ctkSearchT) clearTimeout(_ctkSearchT);
+      _ctkSearchT=setTimeout(()=>{ _ctkQ=((root.querySelector("#ctkSearch") as HTMLInputElement|null)?.value||"").trim().toLowerCase(); _ctkRender(); },170);
+    };
+
+    // ---- our own funnel, per creative name, inside the chosen window ----
+    // Leads are counted on the day they arrived; every later stage is counted on the day IT
+    // happened (visit date, enrolment stamp), which is the same rule the Admin Report uses.
+    // adMeta maps an AD NAME to the campaign/adset Meta files it under. Our leads table stores
+    // campaign and ad_name but NOT adset, so ad name is the finest key both sides share: joining on
+    // it and taking the adset from Meta keeps the adset and campaign rollups honest. Guessing an
+    // adset from our side instead would never match Meta's, and every row would double.
+    async function _ctkFunnelByName(fromISO:string,toISO:string,adMeta:Record<string,{campaign:string,adset:string}>){
+      const out:Record<string,any>={};
+      // Prefer what the lead itself records; fall back to Meta's ad→adset map for leads synced
+      // before attribution was being captured, so historical rows still land under a real creative.
+      const key=(l:any)=>{
+        const ad=String(l.ad_name||"—");
+        const m=adMeta[ad.toLowerCase()];
+        return {ad,
+          adset:String(l.adset_name||(m?m.adset:"")||"—"),
+          campaign:String(l.campaign||(m?m.campaign:"")||"—")};
+      };
+      const bump=(k:any,f:string)=>{
+        const id=k.campaign+"||"+k.adset+"||"+k.ad;
+        const o=(out[id]=out[id]||{campaign:k.campaign,adset:k.adset,ad:k.ad,leads:0,qual:0,appt:0,vis:0,enr:0});
+        o[f]++;
+      };
+      const fromT=new Date(fromISO+"T00:00:00").getTime();
+      const toT=new Date(toISO+"T23:59:59").getTime();
+      let leads:any[]=[];
+      try{
+        leads=await _pageAll((a,b)=>supabase.from("leads")
+          .select("meta_lead_id,campaign,ad_name,adset_name,created_at,is_valid,is_duplicate,is_assigned,call_status,visited_at,enrolled_at")
+          .in("source",["Meta Ads","Meta"]).order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false}).range(a,b));
+      }catch(_){ leads=[]; }
+      const ids:string[]=[];
+      const byId:Record<string,any>={};
+      leads.forEach((l:any)=>{
+        const t=new Date(l.created_at||0).getTime();
+        byId[String(l.meta_lead_id)]=l;
+        if(isNaN(t)||t<fromT||t>toT) return;
+        const k=key(l);
+        bump(k,"leads");
+        // QUALIFIED = a lead worth a salesperson's time: valid, not a duplicate, and not a dead
+        // contact route. Deliberately NOT "assigned" — that measures our staffing, not the creative.
+        const cs=String(l.call_status||"").toLowerCase();
+        const dead=/wrong number|not reachable|out of service|switched off|dnd|invalid/.test(cs);
+        if(l.is_valid!==false&&!l.is_duplicate&&!dead) bump(k,"qual");
+        if(l.enrolled_at){ const et=new Date(l.enrolled_at).getTime(); if(!isNaN(et)&&et>=fromT&&et<=toT) bump(k,"enr"); }
+        ids.push(String(l.meta_lead_id));
+      });
+      // Appointments + visits for those leads, dated by the appointment itself.
+      try{
+        const appts=await _pageAll((a,b)=>supabase.from("appointments")
+          .select("id,lead_id,appt_date,visited_at,created_at,status").order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b));
+        const seenAppt=new Set<string>(), seenVis=new Set<string>();
+        appts.forEach((ap:any)=>{
+          const l=byId[String(ap.lead_id||"")]; if(!l) return;
+          const k=key(l);
+          const d=_visitDate(ap); const t=d?d.getTime():NaN;
+          if(isNaN(t)||t<fromT||t>toT) return;
+          const lid=String(ap.lead_id);
+          if(ap.status!=="cancelled"&&!seenAppt.has(lid)){ seenAppt.add(lid); bump(k,"appt"); }
+          if(ap.visited_at&&!seenVis.has(lid)){ seenVis.add(lid); bump(k,"vis"); }
+        });
+      }catch(_){}
+      return out;
+    }
+
+
+    // ---- Date-range picker (Meta Ads Manager layout) ----------------------------------------
+    // Draft state lives here and is only written to #ctkFrom/#ctkTo by Update, so closing or
+    // cancelling can never change what the page is showing.
+    const CTK_DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const CTK_MON=["January","February","March","April","May","June","July","August","September","October","November","December"];
+    let _dpFrom="", _dpTo="", _dpAnchor:Date=new Date(), _dpPick=0, _dpPreset="l30", _dpCompare=false;
+    let _ctkCompare=false;                  // applied (not draft) compare state
+    let _ctkPrev:any=null;                  // previous-period totals, when comparing
+    const _dpParse=(s:string)=>{ const [y,m,d]=String(s||"").split("-").map(Number); return new Date(y||1970,(m||1)-1,d||1); };
+    const _dpAdd=(d:Date,n:number)=>{ const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+    const _dpMonthStart=(d:Date)=>new Date(d.getFullYear(),d.getMonth(),1);
+    // "Last N days" follows Meta: the N days ENDING YESTERDAY. Today is partial, and mixing a
+    // part-day into a spend average quietly understates every cost-per on the page.
+    const _dpPresets=()=>{
+      const t=new Date(); t.setHours(0,0,0,0);
+      const y=_dpAdd(t,-1);
+      const lastN=(n:number)=>({from:_dpDay(_dpAdd(y,-(n-1))),to:_dpDay(y)});
+      const wkStart=(d:Date)=>_dpAdd(d,-d.getDay());
+      const mStart=(d:Date)=>new Date(d.getFullYear(),d.getMonth(),1);
+      const lm=new Date(t.getFullYear(),t.getMonth()-1,1);
+      return [
+        {k:"today",l:"Today",...{from:_dpDay(t),to:_dpDay(t)}},
+        {k:"yest",l:"Yesterday",...{from:_dpDay(y),to:_dpDay(y)}},
+        {k:"single",l:"Single day",from:_dpDay(t),to:_dpDay(t),single:true},
+        {k:"ty",l:"Today & Yesterday",from:_dpDay(y),to:_dpDay(t)},
+        {k:"l7",l:"Last 7 days",...lastN(7)},
+        {k:"l14",l:"Last 14 days",...lastN(14)},
+        {k:"l28",l:"Last 28 days",...lastN(28)},
+        {k:"l30",l:"Last 30 days",...lastN(30)},
+        {k:"tw",l:"This week",from:_dpDay(wkStart(t)),to:_dpDay(t)},
+        {k:"lw",l:"Last week",from:_dpDay(_dpAdd(wkStart(t),-7)),to:_dpDay(_dpAdd(wkStart(t),-1))},
+        {k:"tm",l:"This month",from:_dpDay(mStart(t)),to:_dpDay(t)},
+        {k:"lm",l:"Last month",from:_dpDay(lm),to:_dpDay(new Date(t.getFullYear(),t.getMonth(),0))},
+        {k:"max",l:"Maximum",from:"2026-01-01",to:_dpDay(t)},
+        {k:"custom",l:"Custom",from:"",to:"",custom:true},
+      ];
+    };
+    function _dpDay(d:Date){ const p=(n:number)=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+
+    w._ctkDpOpen=()=>{
+      _ctkInitDates();   // opening before the first load must still show the default range selected
+      const {from,to}=_ctkRange();
+      _dpFrom=from||_dpFrom; _dpTo=to||_dpTo; _dpPick=0; _dpCompare=_ctkCompare;
+      if(_dpFrom&&_dpTo) _dpPreset=_dpMatchPreset();
+      _dpAnchor=_dpMonthStart(_dpTo?_dpParse(_dpTo):new Date());
+      const cb=root.querySelector("#ctkDpCompare") as HTMLInputElement|null; if(cb) cb.checked=_dpCompare;
+      const el=root.querySelector("#ctkDp") as HTMLElement|null; if(el) el.style.display="flex";
+      document.addEventListener("keydown",_dpKey);
+      _dpRender();
+    };
+    w._ctkDpClose=()=>{
+      const el=root.querySelector("#ctkDp") as HTMLElement|null; if(el) el.style.display="none";
+      document.removeEventListener("keydown",_dpKey);
+    };
+    const _dpKey=(ev:KeyboardEvent)=>{ if(ev.key==="Escape") (w as any)._ctkDpClose(); };
+    w._ctkDpCmp=()=>{ _dpCompare=!!(root.querySelector("#ctkDpCompare") as HTMLInputElement|null)?.checked; };
+    w._ctkDpPreset=(k:string)=>{
+      const p=_dpPresets().find((x:any)=>x.k===k); if(!p) return;
+      _dpPreset=k;
+      if((p as any).custom){ _dpPick=0; }
+      else { _dpFrom=(p as any).from; _dpTo=(p as any).to; _dpPick=(p as any).single?1:0;
+             _dpAnchor=_dpMonthStart(_dpParse(_dpTo)); }
+      _dpRender();
+    };
+    // First click sets the start and clears the end; second click closes the range. Clicking a day
+    // BEFORE the start restarts from there rather than producing an inverted range.
+    w._ctkDpDay=(iso:string)=>{
+      if(_dpPick===0||!_dpFrom){ _dpFrom=iso; _dpTo=iso; _dpPick=1; }
+      else{
+        if(_dpParse(iso).getTime()<_dpParse(_dpFrom).getTime()){ _dpFrom=iso; _dpTo=iso; _dpPick=1; }
+        else { _dpTo=iso; _dpPick=0; }
+      }
+      _dpPreset=_dpMatchPreset();
+      _dpRender();
+    };
+    w._ctkDpNav=(dir:number)=>{ _dpAnchor=new Date(_dpAnchor.getFullYear(),_dpAnchor.getMonth()+dir,1); _dpRender(); };
+    // Panel 2 renders anchor+1, so jumping it must set the anchor one month EARLIER or the
+    // calendar slides a month every time that dropdown is touched.
+    w._ctkDpJump=(which:number)=>{
+      const m=Number((root.querySelector("#ctkDpM"+which) as HTMLSelectElement|null)?.value||0);
+      const y=Number((root.querySelector("#ctkDpY"+which) as HTMLSelectElement|null)?.value||0);
+      _dpAnchor=new Date(y,m-(which===2?1:0),1);
+      _dpRender();
+    };
+    // Name the range if it happens to equal a preset, so re-opening shows "Last 7 days" rather
+    // than always collapsing to "Custom".
+    function _dpMatchPreset(){
+      const hit=_dpPresets().find((p:any)=>!p.custom&&p.from===_dpFrom&&p.to===_dpTo);
+      return hit?hit.k:"custom";
+    }
+    const _dpLabel=()=>{
+      const p=_dpPresets().find((x:any)=>x.k===_dpPreset);
+      if(p&&!(p as any).custom&&_dpPreset!=="single") return p.l;
+      if(!_dpFrom) return "Select dates";
+      const f=_dpParse(_dpFrom), t=_dpParse(_dpTo||_dpFrom);
+      const sh=(d:Date)=>d.getDate()+" "+CTK_MON[d.getMonth()].slice(0,3)+" "+d.getFullYear();
+      return _dpFrom===_dpTo?sh(f):(sh(f)+" – "+sh(t));
+    };
+
+    function _dpRender(){
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const ttl=root.querySelector("#ctkDpTitle"); if(ttl) ttl.textContent=_dpLabel();
+      const pr=root.querySelector("#ctkDpPresets");
+      if(pr) pr.innerHTML=_dpPresets().map((p:any)=>'<button class="ctk-dp-p'+(_dpPreset===p.k?" on":"")+'" onclick="window._ctkDpPreset(\''+p.k+'\')"><span class="r"></span>'+e(p.l)+'</button>').join("");
+      const host=root.querySelector("#ctkDpMonths"); if(!host) return;
+      const today=_dpDay(new Date());
+      const fT=_dpFrom?_dpParse(_dpFrom).getTime():0, tT=_dpTo?_dpParse(_dpTo).getTime():0;
+      const month=(base:Date,which:number)=>{
+        const y=base.getFullYear(), m=base.getMonth();
+        const first=new Date(y,m,1), days=new Date(y,m+1,0).getDate();
+        const years:number[]=[]; for(let i=2024;i<=new Date().getFullYear()+1;i++) years.push(i);
+        let h='<div><div class="ctk-m-hd">'
+          +(which===1?'<button class="ctk-m-nav" onclick="window._ctkDpNav(-1)" aria-label="Previous month">←</button>':'<button class="ctk-m-nav" onclick="window._ctkDpNav(-1)" aria-label="Previous month">←</button>')
+          +'<span class="ctk-m-sel">'
+          +'<select id="ctkDpM'+which+'" onchange="window._ctkDpJump('+which+')">'+CTK_MON.map((n,i)=>'<option value="'+i+'"'+(i===m?" selected":"")+'>'+n+'</option>').join("")+'</select>'
+          +'<select id="ctkDpY'+which+'" onchange="window._ctkDpJump('+which+')">'+years.map(v=>'<option'+(v===y?" selected":"")+'>'+v+'</option>').join("")+'</select>'
+          +'</span>'
+          +'<button class="ctk-m-nav" onclick="window._ctkDpNav(1)" aria-label="Next month">→</button></div>'
+          +'<div class="ctk-dow">'+CTK_DOW.map(d=>'<span>'+d+'</span>').join("")+'</div><div class="ctk-days">';
+        for(let i=0;i<first.getDay();i++) h+='<button class="ctk-d pad" disabled></button>';
+        for(let d=1;d<=days;d++){
+          const iso=_dpDay(new Date(y,m,d)); const t=new Date(y,m,d).getTime();
+          const edge=(fT&&t===fT)||(tT&&t===tT);
+          const inside=fT&&tT&&t>fT&&t<tT;
+          const future=iso>today;
+          h+='<button class="ctk-d'+(edge?" edge":"")+(inside?" in":"")+(iso===today?" today":"")+'"'
+            +(future?" disabled":"")+' onclick="window._ctkDpDay(\''+iso+'\')">'+d+'</button>';
+        }
+        return h+'</div></div>';
+      };
+      host.innerHTML=month(_dpAnchor,1)+month(new Date(_dpAnchor.getFullYear(),_dpAnchor.getMonth()+1,1),2);
+    }
+
+    w._ctkDpApply=()=>{
+      if(!_dpFrom||!_dpTo){ toast("Pick a date range first"); return; }
+      const f=root.querySelector("#ctkFrom") as HTMLInputElement|null;
+      const t=root.querySelector("#ctkTo") as HTMLInputElement|null;
+      if(f) f.value=_dpFrom; if(t) t.value=_dpTo;
+      _ctkCompare=_dpCompare;
+      const lbl=root.querySelector("#ctkDateLbl"); if(lbl) lbl.textContent=_dpLabel();
+      (w as any)._ctkDpClose();
+      (w as any)._ctkLoad();
+    };
+
+    w._ctkLoad=async(force?:boolean)=>{
+      if(_ctkLoading) return;
+      _ctkLoading=true;
+      _ctkInitDates();
+      const {from,to}=_ctkRange();
+      const btn=root.querySelector("#ctkRefreshBtn") as HTMLElement|null; if(btn) btn.classList.add("loading");
+      const body=root.querySelector("#ctkBody"); if(body) body.innerHTML='<tr><td colspan="24" class="ctk-none">Loading…</td></tr>';
+      try{
+        // Insights FIRST: the funnel join needs Meta's ad→adset map to place our leads correctly.
+        const ins=await fetch(_api("/api/meta/insights?since="+encodeURIComponent(from)+"&until="+encodeURIComponent(to)),{headers:authHeaders()})
+          .then((r:any)=>r.json()).catch(()=>({rows:[],blocked:[{account:"all",reason:"could not reach the server"}]}));
+        _ctkIns=ins.rows||[];
+        _ctkBlocked=ins.blocked||[];
+        const adMeta:Record<string,{campaign:string,adset:string}>={};
+        _ctkIns.forEach((r:any)=>{ const k=String(r.ad||"").toLowerCase(); if(k) adMeta[k]={campaign:r.campaign||"—",adset:r.adset||"—"}; });
+        const funnel=await _ctkFunnelByName(from,to,adMeta);
+        // Union of both sides: an ad that spent but produced no lead still deserves a row (that is
+        // the whole point of the page), and a lead whose creative Meta will not report must not
+        // silently vanish either.
+        const merged:Record<string,any>={};
+        const mk=(c:string,s:string,a:string)=>{
+          const id=c+"||"+s+"||"+a;
+          return (merged[id]=merged[id]||{campaign:c,adset:s,ad:a,spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0});
+        };
+        _ctkIns.forEach((r:any)=>{ const o=mk(r.campaign||"—",r.adset||"—",r.ad||"—");
+          o.spend+=Number(r.spend)||0; o.impr+=Number(r.impressions)||0; o.clicks+=Number(r.clicks)||0; o.v3+=Number(r.videoPlays3s)||0; });
+        Object.keys(funnel).forEach(k=>{ const f=funnel[k]; const o=mk(f.campaign,f.adset,f.ad);
+          o.leads+=f.leads; o.qual+=f.qual; o.appt+=f.appt; o.vis+=f.vis; o.enr+=f.enr; });
+        _ctkRows=Object.keys(merged).map(k=>merged[k]);
+        // COMPARE — the immediately preceding window of the SAME length, which is what "previous
+        // period" has to mean for a delta to be honest (comparing 7 days to 30 would be noise).
+        _ctkPrev=null;
+        if(_ctkCompare){
+          const days=Math.max(1,Math.round((_dpParse(to).getTime()-_dpParse(from).getTime())/86400000)+1);
+          const pTo=_dpDay(_dpAdd(_dpParse(from),-1));
+          const pFrom=_dpDay(_dpAdd(_dpParse(pTo),-(days-1)));
+          const pIns=await fetch(_api("/api/meta/insights?since="+encodeURIComponent(pFrom)+"&until="+encodeURIComponent(pTo)),{headers:authHeaders()})
+            .then((r:any)=>r.json()).catch(()=>({rows:[]}));
+          const pAdMeta:Record<string,{campaign:string,adset:string}>={};
+          (pIns.rows||[]).forEach((r:any)=>{ const k=String(r.ad||"").toLowerCase(); if(k) pAdMeta[k]={campaign:r.campaign||"—",adset:r.adset||"—"}; });
+          const pf=await _ctkFunnelByName(pFrom,pTo,pAdMeta);
+          const P:any={spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0,from:pFrom,to:pTo};
+          (pIns.rows||[]).forEach((r:any)=>{ P.spend+=Number(r.spend)||0; P.impr+=Number(r.impressions)||0; P.clicks+=Number(r.clicks)||0; P.v3+=Number(r.videoPlays3s)||0; });
+          Object.keys(pf).forEach(k=>{ const f=pf[k]; P.leads+=f.leads; P.qual+=f.qual; P.appt+=f.appt; P.vis+=f.vis; P.enr+=f.enr; });
+          _ctkPrev=P;
+        }
+        const tag=root.querySelector("#ctkCmpTag") as HTMLElement|null;
+        if(tag){ if(_ctkPrev){ tag.style.display=""; tag.textContent="vs "+_ctkPrev.from+" → "+_ctkPrev.to; } else tag.style.display="none"; }
+        const stamp=root.querySelector("#ctkStamp");
+        if(stamp) stamp.textContent=from+" → "+to+" · "+_ctkRows.length+" rows";
+      }catch(e:any){
+        _ctkRows=[]; _ctkBlocked=[{account:"all",reason:e?.message||"load failed"}];
+      }finally{
+        _ctkLoading=false;
+        if(btn) btn.classList.remove("loading");
+        _ctkRender();
+      }
+    };
+
+    // Roll the ad-level rows up to whichever level is selected.
+    function _ctkAgg(){
+      const q=_ctkQ;
+      const src=_ctkRows.filter((r:any)=>!q||((r.campaign+" "+r.adset+" "+r.ad).toLowerCase().indexOf(q)>=0));
+      const out:Record<string,any>={};
+      src.forEach((r:any)=>{
+        const k=_ctkLevel_==="campaign"?r.campaign:(_ctkLevel_==="adset"?r.campaign+"||"+r.adset:r.campaign+"||"+r.adset+"||"+r.ad);
+        const o=(out[k]=out[k]||{campaign:r.campaign,adset:_ctkLevel_==="campaign"?"—":r.adset,ad:_ctkLevel_==="ad"?r.ad:"—",
+          spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0});
+        ["spend","impr","clicks","v3","leads","qual","appt","vis","enr"].forEach(f=>{ o[f]+=r[f]||0; });
+      });
+      return Object.keys(out).map(k=>out[k]).sort((a,b)=>(b.spend-a.spend)||(b.leads-a.leads));
+    }
+
+    const CTK_COLS=[
+      {g:"CREATIVE",c:[["Campaign","name"],["Adset","name"],["Ad","name"]]},
+      {g:"META — DELIVERY",c:[["Spent","num"],["Impressions","num"],["3s plays","num"],["Hook rate","num"],["Clicks","num"],["CTR","num"]]},
+      {g:"FUNNEL — OURS",c:[["Leads","num"],["Qualified","num"],["Appts","num"],["Visited","num"],["Enrolled","num"]]},
+      {g:"CONVERSION",c:[["Lead→Appt","num"],["Lead→Visit","num"],["Lead→Enrol","num"],["Appt→Visit","num"],["Visit→Enrol","num"]]},
+      {g:"COST PER",c:[["CPL","num"],["CPQL","num"],["CPA","num"],["CPV","num"],["CPE","num"]]},
+    ];
+
+    function _ctkRender(){
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      // ---- blocked banner ----
+      const al=root.querySelector("#ctkAlert") as HTMLElement|null;
+      if(al){
+        if(_ctkBlocked.length){
+          al.style.display="";
+          al.innerHTML='<span style="font-size:15px;line-height:1">⚠</span><div><b>Meta spend is unavailable.</b> '
+            +e(_ctkBlocked.map((b:any)=>b.account+" — "+b.reason).join(" · "))
+            +'<br>Spend, impressions, clicks and every cost-per column below will stay blank until the ad account grants <code>ads_read</code>. '
+            +'The funnel columns come from our own database and are unaffected.</div>';
+        } else al.style.display="none";
+      }
+      const rows=_ctkAgg();
+      const T:any={spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0};
+      rows.forEach((r:any)=>Object.keys(T).forEach(k=>{T[k]+=r[k]||0;}));
+
+      // ---- KPI cards ----
+      const kp=root.querySelector("#ctkKpis");
+      if(kp){
+        const cards=[
+          {l:"Amount spent",v:T.spend?_ctkMoney(T.spend):"—",s:T.spend?"across "+rows.length+" rows":"no spend reported",c:"g"},
+          {l:"Leads",v:T.leads.toLocaleString("en-IN"),s:T.qual+" qualified",c:"b"},
+          {l:"Cost per lead",v:_ctkCost(T.spend,T.leads),s:T.spend?"CPQL "+_ctkCost(T.spend,T.qual):"needs spend",c:"a"},
+          {l:"Enrolled",v:T.enr.toLocaleString("en-IN"),s:_ctkPctTxt(T.enr,T.leads)+" of leads",c:"g"},
+          {l:"Cost per enrolment",v:_ctkCost(T.spend,T.enr),s:T.enr?"":"nothing enrolled yet",c:"a"},
+        ];
+        // Compare deltas. A cost-per FALLING is an improvement, so those two invert — showing a
+        // cheaper lead in red would read as bad news for the best possible result.
+        const P=_ctkPrev;
+        const delta=(cur:number,prev:number,lowerIsBetter?:boolean)=>{
+          if(!P) return "";
+          if(!prev) return '<div class="kd flat">no prior data</div>';
+          const pc=((cur-prev)/prev)*100;
+          const good=lowerIsBetter?pc<0:pc>0;
+          const cls=Math.abs(pc)<0.5?"flat":(good?"up":"dn");
+          return '<div class="kd '+cls+'">'+(pc>=0?"▲":"▼")+" "+Math.abs(Math.round(pc*10)/10).toFixed(1)+"% vs prev</div>";
+        };
+        const cpl=(s:number,n:number)=>n>0?s/n:0;
+        const dels=P?[delta(T.spend,P.spend),delta(T.leads,P.leads),
+          delta(cpl(T.spend,T.leads),cpl(P.spend,P.leads),true),delta(T.enr,P.enr),
+          delta(cpl(T.spend,T.enr),cpl(P.spend,P.enr),true)]:["","","","",""];
+        kp.innerHTML=cards.map((c:any,i:number)=>'<div class="ctk-k '+c.c+'" style="animation-delay:'+(i*55)+'ms">'
+          +'<div class="kl">'+e(c.l)+'</div><div class="kv">'+e(c.v)+'</div><div class="ks">'+e(c.s)+'</div>'
+          +(dels[i]||"")
+          +'<div class="kbar"><i style="width:'+Math.max(4,Math.min(100,(i+1)*18))+'%"></i></div></div>').join("");
+      }
+
+      // ---- funnel ----
+      const fn=root.querySelector("#ctkFunnel");
+      if(fn){
+        const stages=[["Clicks",T.clicks],["Leads",T.leads],["Qualified",T.qual],["Appointments",T.appt],["Visited",T.vis],["Enrolled",T.enr]];
+        fn.innerHTML=stages.map((s:any,i:number)=>{
+          const v=Number(s[1])||0;
+          const prev=i?Number(stages[i-1][1])||0:0;
+          const rate=i?_ctkPct(v,prev):100;            // conversion FROM the previous stage
+          const lost=i&&prev>v?prev-v:0;
+          // Banding is per-step because the stages are not comparable: a 1% click→lead rate is
+          // normal, a 1% visit→enrol rate would be alarming. Thresholds follow the table's pills.
+          const band=i===1?[3,1]:(i===2?[85,60]:(i===3?[20,8]:(i===4?[60,35]:[40,20])));
+          const cls=i===0?"top":(rate>=band[0]?"hi":(rate>=band[1]?"md":"lo"));
+          return '<div class="ctk-fc '+cls+'" style="animation-delay:'+(i*60)+'ms">'
+            +'<span class="st">'+(i+1)+'/'+stages.length+'</span>'
+            +'<div class="fl">'+e(s[0])+'</div>'
+            +'<div class="fv">'+v.toLocaleString("en-IN")+'</div>'
+            +'<div class="fm"><i style="width:'+Math.max(v?3:0,Math.min(100,rate)).toFixed(1)+'%;animation-delay:'+(i*60+90)+'ms"></i></div>'
+            +'<div class="fp">'+(i
+                ? '<b>'+(prev?(Math.round(rate*10)/10).toFixed(1)+"%":"—")+'</b><span>from '+e(stages[i-1][0])+'</span>'
+                : '<b>100%</b><span>top of funnel</span>')+'</div>'
+            +(lost?'<div class="fd">−'+lost.toLocaleString("en-IN")+' dropped here</div>':'<div class="fd">&nbsp;</div>')
+            +'</div>';
+        }).join("");
+      }
+
+      // ---- table ----
+      const hd=root.querySelector("#ctkHead");
+      if(hd){
+        hd.innerHTML='<tr class="grp">'+CTK_COLS.map(g=>'<th colspan="'+g.c.length+'">'+e(g.g)+'</th>').join("")+'</tr>'
+          +'<tr class="col">'+CTK_COLS.flatMap(g=>g.c.map(c=>'<th'+(c[1]==="num"?' style="text-align:right"':'')+'>'+e(c[0])+'</th>')).join("")+'</tr>';
+      }
+      const tb=root.querySelector("#ctkBody");
+      const info=root.querySelector("#ctkRowInfo");
+      if(info) info.textContent=rows.length?(rows.length+" row"+(rows.length===1?"":"s")+" · by "+_ctkLevel_):"";
+      if(tb){
+        if(!rows.length){
+          tb.innerHTML='<tr><td colspan="24" class="ctk-none">'+(_ctkQ?"No creative matches that search.":"No campaigns or leads in this date range.")+'</td></tr>';
+        }else{
+          tb.innerHTML=rows.map((r:any,i:number)=>{
+            const hook=_ctkPct(r.v3,r.impr), ctr=_ctkPct(r.clicks,r.impr);
+            const cell=(v:string)=>'<td class="num">'+v+'</td>';
+            return '<tr style="animation-delay:'+Math.min(i*22,460)+'ms">'
+              +'<td class="name" title="'+e(r.campaign)+'">'+e(r.campaign)+'</td>'
+              +'<td class="name" title="'+e(r.adset)+'">'+e(r.adset)+'</td>'
+              +'<td class="name" title="'+e(r.ad)+'">'+e(r.ad)+'</td>'
+              +cell(r.spend?_ctkMoney(r.spend):"—")
+              +cell(r.impr?r.impr.toLocaleString("en-IN"):"—")
+              +cell(r.v3?r.v3.toLocaleString("en-IN"):"—")
+              +cell(r.impr?_ctkPill(hook,25,12):"—")
+              +cell(r.clicks?r.clicks.toLocaleString("en-IN"):"—")
+              +cell(r.impr?_ctkPill(ctr,2,1):"—")
+              +cell(r.leads?'<b>'+r.leads.toLocaleString("en-IN")+'</b>':"0")
+              +cell(String(r.qual||0))+cell(String(r.appt||0))+cell(String(r.vis||0))
+              +cell(r.enr?'<b>'+r.enr+'</b>':"0")
+              +cell(r.leads?_ctkPill(_ctkPct(r.appt,r.leads),20,8):"—")
+              +cell(r.leads?_ctkPill(_ctkPct(r.vis,r.leads),12,5):"—")
+              +cell(r.leads?_ctkPill(_ctkPct(r.enr,r.leads),6,2):"—")
+              +cell(r.appt?_ctkPill(_ctkPct(r.vis,r.appt),60,35):"—")
+              +cell(r.vis?_ctkPill(_ctkPct(r.enr,r.vis),40,20):"—")
+              +cell(_ctkCost(r.spend,r.leads))+cell(_ctkCost(r.spend,r.qual))+cell(_ctkCost(r.spend,r.appt))
+              +cell(_ctkCost(r.spend,r.vis))+cell(_ctkCost(r.spend,r.enr))
+              +'</tr>';
+          }).join("");
+        }
+      }
+      const ft=root.querySelector("#ctkFoot");
+      if(ft){
+        const c=(v:string)=>'<td>'+v+'</td>';
+        ft.innerHTML=rows.length?('<tr><td class="name" colspan="3">TOTAL · '+rows.length+' row'+(rows.length===1?"":"s")+'</td>'
+          +c(T.spend?_ctkMoney(T.spend):"—")+c(T.impr?T.impr.toLocaleString("en-IN"):"—")+c(T.v3?T.v3.toLocaleString("en-IN"):"—")
+          +c(T.impr?_ctkPctTxt(T.v3,T.impr):"—")+c(T.clicks?T.clicks.toLocaleString("en-IN"):"—")+c(T.impr?_ctkPctTxt(T.clicks,T.impr):"—")
+          +c(String(T.leads))+c(String(T.qual))+c(String(T.appt))+c(String(T.vis))+c(String(T.enr))
+          +c(_ctkPctTxt(T.appt,T.leads))+c(_ctkPctTxt(T.vis,T.leads))+c(_ctkPctTxt(T.enr,T.leads))
+          +c(_ctkPctTxt(T.vis,T.appt))+c(_ctkPctTxt(T.enr,T.vis))
+          +c(_ctkCost(T.spend,T.leads))+c(_ctkCost(T.spend,T.qual))+c(_ctkCost(T.spend,T.appt))
+          +c(_ctkCost(T.spend,T.vis))+c(_ctkCost(T.spend,T.enr))+'</tr>'):"";
+      }
+    }
+
+    w._ctkExport=()=>{
+      const rows=_ctkAgg();
+      if(!rows.length){ toast("Nothing to export"); return; }
+      const head=CTK_COLS.flatMap(g=>g.c.map(c=>c[0]));
+      const out:string[][]=[head];
+      rows.forEach((r:any)=>out.push([r.campaign,r.adset,r.ad,
+        String(Math.round(r.spend)),String(r.impr),String(r.v3),_ctkPctTxt(r.v3,r.impr),String(r.clicks),_ctkPctTxt(r.clicks,r.impr),
+        String(r.leads),String(r.qual),String(r.appt),String(r.vis),String(r.enr),
+        _ctkPctTxt(r.appt,r.leads),_ctkPctTxt(r.vis,r.leads),_ctkPctTxt(r.enr,r.leads),_ctkPctTxt(r.vis,r.appt),_ctkPctTxt(r.enr,r.vis),
+        _ctkCost(r.spend,r.leads),_ctkCost(r.spend,r.qual),_ctkCost(r.spend,r.appt),_ctkCost(r.spend,r.vis),_ctkCost(r.spend,r.enr)]));
+      _downloadCsv("campaign_tracker.csv",out); toast("Exported "+rows.length+" row"+(rows.length===1?"":"s"));
+    };
+
     // ========== ACCOUNTS & FINANCE MODULE (live data) ==========
     let _accPays:any[]=[], _accAppts:Record<string,any>={};
     async function loadAccountsData(){
@@ -13717,6 +14204,12 @@ export function initApp(root: HTMLElement) {
           .ilike("service","%blood%").limit(2000);
         _accThyroAppts=btA||[];
       }catch(_){ _accThyroAppts=[]; }
+      // Thyrocare payout ledger — real transfers, loaded separately from (and reconciled against)
+      // the recognized-liability figure computed above from appointment data.
+      try{
+        const {data:tpo}=await supabase.from("thyrocare_payouts").select("*").order("paid_at",{ascending:false});
+        _accThyroPayouts=tpo||[];
+      }catch(_){ _accThyroPayouts=[]; }
       _accRenderAll();
     }
     // ===== Blood test — Thyrocare reconciliation (Accounts tab) =====
@@ -13728,6 +14221,7 @@ export function initApp(root: HTMLElement) {
     //   Our margin     = billed − cost
     //   Paid to Thyro. = cost of records whose lab report has been RECEIVED (that is when we owe it)
     let _accThyroAppts:any[]=[];
+    let _accThyroPayouts:any[]=[];
     function _accThyroRows(){
       // Money per appointment comes from the payment rows already loaded for this screen — but ONLY
       // the blood-test-tagged ones. A combined visit ("Diabetes Counselling + Blood Test") carries the
@@ -13791,9 +14285,27 @@ export function initApp(root: HTMLElement) {
           +card("Our margin",money(tMargin),tMargin<0?"r":"g")
           +card("Paid to Thyrocare",money(tot.paidThyro),"",tot.cost>tot.paidThyro?"pending "+money(tot.cost-tot.paidThyro):"settled");
       }
+      // Rendered here, BEFORE the empty-rows return below, so the payout ledger and its balance
+      // still show even on a day with nothing to reconcile yet — a payout can be recorded (an
+      // advance to the lab, say) independently of today's appointments.
+      try{ renderAccThyroPayouts(tot.paidThyro); }catch(_){}
       if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px">No blood test records yet.</div>'; return; }
+      // Drop selections for days that no longer exist (a filter change, a re-sync), so a stale key
+      // can never contribute to the selected total.
+      const live=new Set(rows.map((r:any)=>String(r.key)));
+      Array.from(_accThyroSel).forEach(k=>{ if(!live.has(k)) _accThyroSel.delete(k); });
+      const sel=rows.filter((r:any)=>_accThyroSel.has(String(r.key)));
+      // The footer follows the selection: pick three days and it totals those three. With nothing
+      // ticked it totals everything, exactly as before.
+      const F=sel.length?sel.reduce((s:any,r:any)=>({total:s.total+r.total,visited:s.visited+r.visited,sample:s.sample+r.sample,
+        billed:s.billed+r.billed,collected:s.collected+r.collected,cost:s.cost+r.cost,paidThyro:s.paidThyro+r.paidThyro,refund:s.refund+r.refund}),
+        {total:0,visited:0,sample:0,billed:0,collected:0,cost:0,paidThyro:0,refund:0}):tot;
+      const fMargin=F.billed-F.cost;
       const num='class="mono" style="text-align:right;white-space:nowrap"';
-      let h='<div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr>'
+      const allOn=rows.length>0&&sel.length===rows.length;
+      let h='<div class="tscroll"><table class="tbl" style="min-width:1230px"><thead><tr>'
+        +'<th scope="col" style="width:32px"><input type="checkbox" id="accThyroSelAll"'+(allOn?" checked":"")
+        +' onclick="window._accThyroSelAll(this.checked)" title="Select every day" style="accent-color:var(--brand)"></th>'
         +'<th scope="col">Date &amp; time</th><th scope="col" style="text-align:right">Total</th>'
         +'<th scope="col" style="text-align:right">Visited</th><th scope="col" style="text-align:right">Sample collected</th>'
         +'<th scope="col" style="text-align:right">Total billed</th><th scope="col" style="text-align:right">Overall blood test</th>'
@@ -13801,7 +14313,11 @@ export function initApp(root: HTMLElement) {
         +'<th scope="col" style="text-align:right">Paid to Thyrocare</th><th scope="col" style="text-align:right">Refund</th></tr></thead><tbody>';
       rows.forEach((r:any)=>{
         const margin=r.billed-r.cost;
-        h+='<tr><td class="mono" style="white-space:nowrap;font-weight:600">'+_btE(r.date)+'</td>'
+        const on=_accThyroSel.has(String(r.key));
+        h+='<tr'+(on?' style="background:rgba(15,88,50,.05)"':'')+'>'
+          +'<td><input type="checkbox" class="accThyroChk" data-k="'+_btE(String(r.key))+'"'+(on?" checked":"")
+          +' onchange="window._accThyroSelRow(this)" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="white-space:nowrap;font-weight:600">'+_btE(r.date)+'</td>'
           +'<td '+num+'>'+r.total+'</td><td '+num+'>'+r.visited+'</td><td '+num+'>'+r.sample+'</td>'
           +'<td '+num+' >'+money(r.billed)+'</td><td '+num+'>'+money(r.collected)+'</td>'
           +'<td '+num+'>'+money(r.cost)+'</td>'
@@ -13810,26 +14326,119 @@ export function initApp(root: HTMLElement) {
           +'<td class="mono" style="text-align:right;white-space:nowrap'+(r.refund>0?";color:var(--alert-ink)":"")+'">'+money(r.refund)+'</td></tr>';
       });
       h+='</tbody><tfoot><tr style="border-top:2px solid var(--line)">'
-        +'<td style="font-weight:700">TOTAL</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+tot.total+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+tot.visited+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+tot.sample+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.billed)+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.collected)+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.cost)+'</td>'
-        +'<td class="mono" style="text-align:right;font-weight:700;color:'+(tMargin<0?"var(--alert-ink)":"var(--brand-600)")+'">'+money(tMargin)+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.paidThyro)+'</td>'
-        +'<td '+num+' style="text-align:right;font-weight:700">'+money(tot.refund)+'</td></tr></tfoot></table></div>';
+        +'<td></td>'
+        +'<td style="font-weight:700">'+(sel.length?"TOTAL · "+sel.length+" selected":"TOTAL")+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+F.total+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+F.visited+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+F.sample+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.billed)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.collected)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.cost)+'</td>'
+        +'<td class="mono" style="text-align:right;font-weight:700;color:'+(fMargin<0?"var(--alert-ink)":"var(--brand-600)")+'">'+money(fMargin)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.paidThyro)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.refund)+'</td></tr></tfoot></table></div>';
       el.innerHTML=h;
+      const info=root.querySelector("#accThyroSelInfo");
+      if(info) info.textContent=sel.length?(sel.length+" of "+rows.length+" day"+(rows.length===1?"":"s")+" selected · "+money(F.cost)+" owed"):"";
+      const clr=root.querySelector("#accThyroClearSel") as HTMLElement|null;
+      if(clr) clr.style.display=sel.length?"":"none";
     }
+    // Selection is keyed by DAY (the row's own key), not by index — sorting or a reload must not
+    // move a tick from one date to another.
+    const _accThyroSel=new Set<string>();
+    w._accThyroSelRow=(elx:HTMLInputElement)=>{
+      const k=elx.getAttribute("data-k")||"";
+      if(elx.checked) _accThyroSel.add(k); else _accThyroSel.delete(k);
+      renderAccThyro();
+    };
+    w._accThyroSelAll=(checked:boolean)=>{
+      _accThyroSel.clear();
+      if(checked) _accThyroRows().forEach((r:any)=>_accThyroSel.add(String(r.key)));
+      renderAccThyro();
+    };
+    w._accThyroSelClear=()=>{ _accThyroSel.clear(); renderAccThyro(); };
     w._accThyroDownload=()=>{
-      const rows=_accThyroRows(); if(!rows.length){ toast("Nothing to export"); return; }
+      const all=_accThyroRows();
+      // Export what is selected; with nothing ticked, export everything (the previous behaviour).
+      const rows=_accThyroSel.size?all.filter((r:any)=>_accThyroSel.has(String(r.key))):all;
+      if(!rows.length){ toast("Nothing to export"); return; }
       const out:string[][]=[["Date","Total","Visited","Sample collected","Total billed","Overall blood test","Thyrocare cost","Our margin","Paid to Thyrocare","Refund"]];
       rows.forEach((r:any)=>out.push([r.date,String(r.total),String(r.visited),String(r.sample),
         String(Math.round(r.billed)),String(Math.round(r.collected)),String(Math.round(r.cost)),
         String(Math.round(r.billed-r.cost)),String(Math.round(r.paidThyro)),String(Math.round(r.refund))]));
       _downloadCsv("blood_test_thyrocare_"+rows.length+"_days.csv",out);
       toast("Exported "+rows.length+" day"+(rows.length===1?"":"s"));
+    };
+    // ===== Thyrocare payout ledger =====
+    // `liability` is tot.paidThyro from the SAME renderAccThyro() pass — the cost of every record
+    // whose lab report has been received, i.e. everything ever recognized as owed. Comparing it
+    // against the sum of these rows is the whole point: one is "what we owe", the other is
+    // "what we actually sent", and neither is derived from the other.
+    function renderAccThyroPayouts(liability:number){
+      const body=root.querySelector("#accThyroPayoutBody")as HTMLElement|null;
+      const bal=root.querySelector("#accThyroBalance")as HTMLElement|null;
+      const cnt=root.querySelector("#accThyroPayoutCount")as HTMLElement|null;
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      const rows=_accThyroPayouts||[];
+      const paidOut=rows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      const balance=Math.round(liability-paidOut);
+      if(cnt) cnt.textContent=rows.length?rows.length+" payout"+(rows.length===1?"":"s"):"";
+      if(bal){
+        if(balance>0){ bal.textContent="Owed to Thyrocare: "+money(balance); bal.style.color="var(--alert-ink)"; }
+        else if(balance<0){ bal.textContent="Overpaid by "+money(-balance); bal.style.color="var(--warn-ink)"; }
+        else { bal.textContent="Settled"; bal.style.color="var(--ok-ink)"; }
+      }
+      if(!body) return;
+      if(!rows.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">No payouts recorded yet.</td></tr>'; return; }
+      body.innerHTML=rows.map((p:any)=>{
+        const d=String(p.paid_at||"").slice(0,10);
+        return '<tr><td class="mono" style="white-space:nowrap">'+_btE(d?_recFmtDate(d):"—")+'</td>'
+          +'<td class="mono" style="font-weight:700">'+money(p.amount)+'</td>'
+          +'<td>'+_btE(p.method||"—")+'</td>'
+          +'<td style="max-width:260px;white-space:normal">'+_btE(p.txn_ref||p.notes||"—")+'</td>'
+          +'<td>'+_btE(p.created_by||"—")+'</td>'
+          +'<td><button class="btn bsm" onclick="window._accThyroPayoutDelete(\''+_btE(String(p.id))+'\')">Delete</button></td></tr>';
+      }).join("");
+    }
+    w._accThyroPayoutSave=async()=>{
+      const amtEl=root.querySelector("#thpAmt")as HTMLInputElement|null;
+      const dateEl=root.querySelector("#thpDate")as HTMLInputElement|null;
+      const methodEl=root.querySelector("#thpMethod")as HTMLSelectElement|null;
+      const refEl=root.querySelector("#thpRef")as HTMLInputElement|null;
+      const amount=Math.round(Number(amtEl?.value)||0);
+      const paidAt=(dateEl?.value||"").trim();
+      if(!(amount>0)){ toastErr("Enter a valid payout amount"); amtEl?.focus(); return; }
+      if(!paidAt){ toastErr("Select the date this was paid"); dateEl?.focus(); return; }
+      // A payout is a record of money already sent — a future date can only be a typo, not a plan.
+      const today=new Date(); today.setHours(23,59,59,999);
+      if(new Date(paidAt+"T12:00:00")>today){ toastErr("Payout date can't be in the future"); dateEl?.focus(); return; }
+      const createdBy=(_currentUser&&(_currentUser.name||_currentUser.email))||"Accounts";
+      const row={amount,paid_at:paidAt,method:methodEl?.value||null,txn_ref:(refEl?.value||"").trim()||null,created_by:createdBy};
+      const {data,error}=await supabase.from("thyrocare_payouts").insert(row).select().single();
+      if(error){
+        toastErr(/relation|does not exist|schema/i.test(error.message||"")
+          ? "Can't save yet — the server needs a restart to create the payout table (self-applying schema)"
+          : "Save failed: "+(error.message||"error"));
+        return;
+      }
+      _accThyroPayouts=[(data||{...row,id:Date.now(),created_at:new Date().toISOString()}),..._accThyroPayouts];
+      if(amtEl) amtEl.value=""; if(dateEl) dateEl.value=""; if(methodEl) methodEl.value=""; if(refEl) refEl.value="";
+      toast("Payout recorded");
+      renderAccThyro();
+    };
+    w._accThyroPayoutDelete=async(id:string)=>{
+      if(!window.confirm("Delete this payout record? This cannot be undone.")) return;
+      if(!(await _dbOk(supabase.from("thyrocare_payouts").delete().eq("id",id),"Delete payout"))) return;
+      _accThyroPayouts=_accThyroPayouts.filter((p:any)=>String(p.id)!==String(id));
+      toast("Payout deleted");
+      renderAccThyro();
+    };
+    w._accThyroPayoutDownload=()=>{
+      const rows=_accThyroPayouts||[]; if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Paid on","Amount","Method","Reference / notes","Recorded by"]];
+      rows.forEach((p:any)=>out.push([String(p.paid_at||"").slice(0,10),String(Math.round(Number(p.amount)||0)),p.method||"",p.txn_ref||p.notes||"",p.created_by||""]));
+      _downloadCsv("thyrocare_payouts_"+rows.length+".csv",out);
+      toast("Exported "+rows.length+" payout"+(rows.length===1?"":"s"));
     };
     // ---- Top-bar filters + search + pagination; every card and the Transactions table read the SAME
     //      filtered set (kept in sync). Filters apply only on the Apply button; search is live. ----
@@ -15753,6 +16362,10 @@ export function initApp(root: HTMLElement) {
       if(mlNav) mlNav.addEventListener("click",()=>{ loadMetaLeadsData(); });
       const repNav=root.querySelector('#nav button[data-s="reports"]')as HTMLButtonElement|null;
       if(repNav) repNav.addEventListener("click",()=>{ loadReportsData(); });
+      // Campaign Tracker loads on first open rather than at sign-in: it calls Meta's Insights API,
+      // which shares the same app-level quota as the lead crawl and must not be spent unasked.
+      const ctkNav=root.querySelector('#nav button[data-s="campaigns"]')as HTMLButtonElement|null;
+      if(ctkNav) ctkNav.addEventListener("click",()=>{ try{ (w as any)._ctkLoad(); }catch(_){} });
       const devTabBtn=root.querySelector('#abmTabs button[data-t="dev"]')as HTMLButtonElement|null;
       if(devTabBtn) devTabBtn.addEventListener("click",()=>{ w._renderCallDeviation(); w._renderLeadsDeviation(); });
       const usrTabBtn=root.querySelector('#settTabs button[data-t="st-usr"]')as HTMLButtonElement|null;

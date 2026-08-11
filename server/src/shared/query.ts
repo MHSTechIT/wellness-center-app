@@ -24,6 +24,9 @@ const TABLES = new Set([
   // Physiotherapy pricing master (db/migration-physio-pricing.sql) — read by every client for the
   // Physio page's pricing card and payment amounts; edited from Settings → Service pricing.
   'physio_pricing',
+  // Thyrocare payout ledger (db/migration-thyrocare-payouts.sql) — Accounts & finance → Blood test
+  // — Thyrocare tab. Records of real money transfers to the lab partner; no credentials.
+  'thyrocare_payouts',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 // A caller with no limit at all (or an absurdly large one) could pull an entire table in one

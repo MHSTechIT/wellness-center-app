@@ -38,6 +38,12 @@ const STEPS: Step[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_leads_confirmed_at ON leads(confirmed_at) WHERE confirmed_at IS NOT NULL`,
   },
   {
+    // Meta's adset behind a lead. campaign and ad_name were already stored; without the adset the
+    // Campaign Tracker cannot roll up by adset and has to invent a key, which doubles every row.
+    name: 'leads.adset_name',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS adset_name TEXT`,
+  },
+  {
     // When a refund's money actually left. refund_processed_at records the CONFIRMATION;
     // this records the PAYOUT, so Accounts can tell "approved" from "actually sent".
     name: 'payments.refund_paid_at',
@@ -46,6 +52,26 @@ const STEPS: Step[] = [
   {
     name: 'payments.refund_paid_at index',
     sql: `CREATE INDEX IF NOT EXISTS idx_payments_refund_paid_at ON payments(refund_paid_at) WHERE refund_paid_at IS NOT NULL`,
+  },
+  {
+    // Thyrocare payout ledger — Accounts & finance -> Blood test - Thyrocare tab. Real money
+    // transfers to the lab partner; reconciled against the liability that tab computes LIVE from
+    // appointment data (never stored here), so the two figures can never drift apart.
+    name: 'thyrocare_payouts',
+    sql: `CREATE TABLE IF NOT EXISTS thyrocare_payouts (
+      id          BIGSERIAL PRIMARY KEY,
+      amount      INT NOT NULL CHECK (amount > 0),
+      paid_at     DATE NOT NULL,
+      method      TEXT,
+      txn_ref     TEXT,
+      notes       TEXT,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    name: 'thyrocare_payouts.paid_at index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_thyrocare_payouts_paid_at ON thyrocare_payouts(paid_at)`,
   },
 ];
 

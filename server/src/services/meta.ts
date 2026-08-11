@@ -31,9 +31,19 @@ export async function getMetaToken(): Promise<string> {
     }
   } catch (_) {}
 
+  // ORDER MATTERS. Meta only returns a lead's campaign_name / adset_name / ad_name to a token that
+  // may read the ads behind it; to any other token those fields come back NULL and the lead looks
+  // like it arrived from nowhere. Verified live on the same form and the same lead:
+  //   META_ACCESS_TOKEN         -> campaign "DW - Winner Ad [22/04/2026]", ad "Direct Walkin - Testimony"
+  //   META_SYSTEM_ACCESS_TOKEN  -> null, null
+  // The system token was tried first, so every synced lead fell back to its FORM name and all ad
+  // attribution was silently lost — which is why the Campaign Tracker could not join a single row.
+  // The user token is therefore preferred and the system token kept as the fallback.
+  // TRADE-OFF: user tokens expire, system tokens do not. refreshExpiringTokens() already renews
+  // this one daily, and a lead with no attribution is worse than one we must re-authorise.
+  if (process.env.META_ACCESS_TOKEN) return process.env.META_ACCESS_TOKEN;
   if (process.env.META_SYSTEM_ACCESS_TOKEN) return process.env.META_SYSTEM_ACCESS_TOKEN;
   if (process.env.META_PAGE_ACCESS_TOKEN) return process.env.META_PAGE_ACCESS_TOKEN;
-  if (process.env.META_ACCESS_TOKEN) return process.env.META_ACCESS_TOKEN;
   throw new Error('No Meta access token available');
 }
 
@@ -373,7 +383,7 @@ export async function crawlAdAccountLeads(adAccountIds: string[]): Promise<AdAcc
       const res = await Promise.allSettled(
         batch.map(async (ad: any) => {
           const { items, error } = await fetchAllPages(
-            `${GRAPH_API}/${ad.id}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,ad_id,ad_name,form_id&limit=200&access_token=${token}`,
+            `${GRAPH_API}/${ad.id}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,form_id&limit=200&access_token=${token}`,
             80,
             (pageItems) => {
               const last = pageItems[pageItems.length - 1];
@@ -429,9 +439,14 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
   // Fetch EACH allowlisted form's leads directly, trying every available token,
   // so forms on pages the primary token cannot enumerate are still captured.
   if (allowList.length > 0) {
+    // ORDER MATTERS — see getMetaToken(). The loop below keeps the FIRST token that can read a
+    // form, and Meta returns campaign/adset/ad attribution only to a token allowed to read the ads
+    // behind the lead. The system token can read the form (so it won the race) but is handed leads
+    // with those fields NULLED, which is why every recent lead recorded its FORM name as its
+    // campaign and no ad at all. The user token reads the same form AND carries the attribution.
     const tokens = [
-      process.env.META_SYSTEM_ACCESS_TOKEN,
       process.env.META_ACCESS_TOKEN,
+      process.env.META_SYSTEM_ACCESS_TOKEN,
       process.env.META_PAGE_ACCESS_TOKEN,
       process.env.META_SYSTEM_ACCESS_TOKEN_1
     ].filter(Boolean) as string[];
@@ -455,7 +470,7 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
       }
       if (!workTok) { formErrors++; pageErrors.push({ pageId: fid, reason: 'no token can read this form' }); continue; }
       const { items, error } = await fetchAllPages(
-        `${GRAPH_API}/${fid}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,ad_id,ad_name&limit=200&access_token=${workTok}`,
+        `${GRAPH_API}/${fid}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name&limit=200&access_token=${workTok}`,
         100,
         (pageItems) => {
           const last = pageItems[pageItems.length - 1];
@@ -503,7 +518,7 @@ export async function crawlPageFormLeads(pageIds: string[], token: string) {
     const res = await Promise.allSettled(
       batch.map(async ({ pageId, formId, formName }) => {
         const { items, error } = await fetchAllPages(
-          `${GRAPH_API}/${formId}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,ad_id,ad_name&limit=200&access_token=${token}`,
+          `${GRAPH_API}/${formId}/leads?fields=id,created_time,field_data,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name&limit=200&access_token=${token}`,
           80,
           (pageItems) => {
             const last = pageItems[pageItems.length - 1];
@@ -625,6 +640,7 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
         lead_date: String(l.createdAt).substring(0, 10),
         campaign: l.campaignName || l.formName || '—',
         ad_name: l.adName || null,
+        adset_name: l.adsetName || null,
         sugar_poll: l.sugar || null,
         city: l.city || null,
         street: l.street || null,
@@ -894,6 +910,7 @@ function normalizeLead(raw: any, formName: string, pageId: string, attr?: { acco
     createdAt: raw.created_time,
     formName,
     adName: raw.ad_name || '',
+    adsetName: raw.adset_name || '',
     campaignName: raw.campaign_name || '',
     pageName: pn[pageId] || pageId,
     adAccountId: attr?.accountId || '',
@@ -932,4 +949,82 @@ export async function exchangeForLongLivedToken(shortToken: string): Promise<{ t
   if (data.error) throw new Error(data.error.message);
 
   return { token: data.access_token, expiresIn: data.expires_in || 0 };
+}
+
+// ============================================================
+// AD-LEVEL INSIGHTS — spend / delivery for the Campaign Tracker.
+//
+// This is the ONLY source of money-and-delivery truth: spend, impressions, clicks and 3-second
+// video plays exist solely inside Meta. Everything downstream of the click (leads, appointments,
+// visits, enrolments) lives in our own database and is joined to these rows by ad NAME, which is
+// what leads.campaign / ad_name carry.
+//
+// Needs ads_read on the ad account — the same permission the lead crawl needs. When it is missing
+// the call fails with (#200) and we return the reason rather than zeros, because a zero spend row
+// is indistinguishable from a real campaign that spent nothing.
+// ============================================================
+export interface AdInsightRow {
+  campaign: string;
+  adset: string;
+  ad: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  videoPlays3s: number;
+}
+
+const INSIGHT_CACHE_TTL = Number(process.env.META_INSIGHT_CACHE_TTL_MS || 10 * 60 * 1000);
+const _insightCache: Record<string, { at: number; data: any }> = {};
+
+export async function fetchAdInsights(adAccountIds: string[], since: string, until: string) {
+  const key = adAccountIds.join(',') + '|' + since + '|' + until;
+  const hit = _insightCache[key];
+  if (hit && Date.now() - hit.at < INSIGHT_CACHE_TTL) return hit.data;
+
+  const names = adAccountNames();
+  const tokens = adsTokenCandidates();
+  const rows: AdInsightRow[] = [];
+  const blocked: { account: string; reason: string }[] = [];
+
+  // Meta counts a "3-second video play" as the video_view action. It is not a top-level field, so
+  // it has to be dug out of the actions array; a campaign with no video simply has no such entry.
+  const threeSec = (r: any): number => {
+    const acts = Array.isArray(r.actions) ? r.actions : [];
+    const v = acts.find((a: any) => a.action_type === 'video_view');
+    if (v) return Number(v.value) || 0;
+    const vp = Array.isArray(r.video_play_actions) ? r.video_play_actions[0] : null;
+    return vp ? Number(vp.value) || 0 : 0;
+  };
+
+  for (const acctId of adAccountIds) {
+    let got = false;
+    let lastErr = 'no token could read this account';
+    for (const tk of tokens) {
+      const timeRange = encodeURIComponent(JSON.stringify({ since, until }));
+      const url = `${GRAPH_API}/act_${acctId}/insights`
+        + `?level=ad&time_range=${timeRange}&time_increment=all_days&limit=500`
+        + `&fields=campaign_name,adset_name,ad_name,spend,impressions,clicks,actions,video_play_actions`
+        + `&access_token=${tk}`;
+      const { items, error } = await fetchAllPages(url, 20);
+      if (error) { lastErr = error; continue; }
+      items.forEach((r: any) => rows.push({
+        campaign: r.campaign_name || '—',
+        adset: r.adset_name || '—',
+        ad: r.ad_name || '—',
+        spend: Number(r.spend) || 0,
+        impressions: Number(r.impressions) || 0,
+        clicks: Number(r.clicks) || 0,
+        videoPlays3s: threeSec(r),
+      }));
+      got = true;
+      break;
+    }
+    if (!got) blocked.push({ account: names[acctId] || acctId, reason: lastErr });
+  }
+
+  const data = { rows, blocked, since, until, fetchedAt: new Date().toISOString() };
+  // Only cache a useful answer. Caching a total failure would hide recovery for ten minutes —
+  // exactly the trap that made the revoked ads_read permission invisible for two days.
+  if (rows.length) _insightCache[key] = { at: Date.now(), data };
+  return data;
 }

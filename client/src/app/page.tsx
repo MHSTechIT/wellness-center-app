@@ -117,6 +117,9 @@ export default function Home() {
             <div className="ng">Finance &amp; insight</div>
             <button data-s="accounts"><svg className="icon"><use href="#i-wallet"/></svg> Accounts</button>
             <button data-s="reports"><svg className="icon"><use href="#i-chart"/></svg> Reports</button>
+            <div className="ng">Marketing</div>
+            <button data-s="campaigns"><svg className="icon"><use href="#i-target"/></svg> Campaign Tracker</button>
+            <button data-s="leadsview"><svg className="icon"><use href="#i-inbox"/></svg> Leads View</button>
             <div className="ng">Admin</div>
             <button data-s="admin"><svg className="icon"><use href="#i-cog"/></svg> Settings &amp; masters</button>
           </nav>
