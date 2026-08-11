@@ -14369,10 +14369,15 @@ export function initApp(root: HTMLElement) {
       {key:"progL1",label:"L1 Only",group:"PROGRAM",gcls:"g-prog"},
       {key:"progL2",label:"L2 Only",group:"PROGRAM",gcls:"g-prog"},
       {key:"progBoth",label:"Both",group:"PROGRAM",gcls:"g-prog"},
-      {key:"enr",label:"L1 Enrolled",group:"PAYMENT",gcls:"g-pay"},
-      {key:"fp",label:"L2 Full Paid",group:"PAYMENT",gcls:"g-pay"},
-      {key:"pp",label:"Total Pay",group:"PAYMENT",gcls:"g-pay"},
-      {key:"inst",label:"L2 Instalment",group:"PAYMENT",gcls:"g-pay"},
+      // These four are PROGRAM-AGNOSTIC — _rpcAgg counts them from a lead's payment rows with no L1/L2
+      // test at all (enr from enrolled_at; fp = a full payment OR both instalments; pp = part-paid;
+      // inst = has any instalment). They had been labelled "L1 Enrolled" / "L2 Full Paid" /
+      // "Total Pay" / "L2 Instalment", which is why an L1-only lead read as L2 Fully Paid. The genuine
+      // per-programme figures are the L1/L2 Revenue columns, which DO split on payments.program.
+      {key:"enr",label:"Enrolled",group:"PAYMENT",gcls:"g-pay"},
+      {key:"fp",label:"Full Paid",group:"PAYMENT",gcls:"g-pay"},
+      {key:"pp",label:"Part Paid",group:"PAYMENT",gcls:"g-pay"},
+      {key:"inst",label:"Instalment",group:"PAYMENT",gcls:"g-pay"},
       {key:"emi",label:"EMI",group:"PAYMENT",gcls:"g-pay"},
       {key:"alrPaid",label:"Alr. Paid",group:"PAYMENT",gcls:"g-pay"},
       {key:"payCol",label:"Pay Collected",group:"PAYMENT",gcls:"g-pay"},
@@ -14381,7 +14386,9 @@ export function initApp(root: HTMLElement) {
       // Revenue is what was BILLED (instalments still due included); Collected is what came in. They
       // were one number before, which hid every outstanding balance.
       {key:"rev",label:"Total Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
-      {key:"revCol",label:"Instalment Collected",group:"REVENUE",gcls:"g-roas",isMoney:true},
+      // ALL money received in the window, not just instalments — Outstanding is computed as
+      // rev − revCol, which only holds if this is the full collected figure.
+      {key:"revCol",label:"Collected (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revOut",label:"Outstanding (₹)",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL1",label:"L1 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
       {key:"revL2",label:"L2 Revenue",group:"REVENUE",gcls:"g-roas",isMoney:true},
@@ -14460,13 +14467,37 @@ export function initApp(root: HTMLElement) {
       if(id&&_mlAcctNames[id]) return _mlAcctNames[id];
       return id?("Account "+id):"";
     };
+    // Meta leads are PAGED, not capped. A single .limit(5000) call hit the /db gateway's
+    // MAX_SELECT_LIMIT head-on, so the page froze at exactly 5,000 and every count on it — Leads,
+    // Valid, Duplicate, Assigned, "N Meta leads synced" — silently described that truncated slice
+    // instead of the table. Raising the cap would only move the ceiling (and the cap is deliberate
+    // resource protection), so this walks the table a page at a time until a short page says it is
+    // done. The page-size stays under the gateway limit, so nothing here depends on that constant.
+    const ML_PAGE=1000;
+    // Walk a table a page at a time until a short page says it is done. `build(from,to)` must apply
+    // .range(from,to) and MUST order by something unique-enough to be stable — OFFSET paging over a
+    // non-unique sort key lets the database order tied rows differently per page, which duplicates
+    // some rows and drops others. Page size stays under the gateway's MAX_SELECT_LIMIT, so no call
+    // site depends on that constant's value.
+    async function _pageAll(build:(from:number,to:number)=>any,page:number=ML_PAGE):Promise<any[]>{
+      const rows:any[]=[];
+      for(let from=0;;from+=page){
+        const {data,error}=await build(from,from+page-1);
+        if(error) throw error;
+        const got=data||[];
+        rows.push(...got);
+        if(got.length<page) break;
+        if(from>500000) break;   // runaway guard if .range() were ever ignored
+      }
+      return rows;
+    }
     async function loadMetaLeadsData(){
       try{
-        const {data,error}=await supabase.from("leads")
+        const rows=await _pageAll((from,to)=>supabase.from("leads")
           .select("meta_lead_id,name,phone,source,service,campaign,ad_name,form_name,ad_account_id,ad_account_name,lead_date,created_at,is_valid,is_duplicate,is_assigned,assigned_to")
-          .in("source",["Meta Ads","Meta"]).order("created_at",{ascending:false}).limit(5000);
-        if(error) throw error;
-        _mlAll=(data||[]).map((r:any)=>({...r, _d:new Date(r.created_at||r.lead_date)}));
+          .in("source",["Meta Ads","Meta"]).order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false})
+          .range(from,to));
+        _mlAll=rows.map((r:any)=>({...r, _d:new Date(r.created_at||r.lead_date)}));
         // id → display name, learned from any lead that carries a REAL name. The crawl falls back to
         // the raw account id when META_TARGET_AD_ACCOUNT_NAMES has no entry for it, so a lot of rows
         // store the id as their "name" — this lets one correctly-named lead label every other lead
@@ -14849,13 +14880,15 @@ export function initApp(root: HTMLElement) {
     };
     async function loadReportsData(){
       try{
+        // Leads are PAGED for the same reason the Meta page is: the table is already past 5,000, so
+        // a flat .limit(5000) was quietly dropping the oldest leads out of every report total.
         const [lr,ar,pr,rr]=await Promise.all([
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,confirmed_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).limit(5000),
+          _pageAll((from,to)=>supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,confirmed_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false}).range(from,to)),
           supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).limit(3000),
           supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).limit(3000),
           supabase.from("office_recordings").select("lead_id,created_at").limit(3000)
         ]);
-        _rpcLeads=lr.data||[]; _rpcAppts=ar.data||[]; _rpcPays=pr.data||[]; _rpcRecs=rr.data||[];
+        _rpcLeads=lr||[]; _rpcAppts=ar.data||[]; _rpcPays=pr.data||[]; _rpcRecs=rr.data||[];
       }catch(_){ _rpcLeads=[]; _rpcAppts=[]; _rpcPays=[]; _rpcRecs=[]; }
       // Topbar chrome: live date + the signed-in role (design shows an access badge).
       const now=new Date(); const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
