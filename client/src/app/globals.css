@@ -1193,7 +1193,12 @@ html{scroll-behavior:smooth}
 .ctk-tbl thead tr.grp th{top:0;background:#0B3D26;color:#8FD9B4;font-size:9px;text-align:center;letter-spacing:.1em}
 .ctk-tbl thead tr.col th{top:27px}
 .ctk-tbl tbody td{padding:9px 10px;border-bottom:1px solid var(--ctk-line);white-space:nowrap;color:var(--ink)}
-.ctk-tbl tbody tr{animation:ctkRow .42s cubic-bezier(.22,.61,.36,1) both}
+/* Rows animate on TRANSFORM ONLY — never opacity. With an opacity keyframe and fill-mode:both,
+   a row inserted while this screen is hidden (the load is async, so it can finish while the user
+   is on another page) holds the 0%% frame and stays invisible FOREVER: the table renders its
+   header and nothing else. Measured: opacity still 0 after 1.2s. A transform-only entrance keeps
+   the motion and makes permanently-invisible data impossible. */
+.ctk-tbl tbody tr{animation:ctkRowIn .42s cubic-bezier(.22,.61,.36,1) both}
 .ctk-tbl tbody tr:hover td{background:var(--ctk-soft)}
 .ctk-tbl tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--brand,#0F5832)}
 .ctk-tbl td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono,ui-monospace,Consolas,monospace)}
@@ -1218,7 +1223,7 @@ html{scroll-behavior:smooth}
 /* ---- Shared entrance keyframes ---- */
 @keyframes ctkIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes ctkRise{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
-@keyframes ctkRow{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@keyframes ctkRowIn{from{transform:translateY(7px)}to{transform:none}}
 
 @media(max-width:820px){
   .ctk-title{font-size:22px}

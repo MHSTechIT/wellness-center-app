@@ -1497,6 +1497,7 @@ export function getMainContent(): string {
         <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Blood test — Thyrocare reconciliation <span style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px">one row per day · by visit date</span></span>
         <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
           <span id="accThyroSelInfo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="btn bsm bp" id="accThyroProceed" style="display:none" onclick="window._accThyroProceed()">→ Proceed to payout</button>
           <button class="btn bsm" id="accThyroClearSel" style="display:none" onclick="window._accThyroSelClear()">Clear</button>
           <button class="btn bsm" onclick="window._accThyroDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accThyroBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
@@ -1506,17 +1507,28 @@ export function getMainContent(): string {
            and the balance line reconciles the two live, so it can never drift out of sync. -->
       <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-coin"></use></svg> Payout — money sent to Thyrocare <span id="accThyroPayoutCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
-        <span id="accThyroBalance" style="font-size:12.5px;font-weight:700;white-space:nowrap"></span></div>
+        <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <span id="accThyroPayoutSelInfo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="btn bsm bp" id="accThyroMarkPaid" style="display:none" onclick="window._accThyroMarkPaid()">✓ Mark as paid</button>
+          <span id="accThyroBalance" style="font-size:12.5px;font-weight:700;white-space:nowrap"></span></span></div>
         <div class="sec-bd">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
-            <div class="fld" style="margin:0"><label class="lbl" for="thpAmt">Amount (₹) <span class="req">*</span></label><input class="input mono" id="thpAmt" type="number" min="1" placeholder="e.g. 5000" style="height:34px;width:130px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="thpDate">Paid on <span class="req">*</span></label><input class="input" id="thpDate" type="date" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="thpMethod">Method</label><select class="select" id="thpMethod" style="height:34px;width:150px"><option value="">— Select —</option><option>Bank Transfer</option><option>UPI</option><option>Cheque</option><option>Other</option></select></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="thpRef">Txn ref / notes</label><input class="input" id="thpRef" placeholder="UTR / cheque no. / notes" style="height:34px;width:220px"></div>
-            <button class="btn bp" onclick="window._accThyroPayoutSave()" style="height:34px">+ Record payout</button>
-          </div>
-          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr><th scope="col">Paid on</th><th scope="col">Amount</th><th scope="col">Method</th><th scope="col">Reference / notes</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroPayoutBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
+          <!-- No manual entry form: a payout is only ever created by Proceed on the reconciliation
+               table above, so its amount and the days it covers always come from real records
+               rather than being typed in and having to agree with them by hand. -->
+          <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col" style="width:32px"><input type="checkbox" id="accThyroPayoutSelAll" onclick="window._accThyroPayoutSelAll(this.checked)" style="accent-color:var(--brand)"></th><th scope="col">Raised on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroPayoutBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
           <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn bsm" onclick="window._accThyroPayoutDownload()">⬇ Download</button></div>
+        </div></div>
+
+      <!-- THYROCARE PAYMENTS HISTORY — the settled ledger. A payout only reaches this table once
+           Mark as paid confirms the money actually left, so everything here reads "Paid". Kept
+           separate from the queue above so "still to send" and "already sent" are never one list. -->
+      <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-doc"></use></svg> Thyrocare payments history <span id="accThyroHistCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
+        <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="accThyroHistSearch" placeholder="Search amount / day / person…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accThyroHistSearch()">
+          <button class="btn bsm" onclick="window._accThyroHistDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd">
+          <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col">Paid on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroHistBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
         </div></div>
   </div></section>
 
@@ -1690,21 +1702,24 @@ export function getMainContent(): string {
       </button>
       <span class="ctk-cmp" id="ctkCmpTag" style="display:none"></span>
       <div class="ctk-seg" id="ctkLevel">
-        <button data-l="ad" class="on" onclick="window._ctkLevel('ad',this)">By ad</button>
-        <button data-l="adset" onclick="window._ctkLevel('adset',this)">By adset</button>
         <button data-l="campaign" onclick="window._ctkLevel('campaign',this)">By campaign</button>
+        <button data-l="adset" onclick="window._ctkLevel('adset',this)">By adset</button>
+        <button data-l="ad" class="on" onclick="window._ctkLevel('ad',this)">By ad</button>
       </div>
       <input class="ctk-search" id="ctkSearch" placeholder="Search campaign / adset / ad…" oninput="window._ctkSearch()">
     </div>
 
     <div class="ctk-kpis" id="ctkKpis"></div>
 
-    <!-- Funnel: one bar per stage, width proportional to the top of the funnel. -->
+    <!-- Funnel: one card per stage. Each card's meter is its conversion FROM THE PREVIOUS STAGE,
+         not a share of the total — clicks outnumber enrolments by four orders of magnitude, so on
+         one shared scale every stage after the first is an unreadable sliver. -->
     <div class="ctk-panel">
-      <div class="ctk-ph"><span class="ctk-ph-t">Funnel</span><span class="ctk-ph-s">click → enrolment, for the current filters</span></div>
       <div class="ctk-funnel" id="ctkFunnel"></div>
     </div>
 
+    <!-- Performance — the per-creative breakdown. This is where every column asked for lives
+         (spend, delivery, funnel, conversion, cost-per); the cards above are only its summary. -->
     <div class="ctk-panel">
       <div class="ctk-ph"><span class="ctk-ph-t">Performance</span><span class="ctk-ph-s" id="ctkRowInfo"></span></div>
       <div class="ctk-tw"><table class="ctk-tbl"><thead id="ctkHead"></thead><tbody id="ctkBody"></tbody><tfoot id="ctkFoot"></tfoot></table></div>

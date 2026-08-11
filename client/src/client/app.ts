@@ -4751,28 +4751,26 @@ export function initApp(root: HTMLElement) {
       const locked=_advisorScope(); if(locked) return locked;
       const top=_asnApplied.advisor; return (top&&top!=="all") ? top : "";
     }
-    // The login email whose calls count: the named advisor's (top filter), else the viewer's own.
-    // Empty resolves to "match nothing" — never to "show everyone's".
-    function _advCallScopeEmail():string{
-      const n=_advCallScopeName();
-      if(n) return String((_assignees.find((a:any)=>String(a.name||"").trim().toLowerCase()===n.trim().toLowerCase())||{}).email||"").trim().toLowerCase();
-      return String((_currentUser&&_currentUser.email)||"").trim().toLowerCase();
-    }
     // Build the per-lead {connected,dur} map for the CURRENT scope. Recomputed on every call
     // (cheap — a few thousand rows, no DOM/network work) so it always reflects the live top-filter
     // selection without needing a re-fetch.
+    //
+    // Counts every connected call linked to a lead in the book — NOT filtered to who placed it.
+    // This used to require call_recordings.initiated_by_email to match the scoped advisor's own
+    // login (stamped server-side only when the call was placed through this app's Call button).
+    // That undercounted real activity badly: checked live, 90% of synced calls (72 of 80) carry no
+    // such attribution because staff mostly dial from their own phones via Tata directly, not the
+    // in-app button — the reported case (Deepak) showed 12 genuinely connected calls on his leads
+    // against only 2 credited to him. The scope boundary is the BOOK now — which leads are on
+    // screen already reflects the role lock / top-filter / date-service filters, same as every
+    // other card here — so any call linked to one of those leads counts, whoever dialed it. This
+    // reopens the exact false-attribution risk _advCallScopeName's own history warns about (a call
+    // on a SHARED lead crediting the wrong person), but that trade-off was chosen deliberately over
+    // the near-total undercount, per direct instruction.
     function _advCallScopedStats():Record<string,{connected:number;dur:number}>{
-      // Every call must be attributed to the scope's login (call_recordings.initiated_by_email,
-      // stamped server-side when Call is clicked). A row with NO attribution — e.g. dialed straight
-      // from the Tata line rather than through the app — counts for NOBODY's KPI. It stays visible
-      // in the lead's own Call History; it just isn't anyone's personal statistic.
-      const scopeEmail=_advCallScopeEmail();
       const m:Record<string,{connected:number;dur:number}>={};
-      if(!scopeEmail) return m;
       _advCallRows.forEach((r:any)=>{
         const k=String(r.contact_id||""); if(!k) return;
-        const who=String(r.initiated_by_email||"").trim().toLowerCase();
-        if(who!==scopeEmail) return;
         const o=(m[k]=m[k]||{connected:0,dur:0});
         const secs=Number(r.duration_seconds)||0;
         // "Connected" = the provider's normalised `answered` state, OR any call with real talk
@@ -5178,10 +5176,12 @@ export function initApp(root: HTMLElement) {
         // "Advisor" dropdown to one name (that advisor's calls, not the viewer's). A call logged
         // before this fix, or made by someone else on a shared lead, correctly won't appear here
         // even though it still shows on the lead's own Call History.
+        // Wording matches the new scope: every connected call ON these leads, not just calls this
+        // person personally dialed — see _advCallScopedStats for why that changed.
         const _callScopeName=_advCallScopeName();
-        const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s calls only"):" · your calls only";
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time)'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across connected calls'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
+        const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s leads"):" · your leads";
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time), across every call linked to these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across every connected call on these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
         // (Per-service split cards were removed on request — the Service filter above still scopes
         // every card, so the per-line view is one dropdown away rather than permanent card clutter.)
         kpiEl.innerHTML=cards.join("");
@@ -14262,7 +14262,12 @@ export function initApp(root: HTMLElement) {
         d.billed+=billed; d.collected+=pay.paid; d.cost+=cost; d.refund+=pay.refund;
         if(labReceived) d.paidThyro+=cost;
       });
-      return Object.values(byDay).sort((a:any,b:any)=>String(b.key).localeCompare(String(a.key)));
+      // Days already sent to payout leave this table — reconciliation is the OPEN list, the work
+      // still to be settled. Their history is not lost: the payout ledger below names every day it
+      // covers, and deleting that payout puts its days straight back here.
+      const done=_accThyroSettled();
+      return Object.values(byDay).filter((r:any)=>!done.has(String(r.key)))
+        .sort((a:any,b:any)=>String(b.key).localeCompare(String(a.key)));
     }
     function renderAccThyro(){
       const el=root.querySelector("#accThyroBody")as HTMLElement|null; if(!el) return;
@@ -14275,15 +14280,27 @@ export function initApp(root: HTMLElement) {
         {total:0,visited:0,sample:0,billed:0,collected:0,cost:0,paidThyro:0,refund:0});
       // Shared with the table's TOTAL footer row below — one number, never two that could drift.
       const tMargin=tot.billed-tot.cost;
+      // "Paid to Thyrocare" is money that has ACTUALLY LEFT — the sum of settled payouts in the
+      // ledger below, all-time. It used to show tot.paidThyro, which is the cost of records whose
+      // lab report has come back: a liability we have recognised, not a rupee sent. The two are
+      // different numbers and the card was reporting the wrong one under the right name.
+      const _po=_accThyroPayouts||[];
+      const _isPaidPo=(p:any)=>String(p.status||"paid")==="paid";
+      const sentTotal=_po.filter(_isPaidPo).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      const raisedPending=_po.filter((p:any)=>!_isPaidPo(p)).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
       const cardsEl=root.querySelector("#accThyroCards")as HTMLElement|null;
       if(cardsEl){
         const card=(l:string,v:string,c:string,sub?:string)=>'<div class="metric'+(c?" "+c:"")+'"><div class="ml">'+l+'</div><div class="mv">'+v+'</div>'
           +(sub?'<div class="mt" style="color:var(--muted)">'+sub+'</div>':'')+'</div>';
+        // The first three describe the OPEN days in the table below, so cards and table always
+        // agree; the fourth describes the ledger, which is all-time by nature.
+        const sub=raisedPending?money(raisedPending)+" awaiting payment"
+          :(tot.cost>0?money(tot.cost)+" still to send":"settled");
         cardsEl.innerHTML=
-          card("Total billed",money(tot.billed),"",tot.total+" record"+(tot.total===1?"":"s"))
-          +card("Thyrocare cost",money(tot.cost),"r")
+          card("Total billed",money(tot.billed),"",tot.total+" open record"+(tot.total===1?"":"s"))
+          +card("Thyrocare cost",money(tot.cost),"r","on open days")
           +card("Our margin",money(tMargin),tMargin<0?"r":"g")
-          +card("Paid to Thyrocare",money(tot.paidThyro),"",tot.cost>tot.paidThyro?"pending "+money(tot.cost-tot.paidThyro):"settled");
+          +card("Paid to Thyrocare",money(sentTotal),sentTotal?"g":"",sub);
       }
       // Rendered here, BEFORE the empty-rows return below, so the payout ledger and its balance
       // still show even on a day with nothing to reconcile yet — a payout can be recorded (an
@@ -14294,6 +14311,10 @@ export function initApp(root: HTMLElement) {
       // can never contribute to the selected total.
       const live=new Set(rows.map((r:any)=>String(r.key)));
       Array.from(_accThyroSel).forEach(k=>{ if(!live.has(k)) _accThyroSel.delete(k); });
+      // A day already covered by a payout can never be selected again — this is what stops the same
+      // day being sent to the lab for payment twice.
+      const settled=_accThyroSettled();
+      Array.from(_accThyroSel).forEach(k=>{ if(settled.has(k)) _accThyroSel.delete(k); });
       const sel=rows.filter((r:any)=>_accThyroSel.has(String(r.key)));
       // The footer follows the selection: pick three days and it totals those three. With nothing
       // ticked it totals everything, exactly as before.
@@ -14302,10 +14323,12 @@ export function initApp(root: HTMLElement) {
         {total:0,visited:0,sample:0,billed:0,collected:0,cost:0,paidThyro:0,refund:0}):tot;
       const fMargin=F.billed-F.cost;
       const num='class="mono" style="text-align:right;white-space:nowrap"';
-      const allOn=rows.length>0&&sel.length===rows.length;
-      let h='<div class="tscroll"><table class="tbl" style="min-width:1230px"><thead><tr>'
+      const openRows=rows;   // _accThyroRows() already excludes days sent to payout
+      const allOn=openRows.length>0&&sel.length===openRows.length;
+      let h='<div class="tscroll"><table class="tbl" style="min-width:1260px"><thead><tr>'
         +'<th scope="col" style="width:32px"><input type="checkbox" id="accThyroSelAll"'+(allOn?" checked":"")
-        +' onclick="window._accThyroSelAll(this.checked)" title="Select every day" style="accent-color:var(--brand)"></th>'
+        +(openRows.length?"":" disabled")
+        +' onclick="window._accThyroSelAll(this.checked)" title="Select every unsettled day" style="accent-color:var(--brand)"></th>'
         +'<th scope="col">Date &amp; time</th><th scope="col" style="text-align:right">Total</th>'
         +'<th scope="col" style="text-align:right">Visited</th><th scope="col" style="text-align:right">Sample collected</th>'
         +'<th scope="col" style="text-align:right">Total billed</th><th scope="col" style="text-align:right">Overall blood test</th>'
@@ -14339,10 +14362,55 @@ export function initApp(root: HTMLElement) {
         +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.refund)+'</td></tr></tfoot></table></div>';
       el.innerHTML=h;
       const info=root.querySelector("#accThyroSelInfo");
-      if(info) info.textContent=sel.length?(sel.length+" of "+rows.length+" day"+(rows.length===1?"":"s")+" selected · "+money(F.cost)+" owed"):"";
+      if(info) info.textContent=sel.length
+        ?(sel.length+" of "+openRows.length+" open day"+(openRows.length===1?"":"s")+" selected · "+money(F.cost)+" to pay")
+        :(settled.size?(settled.size+" day"+(settled.size===1?"":"s")+" moved to payout"):"");
       const clr=root.querySelector("#accThyroClearSel") as HTMLElement|null;
       if(clr) clr.style.display=sel.length?"":"none";
+      const prc=root.querySelector("#accThyroProceed") as HTMLElement|null;
+      if(prc) prc.style.display=sel.length?"":"none";
     }
+    // Every day already covered by a payout, read from the ledger itself rather than a second
+    // status column — the payout row IS the record that a day was settled, so the two cannot drift.
+    function _accThyroSettled(){
+      const out=new Set<string>();
+      (_accThyroPayouts||[]).forEach((p:any)=>String(p.covers_days||"").split(",").forEach(k=>{ const t=k.trim(); if(t) out.add(t); }));
+      return out;
+    }
+    // PROCEED — turn the selected reconciliation days into one payout entry.
+    w._accThyroProceed=async()=>{
+      const settled=_accThyroSettled();
+      const rows=_accThyroRows().filter((r:any)=>_accThyroSel.has(String(r.key))&&!settled.has(String(r.key)));
+      if(!rows.length){ toast("Select one or more unsettled days first"); return; }
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      // The payout is what we OWE the lab for those days — the Thyrocare cost, not what we billed
+      // the client. Billing is our revenue; cost is the lab's.
+      const total=Math.round(rows.reduce((s:number,r:any)=>s+(Number(r.cost)||0),0));
+      if(!(total>0)){ toastErr("Those days carry no Thyrocare cost — nothing to pay out"); return; }
+      const days=rows.map((r:any)=>String(r.key)).sort();
+      const list=rows.map((r:any)=>r.date+" — "+money(r.cost)).join("<br>");
+      csvConfirm("<b>"+rows.length+" day"+(rows.length===1?"":"s")+" → payout</b><br><br>"+list
+        +"<br><br><b>Total "+money(total)+"</b><br><br>This records the payout and locks those days so they cannot be sent twice.",
+        async()=>{
+        const createdBy=(_currentUser&&(_currentUser.name||_currentUser.email))||"Accounts";
+        // Raised, not sent: status starts pending so the balance keeps showing the money as owed
+        // until someone confirms it actually reached Thyrocare via Mark as paid.
+        const row:any={amount:total,paid_at:new Date().toISOString().slice(0,10),method:"reconciliation",
+          txn_ref:null,notes:"From reconciliation · "+rows.length+" day"+(rows.length===1?"":"s"),
+          covers_days:days.join(","),status:"pending",created_by:createdBy};
+        const {data,error}=await supabase.from("thyrocare_payouts").insert(row).select().single();
+        if(error){
+          toastErr(/covers_days|column/i.test(error.message||"")
+            ? "Restart the server first — the payout table needs its covers_days column (self-applying schema)"
+            : "Proceed failed: "+(error.message||"error"));
+          return;
+        }
+        _accThyroPayouts=[(data||{...row,id:Date.now(),created_at:new Date().toISOString()}),..._accThyroPayouts];
+        _accThyroSel.clear();
+        renderAccThyro();
+        toast(rows.length+" day"+(rows.length===1?"":"s")+" moved to payout · "+money(total));
+      },"Proceed");
+    };
     // Selection is keyed by DAY (the row's own key), not by index — sorting or a reload must not
     // move a tick from one date to another.
     const _accThyroSel=new Set<string>();
@@ -14353,7 +14421,8 @@ export function initApp(root: HTMLElement) {
     };
     w._accThyroSelAll=(checked:boolean)=>{
       _accThyroSel.clear();
-      if(checked) _accThyroRows().forEach((r:any)=>_accThyroSel.add(String(r.key)));
+      if(checked){ const done=_accThyroSettled();
+        _accThyroRows().forEach((r:any)=>{ if(!done.has(String(r.key))) _accThyroSel.add(String(r.key)); }); }
       renderAccThyro();
     };
     w._accThyroSelClear=()=>{ _accThyroSel.clear(); renderAccThyro(); };
@@ -14380,51 +14449,133 @@ export function initApp(root: HTMLElement) {
       const cnt=root.querySelector("#accThyroPayoutCount")as HTMLElement|null;
       const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
       const rows=_accThyroPayouts||[];
-      const paidOut=rows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
-      const balance=Math.round(liability-paidOut);
-      if(cnt) cnt.textContent=rows.length?rows.length+" payout"+(rows.length===1?"":"s"):"";
+      // Only money that has ACTUALLY been sent reduces what we owe. A raised-but-unpaid payout is
+      // an intention, and counting it would report the lab as settled while nothing had left.
+      const isPaid=(p:any)=>String(p.status||"paid")==="paid";
+      const paidOut=rows.filter(isPaid).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      const pendingOut=rows.filter((p:any)=>!isPaid(p)).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      // `liability` is now the recognised cost of the OPEN days only (settled days have left the
+      // reconciliation table with their payout). So what is still owed is those open days PLUS any
+      // payout already raised but not yet sent — subtracting all-time payments here would double
+      // count them and drive the balance negative.
+      const balance=Math.round(liability+pendingOut);
+      if(cnt) cnt.textContent=rows.length
+        ?(rows.length+" payout"+(rows.length===1?"":"s")+(pendingOut?" · "+money(pendingOut)+" awaiting payment":""))
+        :"";
       if(bal){
         if(balance>0){ bal.textContent="Owed to Thyrocare: "+money(balance); bal.style.color="var(--alert-ink)"; }
         else if(balance<0){ bal.textContent="Overpaid by "+money(-balance); bal.style.color="var(--warn-ink)"; }
         else { bal.textContent="Settled"; bal.style.color="var(--ok-ink)"; }
       }
       if(!body) return;
-      if(!rows.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">No payouts recorded yet.</td></tr>'; return; }
-      body.innerHTML=rows.map((p:any)=>{
+      // Selections for rows that vanished (deleted, reloaded) must not linger in the total.
+      const liveIds=new Set(rows.map((p:any)=>String(p.id)));
+      Array.from(_accThyroPayoutSel).forEach(id=>{ if(!liveIds.has(id)) _accThyroPayoutSel.delete(id); });
+      const selRows=rows.filter((p:any)=>_accThyroPayoutSel.has(String(p.id))&&!isPaid(p));
+      const openRows=rows.filter((p:any)=>!isPaid(p));
+      const selInfo=root.querySelector("#accThyroPayoutSelInfo");
+      if(selInfo) selInfo.textContent=selRows.length
+        ?(selRows.length+" selected · "+money(selRows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0)))
+        :"";
+      const mp=root.querySelector("#accThyroMarkPaid") as HTMLElement|null;
+      if(mp) mp.style.display=selRows.length?"":"none";
+      const sa=root.querySelector("#accThyroPayoutSelAll") as HTMLInputElement|null;
+      if(sa){ sa.checked=openRows.length>0&&selRows.length===openRows.length; sa.disabled=!openRows.length; }
+      // Settled payouts live in their own history table below — see renderAccThyroHistory. This
+      // queue only ever shows what is still to be sent, so "outstanding" is never mixed with "done".
+      try{ renderAccThyroHistory(rows.filter(isPaid)); }catch(_){}
+      const queue=rows.filter((p:any)=>!isPaid(p));
+      if(!queue.length){ body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">Nothing awaiting payment — select days in the reconciliation table above and press Proceed.</td></tr>'; return; }
+      body.innerHTML=queue.map((p:any)=>{
         const d=String(p.paid_at||"").slice(0,10);
-        return '<tr><td class="mono" style="white-space:nowrap">'+_btE(d?_recFmtDate(d):"—")+'</td>'
+        const on=_accThyroPayoutSel.has(String(p.id));
+        const covTxt=_accThyroCovers(p);
+        return '<tr'+(on?' style="background:rgba(15,88,50,.05)"':'')+'>'
+          +'<td><input type="checkbox" class="accThyroPoChk" data-id="'+_btE(String(p.id))+'"'+(on?" checked":"")
+          +' onchange="window._accThyroPayoutSelRow(this)" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="white-space:nowrap">'+_btE(d?_recFmtDate(d):"—")+'</td>'
           +'<td class="mono" style="font-weight:700">'+money(p.amount)+'</td>'
-          +'<td>'+_btE(p.method||"—")+'</td>'
-          +'<td style="max-width:260px;white-space:normal">'+_btE(p.txn_ref||p.notes||"—")+'</td>'
+          +'<td style="max-width:300px;white-space:normal">'+_btE(covTxt||p.txn_ref||p.notes||"—")+'</td>'
+          +'<td><span class="chipb warn">Not paid yet</span></td>'
           +'<td>'+_btE(p.created_by||"—")+'</td>'
           +'<td><button class="btn bsm" onclick="window._accThyroPayoutDelete(\''+_btE(String(p.id))+'\')">Delete</button></td></tr>';
       }).join("");
     }
-    w._accThyroPayoutSave=async()=>{
-      const amtEl=root.querySelector("#thpAmt")as HTMLInputElement|null;
-      const dateEl=root.querySelector("#thpDate")as HTMLInputElement|null;
-      const methodEl=root.querySelector("#thpMethod")as HTMLSelectElement|null;
-      const refEl=root.querySelector("#thpRef")as HTMLInputElement|null;
-      const amount=Math.round(Number(amtEl?.value)||0);
-      const paidAt=(dateEl?.value||"").trim();
-      if(!(amount>0)){ toastErr("Enter a valid payout amount"); amtEl?.focus(); return; }
-      if(!paidAt){ toastErr("Select the date this was paid"); dateEl?.focus(); return; }
-      // A payout is a record of money already sent — a future date can only be a typo, not a plan.
-      const today=new Date(); today.setHours(23,59,59,999);
-      if(new Date(paidAt+"T12:00:00")>today){ toastErr("Payout date can't be in the future"); dateEl?.focus(); return; }
-      const createdBy=(_currentUser&&(_currentUser.name||_currentUser.email))||"Accounts";
-      const row={amount,paid_at:paidAt,method:methodEl?.value||null,txn_ref:(refEl?.value||"").trim()||null,created_by:createdBy};
-      const {data,error}=await supabase.from("thyrocare_payouts").insert(row).select().single();
-      if(error){
-        toastErr(/relation|does not exist|schema/i.test(error.message||"")
-          ? "Can't save yet — the server needs a restart to create the payout table (self-applying schema)"
-          : "Save failed: "+(error.message||"error"));
-        return;
-      }
-      _accThyroPayouts=[(data||{...row,id:Date.now(),created_at:new Date().toISOString()}),..._accThyroPayouts];
-      if(amtEl) amtEl.value=""; if(dateEl) dateEl.value=""; if(methodEl) methodEl.value=""; if(refEl) refEl.value="";
-      toast("Payout recorded");
+    // Shared by the payout queue and the history table so both name a payout's days identically.
+    const _accThyroCovers=(p:any)=>{
+      const cov=String(p.covers_days||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      return cov.length?(cov.length+" day"+(cov.length===1?"":"s")+": "+cov.map((k:string)=>_recFmtDate(k)).join(", ")):"";
+    };
+    let _accThyroHistQ="";
+    w._accThyroHistSearch=()=>_accTblSearch("accThyroHistSearch",v=>{ _accThyroHistQ=v; renderAccThyro(); });
+    // Settled payouts — the money that has actually reached Thyrocare, newest first. Delete stays
+    // available because deleting a payout is also what releases its days back to reconciliation;
+    // without it a mistaken payout would strand those days forever.
+    function renderAccThyroHistory(paidRows:any[]){
+      const body=root.querySelector("#accThyroHistBody")as HTMLElement|null;
+      const cnt=root.querySelector("#accThyroHistCount");
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      const q=_accThyroHistQ;
+      const rows=(paidRows||[])
+        .filter((p:any)=>!q||((money(p.amount)+" "+_accThyroCovers(p)+" "+(p.created_by||"")+" "+(p.notes||"")).toLowerCase().indexOf(q)>=0))
+        .sort((a:any,b:any)=>new Date(b.settled_at||b.paid_at||0).getTime()-new Date(a.settled_at||a.paid_at||0).getTime());
+      const total=rows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      if(cnt) cnt.textContent=rows.length?(rows.length+" payment"+(rows.length===1?"":"s")+" · "+money(total)+" sent"):"";
+      if(!body) return;
+      if(!rows.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">'
+        +(q?"No payment matches that search.":"No payments sent to Thyrocare yet.")+'</td></tr>'; return; }
+      body.innerHTML=rows.map((p:any)=>{
+        const when=p.settled_at?fmtIST(p.settled_at):(p.paid_at?_recFmtDate(String(p.paid_at).slice(0,10)):"—");
+        return '<tr><td class="mono" style="white-space:nowrap">'+_btE(when)+'</td>'
+          +'<td class="mono" style="font-weight:700">'+money(p.amount)+'</td>'
+          +'<td style="max-width:320px;white-space:normal">'+_btE(_accThyroCovers(p)||p.notes||"—")+'</td>'
+          +'<td><span class="chipb ok">Paid</span></td>'
+          +'<td>'+_btE(p.created_by||"—")+'</td>'
+          +'<td><button class="btn bsm" onclick="window._accThyroPayoutDelete(\''+_btE(String(p.id))+'\')">Delete</button></td></tr>';
+      }).join("");
+    }
+    w._accThyroHistDownload=()=>{
+      const rows=(_accThyroPayouts||[]).filter((p:any)=>String(p.status||"paid")==="paid");
+      if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Paid on","Amount","Covers","Status","Recorded by"]];
+      rows.forEach((p:any)=>out.push([p.settled_at?fmtIST(p.settled_at):String(p.paid_at||""),
+        String(Math.round(Number(p.amount)||0)),_accThyroCovers(p),"Paid",p.created_by||""]));
+      _downloadCsv("thyrocare_payments_history.csv",out);
+      toast("Exported "+rows.length+" payment"+(rows.length===1?"":"s"));
+    };
+    // Payout selection + settlement. There is no manual entry any more: Proceed on the
+    // reconciliation table is the only way a payout is created, so its amount and the days it
+    // covers always come from real records instead of being typed and hoped to match.
+    const _accThyroPayoutSel=new Set<string>();
+    w._accThyroPayoutSelRow=(elx:HTMLInputElement)=>{
+      const id=elx.getAttribute("data-id")||"";
+      if(elx.checked) _accThyroPayoutSel.add(id); else _accThyroPayoutSel.delete(id);
       renderAccThyro();
+    };
+    w._accThyroPayoutSelAll=(checked:boolean)=>{
+      _accThyroPayoutSel.clear();
+      // Only unpaid rows — an already-paid payout has nothing left to settle.
+      if(checked)(_accThyroPayouts||[]).forEach((p:any)=>{ if(String(p.status||"paid")!=="paid") _accThyroPayoutSel.add(String(p.id)); });
+      renderAccThyro();
+    };
+    w._accThyroMarkPaid=async()=>{
+      const rows=(_accThyroPayouts||[]).filter((p:any)=>_accThyroPayoutSel.has(String(p.id))&&String(p.status||"paid")!=="paid");
+      if(!rows.length){ toast("Tick the payouts you have actually sent"); return; }
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      const total=rows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      csvConfirm("Mark "+rows.length+" payout"+(rows.length===1?"":"s")+" totalling <b>"+money(total)
+        +"</b> as PAID?<br><br>Do this only once the money has actually reached Thyrocare — it is what clears the balance owed.",
+        async()=>{
+        let ok=0;
+        for(const p of rows){
+          if(await _dbOk(supabase.from("thyrocare_payouts").update({status:"paid",settled_at:new Date().toISOString()}).eq("id",p.id),"Mark payout paid")){
+            p.status="paid"; p.settled_at=new Date().toISOString(); ok++;
+          }
+        }
+        _accThyroPayoutSel.clear();
+        renderAccThyro();
+        toast(ok+" of "+rows.length+" payout"+(rows.length===1?"":"s")+" marked paid ✓");
+      },"Mark as paid");
     };
     w._accThyroPayoutDelete=async(id:string)=>{
       if(!window.confirm("Delete this payout record? This cannot be undone.")) return;

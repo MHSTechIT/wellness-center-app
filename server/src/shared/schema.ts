@@ -44,6 +44,24 @@ const STEPS: Step[] = [
     sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS adset_name TEXT`,
   },
   {
+    // Which reconciliation DAYS a Thyrocare payout settles, as a comma-separated list of YYYY-MM-DD
+    // keys. Without it a payout is just an amount, and nothing stops the same day being sent for
+    // payment twice — the ledger would still balance on totals while double-paying the lab.
+    name: 'thyrocare_payouts.covers_days',
+    sql: `ALTER TABLE thyrocare_payouts ADD COLUMN IF NOT EXISTS covers_days TEXT`,
+  },
+  {
+    // A payout is now RAISED first (from reconciliation) and paid later, so it needs a state.
+    // NULL means "paid" — rows created by the old manual form recorded money already sent, and
+    // silently re-opening them would make the balance claim we still owe money we have paid.
+    name: 'thyrocare_payouts.status',
+    sql: `ALTER TABLE thyrocare_payouts ADD COLUMN IF NOT EXISTS status TEXT`,
+  },
+  {
+    name: 'thyrocare_payouts.settled_at',
+    sql: `ALTER TABLE thyrocare_payouts ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ`,
+  },
+  {
     // When a refund's money actually left. refund_processed_at records the CONFIRMATION;
     // this records the PAYOUT, so Accounts can tell "approved" from "actually sent".
     name: 'payments.refund_paid_at',
