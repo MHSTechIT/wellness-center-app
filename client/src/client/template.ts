@@ -1204,11 +1204,10 @@ export function getMainContent(): string {
       <button class="btn bsm bp" id="btApplyBtn" style="display:none;height:30px" onclick="window._btApplyDate()">Apply</button>
       <button class="btn" style="margin-left:auto" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
-    <div style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap" id="btRevCards">
-      <div style="background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;border-radius:11px;padding:8px 14px;display:flex;gap:14px;align-items:center"><div><div style="font-size:9px;opacity:.7;font-weight:600">TOTAL BILLED</div><div style="font-family:var(--disp);font-size:18px;font-weight:700" id="btTotalBilled">₹0</div><div style="font-size:10px;opacity:.85;font-weight:600" id="btCollected"></div></div></div>
-      <div style="background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 14px;display:flex;gap:16px"><div><div style="font-size:9px;color:var(--faint);font-weight:600">THYROCARE COST</div><div class="mono" style="font-weight:700;color:var(--alert-ink)" id="btThyroCost">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">OUR MARGIN</div><div class="mono" style="font-weight:700;color:var(--ok-ink)" id="btMargin">₹0</div></div><div><div style="font-size:9px;color:var(--faint);font-weight:600">PAID TO THYROCARE</div><div class="mono" style="font-weight:700" id="btPaidThyro">₹0</div></div></div>
-    </div>
-    <div class="metrics" style="margin:6px 0" id="btMetrics"></div>
+    <!-- Total billed / Thyrocare cost / our margin / paid-to-Thyrocare moved to Accounts & finance
+         → "Blood test — Thyrocare" tab, where they're broken down per day instead of one running
+         total. This page keeps the operational status cards (Total/Visited/Sample collected/…). -->
+    <div class="metrics" style="margin:10px 0 6px" id="btMetrics"></div>
 
     <!-- ===== Stage 1 — Reception: intake → tests → coupon → contact → payment → order → sample.
          Collapsed until "New walk-in" is clicked so the worklist stays the default view. ===== -->
@@ -1473,6 +1472,9 @@ export function getMainContent(): string {
     <!-- Blood test — Thyrocare: day-by-day reconciliation with the lab partner. Counts and money use
          the SAME definitions as the Blood Test page's own cards, so the two screens always agree. -->
     <div class="acc-p" data-p="thyro" style="display:none">
+      <!-- Totals across every row in the reconciliation table below (same figures as its TOTAL
+           footer row, surfaced as cards so they're scannable without scrolling the table). -->
+      <div class="metrics" id="accThyroCards" style="margin-bottom:12px"></div>
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-drop"></use></svg> Blood test — Thyrocare reconciliation <span style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px">one row per day · by visit date</span></span>
         <button class="btn bsm" onclick="window._accThyroDownload()">⬇ Download</button></div>

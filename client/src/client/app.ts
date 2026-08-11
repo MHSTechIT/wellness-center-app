@@ -7057,7 +7057,7 @@ export function initApp(root: HTMLElement) {
           physioDue:(_physioDone&&payStatus!=="paid")?(Number((a.physio_data||{}).pack_price)||_phpPerSession()):0,
           // Course position + next appointment, straight off the appointment's physio_data — the same
           // two fields the Physiotherapy page shows, so Reception and that page can never disagree.
-          phDone:Number((a.physio_data||{}).sessions_completed)||0,
+          phDone:_phDoneOf(a.physio_data||{}),
           phPlanned:Number((a.physio_data||{}).sessions_planned)||0,
           phNext:(a.physio_data||{}).next_session||"",
           physioConsultDone:_physioDone,
@@ -8867,6 +8867,11 @@ export function initApp(root: HTMLElement) {
         +'<td class="mono">'+_esc(r.ph||"—")+'</td>'
         +'<td class="ci-email">'+_esc(r.email||"—")+'</td>'
         +'<td>'+_ciSvcDropdown(r)+'</td>'
+        // Course position and next appointment, straight off the same helpers the Appointments table
+        // and the Physiotherapy page use, so all three read identically. Physiotherapy only — the
+        // pair is meaningless for the other service lines, which is how the table above treats them.
+        +'<td class="mono">'+_esc(_recPhProgress(r))+'</td>'
+        +'<td class="mono">'+_esc(_recPhNext(r))+'</td>'
         +'<td class="mono ci-dt">'+_esc(dt)+'</td>'
         +'<td><span class="chipb '+cs.c+'">'+cs.l+'</span></td></tr>';
     }
@@ -8909,8 +8914,11 @@ export function initApp(root: HTMLElement) {
         const r:any=await supabase.from("appointments").select("physio_data").eq("id",m.id).limit(1);
         if(r&&r.error) return;
         const pd:any=(r&&r.data&&r.data[0]&&r.data[0].physio_data)||{};
-        const planned=Number(pd.sessions_planned)||0, done=Number(pd.sessions_completed)||0;
+        const planned=Number(pd.sessions_planned)||0, done=_phDoneOf(pd);
         if(!planned&&!done) return;   // no treatment plan yet — nothing to advance
+        // Write the reconciled figure back, so a counter that fell behind its own visit log is
+        // repaired on disk instead of being re-derived on every read.
+        if(done>(Number(pd.sessions_completed)||0)) pd.sessions_completed=done;
         if(pd._completed){ pd._completed=false; }
         else{
           const n=done+1;
@@ -8922,7 +8930,7 @@ export function initApp(root: HTMLElement) {
         }
         pd.started=true;
         if(await _dbOk(supabase.from("appointments").update({physio_data:pd}).eq("id",m.id),"Session progress")){
-          toast("Session progress → "+_phProgressText(pd.sessions_completed,planned));
+          toast("Session progress → "+_phProgressText(_phDoneOf(pd),planned));
         }
       }catch(_){/* progress is a convenience — never block the check-in itself */}
     }
@@ -8931,10 +8939,16 @@ export function initApp(root: HTMLElement) {
       if(_ciMatch){ const fresh=_recAll.find((x:any)=>String(x.id)===String(_ciMatch.id)); if(fresh) _ciMatch=fresh; }   // re-point selection at the freshly-loaded row
       const q=((root.querySelector("#ciSearch")as HTMLInputElement)?.value||"").trim();
       const list=_ciVisibleRows(q);
+      // Progress + Next session are ALWAYS present here, unlike the Appointments table above which
+      // hides them outside the Physiotherapy view. Check-in is where a physio patient is found while
+      // the service pill still reads "All", so gating them there hid exactly the case they are for.
+      // Non-physio rows simply read "—".
       const body=list.length?list.map(_ciRowHtml).join("")
-        :(q?'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No matching appointment.</td></tr>'
-           :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No appointments yet.</td></tr>');
-      box.innerHTML='<div class="tscroll"><table class="tbl" style="min-width:620px"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Selected Service</th><th>Appointment Date &amp; Time</th><th>Appointment Status</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+        :(q?'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:14px;font-size:12px">No matching appointment.</td></tr>'
+           :'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:16px;font-size:12px">No appointments yet.</td></tr>');
+      box.innerHTML='<div class="tscroll"><table class="tbl" style="min-width:780px"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Selected Service</th>'
+        +'<th>Progress</th><th>Next session</th>'
+        +'<th>Appointment Date &amp; Time</th><th>Appointment Status</th></tr></thead><tbody>'+body+'</tbody></table></div>';
       // When searching, keep a valid Check-in target: auto-select the top match if the current one is off-list.
       if(q){ const selShown=_ciMatch&&list.some((r:any)=>String(r.id)===String(_ciMatch.id)); if(!selShown) _ciMatch=list[0]||null; }
       const nameEl=root.querySelector("#ciName"); if(nameEl) nameEl.textContent=_ciMatch?_ciMatch.name:(q?"No match":"—");
@@ -12749,19 +12763,11 @@ export function initApp(root: HTMLElement) {
     };
     function _btRenderAll(){
       const f=_btFiltered;
-      // TOTAL BILLED = the amount billed per record: the stored our_price when present, otherwise the
-      // actual payment collected — so paid records show revenue even if pricing wasn't stamped on them.
-      const totalBilled=f.reduce((s:number,r:any)=>s+Math.max(0,r.ourPrice||r.payAmt||0),0);
-      // What has actually come in, against what was billed — a record can be billed and still unpaid
-      // (its payment row sits at "due"), which the billed figure alone never showed.
-      const totalCollected=f.reduce((s:number,r:any)=>s+(r.payStatus==="paid"?Math.max(0,Number(r.payAmt)||0):0),0);
-      const totalCost=f.reduce((s:number,r:any)=>s+Math.max(0,r.thyroCost),0);
+      // Total billed / Thyrocare cost / our margin / paid-to-Thyrocare used to be rendered here as a
+      // running total for the date filter — moved to Accounts & finance → "Blood test — Thyrocare",
+      // which shows the same money broken down per day (renderAccThyro / _accThyroRows) instead of
+      // one lump figure, from the SAME definitions so the two screens can never disagree.
       const el=(id:string)=>root.querySelector("#"+id);
-      if(el("btTotalBilled")) (el("btTotalBilled") as HTMLElement).textContent="₹"+totalBilled.toLocaleString("en-IN");
-      if(el("btCollected")) (el("btCollected") as HTMLElement).textContent="₹"+totalCollected.toLocaleString("en-IN")+" collected"+(totalBilled>totalCollected?" · ₹"+(totalBilled-totalCollected).toLocaleString("en-IN")+" due":"");
-      if(el("btThyroCost")) (el("btThyroCost") as HTMLElement).textContent="₹"+totalCost.toLocaleString("en-IN");
-      if(el("btMargin")) (el("btMargin") as HTMLElement).textContent="₹"+(totalBilled-totalCost).toLocaleString("en-IN");
-      if(el("btPaidThyro")) (el("btPaidThyro") as HTMLElement).textContent="₹"+f.filter((r:any)=>r.labReportStatus==="received").reduce((s:number,r:any)=>s+r.thyroCost,0).toLocaleString("en-IN");
       // Clickable summary cards — counts are period totals (from the date-filtered set); clicking a
       // card filters the table below to that card's records. The active card is highlighted.
       const me=el("btMetrics"); if(me)(me as HTMLElement).innerHTML=_btCardDefs.map(m=>{
@@ -13172,6 +13178,18 @@ export function initApp(root: HTMLElement) {
       const d=Math.max(0,Number(done)||0), p=Math.max(0,Number(planned)||0);
       return p?Math.min(d+1,p):d+1;
     }
+    // Sessions actually completed, reconciled across the TWO places physio_data records them.
+    // sessions_completed is the counter; visits[] is the log the physiotherapist appends to when a
+    // session is marked complete — and the two drift: K. Anu held sessions_completed = 0 while
+    // visits already carried {n:1,"Completed"}. Progress then read 0 (showing session 1 of 6 forever)
+    // and, worse, the re-check-in guard saw visit n=1 already logged and refused to advance, so the
+    // count could never move again. Taking the higher of the two makes a logged session count even
+    // when the counter was not bumped with it.
+    function _phDoneOf(pd:any):number{
+      const c=Number(pd&&pd.sessions_completed)||0;
+      const logged=((pd&&pd.visits)||[]).reduce((m:number,v:any)=>Math.max(m,Number(v&&v.n)||0),0);
+      return Math.max(c,logged);
+    }
     function _phProgressText(done:any,planned:any):string{
       const p=Math.max(0,Number(planned)||0);
       return p?(_phCurrentSession(done,planned)+" / "+p):String(_phCurrentSession(done,planned));
@@ -13308,7 +13326,7 @@ export function initApp(root: HTMLElement) {
           const pay=pays[String(a.id)]; const pd=a.physio_data||{};
           const info=_phLeadInfo[String(a.lead_id)]||{}; const adv=info.physio||{};
           const consult=_phConsult(a,pd);
-          const planned=Number(pd.sessions_planned)||0, done=Number(pd.sessions_completed)||0;
+          const planned=Number(pd.sessions_planned)||0, done=_phDoneOf(pd);
           // Dates on this page are the VISIT (check-in), not the booked/lead date — see _visitStamp.
           const vs=_visitStamp(a);
           return { id:a.id, lead_id:a.lead_id, name:a.client_name||info.name||"Client", ph:a.phone||info.phone||"", _date:vs.key, date:vs.date, time:vs.time,
@@ -13742,10 +13760,24 @@ export function initApp(root: HTMLElement) {
       const el=root.querySelector("#accThyroBody")as HTMLElement|null; if(!el) return;
       const rows=_accThyroRows();
       const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
-      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px">No blood test records yet.</div>'; return; }
+      // Computed unconditionally (reduce's initial value covers the empty-rows case) so the cards
+      // above the table read ₹0 rather than being left blank when there's nothing to reconcile yet.
       const tot=rows.reduce((s:any,r:any)=>({total:s.total+r.total,visited:s.visited+r.visited,sample:s.sample+r.sample,
         billed:s.billed+r.billed,collected:s.collected+r.collected,cost:s.cost+r.cost,paidThyro:s.paidThyro+r.paidThyro,refund:s.refund+r.refund}),
         {total:0,visited:0,sample:0,billed:0,collected:0,cost:0,paidThyro:0,refund:0});
+      // Shared with the table's TOTAL footer row below — one number, never two that could drift.
+      const tMargin=tot.billed-tot.cost;
+      const cardsEl=root.querySelector("#accThyroCards")as HTMLElement|null;
+      if(cardsEl){
+        const card=(l:string,v:string,c:string,sub?:string)=>'<div class="metric'+(c?" "+c:"")+'"><div class="ml">'+l+'</div><div class="mv">'+v+'</div>'
+          +(sub?'<div class="mt" style="color:var(--muted)">'+sub+'</div>':'')+'</div>';
+        cardsEl.innerHTML=
+          card("Total billed",money(tot.billed),"",tot.total+" record"+(tot.total===1?"":"s"))
+          +card("Thyrocare cost",money(tot.cost),"r")
+          +card("Our margin",money(tMargin),tMargin<0?"r":"g")
+          +card("Paid to Thyrocare",money(tot.paidThyro),"",tot.cost>tot.paidThyro?"pending "+money(tot.cost-tot.paidThyro):"settled");
+      }
+      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px">No blood test records yet.</div>'; return; }
       const num='class="mono" style="text-align:right;white-space:nowrap"';
       let h='<div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr>'
         +'<th scope="col">Date &amp; time</th><th scope="col" style="text-align:right">Total</th>'
@@ -13763,7 +13795,6 @@ export function initApp(root: HTMLElement) {
           +'<td '+num+'>'+money(r.paidThyro)+'</td>'
           +'<td class="mono" style="text-align:right;white-space:nowrap'+(r.refund>0?";color:var(--alert-ink)":"")+'">'+money(r.refund)+'</td></tr>';
       });
-      const tMargin=tot.billed-tot.cost;
       h+='</tbody><tfoot><tr style="border-top:2px solid var(--line)">'
         +'<td style="font-weight:700">TOTAL</td>'
         +'<td '+num+' style="text-align:right;font-weight:700">'+tot.total+'</td>'
@@ -14319,6 +14350,7 @@ export function initApp(root: HTMLElement) {
     let _rpcColFilters:Record<string,{op:string,val:string}>={};
     let _rpcCfdKey:string|null=null;
     let _rpcRows:any[]=[];   // last computed rows (pre search/sort) — reused by body-only re-renders
+    let _rpcLoadErr="";      // why a data set is empty, if it failed rather than genuinely being empty
 
     // Column key for a service's money pair. Slugged so a label like "HBOT (Hyperbaric Oxygen
     // Therapy)" survives as an object key, a DOM id and a sort key.
@@ -14375,8 +14407,15 @@ export function initApp(root: HTMLElement) {
       // "Total Pay" / "L2 Instalment", which is why an L1-only lead read as L2 Fully Paid. The genuine
       // per-programme figures are the L1/L2 Revenue columns, which DO split on payments.program.
       {key:"enr",label:"Enrolled",group:"PAYMENT",gcls:"g-pay"},
+      // The two programme-specific counts. L1 Enrolled = a paid row tagged L1; L2 Enrolled = a paid
+      // row tagged L2, INCLUDING a single instalment — see the rule in _rpcAgg. They overlap on
+      // purpose (a "L1 + L2" payment is both), so they do NOT sum to Enrolled.
+      {key:"enrL1",label:"L1 Enrolled",group:"PAYMENT",gcls:"g-pay"},
+      {key:"enrL2",label:"L2 Enrolled",group:"PAYMENT",gcls:"g-pay"},
       {key:"fp",label:"Full Paid",group:"PAYMENT",gcls:"g-pay"},
-      {key:"pp",label:"Part Paid",group:"PAYMENT",gcls:"g-pay"},
+      // "Part Paid" (the column that read "Total Pay") removed from the table on request. _rpcAgg
+      // still computes r.pp and the Part Paid KPI card still uses it, so restoring the column is
+      // this one line. Its card no longer filters, since a card can only filter a visible column.
       {key:"inst",label:"Instalment",group:"PAYMENT",gcls:"g-pay"},
       {key:"emi",label:"EMI",group:"PAYMENT",gcls:"g-pay"},
       {key:"alrPaid",label:"Alr. Paid",group:"PAYMENT",gcls:"g-pay"},
@@ -14420,11 +14459,11 @@ export function initApp(root: HTMLElement) {
     const RPC_PRESETS:Record<string,string[]|null>={
       all:null,
       sales:["period","leads","svc","src","fu","cb","lb","rnr","dnd","so","oos","wn","open","blank","ni","nosugar","callTot","apptD","apptZ","apptTot","conf","vis","m_l2a","m_a2v","m_l2v","m_l2c"],
-      health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","enr","fp","pp","inst","emi","payCol"],
-      roas:["period","leads","enr","fp","pp","inst","emi","rev","revCol","revOut","revL1","revL2","payCol"],
-      metric:["period","leads","apptD","apptZ","conf","vis","enr","fp","pp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
+      health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","enr","fp","inst","emi","payCol"],
+      roas:["period","leads","enr","fp","inst","emi","rev","revCol","revOut","revL1","revL2","payCol"],
+      metric:["period","leads","apptD","apptZ","conf","vis","enr","fp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
       // The FP/PP count columns this view was built around are gone; it keeps the L1/L2 REVENUE split.
-      l1l2:["period","leads","enr","fp","pp","inst","rev","revL1","revL2"],
+      l1l2:["period","leads","enr","enrL1","enrL2","fp","inst","rev","revL1","revL2"],
       audit:["period","leads","vis","enr","hafDone","recDone","fuSched","payCol"],
       // Every service side by side, billed against collected — the gap between the two pairs is that
       // service's outstanding balance.
@@ -14879,17 +14918,31 @@ export function initApp(root: HTMLElement) {
       _downloadCsv("meta_leads.csv",out); toast("Exported "+f.length+" lead"+(f.length===1?"":"s"));
     };
     async function loadReportsData(){
-      try{
-        // Leads are PAGED for the same reason the Meta page is: the table is already past 5,000, so
-        // a flat .limit(5000) was quietly dropping the oldest leads out of every report total.
-        const [lr,ar,pr,rr]=await Promise.all([
-          _pageAll((from,to)=>supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,confirmed_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false}).range(from,to)),
-          supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).limit(3000),
-          supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).limit(3000),
-          supabase.from("office_recordings").select("lead_id,created_at").limit(3000)
-        ]);
-        _rpcLeads=lr||[]; _rpcAppts=ar.data||[]; _rpcPays=pr.data||[]; _rpcRecs=rr.data||[];
-      }catch(_){ _rpcLeads=[]; _rpcAppts=[]; _rpcPays=[]; _rpcRecs=[]; }
+      // Each of the four loads is ISOLATED. They used to share one try/catch, so a single failing
+      // query zeroed the entire report — a production leads table missing `confirmed_at` blanked
+      // leads, appointments, payments AND revenue at once, which reads as "the clinic did nothing
+      // this week" rather than "a query failed". One failure must not take the other three with it.
+      _rpcLoadErr="";
+      const only=async(label:string,run:()=>any,paged:boolean)=>{
+        try{
+          const res=await run();
+          if(!paged&&res&&res.error) throw new Error(res.error.message||"query failed");
+          return paged?(res||[]):(res.data||[]);
+        }catch(e:any){
+          // Surfaced in the report subtitle — a silent [] is indistinguishable from a quiet day.
+          _rpcLoadErr=(_rpcLoadErr?_rpcLoadErr+" · ":"")+label+": "+(e?.message||"failed");
+          return [];
+        }
+      };
+      // Leads are PAGED for the same reason the Meta page is: the table is already past 5,000, so
+      // a flat .limit(5000) was quietly dropping the oldest leads out of every report total.
+      const [lr,ar,pr,rr]=await Promise.all([
+        only("leads",()=>_pageAll((from,to)=>supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,confirmed_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false}).range(from,to)),true),
+        only("appointments",()=>supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).limit(3000),false),
+        only("payments",()=>supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).limit(3000),false),
+        only("recordings",()=>supabase.from("office_recordings").select("lead_id,created_at").limit(3000),false)
+      ]);
+      _rpcLeads=lr; _rpcAppts=ar; _rpcPays=pr; _rpcRecs=rr;
       // Topbar chrome: live date + the signed-in role (design shows an access badge).
       const now=new Date(); const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       const ld=root.querySelector("#rpcLiveDate"); if(ld) ld.textContent=days[now.getDay()]+", "+now.getDate()+" "+months[now.getMonth()]+" "+now.getFullYear();
@@ -15051,7 +15104,7 @@ export function initApp(root: HTMLElement) {
     function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>, scope:{leads:any[],from:number,to:number}){
       const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,disc:0,nosugar:0,callTot:0,
         apptD:0,apptZ:0,apptTot:0,conf:0,vis:0,sugarHi:0,sugarMid:0,sugarNo:0,hafDone:0,consWJ:0,consTW:0,consNW:0,consTM:0,consQD:0,recDone:0,
-        progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revCol:0,revOut:0,revL1:0,revL2:0,avgTicket:0,
+        progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,enrL1:0,enrL2:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revCol:0,revOut:0,revL1:0,revL2:0,avgTicket:0,
         l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,fuSched:0,chen:0,oth:0};
       _svcAll().forEach((s:string)=>{ r[_rpcSvcKey(s,"bill")]=0; r[_rpcSvcKey(s,"coll")]=0; });
       const srcCnt:Record<string,number>={}, svcCnt:Record<string,number>={};
@@ -15157,6 +15210,16 @@ export function initApp(root: HTMLElement) {
         if(hasEmi) r.emi++;
         if(hasInst) r.inst++;
         if(isFp) r.fp++; else if(isPp) r.pp++;
+        // ---- L1 / L2 enrolment: two INDEPENDENT counts, decided only by the programme tag on a
+        // PAID row. Deliberately NOT derived from isFp/isPp — an L2 client who has paid instalment 1
+        // and still owes instalment 2 is enrolled in L2, so requiring the full amount understated it.
+        // Each side reads its own tag, so an L1 payment can never land in the L2 column or vice
+        // versa; a row tagged "L1 + L2" is one payment covering both programmes and counts for each.
+        // Counted once per LEAD (this loop is already per-lead), matching Full Paid / Pay Collected.
+        let payL1=false,payL2=false;
+        paid.forEach((p:any)=>{ const pr=String(p.program||""); if(/L1/i.test(pr))payL1=true; if(/L2/i.test(pr))payL2=true; });
+        if(payL1) r.enrL1++;
+        if(payL2) r.enrL2++;
         const pg=_rpcLeadProg({meta_lead_id:id},paysBy);
         if(pg.l1&&pg.l2) r.progBoth++; else if(pg.l1) r.progL1++; else if(pg.l2) r.progL2++;
         if(pg.l1){ r.l1tot++; if(isFp)r.l1fp++; }
@@ -15313,7 +15376,10 @@ export function initApp(root: HTMLElement) {
         {l:"Visited",v:t.vis,cls:"green",k:"vis"},
         {l:"Enrolled",v:t.enr,cls:"pink",k:"enr"},
         {l:"Full Paid",v:t.fp,cls:"",k:"fp"},
-        {l:"Part Paid",v:t.pp,cls:"amber",k:"pp"},
+        // Reports only — its COLUMN was removed, and _rpcColFilters filters rows by key whether or
+        // not a column renders it. Left clickable this card would silently shrink every row with no
+        // header marker to reveal it and no way to clear it. `ro` renders it as a plain figure.
+        {l:"Part Paid",v:t.pp,cls:"amber",k:"pp",ro:true},
         {l:"Instalment",v:t.inst,cls:"blue",k:"inst"},
         {l:"Revenue (billed)",v:_rpcMoney(t.rev),cls:"green",k:"rev"},
         {l:"Collected",v:_rpcMoney(t.revCol),cls:"green",k:"revCol"},
@@ -15327,7 +15393,11 @@ export function initApp(root: HTMLElement) {
         {l:"Others",v:t.oth,cls:"",k:"oth"},
       ];
       const el=root.querySelector("#rpcSumGrid");
-      if(el) el.innerHTML=cards.map((c:any)=>'<div class="mc '+c.cls+(_rpcCardOn(c.k)?" on":"")+'" style="cursor:pointer'+(_rpcCardOn(c.k)?";outline:2px solid #6D28D9;outline-offset:-1px":"")+'" title="'+(c.k?"Show only rows with "+c.l:"Clear all filters")+'" onclick="window._rpcCardClick(\''+c.k+'\')"><div class="ml">'+c.l+'</div><div class="mv">'+c.v+'</div>'+(c.s?'<div class="ms">'+c.s+'</div>':'')+'</div>').join("");
+      // `ro` = read-only card: no pointer, no click, no filter. Used where the card's metric has no
+      // column in the table, so clicking could only set an invisible, unclearable filter.
+      if(el) el.innerHTML=cards.map((c:any)=>c.ro
+        ? '<div class="mc '+c.cls+'" title="'+c.l+' — reported only, not filterable"><div class="ml">'+c.l+'</div><div class="mv">'+c.v+'</div>'+(c.s?'<div class="ms">'+c.s+'</div>':'')+'</div>'
+        : '<div class="mc '+c.cls+(_rpcCardOn(c.k)?" on":"")+'" style="cursor:pointer'+(_rpcCardOn(c.k)?";outline:2px solid #6D28D9;outline-offset:-1px":"")+'" title="'+(c.k?"Show only rows with "+c.l:"Clear all filters")+'" onclick="window._rpcCardClick(\''+c.k+'\')"><div class="ml">'+c.l+'</div><div class="mv">'+c.v+'</div>'+(c.s?'<div class="ms">'+c.s+'</div>':'')+'</div>').join("");
       _rpcSvcStrip(t);
     }
     // Every service, billed against collected, side by side — never one blended total. Built from the
@@ -15402,10 +15472,20 @@ export function initApp(root: HTMLElement) {
       const tb=root.querySelector("#rpcTbody"); if(tb) tb.innerHTML=(shown?html:'<tr><td colspan="'+vis.length+'" style="padding:20px;color:#6B7280">No rows match the current search / filters.</td></tr>');
       // Say what the table is showing: the cohort basis, how many rows survived the filters, and any
       // truncation — silent capping reads as "that's all there is".
-      const sub=root.querySelector("#rpcSecSub");
-      if(sub) sub.textContent="Live data · rows are leads by their "+(_rpcByActivity?"latest activity date":"created date")
-        +" · showing "+shown+" of "+rows.length+" row"+(rows.length===1?"":"s")
-        +" · click a card or a column header to filter";
+      const sub=root.querySelector("#rpcSecSub")as HTMLElement|null;
+      if(sub){
+        // A load failure must never render as a page of zeros — that reads as "nothing happened",
+        // which is the opposite of the truth and is exactly how a missing column went unnoticed.
+        if(_rpcLoadErr){
+          sub.textContent="⚠ Report data failed to load — "+_rpcLoadErr+". The figures below are NOT complete.";
+          sub.style.color="var(--alert-ink,#D8442B)"; sub.style.fontWeight="600";
+        }else{
+          sub.style.color=""; sub.style.fontWeight="";
+          sub.textContent="Live data · rows are leads by their "+(_rpcByActivity?"latest activity date":"created date")
+            +" · showing "+shown+" of "+rows.length+" row"+(rows.length===1?"":"s")
+            +" · click a card or a column header to filter";
+        }
+      }
     }
     function _rpcRenderAll(){
       const {rows,win}=_rpcBuildRows(); _rpcRows=rows;
