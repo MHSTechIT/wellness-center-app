@@ -1722,6 +1722,13 @@ export function initApp(root: HTMLElement) {
     // Billed vs collected, split by service, over an optional [from,to] window of PAYMENT dates.
     // billed = every row raised (instalments still due included); collected = the paid ones. The gap
     // is the outstanding balance. Refunded money is excluded from both — it is no longer revenue.
+    // The refund lifecycle, in one place so money and UI can never disagree about it:
+    //   requested / abm_approved / bm_approved  → still pending, sits in the Refund console
+    //   processed                               → confirmed by Accounts, money NOT sent yet
+    //   paid                                    → money actually sent
+    // Both of the last two are "done" for revenue purposes — see _svcMoney.
+    const _REFUND_PENDING=["requested","abm_approved","bm_approved"];
+    const _REFUND_DONE=new Set(["processed","paid"]);
     function _svcMoney(pays:any[], leadSvcById:Record<string,string>, from?:number|null, to?:number|null){
       const out:Record<string,{billed:number,collected:number}>={};
       (pays||[]).forEach((p:any)=>{
@@ -1729,7 +1736,10 @@ export function initApp(root: HTMLElement) {
         const t=d.getTime();
         if(from!=null&&t<from) return;
         if(to!=null&&t>to) return;
-        if(String(p.refund_status||"")==="processed") return;
+        // A refund that has been approved is out of revenue whether or not the money has physically
+        // left yet: "processed" = confirmed, awaiting payout; "paid" = paid out. Matching only
+        // "processed" would let a refund reappear as revenue the moment it was marked paid.
+        if(_REFUND_DONE.has(String(p.refund_status||""))) return;
         const amt=Number(p.amount)||0; if(!amt) return;
         const key=_svcOfPayment(p,leadSvcById[String(p.lead_id)]||"");
         const b=(out[key]=out[key]||{billed:0,collected:0});
@@ -6220,14 +6230,18 @@ export function initApp(root: HTMLElement) {
     }
 
     // ---- Confirmation modal ----
-    function csvConfirm(message:string,onYes:()=>void){
+    // okLabel: the confirm button's text. Omitted = a red "Delete" (its original, destructive use).
+    // Given = a normal brand-coloured action, so a non-destructive confirm doesn't shout "Delete".
+    function csvConfirm(message:string,onYes:()=>void,okLabel?:string){
       const ov=document.createElement("div");
       ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center";
       const box=document.createElement("div");
       box.style.cssText="background:var(--surf,#fff);border-radius:14px;padding:22px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3)";
       box.innerHTML='<div style="font-weight:700;font-size:15px;margin-bottom:8px;color:var(--ink)">Please confirm</div>'
         +'<div style="font-size:13px;color:var(--faint);margin-bottom:18px">'+message+'</div>'
-        +'<div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn bsm" id="cfCancel">Cancel</button><button class="btn bsm bp" id="cfYes" style="background:var(--alert,#c0392b);border-color:var(--alert,#c0392b)">Delete</button></div>';
+        +'<div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn bsm" id="cfCancel">Cancel</button>'
+        +'<button class="btn bsm bp" id="cfYes"'+(okLabel?'':' style="background:var(--alert,#c0392b);border-color:var(--alert,#c0392b)"')+'>'
+        +String(okLabel||"Delete").replace(/</g,"&lt;")+'</button></div>';
       ov.appendChild(box);document.body.appendChild(ov);
       const close=()=>{if(ov.parentNode)document.body.removeChild(ov);};
       (box.querySelector("#cfCancel")as HTMLElement).onclick=close;
@@ -13826,6 +13840,7 @@ export function initApp(root: HTMLElement) {
     // survive re-renders and are pruned against the CURRENT filtered rows on each render, so a
     // filtered-away row can't be bulk-actioned invisibly.
     const _accVerSel=new Set<string>(); const _accOutSel=new Set<string>(); const _accRefSel=new Set<string>();
+    const _accPayoutSel=new Set<string>(); let _accPayoutQuery=""; let _accRefHistQuery="";
     // Verify-proofs tab → "Transaction history" table (verified payments only) has its OWN
     // pagination / selection / search state so it never collides with the Transactions tab.
     let _accHistPageN=1; const _accHistSel=new Set<string>(); let _accHistQuery=""; let _accHistSearchT:any=null;
@@ -13919,6 +13934,30 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Status",filter:true,text:(p:any)=>{const m:any={requested:"Requested",abm_approved:"ABM ✓",bm_approved:"BM ✓"};return m[p.refund_status]||p.refund_status||"";}},
       {key:"act",label:"",filter:false,head:'<th></th>'},
     ];
+    // The refund tab is a three-stage ledger, one table per stage, so a row is only ever in one:
+    //   Refund console → awaiting an Accounts decision      (Process)
+    //   Payout         → confirmed, money NOT sent yet      (Mark as paid) · "Not Paid Yet"
+    //   Refund history → money actually sent                (read-only)    · "Paid"
+    const _accPayoutCols=[
+      {key:"sel",label:"",filter:false,head:'<th style="width:30px"><input type="checkbox" id="accPayoutSelAll" onclick="window._accPayoutSelAll(this.checked)" style="accent-color:var(--brand)"></th>'},
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"paid",label:"Paid",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
+      {key:"refund",label:"Refund",filter:true,text:(p:any)=>"₹"+(p.refund_amount||0).toLocaleString("en-IN")},
+      {key:"reason",label:"Reason",filter:true,text:(p:any)=>p.refund_reason||"—"},
+      {key:"confirmed",label:"Confirmed on",filter:true,text:(p:any)=>p.refund_processed_at?fmtIST(p.refund_processed_at):"—"},
+      {key:"status",label:"Status",filter:true,text:()=>"Not Paid Yet"},
+    ];
+    const _accRefHistCols=[
+      {key:"client",label:"Client",filter:true,text:(p:any)=>p.clientName||""},
+      {key:"paid",label:"Paid",filter:true,text:(p:any)=>"₹"+(p.amount||0).toLocaleString("en-IN")},
+      {key:"refund",label:"Refund",filter:true,text:(p:any)=>"₹"+(p.refund_amount||0).toLocaleString("en-IN")},
+      {key:"reason",label:"Reason",filter:true,text:(p:any)=>p.refund_reason||"—"},
+      {key:"confirmed",label:"Confirmed on",filter:true,text:(p:any)=>p.refund_processed_at?fmtIST(p.refund_processed_at):"—"},
+      // Rows refunded before refund_paid_at existed have no payout stamp — "—" is honest, and
+      // inventing the confirmation date in its place would misreport when money actually left.
+      {key:"paidon",label:"Paid on",filter:true,text:(p:any)=>p.refund_paid_at?fmtIST(p.refund_paid_at):"—"},
+      {key:"status",label:"Status",filter:true,text:()=>"Paid"},
+    ];
     // Transaction history (verified only) — same rich columns as the Transactions tab minus the
     // Status/Actions columns (every row here is already Verified). Own select-all id.
     const _accHistCols=[
@@ -13948,6 +13987,8 @@ export function initApp(root: HTMLElement) {
     regGrid("accVer",()=>_accVerCols,()=>_accRenderAll());
     regGrid("accOut",()=>_accOutCols,()=>_accRenderAll());
     regGrid("accRef",()=>_accRefCols,()=>_accRenderAll());
+    regGrid("accPayout",()=>_accPayoutCols,()=>_accRenderAll());
+    regGrid("accRefHist",()=>_accRefHistCols,()=>_accRenderAll());
     regGrid("accHist",()=>_accHistCols,()=>_accRenderAll());
     function _accRenderAll(){
       try{ renderAccThyro(); }catch(_){}   // Blood test — Thyrocare tab
@@ -13958,7 +13999,15 @@ export function initApp(root: HTMLElement) {
       const unverifiedAmt=unverified.reduce((s:number,p:any)=>s+(p.amount||0),0);
       const outstanding=pays.filter((p:any)=>p.status==="due");
       const outstandingAmt=outstanding.reduce((s:number,p:any)=>s+(p.amount||0),0);
-      const refunds=pays.filter((p:any)=>p.refund_status&&p.refund_status!=="processed");
+      // Console = still awaiting an Accounts decision. History = decided (confirmed, paid or not).
+      const refunds=pays.filter((p:any)=>p.refund_status&&_REFUND_PENDING.indexOf(String(p.refund_status))>=0);
+      const refPayout=pays.filter((p:any)=>String(p.refund_status||"")==="processed");
+      const refHist=pays.filter((p:any)=>String(p.refund_status||"")==="paid");
+      // Everything the clinic still owes back: awaiting a decision, plus confirmed-but-not-sent.
+      const refundsOpen=refunds.concat(refPayout);
+      // A pending REQUEST has no agreed figure yet, so it falls back to the payment amount; a
+      // confirmed payout always carries the exact refund_amount Accounts typed in.
+      const refundsOpenAmt=refundsOpen.reduce((s:number,p:any)=>s+Number(p.refund_amount||p.amount||0),0);
       const emiSub=pays.reduce((s:number,p:any)=>s+(p.emi_subvention||0),0);
       // Full Indian-formatted amount (₹13,60,000) — no K/L/Cr abbreviation.
       const fmtL=(n:number)=>"₹"+(Number(n)||0).toLocaleString("en-IN");
@@ -13968,7 +14017,12 @@ export function initApp(root: HTMLElement) {
         {l:"Collected today",v:fmtL(collectedToday),sub:"",c:"g",click:""},
         {l:"Pending verification",v:String(unverified.length)+(unverified.length===1?" txn":" txns"),sub:fmtL(unverifiedAmt)+" pending",c:unverified.length?"a":"",click:"unverified"},
         {l:"Outstanding",v:String(outstanding.length)+(outstanding.length===1?" txn":" txns"),sub:fmtL(outstandingAmt)+" outstanding",c:outstandingAmt?"a":"",click:"outstanding"},
-        {l:"Refunds pending",v:String(refunds.length),sub:"",c:refunds.length?"r":"",click:"refunds"},
+        // "Pending" = money still owed to a client, which is the console AND the payout queue.
+        // Counting only the console meant a refund vanished from this card the moment Accounts
+        // confirmed it — reading 0 while ₹15,000 sat unpaid in Payout. Only an actual payout clears
+        // it. Shown as amount-over-count, like the other two money cards.
+        {l:"Refunds pending",v:String(refundsOpen.length)+(refundsOpen.length===1?" refund":" refunds"),
+          sub:fmtL(refundsOpenAmt)+" pending",c:refundsOpen.length?"r":"",click:"refunds"},
         {l:"EMI subvention",v:fmtL(emiSub),sub:"",c:"",click:""}
       ];
       // For the amount-bearing cards (Pending / Outstanding) the ₹ total is the headline value and the
@@ -13992,7 +14046,8 @@ export function initApp(root: HTMLElement) {
       }
       const vc=root.querySelector("#accVerCount"); if(vc) vc.textContent=unverified.length?" · "+unverified.length:"";
       const oc=root.querySelector("#accOutCount"); if(oc) oc.textContent=outstanding.length?" · "+outstanding.length:"";
-      const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refunds.length?" · "+refunds.length:"";
+      // Tab badge counts the same open set as the card, so the strip and the KPI never disagree.
+      const rc=root.querySelector("#accRefCount"); if(rc) rc.textContent=refundsOpen.length?" · "+refundsOpen.length:"";
       // ---- Transactions tab: filtered + paginated, multi-select + download; sticky header via .tscroll ----
       // Transactions = money actually COLLECTED. The old `||p.amount>0` clause also matched `due`
       // rows, so the installment-2 placeholder appeared here the moment installment 1 was collected —
@@ -14119,6 +14174,46 @@ export function initApp(root: HTMLElement) {
       const rEl=root.querySelector("#accRefBody"); if(rEl){ rEl.innerHTML=rH; const _rh=root.querySelector("#accRefHead"); if(_rh)_rh.innerHTML=gridHead("accRef");
         const rsa=root.querySelector("#accRefSelAll")as HTMLInputElement|null; if(rsa){ const vis=_refF.map((p:any)=>String(p.id)); rsa.checked=vis.length>0&&vis.every(id=>_accRefSel.has(id)); }
         const rsi=root.querySelector("#accRefSelInfo"); if(rsi) rsi.textContent=_accRefSel.size?(_accRefSel.size+" selected"):""; }
+      // PAYOUT — confirmed, awaiting the actual transfer. Newest confirmation first.
+      const _poF=gridApply("accPayout",refPayout.filter((p:any)=>_accTblMatch(p,_accPayoutQuery))
+        .sort((a:any,b:any)=>new Date(b.refund_processed_at||0).getTime()-new Date(a.refund_processed_at||0).getTime()));
+      _accPayoutSel.forEach(id=>{ if(!_poF.some((p:any)=>String(p.id)===id)) _accPayoutSel.delete(id); });
+      let poH='<table class="tbl"><thead><tr id="accPayoutHead"></tr></thead><tbody>';
+      if(!_poF.length) poH+='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">Nothing awaiting payout.</td></tr>';
+      else _poF.forEach((p:any)=>{
+        poH+='<tr><td><input type="checkbox" class="accPayoutChk" data-id="'+p.id+'"'+(_accPayoutSel.has(String(p.id))?" checked":"")+' onchange="window._accPayoutRowSel(this)" style="accent-color:var(--brand)"></td>'
+          +'<td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td>'
+          +'<td class="mono">₹'+(p.refund_amount||0).toLocaleString("en-IN")+'</td>'
+          +'<td>'+e(p.refund_reason||"—")+'</td>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(p.refund_processed_at?fmtIST(p.refund_processed_at):"—")+'</td>'
+          +'<td><span class="chipb warn">Not Paid Yet</span></td></tr>';
+      });
+      poH+='</tbody></table>';
+      const poEl=root.querySelector("#accPayoutBody"); if(poEl){ poEl.innerHTML=poH; const _poh=root.querySelector("#accPayoutHead"); if(_poh)_poh.innerHTML=gridHead("accPayout");
+        const psa=root.querySelector("#accPayoutSelAll")as HTMLInputElement|null;
+        if(psa){ const vis=_poF.map((p:any)=>String(p.id)); psa.checked=vis.length>0&&vis.every(id=>_accPayoutSel.has(id)); psa.disabled=!vis.length; }
+        const psi=root.querySelector("#accPayoutSelInfo"); if(psi) psi.textContent=_accPayoutSel.size?(_accPayoutSel.size+" selected"):"";
+        const pc=root.querySelector("#accPayoutCount");
+        if(pc) pc.textContent=_poF.length?(_poF.length+" awaiting payout · ₹"+_poF.reduce((s:number,p:any)=>s+Number(p.refund_amount||0),0).toLocaleString("en-IN")):"";
+      }
+      // REFUND HISTORY — settled. Read-only by design: nothing here can be un-paid from the UI.
+      const _rhF=gridApply("accRefHist",refHist.filter((p:any)=>_accTblMatch(p,_accRefHistQuery))
+        .sort((a:any,b:any)=>new Date(b.refund_processed_at||0).getTime()-new Date(a.refund_processed_at||0).getTime()));
+      let rhH='<table class="tbl"><thead><tr id="accRefHistHead"></tr></thead><tbody>';
+      if(!_rhF.length) rhH+='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No refunds have been paid out yet.</td></tr>';
+      else _rhF.forEach((p:any)=>{
+        rhH+='<tr><td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td>'
+          +'<td class="mono">₹'+(p.refund_amount||0).toLocaleString("en-IN")+'</td>'
+          +'<td>'+e(p.refund_reason||"—")+'</td>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(p.refund_processed_at?fmtIST(p.refund_processed_at):"—")+'</td>'
+          +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(p.refund_paid_at?fmtIST(p.refund_paid_at):"—")+'</td>'
+          +'<td><span class="chipb ok">Paid</span></td></tr>';
+      });
+      rhH+='</tbody></table>';
+      const rhEl=root.querySelector("#accRefHistBody"); if(rhEl){ rhEl.innerHTML=rhH; const _rhh=root.querySelector("#accRefHistHead"); if(_rhh)_rhh.innerHTML=gridHead("accRefHist");
+        const hc=root.querySelector("#accRefHistCount");
+        if(hc) hc.textContent=_rhF.length?(_rhF.length+" paid · ₹"+_rhF.reduce((s:number,p:any)=>s+Number(p.refund_amount||0),0).toLocaleString("en-IN")):"";
+      }
     }
     // Generic row-select/select-all factory for the Verify / Outstanding / Refunds tables — the
     // exact behavior of the Transactions handlers, parameterised by checkbox class + state set.
@@ -14136,6 +14231,44 @@ export function initApp(root: HTMLElement) {
     w._accVerRowSel=_verSelH.row; w._accVerSelAll=_verSelH.all;
     w._accOutRowSel=_outSelH.row; w._accOutSelAll=_outSelH.all;
     w._accRefRowSel=_refSelH.row; w._accRefSelAll=_refSelH.all;
+    const _payoutSelH=_accMkSel("accPayoutChk",_accPayoutSel,"accPayoutSelInfo","accPayoutSelAll");
+    w._accPayoutRowSel=_payoutSelH.row; w._accPayoutSelAll=_payoutSelH.all;
+    w._accPayoutSearch=()=>_accTblSearch("accPayoutSearch",v=>{ _accPayoutQuery=v; });
+    w._accRefHistSearch=()=>_accTblSearch("accRefHistSearch",v=>{ _accRefHistQuery=v; });
+    // Mark as paid: the money has actually left. Moves the row out of Payout and into Refund
+    // history with status Paid. The confirmation names the total so a mis-click can't quietly
+    // settle someone else's refund.
+    w._accRefMarkPaid=async()=>{
+      const ids=Array.from(_accPayoutSel);
+      if(!ids.length){ toast("Tick the refunds you have actually paid out"); return; }
+      const rows=_accPays.filter((p:any)=>ids.indexOf(String(p.id))>=0&&String(p.refund_status||"")==="processed");
+      if(!rows.length){ toast("Those refunds are already marked paid"); return; }
+      const total=rows.reduce((s:number,p:any)=>s+Number(p.refund_amount||0),0);
+      csvConfirm("Mark "+rows.length+" refund"+(rows.length===1?"":"s")+" totalling ₹"+total.toLocaleString("en-IN")
+        +" as PAID? Do this only once the money has actually been sent.",async()=>{
+        let ok=0;
+        for(const p of rows){
+          // refund_paid_at is the PAYOUT date; refund_processed_at stays the CONFIRMATION date, so
+          // Accounts can tell "we approved it" from "the money left". The column is guaranteed by
+          // the server's boot-time ensureSchema — no migration to run by hand.
+          if(await _dbOk(supabase.from("payments").update({refund_status:"paid",refund_paid_at:new Date().toISOString()}).eq("id",p.id),"Mark refund paid")) ok++;
+        }
+        _accPayoutSel.clear();
+        await loadAccountsData();   // re-render drops them from Payout and lists them under Refund history
+        toast(ok+" of "+rows.length+" refund"+(rows.length===1?"":"s")+" marked paid ✓");
+      },"Mark as paid");
+    };
+    const _accRefCsv=(file:string,rows:any[],status:string)=>{
+      if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Client","Phone","Paid","Refund","Reason","Confirmed on","Paid on","Status"]];
+      rows.forEach((p:any)=>out.push([p.clientName||"",p.clientPhone||"",String(p.amount||0),String(p.refund_amount||0),
+        p.refund_reason||"",p.refund_processed_at?fmtIST(p.refund_processed_at):"",p.refund_paid_at?fmtIST(p.refund_paid_at):"",status]));
+      _downloadCsv(file,out); toast("Exported "+rows.length+" refund"+(rows.length===1?"":"s"));
+    };
+    w._accPayoutDownload=()=>_accRefCsv("refund_payout.csv",
+      _accPays.filter((p:any)=>String(p.refund_status||"")==="processed"&&_accTblMatch(p,_accPayoutQuery)),"Not Paid Yet");
+    w._accRefHistDownload=()=>_accRefCsv("refund_history.csv",
+      _accPays.filter((p:any)=>String(p.refund_status||"")==="paid"&&_accTblMatch(p,_accRefHistQuery)),"Paid");
     // Bulk verify: runs the SAME per-row verification (update + Diabetes-only enrollment) for every
     // selected row, then reloads once at the end instead of once per row.
     w._accVerifySelected=async()=>{

@@ -1468,7 +1468,25 @@ export function getMainContent(): string {
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input class="input" id="accRefSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accRefSearch()">
           <button class="btn bsm" onclick="window._accRefDownload()">⬇ Download</button></span></div>
-        <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
+        <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
+      <!-- PAYOUT — confirmed by Accounts, money not sent yet. A confirmed refund is a promise, not a
+           payment, so it waits here as "Not Paid Yet". Mark as paid moves it down to Refund history. -->
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-coin"></use></svg> Payout <span id="accPayoutCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="accPayoutSelInfo" style="font-size:11px;color:var(--muted)"></span>
+          <input class="input" id="accPayoutSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accPayoutSearch()">
+          <button class="btn bsm bp" onclick="window._accRefMarkPaid()">✓ Mark as paid</button>
+          <button class="btn bsm" onclick="window._accPayoutDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd" id="accPayoutBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div></div></div></div>
+      <!-- REFUND HISTORY — the settled ledger. A row only reaches this table once the money has
+           actually gone out, so everything here reads "Paid" and nothing is editable. -->
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-doc"></use></svg> Refund history <span id="accRefHistCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="accRefHistSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accRefHistSearch()">
+          <button class="btn bsm" onclick="window._accRefHistDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd" id="accRefHistBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div></div></div></div></div>
     <!-- Blood test — Thyrocare: day-by-day reconciliation with the lab partner. Counts and money use
          the SAME definitions as the Blood Test page's own cards, so the two screens always agree. -->
     <div class="acc-p" data-p="thyro" style="display:none">

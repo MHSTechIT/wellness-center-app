@@ -12,6 +12,7 @@ const BUILD_VERSION = (() => {
   if (process.env.BUILD_VERSION) return process.env.BUILD_VERSION;
   try { return execSync('git rev-parse --short HEAD', { cwd: process.cwd() }).toString().trim(); } catch { return 'dev'; }
 })();
+import { ensureSchema } from './shared/schema';
 import { registerMetaRoutes, refreshExpiringTokens } from './routes/meta';
 import { registerCallRoutes } from './routes/calls';
 import { registerDataRoutes } from './routes/data';
@@ -131,6 +132,10 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {
   console.log(`[wellness-api] listening on :${port}`);
+  // Bring whatever database this server points at up to date. Additive and idempotent, so it is
+  // safe on every boot — and it is what stops dev and production drifting apart (see schema.ts).
+  // Deliberately NOT awaited before listen: a schema hiccup must not keep the API down.
+  ensureSchema().catch((e) => console.error('[schema] ensure failed:', e?.message || e));
 });
 
 // A crash in a fire-and-forget async path (nothing awaits it, so nothing can .catch it) would
