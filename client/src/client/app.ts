@@ -1997,6 +1997,9 @@ export function initApp(root: HTMLElement) {
       {key:"adName",label:"Ad Name",filter:true,text:(r:any)=>r.adName||""},
       {key:"service",label:"Service",filter:true,text:(r:any)=>r.service||""},
       {key:"lang",label:"Language",filter:true,text:(r:any)=>r.lang||""},
+      // The lead's sugar answer, straight from leads.sugar_poll (the same field the Advisor page's
+      // Sugar level and the Sugar Level filter read), so all three always agree.
+      {key:"sugar",label:"Sugar Pool",filter:true,text:(r:any)=>r.sugar||""},
       {key:"city",label:"City",filter:true,text:(r:any)=>r.city||""},
       {key:"status",label:"Status",filter:true,text:(r:any)=>(r.isDuplicate?"Duplicate":(r.isValid?"Valid":"Invalid"))},
       {key:"assignedTo",label:"Assigned To",filter:true,text:(r:any)=>r.assignedTo||"Not Assigned"},
@@ -2025,11 +2028,12 @@ export function initApp(root: HTMLElement) {
         +'<td>'+e(r.adName||"—")+'</td>'
         +'<td>'+e(r.service||"—")+'</td>'
         +'<td>'+e(r.lang||"—")+'</td>'
+        +'<td>'+e(r.sugar||"—")+'</td>'
         +'<td>'+e(r.city||"—")+'</td>'
         +'<td>'+(r.isDuplicate?'<span class="chipb warn">Duplicate</span>':(r.isValid?'<span class="chipb ok">Valid</span>':'<span class="chipb al">Invalid</span>'))+'</td>'
         +'<td>'+(r.assignedTo?e(r.assignedTo):'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
         +'<td>'+(r._hasProfile?'<button class="btn bsm" onclick="window._openLeadProfile(\''+e(String(r.id))+'\')">Open</button>':'<span style="color:var(--faint)" title="Not yet sent to assignment — no lead record to open">—</span>')+'</td>'
-        +'</tr>').join(""):'<tr><td colspan="12" style="text-align:center;color:var(--faint);padding:18px">No leads match this view</td></tr>';
+        +'</tr>').join(""):'<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No leads match this view</td></tr>';
       const info=root.querySelector("#impDrillPageInfo"); if(info) info.textContent="Page "+_impDrillPg+" of "+pages;
       const dis=(sel:string,off:boolean)=>{ const b=root.querySelector(sel)as HTMLButtonElement|null; if(b){ b.disabled=off; b.style.opacity=off?"0.5":""; } };
       dis("#impDrillFirstBtn",_impDrillPg<=1); dis("#impDrillPrevBtn",_impDrillPg<=1);
@@ -2050,8 +2054,8 @@ export function initApp(root: HTMLElement) {
     w._impDrillDownload=()=>{
       const rows=_impDrillRows();
       if(!rows.length){ toast("Nothing to download"); return; }
-      const out:string[][]=[["Date & Time (IST)","Lead Name","Phone","Source","Campaign","Ad Name","Service","Language","City","Street","Status","Assigned To"]];
-      rows.forEach((r:any)=>out.push([fmtIST(r.createdAt),r.name||"",r.phone||"",r.srcName||"",r.campaign||"",r.adName||"",r.service||"",r.lang||"",r.city||"",r.street||"",(r.isDuplicate?"Duplicate":(r.isValid?"Valid":"Invalid")),r.assignedTo||""]));
+      const out:string[][]=[["Date & Time (IST)","Lead Name","Phone","Source","Campaign","Ad Name","Service","Language","Sugar Pool","City","Street","Status","Assigned To"]];
+      rows.forEach((r:any)=>out.push([fmtIST(r.createdAt),r.name||"",r.phone||"",r.srcName||"",r.campaign||"",r.adName||"",r.service||"",r.lang||"",r.sugar||"",r.city||"",r.street||"",(r.isDuplicate?"Duplicate":(r.isValid?"Valid":"Invalid")),r.assignedTo||""]));
       _downloadCsv((IMP_KPI_LABELS[_impDrillKey]||"leads").replace(/\s+/g,"-").toLowerCase()+(_impDrillSrcName?("-"+_impDrillSrcName.replace(/[^a-z0-9]+/gi,"-").toLowerCase()):"")+".csv",out);
     };
 
@@ -3297,7 +3301,7 @@ export function initApp(root: HTMLElement) {
       const all=haCommonFilter([..._metaLeads.filter((l:any)=>l.isAssigned&&l.assignedTo), ..._assignedExtras]);
       return all.filter((l:any)=>{
         if(!(f==="all"||l.assignedTo===f)) return false;
-        if(!(sf==="all"||haEffStatus(l)===sf)) return false;
+        if(!_haPassesFilter(l,sf)) return false;
         return _asnMatchesQuery(l);
       });
     }
@@ -3752,6 +3756,13 @@ export function initApp(root: HTMLElement) {
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
       setV("#advfName",l.name||"");setV("#advfPhone",l.phone||"");setV("#advfWhats",l.phone||"");setV("#advfEmail",l.email||"");
+      // Sugar level must open on the lead's OWN stored level. The markup marks "150–250" selected,
+      // so without this every profile opened at 150–250 regardless of the lead — and since saving
+      // now persists this field back to the lead, that default would silently rewrite the real
+      // reading on any lead whose profile was merely opened and saved.
+      { const band=_haSugarBand(l.sugar||l.sugar_poll);
+        const lbl=band==="sugar:none"?"No Sugar":(band==="sugar:hi"?"Above 250":(band==="sugar:mid"?"150–250":""));
+        if(lbl) setV("#advfSugar",lbl); }
       // Rebuild the WhatsApp message for THIS lead — otherwise it keeps the previous lead's name.
       try{ waTpl(); }catch(_){}
       // Lead generated (AUTO): the lead's real creation timestamp. Stored so it survives a profile restore.
@@ -4392,6 +4403,17 @@ export function initApp(root: HTMLElement) {
       const _fv=(sel:string)=>((root.querySelector(sel)as HTMLInputElement)?.value||"").trim();
       const _nm=_fv("#advfName"), _ph=_fv("#advfPhone"), _em=_fv("#advfEmail");
       if(_nm) upd.name=_nm; if(_ph) upd.phone=_ph; if(_em) upd.email=_em;   // only write non-empty (never blank existing)
+      // Sugar level is the ADVISOR's confirmed reading and belongs on the lead, not buried in the
+      // profile JSONB — the Sugar Level filter, the dashboards and the Coach all read leads.sugar_poll.
+      // Without this the filter could only ever see the raw Meta poll answer, so a level the advisor
+      // corrected on the call would never reach it. Blood-test leads hide the field; skip them rather
+      // than blanking a value they never saw.
+      const _sg=_fv("#advfSugar");
+      if(_sg&&!_advLayoutBt){
+        upd.sugar_poll=_sg;
+        // Reflect it in memory so the dropdown filters correctly before any reload.
+        [_metaLeads,_assignedExtras].forEach((arr:any[])=>{ const t=arr.find((x:any)=>String(x.id)===id); if(t) t.sugar=_sg; });
+      }
       try{
         const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",id);
         if(error){
@@ -4792,6 +4814,40 @@ export function initApp(root: HTMLElement) {
     // Interested, Callback Requested. They stay in the LABEL/CODE maps below so a lead that already
     // carries one of those stored values still displays it — the dropdown just no longer offers them.
     const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Visited","Enrolled","Not Reachable","Not Interested","Disconnect"];
+    // The call/lead-status dropdown is TWO groups: the statuses above, and a sugar-level band.
+    // Sugar options carry a "sugar:" prefix so a status and a sugar level can never collide, and
+    // one matcher serves every place the dropdown filters (dashboard, drill-down, List + Kanban) —
+    // three copies of this test would be three chances for them to disagree.
+    const HA_SUGAR=[{v:"sugar:none",l:"Sugar None"},{v:"sugar:mid",l:"Sugar 150-250"},{v:"sugar:hi",l:"Sugar >250"}];
+    // Stored values are inconsistent ("above 250", "Above 250", "150-250", "150-200", and a
+    // bilingual "no sugar / …"), so each band matches on SHAPE rather than an exact string.
+    function _haSugarBand(v:any){
+      const t=String(v||"").toLowerCase();
+      if(!t) return "";
+      if(t.indexOf("no sugar")>=0) return "sugar:none";
+      if(t.indexOf("above")>=0||t.indexOf(">250")>=0||t.indexOf("250+")>=0) return "sugar:hi";
+      if(t.indexOf("150")>=0||t.indexOf("200")>=0||t.indexOf("250")>=0) return "sugar:mid";
+      return "";
+    }
+    // The dropdown VALUE is not a label — sugar options are prefixed keys. Showing the raw value
+    // put "Call Status: sugar:mid" on the card.
+    function _haFilterLabel(v:string){
+      const hit=HA_SUGAR.find(x=>x.v===v);
+      return hit?hit.l:v;
+    }
+    // TRUE when a lead passes the dropdown. "all" passes everything.
+    function _haPassesFilter(l:any,filter:string){
+      if(!filter||filter==="all") return true;
+      if(filter.indexOf("sugar:")===0) return _haSugarBand(l.sugar||l.sugar_poll||l.sugarPoll)===filter;
+      return haEffStatus(l)===filter;
+    }
+    // Fills the dropdown once, as two <optgroup>s.
+    function _haFillStatusFilter(fsel:HTMLSelectElement){
+      const esc=(x:any)=>String(x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+      fsel.innerHTML='<option value="all">All call/lead statuses</option>'
+        +'<optgroup label="All Call/Lead statuses">'+HA_STATUSES.map((x:string)=>'<option>'+esc(x)+'</option>').join("")+'</optgroup>'
+        +'<optgroup label="Sugar Level">'+HA_SUGAR.map(x=>'<option value="'+esc(x.v)+'">'+esc(x.l)+'</option>').join("")+'</optgroup>';
+    }
     const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Disconnect:"disc",Open:"new"};
     // Which appointment MODE a call-status label implies, or null when the label is not an
     // appointment at all. Keyed off the afd/afz codes above so "Home" (the current wording) and
@@ -5112,9 +5168,7 @@ export function initApp(root: HTMLElement) {
     };
     function renderHealthDashboard(){
       const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
-      if(fsel && fsel.options.length<=1){
-        fsel.innerHTML='<option value="all">All call/lead statuses</option>'+HA_STATUSES.map(s=>'<option>'+s+'</option>').join("");
-      }
+      if(fsel && fsel.options.length<=1) _haFillStatusFilter(fsel);
       const filter=fsel?.value||"all";
       // fullBook = every lead assigned to this advisor (still honouring the page's date/source/
       // service filters). The status dropdown narrows `book` for the other cards, but NOT the
@@ -5122,7 +5176,7 @@ export function initApp(root: HTMLElement) {
       // change with the dropdown.
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
-      if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
+      if(filter!=="all") book=book.filter((l:any)=>_haPassesFilter(l,filter));
       const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       // "Confirmed" mirrors the Visited-status pill exactly — see _advIsConfirmed. It counts the
@@ -5163,7 +5217,7 @@ export function initApp(root: HTMLElement) {
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
           +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number. (Confirmed is a milestone that overlaps them, so it is not part of the sum.)"':'')
           +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+((_btView&&c.key==="apptZoom")?"Appointment Fixed – Home":c.label)+'</div>'+mv(counts[c.key])+'</div>'));
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">Call Status'+(filter!=="all"?": "+filter:"")+'</div>'+mv(book.length)+'</div>');
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">'+(filter==="all"?"Call Status":_haFilterLabel(filter))+'</div>'+mv(book.length)+'</div>');
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
@@ -5246,7 +5300,7 @@ export function initApp(root: HTMLElement) {
       const filter=fsel?.value||"all";
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
-      if(filter!=="all") book=book.filter((l:any)=>haEffStatus(l)===filter);
+      if(filter!=="all") book=book.filter((l:any)=>_haPassesFilter(l,filter));
       // The two call cards aren't status buckets — they select leads by CALL ACTIVITY (at least one
       // connected call), so they can't go through haBucketOf like the others.
       const _isCallCard=_haActiveBucket==="calls"||_haActiveBucket==="callduration";
@@ -13710,6 +13764,9 @@ export function initApp(root: HTMLElement) {
     // A cost-per is only meaningful when something was actually bought. 0 conversions with real
     // spend is NOT "₹0" — it is undefined, and printing ₹0 would read as free.
     const _ctkCost=(spend:number,n:number)=>n>0?_ctkMoney(spend/n):"—";
+    // Return on ad spend: revenue COLLECTED for every rupee spent. Undefined without spend — a
+    // campaign with revenue and no recorded spend is a data gap, not an infinite return.
+    const _ctkRoas=(rev:number,spend:number)=>spend>0?((Math.round((rev/spend)*100)/100).toFixed(2)+"x"):"—";
     const _ctkPill=(v:number,good:number,ok:number)=>{
       const c=v>=good?"hi":(v>=ok?"md":"lo");
       return '<span class="ctk-pill '+c+'">'+(Math.round(v*10)/10).toFixed(1)+'%</span>';
@@ -13756,17 +13813,21 @@ export function initApp(root: HTMLElement) {
           adset:String(l.adset_name||(m?m.adset:"")||"—"),
           campaign:String(l.campaign||(m?m.campaign:"")||"—")};
       };
-      const bump=(k:any,f:string)=>{
+      const bump=(k:any,f:string,by:number=1)=>{
         const id=k.campaign+"||"+k.adset+"||"+k.ad;
-        const o=(out[id]=out[id]||{campaign:k.campaign,adset:k.adset,ad:k.ad,leads:0,qual:0,appt:0,vis:0,enr:0});
-        o[f]++;
+        const o=(out[id]=out[id]||{campaign:k.campaign,adset:k.adset,ad:k.ad,leads:0,qual:0,appt:0,vis:0,enr:0,rev:0});
+        o[f]+=by;
       };
+      // Per-lead rows kept alongside the counts so a card can open the records behind its number
+      // instead of only ever showing a total. Built here because this is the one pass that already
+      // knows which stages each lead reached.
+      const det:any[]=[];
       const fromT=new Date(fromISO+"T00:00:00").getTime();
       const toT=new Date(toISO+"T23:59:59").getTime();
       let leads:any[]=[];
       try{
         leads=await _pageAll((a,b)=>supabase.from("leads")
-          .select("meta_lead_id,campaign,ad_name,adset_name,created_at,is_valid,is_duplicate,is_assigned,call_status,visited_at,enrolled_at")
+          .select("meta_lead_id,name,phone,service,campaign,ad_name,adset_name,created_at,is_valid,is_duplicate,is_assigned,call_status,visited_at,enrolled_at")
           .in("source",["Meta Ads","Meta"]).order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false}).range(a,b));
       }catch(_){ leads=[]; }
       const ids:string[]=[];
@@ -13781,10 +13842,16 @@ export function initApp(root: HTMLElement) {
         // contact route. Deliberately NOT "assigned" — that measures our staffing, not the creative.
         const cs=String(l.call_status||"").toLowerCase();
         const dead=/wrong number|not reachable|out of service|switched off|dnd|invalid/.test(cs);
-        if(l.is_valid!==false&&!l.is_duplicate&&!dead) bump(k,"qual");
-        if(l.enrolled_at){ const et=new Date(l.enrolled_at).getTime(); if(!isNaN(et)&&et>=fromT&&et<=toT) bump(k,"enr"); }
+        const qual=l.is_valid!==false&&!l.is_duplicate&&!dead;
+        if(qual) bump(k,"qual");
+        const enr=!!l.enrolled_at&&(()=>{ const et=new Date(l.enrolled_at).getTime(); return !isNaN(et)&&et>=fromT&&et<=toT; })();
+        if(enr) bump(k,"enr");
         ids.push(String(l.meta_lead_id));
+        det.push({id:String(l.meta_lead_id),name:l.name||"(no name)",phone:l.phone||"",service:l.service||"",
+          created_at:l.created_at,campaign:k.campaign,adset:k.adset,ad:k.ad,
+          status:l.call_status||"",qual,appt:false,vis:false,enr,rev:0});
       });
+      const detById:Record<string,any>={}; det.forEach(d=>{ detById[d.id]=d; });
       // Appointments + visits for those leads, dated by the appointment itself.
       try{
         const appts=await _pageAll((a,b)=>supabase.from("appointments")
@@ -13796,11 +13863,28 @@ export function initApp(root: HTMLElement) {
           const d=_visitDate(ap); const t=d?d.getTime():NaN;
           if(isNaN(t)||t<fromT||t>toT) return;
           const lid=String(ap.lead_id);
-          if(ap.status!=="cancelled"&&!seenAppt.has(lid)){ seenAppt.add(lid); bump(k,"appt"); }
-          if(ap.visited_at&&!seenVis.has(lid)){ seenVis.add(lid); bump(k,"vis"); }
+          if(ap.status!=="cancelled"&&!seenAppt.has(lid)){ seenAppt.add(lid); bump(k,"appt"); if(detById[lid]) detById[lid].appt=true; }
+          if(ap.visited_at&&!seenVis.has(lid)){ seenVis.add(lid); bump(k,"vis"); if(detById[lid]) detById[lid].vis=true; }
         });
       }catch(_){}
-      return out;
+      // REVENUE — money COLLECTED from these leads, bucketed by payment date, exactly as the rest
+      // of the app defines it (_payDate + status paid). Billed-but-unpaid is excluded on purpose:
+      // ROAS against money that has not arrived would flatter every campaign.
+      try{
+        const pays=await _pageAll((a,b)=>supabase.from("payments")
+          .select("id,lead_id,amount,status,paid_at,due_date,created_at,service")
+          .order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b));
+        pays.forEach((p:any)=>{
+          if(p.status!=="paid") return;
+          const d=_payDate(p); const t=d?d.getTime():NaN;
+          if(isNaN(t)||t<fromT||t>toT) return;
+          const lid=String(p.lead_id||""); const l=byId[lid]; if(!l) return;
+          const amt=Math.max(0,Number(p.amount)||0); if(!amt) return;
+          bump(key(l),"rev",amt);
+          if(detById[lid]) detById[lid].rev+=amt;
+        });
+      }catch(_){}
+      return {agg:out,detail:det};
     }
 
 
@@ -13963,19 +14047,20 @@ export function initApp(root: HTMLElement) {
         _ctkBlocked=ins.blocked||[];
         const adMeta:Record<string,{campaign:string,adset:string}>={};
         _ctkIns.forEach((r:any)=>{ const k=String(r.ad||"").toLowerCase(); if(k) adMeta[k]={campaign:r.campaign||"—",adset:r.adset||"—"}; });
-        const funnel=await _ctkFunnelByName(from,to,adMeta);
+        const fr=await _ctkFunnelByName(from,to,adMeta);
+        const funnel=fr.agg; _ctkDetail=fr.detail||[];
         // Union of both sides: an ad that spent but produced no lead still deserves a row (that is
         // the whole point of the page), and a lead whose creative Meta will not report must not
         // silently vanish either.
         const merged:Record<string,any>={};
         const mk=(c:string,s:string,a:string)=>{
           const id=c+"||"+s+"||"+a;
-          return (merged[id]=merged[id]||{campaign:c,adset:s,ad:a,spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0});
+          return (merged[id]=merged[id]||{campaign:c,adset:s,ad:a,spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0,rev:0});
         };
         _ctkIns.forEach((r:any)=>{ const o=mk(r.campaign||"—",r.adset||"—",r.ad||"—");
           o.spend+=Number(r.spend)||0; o.impr+=Number(r.impressions)||0; o.clicks+=Number(r.clicks)||0; o.v3+=Number(r.videoPlays3s)||0; });
         Object.keys(funnel).forEach(k=>{ const f=funnel[k]; const o=mk(f.campaign,f.adset,f.ad);
-          o.leads+=f.leads; o.qual+=f.qual; o.appt+=f.appt; o.vis+=f.vis; o.enr+=f.enr; });
+          o.leads+=f.leads; o.qual+=f.qual; o.appt+=f.appt; o.vis+=f.vis; o.enr+=f.enr; o.rev+=f.rev||0; });
         _ctkRows=Object.keys(merged).map(k=>merged[k]);
         // COMPARE — the immediately preceding window of the SAME length, which is what "previous
         // period" has to mean for a delta to be honest (comparing 7 days to 30 would be noise).
@@ -13988,10 +14073,10 @@ export function initApp(root: HTMLElement) {
             .then((r:any)=>r.json()).catch(()=>({rows:[]}));
           const pAdMeta:Record<string,{campaign:string,adset:string}>={};
           (pIns.rows||[]).forEach((r:any)=>{ const k=String(r.ad||"").toLowerCase(); if(k) pAdMeta[k]={campaign:r.campaign||"—",adset:r.adset||"—"}; });
-          const pf=await _ctkFunnelByName(pFrom,pTo,pAdMeta);
-          const P:any={spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0,from:pFrom,to:pTo};
+          const pf=(await _ctkFunnelByName(pFrom,pTo,pAdMeta)).agg;
+          const P:any={spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0,rev:0,from:pFrom,to:pTo};
           (pIns.rows||[]).forEach((r:any)=>{ P.spend+=Number(r.spend)||0; P.impr+=Number(r.impressions)||0; P.clicks+=Number(r.clicks)||0; P.v3+=Number(r.videoPlays3s)||0; });
-          Object.keys(pf).forEach(k=>{ const f=pf[k]; P.leads+=f.leads; P.qual+=f.qual; P.appt+=f.appt; P.vis+=f.vis; P.enr+=f.enr; });
+          Object.keys(pf).forEach(k=>{ const f=pf[k]; P.leads+=f.leads; P.qual+=f.qual; P.appt+=f.appt; P.vis+=f.vis; P.enr+=f.enr; P.rev+=f.rev||0; });
           _ctkPrev=P;
         }
         const tag=root.querySelector("#ctkCmpTag") as HTMLElement|null;
@@ -14015,17 +14100,31 @@ export function initApp(root: HTMLElement) {
       src.forEach((r:any)=>{
         const k=_ctkLevel_==="campaign"?r.campaign:(_ctkLevel_==="adset"?r.campaign+"||"+r.adset:r.campaign+"||"+r.adset+"||"+r.ad);
         const o=(out[k]=out[k]||{campaign:r.campaign,adset:_ctkLevel_==="campaign"?"—":r.adset,ad:_ctkLevel_==="ad"?r.ad:"—",
-          spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0});
-        ["spend","impr","clicks","v3","leads","qual","appt","vis","enr"].forEach(f=>{ o[f]+=r[f]||0; });
+          spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0,rev:0});
+        ["spend","impr","clicks","v3","leads","qual","appt","vis","enr","rev"].forEach(f=>{ o[f]+=r[f]||0; });
       });
       return Object.keys(out).map(k=>out[k]).sort((a,b)=>(b.spend-a.spend)||(b.leads-a.leads));
     }
+
+    // Which funnel cards open a record list, and what each one means. Clicks and ROAS are absent
+    // on purpose: a click is not a lead we hold a row for, and ROAS is a ratio, not a population.
+    const _CTK_DRILL:Record<string,{label:string;pick:(d:any)=>boolean}>={
+      leads:{label:"leads",pick:()=>true},
+      qual:{label:"qualified leads",pick:(d:any)=>!!d.qual},
+      appt:{label:"leads with an appointment",pick:(d:any)=>!!d.appt},
+      vis:{label:"leads who visited",pick:(d:any)=>!!d.vis},
+      enr:{label:"enrolled leads",pick:(d:any)=>!!d.enr},
+      rev:{label:"leads that paid",pick:(d:any)=>(Number(d.rev)||0)>0},
+    };
+    let _ctkDetail:any[]=[];
+    let _ctkDrillKey="";
 
     const CTK_COLS=[
       {g:"CREATIVE",c:[["Campaign","name"],["Adset","name"],["Ad","name"]]},
       {g:"META — DELIVERY",c:[["Spent","num"],["Impressions","num"],["3s plays","num"],["Hook rate","num"],["Clicks","num"],["CTR","num"]]},
       {g:"FUNNEL — OURS",c:[["Leads","num"],["Qualified","num"],["Appts","num"],["Visited","num"],["Enrolled","num"]]},
       {g:"CONVERSION",c:[["Lead→Appt","num"],["Lead→Visit","num"],["Lead→Enrol","num"],["Appt→Visit","num"],["Visit→Enrol","num"]]},
+      {g:"REVENUE",c:[["Revenue","num"],["ROAS","num"]]},
       {g:"COST PER",c:[["CPL","num"],["CPQL","num"],["CPA","num"],["CPV","num"],["CPE","num"]]},
     ];
 
@@ -14043,7 +14142,7 @@ export function initApp(root: HTMLElement) {
         } else al.style.display="none";
       }
       const rows=_ctkAgg();
-      const T:any={spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0};
+      const T:any={spend:0,impr:0,clicks:0,v3:0,leads:0,qual:0,appt:0,vis:0,enr:0,rev:0};
       rows.forEach((r:any)=>Object.keys(T).forEach(k=>{T[k]+=r[k]||0;}));
 
       // ---- KPI cards ----
@@ -14080,25 +14179,51 @@ export function initApp(root: HTMLElement) {
       // ---- funnel ----
       const fn=root.querySelector("#ctkFunnel");
       if(fn){
-        const stages=[["Clicks",T.clicks],["Leads",T.leads],["Qualified",T.qual],["Appointments",T.appt],["Visited",T.vis],["Enrolled",T.enr]];
+        // Six cards in the requested order. The first four are stages, so each shows its conversion
+        // FROM the previous one; Revenue and ROAS are outcomes, not stages, so they report against
+        // spend instead — a "% from Visited" on a rupee figure would be meaningless.
+        // Leads and Enrolled left the strip but are still counted: both remain in the KPI row above,
+        // in the table, and as drill-downs, so nothing is lost by dropping their cards.
+        const stages:any[]=[
+          {k:"clicks",l:"Clicks",v:T.clicks},
+          {k:"qual",l:"Qualified",v:T.qual,from:"Clicks",prev:T.clicks,band:[3,1]},
+          {k:"appt",l:"Appointments",v:T.appt,from:"Qualified",prev:T.qual,band:[20,8]},
+          {k:"vis",l:"Visited",v:T.vis,from:"Appointments",prev:T.appt,band:[60,35]},
+          {k:"rev",l:"Revenue",v:T.rev,money:true},
+          {k:"roas",l:"ROAS",v:T.spend?T.rev/T.spend:0,roas:true},
+        ];
         fn.innerHTML=stages.map((s:any,i:number)=>{
-          const v=Number(s[1])||0;
-          const prev=i?Number(stages[i-1][1])||0:0;
-          const rate=i?_ctkPct(v,prev):100;            // conversion FROM the previous stage
-          const lost=i&&prev>v?prev-v:0;
-          // Banding is per-step because the stages are not comparable: a 1% click→lead rate is
-          // normal, a 1% visit→enrol rate would be alarming. Thresholds follow the table's pills.
-          const band=i===1?[3,1]:(i===2?[85,60]:(i===3?[20,8]:(i===4?[60,35]:[40,20])));
-          const cls=i===0?"top":(rate>=band[0]?"hi":(rate>=band[1]?"md":"lo"));
-          return '<div class="ctk-fc '+cls+'" style="animation-delay:'+(i*60)+'ms">'
+          const drill=_CTK_DRILL[s.k];
+          const val=s.roas?((Math.round(s.v*100)/100).toFixed(2)+"x")
+                  :(s.money?_ctkMoney(s.v):Number(s.v||0).toLocaleString("en-IN"));
+          let meter=100,foot="",cls="top",lost=0;
+          if(s.prev!==undefined){
+            const rate=_ctkPct(s.v,s.prev); meter=Math.max(s.v?3:0,Math.min(100,rate));
+            cls=rate>=s.band[0]?"hi":(rate>=s.band[1]?"md":"lo");
+            lost=s.prev>s.v?s.prev-s.v:0;
+            foot='<b>'+(s.prev?(Math.round(rate*10)/10).toFixed(1)+"%":"—")+'</b><span>from '+e(s.from)+'</span>';
+          }else if(s.money){
+            // Revenue's meter is cost recovery — how much of the spend has come back as money.
+            const pc=T.spend?_ctkPct(s.v,T.spend):0; meter=Math.max(s.v?3:0,Math.min(100,pc));
+            cls=pc>=100?"hi":(pc>=60?"md":"lo");
+            foot='<b>'+(T.spend?(Math.round(pc)+"%"):"—")+'</b><span>of spend recovered</span>';
+          }else if(s.roas){
+            meter=Math.max(s.v?3:0,Math.min(100,s.v*50));   // 2.0x fills the meter
+            cls=s.v>=2?"hi":(s.v>=1?"md":"lo");
+            foot='<b>'+(T.spend?_ctkMoney(T.spend):"—")+'</b><span>spent</span>';
+          }else{
+            foot='<b>100%</b><span>top of funnel</span>';
+          }
+          return '<div class="ctk-fc '+cls+(drill?" clickable":"")+'" style="animation-delay:'+(i*60)+'ms"'
+            +(drill?' role="button" tabindex="0" title="Show the '+e(drill.label)+' behind this number"'
+                   +' onclick="window._ctkDrill(\''+s.k+'\')"':'')+'>'
             +'<span class="st">'+(i+1)+'/'+stages.length+'</span>'
-            +'<div class="fl">'+e(s[0])+'</div>'
-            +'<div class="fv">'+v.toLocaleString("en-IN")+'</div>'
-            +'<div class="fm"><i style="width:'+Math.max(v?3:0,Math.min(100,rate)).toFixed(1)+'%;animation-delay:'+(i*60+90)+'ms"></i></div>'
-            +'<div class="fp">'+(i
-                ? '<b>'+(prev?(Math.round(rate*10)/10).toFixed(1)+"%":"—")+'</b><span>from '+e(stages[i-1][0])+'</span>'
-                : '<b>100%</b><span>top of funnel</span>')+'</div>'
-            +(lost?'<div class="fd">−'+lost.toLocaleString("en-IN")+' dropped here</div>':'<div class="fd">&nbsp;</div>')
+            +'<div class="fl">'+e(s.l)+'</div>'
+            +'<div class="fv">'+e(val)+'</div>'
+            +'<div class="fm"><i style="width:'+meter.toFixed(1)+'%;animation-delay:'+(i*60+90)+'ms"></i></div>'
+            +'<div class="fp">'+foot+'</div>'
+            +(lost?'<div class="fd">−'+lost.toLocaleString("en-IN")+' dropped here</div>'
+                  :'<div class="fd">'+(drill?"click to see records":"&nbsp;")+'</div>')
             +'</div>';
         }).join("");
       }
@@ -14137,12 +14262,16 @@ export function initApp(root: HTMLElement) {
               +cell(r.leads?_ctkPill(_ctkPct(r.enr,r.leads),6,2):"—")
               +cell(r.appt?_ctkPill(_ctkPct(r.vis,r.appt),60,35):"—")
               +cell(r.vis?_ctkPill(_ctkPct(r.enr,r.vis),40,20):"—")
+              +cell(r.rev?_ctkMoney(r.rev):"—")
+              +cell(r.spend?_ctkRoas(r.rev,r.spend):"—")
               +cell(_ctkCost(r.spend,r.leads))+cell(_ctkCost(r.spend,r.qual))+cell(_ctkCost(r.spend,r.appt))
               +cell(_ctkCost(r.spend,r.vis))+cell(_ctkCost(r.spend,r.enr))
               +'</tr>';
           }).join("");
         }
       }
+      // The drill-down follows the same filters, so re-render it whenever the table does.
+      try{ _ctkRenderDrill(); }catch(_){}
       const ft=root.querySelector("#ctkFoot");
       if(ft){
         const c=(v:string)=>'<td>'+v+'</td>';
@@ -14152,10 +14281,72 @@ export function initApp(root: HTMLElement) {
           +c(String(T.leads))+c(String(T.qual))+c(String(T.appt))+c(String(T.vis))+c(String(T.enr))
           +c(_ctkPctTxt(T.appt,T.leads))+c(_ctkPctTxt(T.vis,T.leads))+c(_ctkPctTxt(T.enr,T.leads))
           +c(_ctkPctTxt(T.vis,T.appt))+c(_ctkPctTxt(T.enr,T.vis))
+          +c(T.rev?_ctkMoney(T.rev):"—")+c(T.spend?_ctkRoas(T.rev,T.spend):"—")
           +c(_ctkCost(T.spend,T.leads))+c(_ctkCost(T.spend,T.qual))+c(_ctkCost(T.spend,T.appt))
           +c(_ctkCost(T.spend,T.vis))+c(_ctkCost(T.spend,T.enr))+'</tr>'):"";
       }
     }
+
+    // ---- Drill-down: the records behind a funnel card ----------------------------------------
+    // Reads the SAME detail rows the counts were built from, and applies the SAME level and search
+    // filters as the table above, so a card's number and its record list can never disagree.
+    function _ctkDrillRows(){
+      const d=_CTK_DRILL[_ctkDrillKey]; if(!d) return [];
+      const q=_ctkQ;
+      return _ctkDetail
+        .filter((x:any)=>d.pick(x))
+        .filter((x:any)=>!q||((x.campaign+" "+x.adset+" "+x.ad+" "+x.name+" "+x.phone).toLowerCase().indexOf(q)>=0))
+        .sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime());
+    }
+    w._ctkDrill=(k:string)=>{
+      if(!_CTK_DRILL[k]) return;
+      _ctkDrillKey=(_ctkDrillKey===k)?"":k;   // clicking the same card again closes it
+      _ctkRenderDrill();
+      if(_ctkDrillKey){ try{ (root.querySelector("#ctkDrillPanel") as HTMLElement|null)?.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(_){} }
+    };
+    w._ctkDrillClose=()=>{ _ctkDrillKey=""; _ctkRenderDrill(); };
+    function _ctkRenderDrill(){
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const panel=root.querySelector("#ctkDrillPanel") as HTMLElement|null; if(!panel) return;
+      const d=_CTK_DRILL[_ctkDrillKey];
+      if(!d){ panel.style.display="none"; return; }
+      panel.style.display="";
+      const rows=_ctkDrillRows();
+      const ttl=root.querySelector("#ctkDrillTitle"); if(ttl) ttl.textContent=d.label.charAt(0).toUpperCase()+d.label.slice(1);
+      const sub=root.querySelector("#ctkDrillSub");
+      if(sub) sub.textContent=rows.length+" record"+(rows.length===1?"":"s")+(_ctkQ?" matching the search":"");
+      const hd=root.querySelector("#ctkDrillHead");
+      if(hd) hd.innerHTML='<tr class="col"><th>Lead</th><th>Phone</th><th>Service</th><th>Campaign</th><th>Adset</th><th>Ad</th>'
+        +'<th>Received</th><th>Call status</th><th>Stage</th><th style="text-align:right">Paid</th></tr>';
+      const tb=root.querySelector("#ctkDrillBody"); if(!tb) return;
+      if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="ctk-none">No records behind this number for the current filters.</td></tr>'; return; }
+      // Capped for render weight; the count above always states the true total, and Export writes
+      // every row — a silent truncation would read as "that is all there is".
+      const CAP=500;
+      tb.innerHTML=rows.slice(0,CAP).map((x:any,i:number)=>{
+        const stage=x.enr?'<span class="ctk-pill hi">Enrolled</span>'
+          :(x.vis?'<span class="ctk-pill hi">Visited</span>'
+          :(x.appt?'<span class="ctk-pill md">Appointment</span>'
+          :(x.qual?'<span class="ctk-pill md">Qualified</span>':'<span class="ctk-pill lo">Lead</span>')));
+        return '<tr style="animation-delay:'+Math.min(i*18,420)+'ms">'
+          +'<td class="name">'+e(x.name)+'</td><td class="num">'+e(x.phone||"—")+'</td>'
+          +'<td>'+e(x.service||"—")+'</td>'
+          +'<td class="name" title="'+e(x.campaign)+'">'+e(x.campaign)+'</td>'
+          +'<td class="name" title="'+e(x.adset)+'">'+e(x.adset)+'</td>'
+          +'<td class="name" title="'+e(x.ad)+'">'+e(x.ad)+'</td>'
+          +'<td class="num">'+e(x.created_at?fmtIST(x.created_at):"—")+'</td>'
+          +'<td>'+e(x.status||"—")+'</td><td>'+stage+'</td>'
+          +'<td class="num">'+(x.rev?_ctkMoney(x.rev):"—")+'</td></tr>';
+      }).join("")+(rows.length>CAP?'<tr><td colspan="10" class="ctk-none">Showing the newest '+CAP+' of '+rows.length+' — Export for the full list.</td></tr>':"");
+    }
+    w._ctkDrillExport=()=>{
+      const rows=_ctkDrillRows(); if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Lead","Phone","Service","Campaign","Adset","Ad","Received","Call status","Qualified","Appointment","Visited","Enrolled","Paid"]];
+      rows.forEach((x:any)=>out.push([x.name,x.phone,x.service,x.campaign,x.adset,x.ad,
+        x.created_at?fmtIST(x.created_at):"",x.status,x.qual?"Yes":"No",x.appt?"Yes":"No",x.vis?"Yes":"No",x.enr?"Yes":"No",String(Math.round(x.rev||0))]));
+      _downloadCsv("campaign_"+(_ctkDrillKey||"records")+".csv",out);
+      toast("Exported "+rows.length+" record"+(rows.length===1?"":"s"));
+    };
 
     w._ctkExport=()=>{
       const rows=_ctkAgg();
@@ -14795,14 +14986,20 @@ export function initApp(root: HTMLElement) {
       if(svcEl){
         const leadSvc:Record<string,string>={}; pays.forEach((p:any)=>{ leadSvc[String(p.lead_id)]=p.leadService||""; });
         const money=_svcMoney(pays,leadSvc,null,null);
+        // Same rule as the report's Revenue-by-service strip: every service always, ₹0 when it took
+        // nothing, so the card set does not change shape with the filters. Unassigned is a
+        // data-quality bucket rather than a service, so it appears only when it holds money.
         const html=_svcAll().map((s:string)=>{
-          const m=money[s]; if(!m||(!m.billed&&!m.collected)) return "";
+          const m=money[s]||{billed:0,collected:0};
+          const zero=!m.billed&&!m.collected;
+          if(zero&&s===SVC_UNASSIGNED) return "";
           const due=Math.max(0,m.billed-m.collected);
-          return '<div class="metric'+(due?" a":" g")+'"><div class="ml">'+_attr(s)+'</div>'
+          return '<div class="metric'+(zero?"":(due?" a":" g"))+'"'+(zero?' style="opacity:.55"':'')+'><div class="ml">'+_attr(s)+'</div>'
             +'<div class="mv" style="font-size:20px">'+fmtL(m.collected)+'</div>'
-            +'<div class="mt" style="font-size:11.5px;font-weight:600;color:var(--muted);margin-top:2px">billed '+fmtL(m.billed)+(due?' · due '+fmtL(due):'')+'</div></div>';
+            +'<div class="mt" style="font-size:11.5px;font-weight:600;color:var(--muted);margin-top:2px">'
+            +(zero?'no payments in this period':'billed '+fmtL(m.billed)+(due?' · due '+fmtL(due):''))+'</div></div>';
         }).filter(Boolean).join("");
-        svcEl.innerHTML=html||'<div style="grid-column:1/-1;font-size:12px;color:var(--faint);padding:4px 2px">No payments match these filters.</div>';
+        svcEl.innerHTML=html;
       }
       const vc=root.querySelector("#accVerCount"); if(vc) vc.textContent=unverified.length?" · "+unverified.length:"";
       const oc=root.querySelector("#accOutCount"); if(oc) oc.textContent=outstanding.length?" · "+outstanding.length:"";
@@ -15299,7 +15496,9 @@ export function initApp(root: HTMLElement) {
       // inst = has any instalment). They had been labelled "L1 Enrolled" / "L2 Full Paid" /
       // "Total Pay" / "L2 Instalment", which is why an L1-only lead read as L2 Fully Paid. The genuine
       // per-programme figures are the L1/L2 Revenue columns, which DO split on payments.program.
-      {key:"enr",label:"Enrolled",group:"PAYMENT",gcls:"g-pay"},
+      // "Enrolled" removed from the table on request. r.enr is still computed — the KPI card, the
+      // conversion columns (Visit->Enrol%, Lead->Conv%) and L1/L2 Enrolled all read it — so putting
+      // the column back is this one line.
       // The two programme-specific counts. L1 Enrolled = a paid row tagged L1; L2 Enrolled = a paid
       // row tagged L2, INCLUDING a single instalment — see the rule in _rpcAgg. They overlap on
       // purpose (a "L1 + L2" payment is both), so they do NOT sum to Enrolled.
@@ -15312,7 +15511,11 @@ export function initApp(root: HTMLElement) {
       {key:"inst",label:"Instalment",group:"PAYMENT",gcls:"g-pay"},
       {key:"emi",label:"EMI",group:"PAYMENT",gcls:"g-pay"},
       {key:"alrPaid",label:"Alr. Paid",group:"PAYMENT",gcls:"g-pay"},
-      {key:"payCol",label:"Pay Collected",group:"PAYMENT",gcls:"g-pay"},
+      // Renamed on request. NOTE what it counts: leads with at least one PAID payment in the window,
+      // which is NOT the same set as leads carrying an enrolment stamp (measured 111 vs 76 over 30
+      // days). The gap is almost entirely leads that paid before every payment path started stamping
+      // enrolled_at. Point this at r.enr instead if the stamp is the figure you want.
+      {key:"payCol",label:"Total Enrolled",group:"PAYMENT",gcls:"g-pay"},
       // "Ads Spent" and "ROAS" were removed: nothing in this system records ad spend, so both were
       // permanent placeholders (spend hardcoded to 0, ROAS rendering a literal "—" for every row).
       // Revenue is what was BILLED (instalments still due included); Collected is what came in. They
@@ -15352,12 +15555,12 @@ export function initApp(root: HTMLElement) {
     const RPC_PRESETS:Record<string,string[]|null>={
       all:null,
       sales:["period","leads","svc","src","fu","cb","lb","rnr","dnd","so","oos","wn","open","blank","ni","nosugar","callTot","apptD","apptZ","apptTot","conf","vis","m_l2a","m_a2v","m_l2v","m_l2c"],
-      health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","enr","fp","inst","emi","payCol"],
-      roas:["period","leads","enr","fp","inst","emi","rev","revCol","revOut","revL1","revL2","payCol"],
-      metric:["period","leads","apptD","apptZ","conf","vis","enr","fp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
+      health:["period","leads","sugarHi","sugarMid","sugarNo","hafDone","consWJ","consTW","consNW","consTM","consQD","recDone","progL1","progL2","progBoth","fp","inst","emi","payCol"],
+      roas:["period","leads","fp","inst","emi","rev","revCol","revOut","revL1","revL2","payCol"],
+      metric:["period","leads","apptD","apptZ","conf","vis","fp","m_l2a","m_a2v","m_v2e","m_v2fp","m_l2v","m_l2c"],
       // The FP/PP count columns this view was built around are gone; it keeps the L1/L2 REVENUE split.
-      l1l2:["period","leads","enr","enrL1","enrL2","fp","inst","rev","revL1","revL2"],
-      audit:["period","leads","vis","enr","hafDone","recDone","fuSched","payCol"],
+      l1l2:["period","leads","enrL1","enrL2","fp","inst","rev","revL1","revL2"],
+      audit:["period","leads","vis","hafDone","recDone","fuSched","payCol"],
       // Every service side by side, billed against collected — the gap between the two pairs is that
       // service's outstanding balance.
       bysvc:["period","vis","rev","revCol"].concat(_svcAll().flatMap((s:string)=>[_rpcSvcKey(s,"bill"),_rpcSvcKey(s,"coll")])),
@@ -15829,13 +16032,27 @@ export function initApp(root: HTMLElement) {
       };
       // Leads are PAGED for the same reason the Meta page is: the table is already past 5,000, so
       // a flat .limit(5000) was quietly dropping the oldest leads out of every report total.
-      const [lr,ar,pr,rr]=await Promise.all([
+      const [lr,ar,pr,rr,act]=await Promise.all([
         only("leads",()=>_pageAll((from,to)=>supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,call_status,created_at,is_assigned,assigned_to,visited_at,sugar_poll,city,enrolled_at,confirmed_at,next_followup,coach_profile,screening_vitals").order("created_at",{ascending:false}).order("meta_lead_id",{ascending:false}).range(from,to)),true),
-        only("appointments",()=>supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).limit(3000),false),
-        only("payments",()=>supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).limit(3000),false),
-        only("recordings",()=>supabase.from("office_recordings").select("lead_id,created_at").limit(3000),false)
+        // PAGED, not capped. A flat .limit() truncates in silence: the report keeps rendering and
+        // every total quietly loses the oldest rows, which is exactly how the leads table sat frozen
+        // at 5,000. id is the sort tiebreaker because OFFSET paging over a non-unique key lets rows
+        // reorder between pages, duplicating some and dropping others.
+        only("appointments",()=>_pageAll((a,b)=>supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b)),true),
+        only("payments",()=>_pageAll((a,b)=>supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,due_date,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b)),true),
+        only("recordings",()=>_pageAll((a,b)=>supabase.from("office_recordings").select("lead_id,created_at").order("created_at",{ascending:false}).range(a,b)),true),
+        // The ONLY place a call-status change is dated. Without it the activity toggle cannot move a
+        // lead whose only action that day was being dispositioned — the exact case in the spec
+        // ("created 5 Aug, call status changed 12 Aug").
+        only("activity",()=>supabase.from("lead_activity").select("lead_id,action,field,created_at").order("created_at",{ascending:false}).limit(5000),false)
       ]);
       _rpcLeads=lr; _rpcAppts=ar; _rpcPays=pr; _rpcRecs=rr;
+      // Latest logged action per lead, resolved once. A row dated in the FUTURE would drag a lead
+      // forward out of its real bucket, so anything after "now" is ignored.
+      _rpcActBy={}; const _nowT=Date.now();
+      (act||[]).forEach((a:any)=>{ const id=String(a.lead_id||""); if(!id) return;
+        const t=new Date(a.created_at||0).getTime(); if(isNaN(t)||t>_nowT) return;
+        if(!_rpcActBy[id]||t>_rpcActBy[id]) _rpcActBy[id]=t; });
       // Topbar chrome: live date + the signed-in role (design shows an access badge).
       const now=new Date(); const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       const ld=root.querySelector("#rpcLiveDate"); if(ld) ld.textContent=days[now.getDay()]+", "+now.getDate()+" "+months[now.getMonth()]+" "+now.getFullYear();
@@ -15891,10 +16108,22 @@ export function initApp(root: HTMLElement) {
     // nothing, fall back to the LEAD's own appointment status, which is the same fact recorded in
     // the other place. This keeps historical rows correct without a data migration; rows written
     // from now on carry meeting_type and never reach the fallback.
+    // Direct vs Zoom. The appointment's own meeting_type wins; only when it is absent does the
+    // lead's call status stand in.
+    //
+    // "Appointment Fixed – Home" is the BLOOD TEST wording for the same afz code that every other
+    // service shows as "Zoom" (see _afzLabel). Treating "home" as Zoom for ALL services put walk-in
+    // appointments in the Zoom column for any lead whose status happened to read Home — so the
+    // fallback now only accepts "home" on a Blood Test lead, where it is the real label. "Zoom"
+    // itself still counts for every service, and nothing changes for an appointment that carries
+    // its own meeting_type.
     const _rpcIsZoomAppt=(a:any,lead?:any)=>{
       if(a.meeting_type) return a.meeting_type==="zoom";
       if(/zoom/i.test(a.source||"")) return true;
-      return /zoom|home/i.test(String(lead&&lead.call_status||""));
+      const cs=String(lead&&lead.call_status||"");
+      if(/zoom/i.test(cs)) return true;
+      const svc=String((a&&a.service)||(lead&&lead.service)||"");
+      return /home/i.test(cs)&&normService(svc)==="Blood Test";
     };
     // lead_id → its payments / appointments / recordings (built once per render for O(1) lookups)
     function _rpcIndex(rows:any[],key:string){ const m:Record<string,any[]>={}; rows.forEach((r:any)=>{ const k=String(r[key]||""); if(!k)return; (m[k]=m[k]||[]).push(r); }); return m; }
@@ -16148,6 +16377,8 @@ export function initApp(root: HTMLElement) {
     // A lead lands in exactly ONE bucket either way: this picks a single timestamp per lead rather
     // than counting it once per activity, so toggling can never duplicate anyone.
     let _rpcByActivity=false;
+    let _rpcMovedCount=0;   // leads whose row changes when the basis is flipped
+    let _rpcActBy:Record<string,number>={};   // lead id -> latest logged action time
     // Which timestamp puts an EVENT (appointment, payment, enrolment, screening) in a bucket.
     // ON  → the event's own date, so it lands on the day it happened.
     // OFF → the lead's created date, so the ENTIRE row shares one basis and an appointment kept on
@@ -16168,6 +16399,10 @@ export function initApp(root: HTMLElement) {
       // it was captured at stands in for it.
       (apptsBy[id]||[]).forEach((a:any)=>{ bump(_visitDate(a)); bump(a.created_at); });
       (paysBy[id]||[]).forEach((p:any)=>{ bump(p.paid_at||p.created_at); });
+      // Everything logged against this lead — call-status changes, assignment, check-in, enrolment,
+      // payment, profile edits. This carries the statuses that have NO date column of their own.
+      // It never invents a date; it only reads one that was actually recorded.
+      if(_rpcActBy[id]) bump(_rpcActBy[id]);
       return best;   // no activity anywhere → still the created date, per spec
     }
     function _rpcBuildRows(){
@@ -16179,6 +16414,14 @@ export function initApp(root: HTMLElement) {
       // never disagree about where a lead belongs.
       const basisAt=new Map<any,number>();
       leads.forEach((l:any)=>basisAt.set(l,_rpcActivityAt(l,apptsBy,paysBy)));
+      // How many leads this toggle actually MOVES. Most leads never do anything after arriving, so
+      // flipping the basis can change very little and the control reads as broken. Stating the
+      // number turns "nothing happened" into "7 leads moved", which is the honest answer.
+      _rpcMovedCount=0;
+      if(_rpcByActivity) leads.forEach((l:any)=>{
+        const cr=new Date(l.created_at||0).getTime(), ac=basisAt.get(l)||0;
+        if(ac>cr&&new Date(cr).toDateString()!==new Date(ac).toDateString()) _rpcMovedCount++;
+      });
       const _at=(l:any)=>basisAt.get(l)??0;
       const inWin=leads.filter((l:any)=>{ const t=_at(l); return t>=wFrom&&t<=wTo; });
       let rows:any[]=[];
@@ -16267,7 +16510,7 @@ export function initApp(root: HTMLElement) {
         {l:"Appt Fixed",v:appt,cls:"green",s:"D:"+t.apptD+" Z:"+t.apptZ,k:"apptTot"},
         {l:"Confirmed",v:t.conf,cls:"green",k:"conf"},
         {l:"Visited",v:t.vis,cls:"green",k:"vis"},
-        {l:"Enrolled",v:t.enr,cls:"pink",k:"enr"},
+        {l:"Enrolled",v:t.enr,cls:"pink",k:"enr",ro:true},
         {l:"Full Paid",v:t.fp,cls:"",k:"fp"},
         // Reports only — its COLUMN was removed, and _rpcColFilters filters rows by key whether or
         // not a column renders it. Left clickable this card would silently shrink every row with no
@@ -16298,16 +16541,22 @@ export function initApp(root: HTMLElement) {
     // with no money in the period are dropped rather than printed as a wall of zeroes.
     function _rpcSvcStrip(t:any){
       const host=root.querySelector("#rpcSvcGrid") as HTMLElement|null; if(!host) return;
+      // EVERY service from the master list, always. A service with no money in the period now reads
+      // ₹0 instead of disappearing — hiding it made the strip's shape change with the date range and
+      // left "is Physiotherapy missing, or did it simply earn nothing?" unanswerable. "Unassigned" is
+      // the one exception: it is a data-quality bucket, not a service, so it shows only when it holds
+      // money. A zero card is dimmed and not clickable, since filtering to it would empty the table.
       const rowsHtml=_svcAll().map((s:string)=>{
         const bill=t[_rpcSvcKey(s,"bill")]||0, coll=t[_rpcSvcKey(s,"coll")]||0;
-        if(!bill&&!coll) return "";
+        const zero=!bill&&!coll;
+        if(zero&&s===SVC_UNASSIGNED) return "";
         const out=Math.max(0,bill-coll);
-        return '<div class="mc" style="cursor:pointer" title="Show only rows with '+_rpcEsc(s)+' revenue" onclick="window._rpcCardClick(\''+_rpcSvcKey(s,"bill")+'\')">'
+        return '<div class="mc"'+(zero?' style="opacity:.55"':' style="cursor:pointer" title="Show only rows with '+_rpcEsc(s)+' revenue" onclick="window._rpcCardClick(\''+_rpcSvcKey(s,"bill")+'\')"')+'>'
           +'<div class="ml">'+_rpcEsc(s)+'</div>'
           +'<div class="mv" style="font-size:16px">'+_rpcMoney(coll)+'</div>'
-          +'<div class="ms">billed '+_rpcMoney(bill)+(out?' · due '+_rpcMoney(out):'')+'</div></div>';
+          +'<div class="ms">'+(zero?'no payments in this period':'billed '+_rpcMoney(bill)+(out?' · due '+_rpcMoney(out):''))+'</div></div>';
       }).filter(Boolean).join("");
-      host.innerHTML=rowsHtml||'<div style="grid-column:1/-1;font-size:12px;color:var(--faint);padding:6px 2px">No payments in this period.</div>';
+      host.innerHTML=rowsHtml;
     }
     function _rpcBody(win:any){
       const vis=_rpcVisCols();
@@ -16375,6 +16624,7 @@ export function initApp(root: HTMLElement) {
         }else{
           sub.style.color=""; sub.style.fontWeight="";
           sub.textContent="Live data · rows are leads by their "+(_rpcByActivity?"latest activity date":"created date")
+            +(_rpcByActivity?(" · "+_rpcMovedCount+" lead"+(_rpcMovedCount===1?"":"s")+" moved to a different day"):"")
             +" · showing "+shown+" of "+rows.length+" row"+(rows.length===1?"":"s")
             +" · click a card or a column header to filter";
         }

@@ -1180,6 +1180,11 @@ html{scroll-behavior:smooth}
 .ctk-fc .fp{display:flex;align-items:baseline;gap:6px;margin-top:8px;font-size:11px;color:var(--faint)}
 .ctk-fc .fp b{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
 .ctk-fc.hi .fp b{color:#10794A}.ctk-fc.md .fp b{color:#9A6608}.ctk-fc.lo .fp b{color:#B5402A}
+/* Only cards that actually open a record list get a pointer — Clicks and ROAS have no rows behind
+   them, and a cursor promising a drill-down that never comes is worse than no affordance. */
+.ctk-fc.clickable{cursor:pointer}
+.ctk-fc.clickable:hover{border-color:rgba(15,88,50,.42)}
+.ctk-fc.clickable:focus-visible{outline:2px solid var(--brand,#0F5832);outline-offset:2px}
 .ctk-fc.top{border-left:3px solid #12603C}
 .ctk-fc.top .fp b{color:var(--muted)}
 /* The drop lost at this step, stated plainly — the point of a funnel is where people leave. */

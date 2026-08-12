@@ -100,6 +100,38 @@ const STEPS: Step[] = [
 // ---------------------------------------------------------------------------
 const BACKFILLS: Step[] = [
   {
+    // The advisor's Sugar level lived only inside advisor_profile, while leads.sugar_poll kept the
+    // raw Meta poll answer — so a level the advisor CORRECTED on the call never reached the filter,
+    // the dashboards or the Coach. Confirmed live: three leads read "150-250" in sugar_poll while
+    // their profiles said "No Sugar", "No Sugar" and "150–250"; the Sugar 150-250 filter therefore
+    // returned 3 where only 1 belonged.
+    //
+    // The profile is a POSITIONAL array, so this does not trust an index: it scans for the first
+    // entry whose value is exactly one of the three dropdown labels. If the form ever changes shape
+    // the scan simply finds nothing and no row is touched — it can never write a wrong field.
+    // Only rows that actually disagree are updated, so this is a no-op from the second run on.
+    name: 'leads.sugar_poll from advisor profile',
+    sql: `
+      UPDATE leads l
+         SET sugar_poll = v.val
+        FROM (
+          SELECT x.meta_lead_id, e.val
+            FROM (SELECT meta_lead_id, advisor_profile->'f' AS f
+                    FROM leads
+                   WHERE advisor_profile ? 'f'
+                     AND jsonb_typeof(advisor_profile->'f') = 'array') x
+            CROSS JOIN LATERAL (
+              SELECT elem->>'v' AS val
+                FROM jsonb_array_elements(x.f) WITH ORDINALITY AS t(elem, ord)
+               WHERE elem->>'v' IN ('No Sugar', '150-250', '150–250', 'Above 250')
+               ORDER BY t.ord
+               LIMIT 1
+            ) e
+        ) v
+       WHERE l.meta_lead_id = v.meta_lead_id
+         AND coalesce(l.sugar_poll, '') IS DISTINCT FROM v.val`,
+  },
+  {
     // Refunds settled before refund_paid_at existed have no payout date and would show a
     // permanent "—". Under the old model there was no separate payout stage: "processed" WAS
     // the terminal state, i.e. the refund was done. So for those rows the confirmation

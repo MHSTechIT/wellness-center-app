@@ -1718,6 +1718,20 @@ export function getMainContent(): string {
       <div class="ctk-funnel" id="ctkFunnel"></div>
     </div>
 
+    <!-- Drill-down — the individual records behind whichever funnel card was clicked. Hidden until
+         a card is pressed, so the page does not open with two tables competing for attention. -->
+    <div class="ctk-panel" id="ctkDrillPanel" style="display:none">
+      <div class="ctk-ph">
+        <span class="ctk-ph-t" id="ctkDrillTitle"></span>
+        <span class="ctk-ph-s" id="ctkDrillSub"></span>
+        <span style="margin-left:auto;display:flex;gap:8px">
+          <button class="ctk-btn ghost" style="color:var(--ink);background:var(--surface-2);border-color:var(--line)" onclick="window._ctkDrillExport()">⬇ Export</button>
+          <button class="ctk-btn ghost" style="color:var(--ink);background:var(--surface-2);border-color:var(--line)" onclick="window._ctkDrillClose()">✕ Close</button>
+        </span>
+      </div>
+      <div class="ctk-tw" style="max-height:min(48vh,540px)"><table class="ctk-tbl"><thead id="ctkDrillHead"></thead><tbody id="ctkDrillBody"></tbody></table></div>
+    </div>
+
     <!-- Performance — the per-creative breakdown. This is where every column asked for lives
          (spend, delivery, funnel, conversion, cost-per); the cards above are only its summary. -->
     <div class="ctk-panel">
