@@ -8840,6 +8840,23 @@ export function initApp(root: HTMLElement) {
     // assignment pool changed" signal (type:"assignment", no leadId — a lead was assigned,
     // unassigned, transferred or returned to pool/feed) — see _applyLeadSync.
     function _broadcastLeadSync(m:any){ try{ if(_syncBus&&m&&(m.leadId||m.type)) _syncBus.postMessage(m); }catch(_){} }
+    // ---- Check-in → Screening celebration ----
+    // Fired from the ACTION (recRegDone) and from its broadcast — never from a render or a data
+    // load, which is what guarantees it plays only when the status actually changes and not on
+    // refresh/reopen. Keyed by lead+timestamp so the same event can't replay in any tab.
+    const _cheerSeen=new Set<string>();
+    function _mhsCheer(name:string,key:string){
+      if(!_currentUser) return;                       // sign-in gate; roles keep their normal screens
+      if(key){ if(_cheerSeen.has(key)) return; _cheerSeen.add(key); }
+      try{ if(window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches) return; }catch(_){}
+      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const el=document.createElement("div");
+      el.className="mhs-cheer";
+      el.innerHTML='<img src="/mhs-mascot.gif" alt="" aria-hidden="true">'
+        +'<div class="msg">🎉 '+e(name||"Client")+' → Screening</div>';
+      document.body.appendChild(el);
+      setTimeout(()=>{ try{ el.remove(); }catch(_){} },2900);
+    }
     function _applyLeadSync(m:any){
       if(!m) return;
       if(m.type==="assignment"){
@@ -8850,6 +8867,10 @@ export function initApp(root: HTMLElement) {
         return;
       }
       if(!m.leadId) return; const id=String(m.leadId);
+      // The other half of the check-in celebration: an Advisor/Admin page open in ANOTHER tab plays
+      // the same event once. The key matches the sender's, so between tabs it still fires only once
+      // per actual status change — and never from a data load, which carries no such message.
+      if(m.screening&&m.visitedAt){ try{ _mhsCheer(String(m.clientName||""),id+"@"+String(m.visitedAt)); }catch(_){} }
       const set=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ if(m.callStatus!=null)l.callStatus=m.callStatus; if("enrolledAt" in m)l.enrolledAt=m.enrolledAt; if("visitedAt" in m)l.visitedAt=m.visitedAt; } });
       try{ set(_metaLeads); set(_assignedExtras); }catch(_){}
       // Coach in-memory client: apply every synced field INCLUDING visitedAt (was omitted) so an
@@ -9111,9 +9132,15 @@ export function initApp(root: HTMLElement) {
           if(await _dbOk(supabase.from("leads").update({call_status:"Visited",visited_at:nowIso}).eq("meta_lead_id",m.lead_id),"Check-in handoff to Coach")){
             const mode=(m.meeting_type==="zoom"||/zoom/i.test(m.source||""))?"Zoom":"Walk-in";
             logActivity(m.lead_id,[{action:"Checked In",field:"Visited",new:mode}]);
-            _broadcastLeadSync({leadId:String(m.lead_id),callStatus:"Visited",visitedAt:nowIso});
+            // screening travels with the sync message so an Advisor page open in another tab
+            // celebrates the SAME event once — keyed by lead+time, so replays are impossible.
+            _broadcastLeadSync({leadId:String(m.lead_id),callStatus:"Visited",visitedAt:nowIso,
+              screening:stage==="screening",clientName:m.name||""});
           }
         }
+        // The celebration belongs to the STATUS CHANGE itself — only the screening route, and only
+        // here at the action (never from a render), so a refresh or reopen can never replay it.
+        if(stage==="screening") _mhsCheer(m.name||"",String(m.lead_id||m.id||"")+"@"+nowIso);
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
@@ -10610,14 +10637,29 @@ export function initApp(root: HTMLElement) {
       try{
         const up=await supabase.storage.from("office-recordings").upload(path,blob as any,{upsert:false});
         if(up.error) throw up.error;
+        // Store the URL WITHOUT the session token. getPublicUrl signs with whoever is logged in,
+        // so the stored link died when the uploader's token expired — and persisted a live token
+        // in the database besides. Playback re-signs per viewer from file_path (_ovrUrl).
         const {data}=supabase.storage.from("office-recordings").getPublicUrl(path);
-        const url=(data&&data.publicUrl)||"";
+        const url=String((data&&data.publicUrl)||"").split("?")[0];
         await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_recBy(),created_at:new Date().toISOString()});
         toast("✓ Recording saved to profile");
         // Recording is now persisted in office_recordings (backend) → flip the status to "Done"
         // immediately, no refresh or manual click needed. Runs only if this lead is still open.
         if(String(_coachLeadId)===id){ _recStatusApply("done"); _ovrRenderList(id); }
       }catch(e:any){ toastErr("Recording save failed: "+(e.message||"upload error")); }
+    }
+    // Playback/download URL for a recording, built from file_path with the CURRENT viewer's session.
+    // The stored file_url has the UPLOADER's token baked in from save time (getPublicUrl signs with
+    // whoever is logged in), so anyone else's recording stopped playing the moment that token
+    // expired — confirmed live: sugashini's 51m recording carried sugashini's token and 401'd for
+    // the Owner, while the Owner's own 2s row played fine. Re-signing per viewer fixes every
+    // existing row too, because file_path was always stored alongside the stale URL.
+    function _ovrUrl(r:any):string{
+      try{
+        if(r&&r.file_path){ const {data}=supabase.storage.from("office-recordings").getPublicUrl(String(r.file_path)); if(data&&data.publicUrl) return data.publicUrl; }
+      }catch(_){}
+      return String(r&&r.file_url||"");   // legacy rows without a path — better a stale token than nothing
     }
     async function _ovrRenderList(id:string){
       const el=root.querySelector("#ovrList"); if(!el) return;
@@ -10634,8 +10676,8 @@ export function initApp(root: HTMLElement) {
         +'<span style="font-size:12px;font-weight:600">🎙 '+e(fmtIST(r.created_at))+'</span>'
         +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
         +(r.recorded_by?'<span style="font-size:10.5px;color:var(--muted)">'+e(r.recorded_by)+'</span>':'')
-        +'<audio controls preload="none" src="'+e(_safeHref(r.file_url))+'" style="height:32px;flex:1;min-width:180px"></audio>'
-        +'<a class="btn bsm" href="'+e(_safeHref(r.file_url))+'" download style="text-decoration:none">⬇ Download</a>'
+        +'<audio controls preload="none" src="'+e(_safeHref(_ovrUrl(r)))+'" style="height:32px;flex:1;min-width:180px"></audio>'
+        +'<a class="btn bsm" href="'+e(_safeHref(_ovrUrl(r)))+'" download style="text-decoration:none">⬇ Download</a>'
         +'</div>'
       ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>';
     }
@@ -10725,7 +10767,9 @@ export function initApp(root: HTMLElement) {
       if(_ovrTblPageN>pages)_ovrTblPageN=pages; if(_ovrTblPageN<1)_ovrTblPageN=1;
       const pr=rows.slice((_ovrTblPageN-1)*REC_PER,(_ovrTblPageN-1)*REC_PER+REC_PER);
       body.innerHTML=pr.length?pr.map((r:any)=>{
-        const ready=!!r.file_url; const url=_recA(r.file_url||"");
+        // Re-signed with the VIEWER's session — the stored URL carries the uploader's token,
+        // which expires and 401s for everyone else (see _ovrUrl).
+        const ready=!!(r.file_url||r.file_path); const url=_recA(_ovrUrl(r));
         return '<tr>'
           +'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recE(fmtIST(r.created_at))+'</td>'
           +'<td style="font-weight:600">'+_recE(r._cust||"—")+'</td>'
@@ -10770,7 +10814,7 @@ export function initApp(root: HTMLElement) {
       const rows=gridApply("ovrTbl",_ovrBase());
       if(!rows.length){ toast("Nothing to download"); return; }
       const out:string[][]=[["Recording Date & Time","Customer Name","Recorded By","Duration","Recording Status","Recording URL"]];
-      rows.forEach((r:any)=>out.push([fmtIST(r.created_at),r._cust||"",r.recorded_by||"",_recDur(r.duration_seconds),r.file_url?"Ready":"Processing",r.file_url||""]));
+      rows.forEach((r:any)=>out.push([fmtIST(r.created_at),r._cust||"",r.recorded_by||"",_recDur(r.duration_seconds),(r.file_url||r.file_path)?"Ready":"Processing",_ovrUrl(r)]));
       _downloadCsv("wellnessos_office_recordings.csv",out); toast("Downloaded "+rows.length+" office recordings");
     };
     w._zoomTblSearch=()=>{ if(_zoomSearchT)clearTimeout(_zoomSearchT); _zoomSearchT=setTimeout(()=>{ _zoomQuery=(root.querySelector("#zoomTblSearch")as HTMLInputElement)?.value||""; _zoomTblPageN=1; renderZoomTbl(); },180); };
@@ -10866,6 +10910,9 @@ export function initApp(root: HTMLElement) {
     function fillCoachDetail(lead:any){
       if(!lead) return;
       _coachLeadId=String(lead.id);
+      // The Request-to-BDM chip must describe THIS client. Requests load lazily on the first open,
+      // then repaint from memory on every later one.
+      try{ _bdmReqs.length?_bdmPaintState():_bdmLoad(); }catch(_){}
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const name=lead.name||lead.phone||"Client";
       const initials=(name.match(/[A-Za-z0-9]/g)||["C","L"]).slice(0,2).join("").toUpperCase();
@@ -14361,6 +14408,162 @@ export function initApp(root: HTMLElement) {
       _downloadCsv("campaign_tracker.csv",out); toast("Exported "+rows.length+" row"+(rows.length===1?"":"s"));
     };
 
+
+    // ========== BDM REQUISITION ==========
+    // The coach freezes the deal — consultation, program, pricing, payment terms — into ONE
+    // snapshot row and hands it to the BDM. Approval is the enrolment event: it stamps
+    // leads.enrolled_at through _enrollLeadShared, the same writer Reception and Accounts use,
+    // which is why Coach, Advisor and Reception all show the same status with nobody updating
+    // anything by hand.
+    let _bdmReqs:any[]=[];
+    const _bdmV=(sel:string)=>{ const el=root.querySelector(sel) as any; return el?String(el.value||"").trim():""; };
+    // The coach's consult-status pill strip has no <select>; the "on" pill is the value.
+    const _bdmConsStatus=()=>{ const p=root.querySelector("#consStatus .pill.on"); return p?String(p.textContent||"").trim():""; };
+    function _bdmSnapshot(){
+      const byLabel=(lbl:string)=>{ const el=root.querySelector('#s-coach [aria-label="'+lbl+'"]') as any; return el?String(el.value||"").trim():""; };
+      return {
+        // Consultation & program
+        consultation_status:_bdmConsStatus(),
+        consultation_date:_bdmV("#haConsultDate"),
+        program:_bdmV("#haProgram"),
+        l1_price:_bdmV("#haL1Price"),
+        special_offer_amt:_bdmV("#haSpecialAmt"),
+        l2_price:_bdmV("#haL2Price"),
+        coupon:_bdmV("#coupon"),
+        client_category:byLabel("Client category"),
+        date_of_joining:byLabel("Date of joining"),
+        access_planned:byLabel("Access planned"),
+        attended_by:_bdmV("#haAttendedBy2"),
+        // Payment
+        payment_method:(root.querySelector("#payMethod option:checked") as any)?.textContent?.trim()||_bdmV("#payMethod"),
+        collected_by:_bdmV("#collectedBy"),
+        program_cost:_bdmV("#emiCost"),
+        down_payment:_bdmV("#emiDown"),
+        financed_balance:_bdmV("#emiRemain"),
+        tenure_months:_bdmV("#emiTenure"),
+        emi_per_month:_bdmV("#emiPer"),
+        documentation_date:byLabel("Documentation date"),
+        disbursement_eta:byLabel("Disbursement ETA"),
+        net_after_subvention:_bdmV("#emiNet"),
+        // Proofs travel as names only — the files themselves live in storage already.
+        proofs:[...root.querySelectorAll("#emiProofs .att:not(.add)")].map((a:any)=>String(a.textContent||"").trim()).filter(Boolean),
+      };
+    }
+    // The open client's requests, newest first (there may be a returned one before an approved one).
+    const _bdmForLead=(id:string)=>_bdmReqs.filter((r:any)=>String(r.lead_id)===String(id))
+      .sort((a:any,b:any)=>new Date(b.requested_at||0).getTime()-new Date(a.requested_at||0).getTime());
+    function _bdmPaintState(){
+      const el=root.querySelector("#bdmReqState") as HTMLElement|null;
+      const btn=root.querySelector("#bdmReqBtn") as HTMLButtonElement|null;
+      if(!el||!btn) return;
+      const cur=_coachLeadId?_bdmForLead(String(_coachLeadId))[0]:null;
+      const st=cur?String(cur.status):"";
+      // A pending request locks the button: one live request per client, or the BDM queue fills
+      // with duplicates of the same deal. Approved locks it too — the client is enrolled.
+      btn.disabled=st==="pending"||st==="approved";
+      btn.style.opacity=btn.disabled?"0.55":"";
+      el.textContent=st==="pending"?"Sent to BDM — awaiting approval"
+        :(st==="approved"?"BDM approved ✓ — client enrolled"
+        :(st==="returned"?"Returned by BDM: "+String(cur?.return_reason||"see notes")+" — fix and resend":""));
+      el.style.color=st==="pending"?"var(--warn-ink,#B26A00)":(st==="approved"?"var(--ok-ink,#10794A)":(st==="returned"?"var(--alert-ink,#D8442B)":""));
+    }
+    async function _bdmLoad(){
+      try{ const {data}=await supabase.from("bdm_requests").select("*").order("requested_at",{ascending:false}).limit(500); _bdmReqs=data||[]; }
+      catch(_){ _bdmReqs=[]; }
+      _bdmPaintState();
+      try{ _bdmRender(); }catch(_){}
+    }
+    w._bdmRequest=async()=>{
+      const id=_coachLeadId; if(!id){ toast("Open a client first"); return; }
+      if(_bdmForLead(String(id)).some((r:any)=>r.status==="pending")){ toast("Already with the BDM — awaiting approval"); return; }
+      const snap=_bdmSnapshot();
+      if(!snap.program){ toastErr("Choose the suggested program first"); return; }
+      const nm=(root.querySelector("#coachName")?.textContent||"").trim()||"Client";
+      const who=(_currentUser&&(_currentUser.name||_currentUser.email))||"Health Coach";
+      const row={lead_id:String(id),client_name:nm,program:snap.program,snapshot:snap,status:"pending",requested_by:who};
+      const {data,error}=await supabase.from("bdm_requests").insert(row).select().single();
+      if(error){ toastErr(/relation|exist/i.test(error.message||"")?"Restart the server — the BDM table is created on boot":"Request failed: "+(error.message||"error")); return; }
+      _bdmReqs=[(data||row),..._bdmReqs];
+      _bdmPaintState();
+      logActivity(String(id),[{action:"Status Changed",field:"BDM request",new:"Sent to BDM"}]);
+      toast("Sent to BDM ✓ — "+nm+" · "+snap.program);
+    };
+    // ---- BDM page: one report per request ----
+    function _bdmRender(){
+      const host=root.querySelector("#bdmReqList") as HTMLElement|null; if(!host) return;
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const tab=_bdmTab;
+      const rows=_bdmReqs.filter((r:any)=>tab==="pending"?r.status==="pending":r.status!=="pending");
+      const cnt=root.querySelector("#bdmPendingCount"); if(cnt) cnt.textContent=String(_bdmReqs.filter((r:any)=>r.status==="pending").length);
+      if(!rows.length){ host.innerHTML='<div class="ctk-empty"><div class="ctk-empty-ic">✓</div><div class="ctk-empty-t">'+(tab==="pending"?"Nothing waiting":"No decided requests yet")+'</div><div class="ctk-empty-s">'+(tab==="pending"?"When a Health Coach presses Request to BDM, the client’s full report appears here.":"Approved and returned requests will be listed here.")+'</div></div>'; return; }
+      const money=(v:any)=>{ const n=Number(String(v).replace(/[₹,\s]/g,"")); return isFinite(n)&&n>0?"₹"+Math.round(n).toLocaleString("en-IN"):String(v||"—"); };
+      const F=(l:string,v:any,mono?:boolean)=>'<div class="bdm-f"><div class="k">'+e(l)+'</div><div class="v'+(mono?" mono":"")+'">'+(v?e(v):"—")+'</div></div>';
+      host.innerHTML=rows.map((r:any)=>{
+        const s=r.snapshot||{};
+        const st=String(r.status);
+        const chip=st==="pending"?'<span class="chipb warn">Pending</span>':(st==="approved"?'<span class="chipb ok">Approved</span>':'<span class="chipb al">Returned</span>');
+        return '<div class="bdm-card">'
+          +'<div class="bdm-hd"><div><span class="nm">'+e(r.client_name||"Client")+'</span> <span class="pg">'+e(r.program||"")+'</span> '+chip+'</div>'
+          +'<div class="meta">Requested by '+e(r.requested_by||"—")+' · '+e(r.requested_at?fmtIST(r.requested_at):"—")
+          +(r.decided_at?' · Decided '+e(fmtIST(r.decided_at))+' by '+e(r.decided_by||"—"):'')+'</div></div>'
+          +'<div class="bdm-sec">Consultation &amp; program</div>'
+          +'<div class="bdm-grid">'
+          +F("Consultation status",s.consultation_status)+F("Consultation date",s.consultation_date)
+          +F("Program suggested",s.program)+F("Special offer amt",s.special_offer_amt?money(s.special_offer_amt):"—",true)
+          +F("L2 price",s.l2_price?money(s.l2_price):"—",true)+F("Coupon code",s.coupon)
+          +F("Client category",s.client_category)+F("Date of joining",s.date_of_joining,true)
+          +F("Access planned",s.access_planned,true)+F("Attended by",s.attended_by)
+          +'</div>'
+          +'<div class="bdm-sec">Payment</div>'
+          +'<div class="bdm-grid">'
+          +F("Payment method",s.payment_method)+F("Collected by",s.collected_by)
+          +F("Program cost",s.program_cost?money(s.program_cost):"—",true)+F("Down payment",s.down_payment?money(s.down_payment):"—",true)
+          +F("Financed balance",s.financed_balance?money(s.financed_balance):"—",true)+F("Tenure (months)",s.tenure_months,true)
+          +F("EMI / month",s.emi_per_month?money(s.emi_per_month):"—",true)+F("Documentation date",s.documentation_date,true)
+          +F("Disbursement ETA",s.disbursement_eta,true)+F("Net after subvention",s.net_after_subvention?money(s.net_after_subvention):"—",true)
+          +'</div>'
+          +'<div class="bdm-sec">Proof</div>'
+          +'<div class="bdm-grid">'+F("Attachments",(s.proofs&&s.proofs.length)?s.proofs.join(" · "):"none attached")+'</div>'
+          +(st==="returned"&&r.return_reason?'<div class="bdm-sec" style="color:var(--alert-ink)">Returned: '+e(r.return_reason)+'</div>':'')
+          +(st==="pending"
+            ?'<div class="bdm-act"><button class="btn bp" onclick="window._bdmApprove(\''+e(String(r.id))+'\')">✓ Approve — enrol client</button>'
+             +'<button class="btn" onclick="window._bdmReturn(\''+e(String(r.id))+'\')">↩ Return to coach</button></div>'
+            :'')
+          +'</div>';
+      }).join("");
+    }
+    let _bdmTab:"pending"|"done"="pending";
+    w._bdmSetTab=(t:any,el:any)=>{ _bdmTab=t==="done"?"done":"pending";
+      root.querySelectorAll("#bdmTabs button").forEach((b:any)=>b.classList.toggle("on",b===el)); _bdmRender(); };
+    w._bdmApprove=async(id:string)=>{
+      const r=_bdmReqs.find((x:any)=>String(x.id)===String(id)); if(!r||r.status!=="pending") return;
+      const who=(_currentUser&&(_currentUser.name||_currentUser.email))||"BDM";
+      csvConfirm("<b>Approve "+String(r.client_name||"this client")+" · "+String(r.program||"")+"?</b><br><br>"
+        +"Approval enrols the client immediately — Enrolled status updates on the Health Coach, Advisor and Reception pages automatically.",
+        async()=>{
+        if(!(await _dbOk(supabase.from("bdm_requests").update({status:"approved",decided_by:who,decided_at:new Date().toISOString()}).eq("id",r.id),"BDM approval"))) return;
+        r.status="approved"; r.decided_by=who; r.decided_at=new Date().toISOString();
+        // THE enrolment event. _enrollLeadShared stamps leads.enrolled_at + call_status and syncs
+        // the coach pills, so every page reads the same fact from the same field.
+        try{ await _enrollLeadShared(String(r.lead_id),"BDM approved",String(r.program||"L1")); }catch(_){}
+        logActivity(String(r.lead_id),[{action:"Enrolled",field:"BDM request",new:"Approved by "+who}]);
+        try{ await loadReceptionData(); }catch(_){}
+        _bdmRender(); _bdmPaintState();
+        toast("Approved ✓ — "+String(r.client_name||"client")+" enrolled");
+      },"Approve");
+    };
+    w._bdmReturn=async(id:string)=>{
+      const r=_bdmReqs.find((x:any)=>String(x.id)===String(id)); if(!r||r.status!=="pending") return;
+      const reason=(window.prompt("Reason for returning to the coach:","")||"").trim();
+      if(!reason){ toast("A return needs a reason the coach can act on"); return; }
+      const who=(_currentUser&&(_currentUser.name||_currentUser.email))||"BDM";
+      if(!(await _dbOk(supabase.from("bdm_requests").update({status:"returned",decided_by:who,decided_at:new Date().toISOString(),return_reason:reason}).eq("id",r.id),"BDM return"))) return;
+      r.status="returned"; r.decided_by=who; r.decided_at=new Date().toISOString(); r.return_reason=reason;
+      logActivity(String(r.lead_id),[{action:"Status Changed",field:"BDM request",new:"Returned: "+reason}]);
+      _bdmRender(); _bdmPaintState();
+      toast("Returned to the coach");
+    };
+
     // ========== ACCOUNTS & FINANCE MODULE (live data) ==========
     let _accPays:any[]=[], _accAppts:Record<string,any>={};
     async function loadAccountsData(){
@@ -16765,6 +16968,8 @@ export function initApp(root: HTMLElement) {
       if(repNav) repNav.addEventListener("click",()=>{ loadReportsData(); });
       // Campaign Tracker loads on first open rather than at sign-in: it calls Meta's Insights API,
       // which shares the same app-level quota as the lead crawl and must not be spent unasked.
+      const bdmNav=root.querySelector('#nav button[data-s="bdmreq"]')as HTMLButtonElement|null;
+      if(bdmNav) bdmNav.addEventListener("click",()=>{ try{ _bdmLoad(); }catch(_){} });
       const ctkNav=root.querySelector('#nav button[data-s="campaigns"]')as HTMLButtonElement|null;
       if(ctkNav) ctkNav.addEventListener("click",()=>{ try{ (w as any)._ctkLoad(); }catch(_){} });
       const devTabBtn=root.querySelector('#abmTabs button[data-t="dev"]')as HTMLButtonElement|null;

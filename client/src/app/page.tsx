@@ -114,6 +114,8 @@ export default function Home() {
             <button data-s="bloodtest"><svg className="icon"><use href="#i-drop"/></svg> Blood test</button>
             <button data-s="physio"><svg className="icon"><use href="#i-heart"/></svg> Physiotherapy</button>
             <button data-s="recordings"><svg className="icon"><use href="#i-mic"/></svg> Recordings</button>
+            <div className="ng">BDM</div>
+            <button data-s="bdmreq"><svg className="icon"><use href="#i-doc"/></svg> BDM Requisition</button>
             <div className="ng">Finance &amp; insight</div>
             <button data-s="accounts"><svg className="icon"><use href="#i-wallet"/></svg> Accounts</button>
             <button data-s="reports"><svg className="icon"><use href="#i-chart"/></svg> Reports</button>

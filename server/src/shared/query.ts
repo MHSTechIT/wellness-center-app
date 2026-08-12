@@ -24,6 +24,10 @@ const TABLES = new Set([
   // Physiotherapy pricing master (db/migration-physio-pricing.sql) — read by every client for the
   // Physio page's pricing card and payment amounts; edited from Settings → Service pricing.
   'physio_pricing',
+  // BDM requisitions (self-applying schema) — the coach's frozen deal snapshot awaiting BDM
+  // approval. Read by the coach (own requests) and the BDM page; approval writes leads.enrolled_at
+  // through the normal update path. No credentials, no money movement of its own.
+  'bdm_requests',
   // Thyrocare payout ledger (db/migration-thyrocare-payouts.sql) — Accounts & finance → Blood test
   // — Thyrocare tab. Records of real money transfers to the lab partner; no credentials.
   'thyrocare_payouts',
@@ -126,16 +130,27 @@ export async function runQuery(d: any): Promise<{ data: any; error: any; count: 
     if (action === 'insert' || action === 'upsert') {
       const rows = Array.isArray(d.values) ? d.values : [d.values];
       if (!rows.length) return { data: d.returning ? [] : null, error: null, count: 0 };
+      // A value written as {preserve: v} means: insert v for a NEW row, but on conflict keep the
+      // existing row's value when it is non-empty. This is how a sync seeds a field without
+      // clobbering a human's later correction (first user: leads.sugar_poll vs the advisor).
+      const preserveCols = new Set<string>();
+      const unwrap = (v: any) => {
+        if (v !== null && typeof v === 'object' && !Array.isArray(v) && 'preserve' in v && Object.keys(v).length === 1) return { v: v.preserve, p: true };
+        return { v, p: false };
+      };
       const cols: string[] = Array.from(new Set<string>(rows.flatMap((r: any) => Object.keys(r) as string[]))).filter((c: string) => IDENT.test(c));
       const tuples = rows.map((row: any) =>
-        '(' + cols.map((c: string) => { params.push(coerce(row[c])); return '$' + params.length; }).join(',') + ')');
+        '(' + cols.map((c: string) => { const u = unwrap(row[c]); if (u.p) preserveCols.add(c); params.push(coerce(u.v)); return '$' + params.length; }).join(',') + ')');
       let sql = `INSERT INTO ${q(table)} (${cols.map(q).join(',')}) VALUES ${tuples.join(',')}`;
       if (action === 'upsert') {
         const oc = String(d.onConflict || '').split(',').map((c) => c.trim()).filter(Boolean);
         const conflict = oc.length ? `(${oc.map(q).join(',')})` : '';
         const setCols = cols.filter((c) => !oc.includes(c));
         if (d.ignoreDuplicates || !setCols.length) sql += ` ON CONFLICT ${conflict} DO NOTHING`;
-        else sql += ` ON CONFLICT ${conflict} DO UPDATE SET ${setCols.map((c) => `${q(c)}=EXCLUDED.${q(c)}`).join(',')}`;
+        else sql += ` ON CONFLICT ${conflict} DO UPDATE SET ${setCols.map((c) =>
+          preserveCols.has(c)
+            ? `${q(c)}=COALESCE(NULLIF(${q(table)}.${q(c)},''),EXCLUDED.${q(c)})`
+            : `${q(c)}=EXCLUDED.${q(c)}`).join(',')}`;
       }
       if (d.returning) sql += ' RETURNING *';
       const r = await pool.query(sql, params);

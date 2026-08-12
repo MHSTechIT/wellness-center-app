@@ -1328,3 +1328,33 @@ html{scroll-behavior:smooth}
   .ctk-dp,.ctk-dp-box{animation:none!important}
   .ctk-dbtn:hover,.ctk-dp-btn:hover{transform:none}
 }
+
+/* ---- BDM Requisition cards ---- */
+.bdm-card{background:var(--surface,#fff);border:1px solid rgba(15,88,50,.10);border-radius:14px;
+  padding:16px 18px 14px;margin-bottom:14px;animation:ctkRise .45s cubic-bezier(.22,.61,.36,1) both}
+.bdm-hd{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px}
+.bdm-hd .nm{font-size:16px;font-weight:800;color:var(--ink)}
+.bdm-hd .pg{font-size:11px;font-weight:800;color:var(--brand,#0F5832);background:rgba(15,88,50,.08);
+  border-radius:999px;padding:2px 8px;margin-left:4px}
+.bdm-hd .meta{font-size:11px;color:var(--faint)}
+.bdm-sec{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+  margin:12px 0 7px;padding-top:10px;border-top:1px solid var(--line-soft,#eef1ee)}
+.bdm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px 16px}
+.bdm-f .k{font-size:10.5px;font-weight:700;color:var(--faint)}
+.bdm-f .v{font-size:13px;font-weight:600;color:var(--ink);margin-top:1px;word-break:break-word}
+.bdm-act{display:flex;gap:10px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+
+/* ---- Check-in -> Screening celebration ----
+   A transient overlay, never furniture: pointer-events none so it can never block a click,
+   plays once (~2.8s) and removes itself. Skipped entirely under prefers-reduced-motion. */
+.mhs-cheer{position:fixed;inset:0;z-index:100002;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:10px;pointer-events:none;animation:mhsCheerFade 2.8s ease forwards}
+.mhs-cheer img{width:min(240px,46vw);height:auto;filter:drop-shadow(0 18px 40px rgba(15,88,50,.30));
+  animation:mhsCheerPop .55s cubic-bezier(.34,1.56,.64,1) both,mhsCheerFloat 2.2s .55s ease-in-out infinite}
+.mhs-cheer .msg{font-size:15px;font-weight:800;color:#0B3D26;background:rgba(255,255,255,.94);
+  border:1px solid rgba(15,88,50,.18);border-radius:999px;padding:9px 18px;
+  box-shadow:0 10px 30px rgba(15,88,50,.18);animation:mhsCheerPop .5s .15s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes mhsCheerPop{from{opacity:0;transform:translateY(26px) scale(.6)}to{opacity:1;transform:none}}
+@keyframes mhsCheerFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+@keyframes mhsCheerFade{0%,72%{opacity:1}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.mhs-cheer{display:none}}

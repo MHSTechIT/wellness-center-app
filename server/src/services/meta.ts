@@ -641,7 +641,11 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
         campaign: l.campaignName || l.formName || '—',
         ad_name: l.adName || null,
         adset_name: l.adsetName || null,
-        sugar_poll: l.sugar || null,
+        // The Meta poll answer must not clobber a level the ADVISOR corrected on the call: the
+        // upsert writes every column on conflict, so each sync was resetting sugar_poll to the raw
+        // form answer and the boot backfill kept re-repairing the same 87 rows, forever. preserve:
+        // tells the gateway to keep an existing non-empty value and only fill blanks/new leads.
+        sugar_poll: { preserve: l.sugar || null },
         city: l.city || null,
         street: l.street || null,
         campaign_id: null,

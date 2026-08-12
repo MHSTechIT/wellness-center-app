@@ -94,6 +94,43 @@ const STEPS: Step[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Whole tables owned by the app. CREATE TABLE IF NOT EXISTS obeys the same
+// additive/idempotent contract as the column steps above.
+// ---------------------------------------------------------------------------
+const TABLES: Step[] = [
+  {
+    // BDM requisitions: the Health Coach freezes the deal (consultation + program + payment terms)
+    // into ONE row and hands it to the BDM. `snapshot` is a JSONB copy of what the coach saw at
+    // request time — deliberately a snapshot, not live joins, so the BDM approves what was actually
+    // proposed even if the profile is edited afterwards. Status: pending → approved | returned.
+    // Approval is what enrols the client (leads.enrolled_at via the shared writer), so Coach,
+    // Advisor and Reception all read the same fact and nobody updates a status by hand.
+    name: 'bdm_requests table',
+    sql: `CREATE TABLE IF NOT EXISTS bdm_requests (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            lead_id TEXT NOT NULL,
+            client_name TEXT,
+            program TEXT,
+            snapshot JSONB,
+            status TEXT NOT NULL DEFAULT 'pending',
+            requested_by TEXT,
+            requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            decided_by TEXT,
+            decided_at TIMESTAMPTZ,
+            return_reason TEXT
+          )`,
+  },
+  {
+    name: 'bdm_requests lead index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_bdm_requests_lead ON bdm_requests(lead_id)`,
+  },
+  {
+    name: 'bdm_requests status index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_bdm_requests_status ON bdm_requests(status)`,
+  },
+];
+
+// ---------------------------------------------------------------------------
 // One-off data repairs. Stricter rules than the DDL above: each must be
 // idempotent, must only ever fill in something MISSING, and must never change a
 // value that is already set. After the first successful run these match no rows.
@@ -146,7 +183,8 @@ const BACKFILLS: Step[] = [
 export async function ensureSchema(): Promise<void> {
   let applied = 0;
   let failed = 0;
-  for (const step of STEPS) {
+  // Tables first — a column step or backfill may target a table created in this same pass.
+  for (const step of TABLES.concat(STEPS)) {
     try {
       // IF NOT EXISTS means this is a no-op on an up-to-date database, so the cost of
       // running the whole list on every boot is a handful of catalogue lookups.
@@ -172,7 +210,7 @@ export async function ensureSchema(): Promise<void> {
     }
   }
   const db = process.env.PGDATABASE || '(default)';
-  const total = STEPS.length + BACKFILLS.length;
+  const total = TABLES.length + STEPS.length + BACKFILLS.length;
   if (failed) console.error(`[schema] ${db}: ${applied}/${total} ok, ${failed} FAILED — see above`);
   else console.log(`[schema] ${db}: up to date (${total} checks${repaired ? `, ${repaired} row(s) repaired` : ''})`);
 }

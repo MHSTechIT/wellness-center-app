@@ -522,6 +522,13 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input aria-label="Disbursement ETA" class="input" type="date" data-future="1"></div>
               <div class="fld"><label class="lbl" for="emiNet">Net after subvention <span class="ab">AUTO</span></label><input  class="input mono" id="emiNet" readonly></div>
               <div class="fld fw"><label class="lbl">Proof * — down-payment receipt + approval screen + disbursement credit</label><div class="atts" id="emiProofs"><span class="att add" onclick="window._payAttach('emiProofs')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach down-payment proof</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach approval</span><span class="att add" onclick="window._payAttach('emiProofs')"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clip"></use></svg> Attach credit proof</span></div></div>
+              <!-- EMI deals go through the BDM. The button lives INSIDE the EMI block so it exists
+                   exactly when Payment method = EMI (BFL / SaveIn) — no separate show/hide logic to
+                   drift — and sits after the proofs so the coach attaches evidence before asking. -->
+              <div class="fld fw" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;padding-top:12px;border-top:1px dashed var(--line)">
+                <button class="btn bp" id="bdmReqBtn" onclick="window._bdmRequest()">→ Request to BDM</button>
+                <span id="bdmReqState" style="font-size:12px;font-weight:600"></span>
+              </div>
               <div class="fld fw"><label class="lbl">EMI payment collection — status <span class="req">*</span></label><select aria-label="EMI payment collection — status" class="select" data-nocap onchange="window._payStSel(this)" style="max-width:260px"><option selected>Open</option><option>EMI Received</option><option>EMI Process</option></select><div class="pills" style="display:none"><button class="pill p-vio on">Open</button><button class="pill p-ok">EMI Received</button><button class="pill p-warn">EMI Process</button></div></div>
             </div></div>
 
@@ -1787,6 +1794,27 @@ export function getMainContent(): string {
         <div class="ctk-empty-s">The page shell, navigation and styling are in place. Tell me which columns and filters this view needs and it gets built here.</div>
       </div>
     </div>
+  </div></section>
+
+  <!-- BDM REQUISITION (shell; the spec for this page is still to come) -->
+  <section class="screen" id="s-bdmreq"><div class="wrap ctk" style="max-width:1720px;padding:16px 20px 60px">
+    <div class="ctk-hero">
+      <div class="ctk-hero-glow"></div>
+      <div class="ctk-hero-in">
+        <div>
+          <div class="ctk-eyebrow"><span class="ctk-dot"></span> BDM</div>
+          <h1 class="ctk-title">BDM Requisition</h1>
+          <p class="ctk-sub">Every deal a Health Coach has frozen for approval — approve to enrol, or return with a reason.</p>
+        </div>
+        <div class="ctk-hero-act">
+          <div class="ctk-seg" id="bdmTabs">
+            <button class="on" onclick="window._bdmSetTab('pending',this)">Pending <span id="bdmPendingCount" style="font-family:var(--mono);font-size:10px">0</span></button>
+            <button onclick="window._bdmSetTab('done',this)">Decided</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="bdmReqList"></div>
   </div></section>
 
   <!-- RECORDINGS -->
