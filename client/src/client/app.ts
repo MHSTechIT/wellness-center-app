@@ -10871,7 +10871,9 @@ export function initApp(root: HTMLElement) {
       try{
       const nm=(root.querySelector("#coachName")?.textContent||"").trim()||"Client";
       const who=(_currentUser&&(_currentUser.name||_currentUser.email))||"Health Coach";
-      const snap={kind:"assessment_edit",reason,saved_at:_haSavedAt,assessment:_haFieldsSnapshot()};
+      // Where the request came FROM. Stored inside the snapshot JSON rather than as a new column so
+      // no migration is needed; _bdmSource falls back for rows written before this.
+      const snap={kind:"assessment_edit",source:"Health Coach",reason,saved_at:_haSavedAt,assessment:_haFieldsSnapshot()};
       const row={lead_id:String(id),client_name:nm,program:"Assessment edit",snapshot:snap,status:"pending",requested_by:who,kind:"assessment_edit"};
       const {data,error}=await supabase.from("bdm_requests").insert(row).select().single();
       if(error){ toastErr(/relation|column|exist/i.test(error.message||"")?"Restart the server — the BDM table updates itself on boot":"Request failed: "+(error.message||"error")); return; }
@@ -14770,6 +14772,8 @@ export function initApp(root: HTMLElement) {
     function _bdmSnapshot(){
       const byLabel=(lbl:string)=>{ const el=root.querySelector('#s-coach [aria-label="'+lbl+'"]') as any; return el?String(el.value||"").trim():""; };
       return {
+        // Which page raised this — kept in the snapshot so no schema change is needed.
+        source:"Health Coach",
         // Consultation & program
         consultation_status:_bdmConsStatus(),
         consultation_date:_bdmV("#haConsultDate"),
@@ -14955,6 +14959,7 @@ export function initApp(root: HTMLElement) {
           :String(r.program||"—");
         const tr='<tr class="bdm-r'+(open?" open":"")+'" onclick="window._bdmToggleRow(\''+e(String(r.id))+'\')">'
           +'<td><div class="cl">'+e(r.client_name||"Client")+'</div><div class="sb">'+e(subject)+'</div></td>'
+          +'<td class="nw"><span class="bdm-src">'+e(_bdmSource(r))+'</span></td>'
           +'<td>'+_bdmCatChip(r)+'</td>'
           +'<td>'+_bdmStage(r)+'</td>'
           +'<td><div class="cl">'+e(r.requested_by||"—")+'</div><div class="sb">'+e(_bdmRole(r))+'</div></td>'
@@ -14963,12 +14968,12 @@ export function initApp(root: HTMLElement) {
           +'<td class="nw"><button class="btn bsm'+(r.status==="pending"?" bp":"")+'" onclick="event.stopPropagation();window._bdmToggleRow(\''+e(String(r.id))+'\')">'
           +(open?"Close":(r.status==="pending"?"Review":"View"))+'</button></td>'
           +'</tr>';
-        return tr+(open?'<tr class="bdm-d"><td colspan="7"><div class="bdm-dwrap">'+_bdmDetail(r)+'</div></td></tr>':'');
+        return tr+(open?'<tr class="bdm-d"><td colspan="8"><div class="bdm-dwrap">'+_bdmDetail(r)+'</div></td></tr>':'');
       }).join("");
 
       host.innerHTML=kpi+catBar
         +'<div class="bdm-tw"><table class="bdm-t"><thead><tr>'
-        +'<th>Client / subject</th><th>Category</th><th>Stage</th><th>Requested by</th><th>Requested at</th><th>Decided</th><th></th>'
+        +'<th>Client / subject</th><th>Source</th><th>Category</th><th>Stage</th><th>Requested by</th><th>Requested at</th><th>Decided</th><th></th>'
         +'</tr></thead><tbody>'+body+'</tbody></table></div>';
     }
     // Requester's role, read from the assignees list the app already holds — the request row stores
@@ -14976,7 +14981,18 @@ export function initApp(root: HTMLElement) {
     function _bdmRole(r:any){
       const nm=String(r&&r.requested_by||"").trim().toLowerCase(); if(!nm) return "—";
       const a=_assignees.find((x:any)=>String(x.name||"").trim().toLowerCase()===nm);
-      return a&&a.role?String(a.role):"Requester";
+      if(a&&a.role) return String(a.role);
+      // Fall back to the USER master: assignees only holds people who receive leads, so an Owner /
+      // Super Admin raising a request matched nothing and showed the placeholder "Requester".
+      const u=(_usrLite||[]).find((x:any)=>String(x.name||"").trim().toLowerCase()===nm
+                                        ||String(x.email||"").trim().toLowerCase()===nm);
+      return u&&u.role?String(u.role):"Requester";
+    }
+    // The page a request was raised from. New rows record it in the snapshot; older rows predate
+    // that, so fall back to the only page that can raise each kind rather than showing a blank.
+    function _bdmSource(r:any){
+      const s=String((r&&r.snapshot&&r.snapshot.source)||"").trim();
+      return s||"Health Coach";
     }
     let _bdmTab:"pending"|"done"="pending";
     w._bdmSetTab=(t:any,el:any)=>{ _bdmTab=t==="done"?"done":"pending";
