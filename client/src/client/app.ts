@@ -3629,7 +3629,14 @@ export function initApp(root: HTMLElement) {
     let _advApplying=false;         // true while restoring a saved profile (suppress activity logging)
     let _advLeadGenStr="";          // formatted "Lead generated" date for the open lead (AUTO, survives restore)
     let _advProfileColMissing=false;// once we learn advisor_profile column isn't there, skip the DB read
-    const ADV_ACTOR="ABM / Admin";  // no auth yet → record the active role
+    // The Activity log's Actor. This was a hardcoded "ABM / Admin" from before the app had auth,
+    // so every entry claimed the same actor no matter who was signed in — an audit trail that
+    // recorded nothing. It now resolves the AUTHENTICATED user, the same identity the assignment
+    // history already stamps (_asnActor), so one person reads the same in both trails.
+    // Falls back to the login's email prefix, then "System" for anything not user-initiated.
+    function _actActor(){
+      try{ return _asnActor(); }catch(_){ return "System"; }
+    }
     // Call-status codes that REQUIRE a "Next follow-up date & time".
     // `afz` is ONE code with a service-specific face: a blood test is collected at the client's
     // HOME, every other line (physiotherapy, diabetes) meets over ZOOM. The LABEL is what gets
@@ -3855,7 +3862,23 @@ export function initApp(root: HTMLElement) {
       _advApplying=true;
       try{
         const els=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap"));
-        (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
+        // Restore is POSITIONAL, so moving the recording bar (whose #coachRecUrl input travelled
+        // from just-after #haReviewDate up into Health assessment) would have restored every field
+        // between the two positions one slot off for profiles saved before the move. Saves are now
+        // v:2 (new order); a v:1 array is remapped onto the new order first. In the NEW DOM,
+        // #haReviewDate sits at exactly the index #coachRecUrl used to hold, so both remap anchors
+        // are derivable from the live panel — no hardcoded indices to rot.
+        let f:any[]=obj.f||[];
+        if((obj.v||1)<2 && f.length){
+          const N=els.findIndex((el:any)=>el.id==="coachRecUrl");
+          const O=els.findIndex((el:any)=>el.id==="haReviewDate");
+          if(N>=0&&O>N){
+            const g:any[]=new Array(f.length);
+            for(let k=0;k<f.length;k++){ g[k]= k===N ? f[O] : (k>N&&k<=O ? f[k-1] : f[k]); }
+            f=g;
+          }
+        }
+        f.forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
         const setStates=(sel:string,arr:any[])=>{ if(!arr) return; const list=Array.from(p.querySelectorAll(sel)).filter((b:any)=>!b.hasAttribute("data-nocap")); arr.forEach((on:boolean,i:number)=>{ if(list[i]) (list[i]as HTMLElement).classList.toggle("on",!!on); }); };
         setStates(".chip-o",obj.chips); setStates("#stars .star",obj.stars); setStates(".pill",obj.pills); setStates("#bdm button",obj.score);
         _advApplyPhysio(obj.physio);
@@ -4543,13 +4566,35 @@ export function initApp(root: HTMLElement) {
     function writeActLocal(id:any,arr:any[]){ try{ localStorage.setItem(_actKey(id),JSON.stringify(arr.slice(0,200))); }catch(_){} }
     function _actTime(iso:string){ try{ return new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:true}).format(new Date(iso)); }catch(_){ return iso; } }
     function _actColor(a:string){ a=(a||"").toLowerCase(); if(a.indexOf("creat")>=0)return "ok"; if(a.indexOf("assign")>=0)return "vio"; if(a.indexOf("status")>=0)return "warn"; if(a.indexOf("file")>=0||a.indexOf("follow")>=0)return "info"; return "neu"; }
+    // ONE action → ONE entry. A profile save that changes 50 fields used to write 50 rows and bury
+    // the log; they are now folded into a single readable line per action type. A lone change keeps
+    // its exact original shape, so every existing single-entry caller renders as it always has.
+    function _actSummarize(entries:any[]):any[]{
+      const order:string[]=[]; const by:Record<string,any[]>={};
+      entries.forEach((e:any)=>{ const a=String(e.action||"Updated"); if(!by[a]){ by[a]=[]; order.push(a); } by[a].push(e); });
+      const MAX=6;   // list this many in full, then name the rest
+      return order.map((a:string)=>{
+        const g=by[a];
+        if(g.length===1) return g[0];
+        const val=(v:any)=>(v==null||v==="")?"—":String(v);
+        const parts=g.slice(0,MAX).map((x:any)=>String(x.field||"field")+": "+val(x.old)+" → "+val(x.new));
+        const rest=g.slice(MAX);
+        let txt=parts.join(" · ");
+        if(rest.length) txt+=" · +"+rest.length+" more ("+rest.slice(0,8).map((x:any)=>String(x.field||"field")).join(", ")+(rest.length>8?", …":"")+")";
+        return {action:a, field:g.length+" fields changed", new:txt};
+      });
+    }
     async function logActivity(leadId:any,entries:any[]){
       if(!leadId||!entries||!entries.length) return;
       const nowIso=new Date().toISOString();
-      const rows=entries.map((e:any)=>({lead_id:String(leadId),action:e.action,field:e.field||null,old_value:(e.old==null||e.old==="")?null:String(e.old),new_value:(e.new==null||e.new==="")?null:String(e.new),actor:ADV_ACTOR,created_at:nowIso}));
+      const rows=_actSummarize(entries).map((e:any)=>({lead_id:String(leadId),action:e.action,field:e.field||null,old_value:(e.old==null||e.old==="")?null:String(e.old),new_value:(e.new==null||e.new==="")?null:String(e.new),actor:_actActor(),created_at:nowIso}));
       const local=readActLocal(leadId); rows.slice().reverse().forEach((r:any)=>local.unshift(r)); writeActLocal(leadId,local);
+      // Insert BEFORE repainting. The repaint re-reads the table, so rendering first showed the log
+      // WITHOUT the entry just written — it only appeared after some later action or refresh, which
+      // is the reported "takes a minute / needs another save". renderActivityLog also merges the
+      // local copy now, so the entry is on screen even if the insert is slow or fails outright.
+      try{ await supabase.from("lead_activity").insert(rows); }catch(_){/* local copy still shows it */}
       if(String(_advLeadId)===String(leadId)) renderActivityLog(leadId);
-      try{ await supabase.from("lead_activity").insert(rows); }catch(_){/* table not migrated yet — local copy kept */}
     }
     // ---- Assignment history (immutable audit trail behind "Assigned Leads History") ----
     // The `leads` row keeps only current state; every assign/unassign also writes one
@@ -4589,12 +4634,23 @@ export function initApp(root: HTMLElement) {
       els.forEach((el:any)=>{ el.innerHTML=wrap(stateRow("Loading activity…")); });   // loading state (matches feed)
       let rows:any[]=[];
       try{ const {data}=await supabase.from("lead_activity").select("*").eq("lead_id",String(leadId)).order("created_at",{ascending:false}).limit(200); rows=data||[]; }catch(_){ rows=[]; }
-      if(!rows.length) rows=readActLocal(leadId);
+      // Merge, never choose: a just-written entry may not be readable back yet, and an entry that
+      // failed to insert must still be visible. Deduped on time+action+field+value.
+      const seen=new Set(rows.map((r:any)=>[r.created_at,r.action,r.field,r.new_value].join("|")));
+      readActLocal(leadId).forEach((r:any)=>{ const k=[r.created_at,r.action,r.field,r.new_value].join("|"); if(!seen.has(k)){ seen.add(k); rows.push(r); } });
+      rows.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime());
       if(String(_advLeadId)!==String(leadId)) return;   // user switched away during the fetch
       const body=rows.length
         ? rows.map((r:any)=>{
-            const chg=r.field?('<b>'+e(r.field)+'</b>'+((r.old_value!=null||r.new_value!=null)?': <span style="color:var(--faint)">'+e(r.old_value||"—")+'</span> &rarr; <b>'+e(r.new_value||"—")+'</b>':'')):'<span style="color:var(--faint)">—</span>';
-            return '<tr><td><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span></td><td style="line-height:1.5;word-break:break-word">'+chg+'</td><td>'+e(r.actor||ADV_ACTOR)+'</td><td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_actTime(r.created_at))+'</td></tr>';
+            // "Call status: — → Already Paid" reads as noise; with no previous value, show only the
+            // new one. The old → new arrow is kept whenever there genuinely was a previous value.
+            const _ov=r.old_value==null?"":String(r.old_value), _nv=r.new_value==null?"":String(r.new_value);
+            const chg=r.field
+              ?('<b>'+e(r.field)+'</b>'+(( _ov||_nv)
+                ?': '+(_ov?'<span style="color:var(--faint)">'+e(_ov)+'</span> &rarr; ':'')+'<b>'+e(_nv||"—")+'</b>'
+                :''))
+              :'<span style="color:var(--faint)">—</span>';
+            return '<tr><td><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span></td><td style="line-height:1.5;word-break:break-word">'+chg+'</td><td>'+e(r.actor||"—")+'</td><td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_actTime(r.created_at))+'</td></tr>';
           }).join("")
         : stateRow("No activity recorded for this lead yet.");
       els.forEach((el:any)=>{ el.innerHTML=wrap(body); });
@@ -10391,7 +10447,6 @@ export function initApp(root: HTMLElement) {
       if(el("sc_bp")) el("sc_bp").value=v.bp||"";
       if(el("sc_pu")) el("sc_pu").value=v.pulse||"";
       if(el("sc_sp")) el("sc_sp").value=v.spo2||"";
-      if(el("sc_wa")) el("sc_wa").value=v.waist||"";
       if(el("sc_te")) el("sc_te").value=v.temp||"";
       if(el("sc_gl")) el("sc_gl").value=v.glucose||"";
       // Both AUTO fields fill immediately on open: screener = logged-in user,
@@ -10442,12 +10497,15 @@ export function initApp(root: HTMLElement) {
     function _scCurrentUser(){ return _currentUser?(((_currentUser.name||"").trim())||((_currentUser.email||"").split("@")[0])||"Screening desk"):"Screening desk"; }
     async function screeningDone(){
       if(!_scOpenAppt){ toast("Open a client first"); return; }
-      const ids=["sc_h","sc_w","sc_bmi","sc_bp","sc_pu","sc_sp","sc_wa","sc_te","sc_gl"];
-      const cids=["cs_h","cs_w","cs_bmi","cs_bp","cs_pu","cs_sp","cs_wa","cs_te","cs_gl"];
+      // Waist was removed from the Assessment form. ids/cids are index-paired, so the matching
+      // cs_wa entry goes with it — dropping only one would shift every field after it onto the
+      // wrong destination input.
+      const ids=["sc_h","sc_w","sc_bmi","sc_bp","sc_pu","sc_sp","sc_te","sc_gl"];
+      const cids=["cs_h","cs_w","cs_bmi","cs_bp","cs_pu","cs_sp","cs_te","cs_gl"];
       _scBmiCalc();
       ids.forEach((id,i)=>{const s=root.querySelector("#"+id)as HTMLInputElement;const d=root.querySelector("#"+cids[i])as HTMLInputElement;if(s&&d)d.value=s.value;});
       const vitals:any={};
-      const vMap:Record<string,string>={sc_h:"height",sc_w:"weight",sc_bmi:"bmi",sc_bp:"bp",sc_pu:"pulse",sc_sp:"spo2",sc_wa:"waist",sc_te:"temp",sc_gl:"glucose"};
+      const vMap:Record<string,string>={sc_h:"height",sc_w:"weight",sc_bmi:"bmi",sc_bp:"bp",sc_pu:"pulse",sc_sp:"spo2",sc_te:"temp",sc_gl:"glucose"};
       ids.forEach(id=>{const el=root.querySelector("#"+id)as HTMLInputElement; if(el&&el.value) vitals[vMap[id]]=el.value;});
       vitals.screened_at=new Date().toISOString();
       vitals.screened_by=((root.querySelector("#sc_by")as HTMLInputElement)?.value||"").trim()||_scCurrentUser();
@@ -10480,7 +10538,7 @@ export function initApp(root: HTMLElement) {
       const v=(id:string)=>(root.querySelector("#"+id)as HTMLInputElement|HTMLTextAreaElement)?.value||"—";
       const win=window.open("","_blank","width=700,height=700"); if(!win){toast("Allow pop-ups");return;}
       win.document.write('<html><head><title>Screening — '+(_scOpenAppt.name||"")+'</title></head><body style="font-family:system-ui;padding:28px"><h2>Health Screening Report</h2><p>'+_scOpenAppt.name+' · '+new Date().toLocaleDateString("en-IN")+'</p><table style="border-collapse:collapse;width:100%;font-size:13px">'
-        +[["Height",v("sc_h")+"cm"],["Weight",v("sc_w")+"kg"],["BMI",v("sc_bmi")],["BP",v("sc_bp")],["Pulse",v("sc_pu")],["SpO2",v("sc_sp")+"%"],["Waist",v("sc_wa")+"cm"],["Temp",v("sc_te")],["Glucose",v("sc_gl")+"mg/dL"]]
+        +[["Height",v("sc_h")+"cm"],["Weight",v("sc_w")+"kg"],["BMI",v("sc_bmi")],["BP",v("sc_bp")],["Pulse",v("sc_pu")],["SpO2",v("sc_sp")+"%"],["Temp",v("sc_te")],["Glucose",v("sc_gl")+"mg/dL"]]
         .map(r=>'<tr><td style="padding:6px;border:1px solid #ddd;font-weight:600;width:120px">'+r[0]+'</td><td style="padding:6px;border:1px solid #ddd">'+r[1]+'</td></tr>').join("")
         +'</table></body></html>'); win.document.close(); win.focus(); setTimeout(()=>{try{win.print();}catch(_){}},300);
     };
@@ -10507,7 +10565,7 @@ export function initApp(root: HTMLElement) {
       const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
       const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
-      return {v:1,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
+      return {v:2,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
     }
     function applyCoachProfile(obj:any){
       const p=_coachPanelEl(); if(!p||!obj) return;
@@ -10518,6 +10576,10 @@ export function initApp(root: HTMLElement) {
         const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
         const chipEls=Array.from(p.querySelectorAll(".chip-o")); (obj.chips||[]).forEach((on:boolean,i:number)=>{ if(chipEls[i]) (chipEls[i]as HTMLElement).classList.toggle("on",!!on); });
         _coachAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderCoachAtts();
+        // Restores the saved-assessment lock for this client (absent on profiles saved before this
+        // feature — those stay editable, which is the safe direction: nothing is retro-locked).
+        _haSavedAt=String((obj as any).haSavedAt||"1970-01-01T00:00:00.000Z");
+        try{ _haGateApply(); }catch(_){}
         _haBmiCalc();
         // Re-trigger panel visibility based on restored consultation status pills
         const cs=root.querySelector("#consStatus"); if(cs){ const onPill=cs.querySelector(".pill.on")as HTMLElement; if(onPill){ const act=onPill.getAttribute("onclick")||""; const m=act.match(/consAct\('([^']+)'/); if(m) consAct(m[1],onPill); } }
@@ -10657,6 +10719,159 @@ export function initApp(root: HTMLElement) {
       if(start) start.style.display=recording?"none":"";
       const t=root.querySelector("#ovrTimer"); if(t&&!recording) t.textContent="";
     }
+    // ============================================================
+    // HEALTH ASSESSMENT GATE
+    // The three assessment sections stay hidden until the coach starts the office-visit recording,
+    // so clinical data is never entered without an accompanying recording. Unlocked per OPEN CLIENT
+    // (fillCoachDetail re-locks), and the recording is stopped only by Save health record.
+    // ============================================================
+    let _haUnlocked=false;
+    function _haGateApply(){
+      // Two independent gates resolve here: the RECORDING gate (before a first save) and the
+      // SAVED-ASSESSMENT lock (after it). _haState decides both; visible and editable are separate
+      // so a saved assessment can be read back without being changed.
+      const st=_haState();
+      ["#haSecBasic","#haSecLifestyle","#haSecSymptoms"].forEach(sel=>{
+        const el=root.querySelector(sel)as HTMLElement|null; if(el) el.style.display=st.visible?"":"none";
+      });
+      const note=root.querySelector("#haLockNote")as HTMLElement|null; if(note) note.style.display=st.visible?"none":"";
+      // Belt and braces: hidden fields cannot be typed into, but disabling also blocks any
+      // programmatic focus/autofill, and is what makes a saved assessment genuinely read-only.
+      ["#haSecBasic","#haSecLifestyle","#haSecSymptoms"].forEach(sel=>{
+        const el=root.querySelector(sel); if(!el) return;
+        el.querySelectorAll("input,select,textarea,button").forEach((f:any)=>{ f.disabled=!st.editable; });
+      });
+      const notes=root.querySelector("#haDocNotes")as HTMLTextAreaElement|null;
+      if(notes) notes.disabled=st.saved&&!st.editable;
+      try{ _haPaintLock(); }catch(_){}
+    }
+    // ---- Saved-assessment lock ----------------------------------------------------------------
+    // Once a health assessment is saved it becomes read-only. Reopening it requires a BDM-approved
+    // "Edit Request". Editable again while the newest APPROVED edit request is newer than the last
+    // save — so saving after an approved edit re-locks it automatically, with no extra status to
+    // maintain and no way for one approval to license unlimited later edits.
+    let _haSavedAt="";           // from coach_profile.haSavedAt — "" means never saved
+    function _haEditApproved():boolean{
+      if(!_coachLeadId||!_haSavedAt) return false;
+      const r=_bdmForLead(String(_coachLeadId),"assessment_edit")[0];
+      if(!r||String(r.status)!=="approved"||!r.decided_at) return false;
+      return new Date(r.decided_at).getTime()>new Date(_haSavedAt).getTime();
+    }
+    // The single source of truth for what the assessment may do right now.
+    function _haState(){
+      const saved=!!_haSavedAt;
+      if(!saved)              return {visible:_haUnlocked, editable:_haUnlocked, saved:false};
+      // A saved assessment is always VISIBLE (the coach must be able to read it back); editing it
+      // needs an approval. This also means a previously-worked client is never hidden behind the
+      // recording gate.
+      return {visible:true, editable:_haEditApproved(), saved:true};
+    }
+    function _haPaintLock(){
+      const st=_haState();
+      const btn=root.querySelector("#haEditReqBtn")as HTMLButtonElement|null;
+      const save=root.querySelector("#haSaveBtn")as HTMLButtonElement|null;
+      const lbl=root.querySelector("#haLockState")as HTMLElement|null;
+      const cur=_coachLeadId?_bdmForLead(String(_coachLeadId),"assessment_edit")[0]:null;
+      const rs=cur?String(cur.status):"";
+      if(btn){
+        // Always on screen beside Save, so the workflow is discoverable. It is DISABLED rather than
+        // hidden when there is nothing to unlock — an assessment that was never saved is already
+        // editable, and a live request or an approved edit needs no second request.
+        btn.style.display="";
+        btn.disabled=!st.saved||rs==="pending"||st.editable;
+        btn.style.opacity=btn.disabled?"0.55":"";
+        btn.title=!st.saved?"Nothing saved yet — the assessment is still editable"
+          :(rs==="pending"?"Already sent to the BDM":(st.editable?"Editing is already approved":"Ask the BDM to reopen this saved assessment"));
+      }
+      if(save){ save.disabled=st.saved&&!st.editable; save.style.opacity=save.disabled?"0.55":""; }
+      if(lbl){
+        lbl.textContent=!st.saved?"Editable — locks once saved"
+          :(st.editable?"Edit approved by BDM ✓ — save when done"
+          :(rs==="pending"?"Edit request sent — awaiting BDM approval"
+          :(rs==="returned"?"Edit request returned: "+String(cur?.return_reason||"see notes")
+          :"🔒 Saved — locked. Request a BDM-approved edit to change it.")));
+        lbl.style.color=st.editable?"var(--ok-ink,#10794A)":(rs==="pending"?"var(--warn-ink,#B26A00)":(rs==="returned"?"var(--alert-ink,#D8442B)":"var(--muted)"));
+      }
+    }
+    // Opens the reason modal. The guards run BEFORE it opens, so the coach is never asked to type a
+    // reason for a request that cannot be sent.
+    w._haEditRequest=()=>{
+      const id=_coachLeadId; if(!id){ toast("Open a client first"); return; }
+      if(!_haSavedAt){ toast("Nothing saved yet — this assessment is still editable"); return; }
+      if(_bdmForLead(String(id),"assessment_edit").some((r:any)=>r.status==="pending")){ toast("Already with the BDM — awaiting approval"); return; }
+      const ta=root.querySelector("#haEditReason")as HTMLTextAreaElement|null; if(ta) ta.value="";
+      const m=root.querySelector("#haEditModal")as HTMLElement|null; if(m) m.classList.add("open");
+      setTimeout(()=>{ try{ ta&&ta.focus(); }catch(_){} },60);
+    };
+    w._haEditModalClose=()=>{ const m=root.querySelector("#haEditModal")as HTMLElement|null; if(m) m.classList.remove("open"); };
+    w._haEditSend=async()=>{
+      const id=_coachLeadId; if(!id) return;
+      const ta=root.querySelector("#haEditReason")as HTMLTextAreaElement|null;
+      const reason=((ta&&ta.value)||"").trim();
+      if(!reason){ toastErr("Add a short reason so the BDM knows what to check"); try{ ta&&ta.focus(); }catch(_){} return; }
+      const btn=root.querySelector("#haEditSendBtn")as HTMLButtonElement|null;
+      if(btn){ if(btn.disabled) return; btn.disabled=true; }   // one request per click
+      try{
+      const nm=(root.querySelector("#coachName")?.textContent||"").trim()||"Client";
+      const who=(_currentUser&&(_currentUser.name||_currentUser.email))||"Health Coach";
+      const snap={kind:"assessment_edit",reason,saved_at:_haSavedAt,assessment:_haFieldsSnapshot()};
+      const row={lead_id:String(id),client_name:nm,program:"Assessment edit",snapshot:snap,status:"pending",requested_by:who,kind:"assessment_edit"};
+      const {data,error}=await supabase.from("bdm_requests").insert(row).select().single();
+      if(error){ toastErr(/relation|column|exist/i.test(error.message||"")?"Restart the server — the BDM table updates itself on boot":"Request failed: "+(error.message||"error")); return; }
+      _bdmReqs=[(data||row),..._bdmReqs];
+      _haPaintLock();
+      logActivity(String(id),[{action:"Status Changed",field:"Assessment edit",new:"Requested: "+reason}]);
+      w._haEditModalClose();
+      toast("Edit request sent to BDM ✓");
+      } finally { if(btn) btn.disabled=false; }
+    };
+    // What the BDM reads on the request card — the assessment as it stands, labelled.
+    function _haFieldsSnapshot(){
+      const g=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|null)?.value||"").trim();
+      const chips=Array.from(root.querySelectorAll("#haSecSymptoms .chip-o"))
+        .filter((b:any)=>b.classList.contains("on")).map((b:any)=>(b.textContent||"").trim());
+      return {chief:g("haChief"),duration:g("haDuration"),height:g("haHeight"),weight:g("haWeight"),
+        bmi:g("haBmi"),bp:g("haBp"),pulse:g("haPulse"),temp:g("haTemp"),
+        symptoms:chips,notes:g("haDocNotes")};
+    }
+    w._haGateOpen=()=>{
+      if(!_coachLeadId){ toast("Open a visited client first"); return; }
+      const m=root.querySelector("#haGateModal")as HTMLElement|null; if(m) m.classList.add("open");
+    };
+    w._haGateClose=()=>{
+      const m=root.querySelector("#haGateModal")as HTMLElement|null; if(m) m.classList.remove("open");
+      _haGateApply();   // closing WITHOUT starting leaves the sections locked
+    };
+    w._haGateStart=async()=>{
+      const btn=root.querySelector("#haGateStartBtn")as HTMLButtonElement|null;
+      if(btn) btn.disabled=true;
+      try{
+        // _ovrToggle is a TOGGLE: with a recording already running it would STOP that recording and
+        // return, leaving this client locked. That happens whenever a coach moves to a second client
+        // without saving the first. Stop the previous one explicitly (it finalises and uploads
+        // against the lead it was started for, via _ovrLeadId), then start a fresh one for this
+        // client. Recording never bleeds from one client's profile into another's.
+        if(_ovrRec&&_ovrRec.state==="recording"){
+          try{ w._ovrStop(); }catch(_){}
+          await new Promise(r=>setTimeout(r,200));   // let onstop -> _ovrFinalize claim the chunks
+        }
+        // Reuse the existing recorder entirely — same permissions, same finalize/save path.
+        await w._ovrToggle();
+        const started=!!(_ovrRec&&_ovrRec.state==="recording");
+        if(!started) return;   // permission denied / insecure context — _ovrToggle already explained why
+        _haUnlocked=true; _haGateApply();
+        const m=root.querySelector("#haGateModal")as HTMLElement|null; if(m) m.classList.remove("open");
+      } finally { if(btn) btn.disabled=false; }
+    };
+    // Accordion header. Opening while still locked also raises the popup; closing never does.
+    w._haSecToggle=(h:HTMLElement)=>{
+      const sec=h.parentElement; if(!sec) return;
+      sec.classList.toggle("closed");
+      const opened=!sec.classList.contains("closed");
+      _haGateApply();
+      if(opened&&!_haUnlocked) w._haGateOpen();
+    };
+    try{ _haGateApply(); }catch(_){}   // locked from first paint, before any client is opened
     w._ovrToggle=async()=>{
       if(_ovrRec&&_ovrRec.state==="recording"){ w._ovrStop(); return; }
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
@@ -10966,7 +11181,17 @@ export function initApp(root: HTMLElement) {
     }
     function fillCoachDetail(lead:any){
       if(!lead) return;
+      const _prevCoachLead=_coachLeadId;
       _coachLeadId=String(lead.id);
+      // A new client starts locked again — the gate is per consultation, not per session. Switching
+      // back to the SAME client mid-recording keeps it open so the coach is not thrown out.
+      if(String(_prevCoachLead)!==String(lead.id)){
+        _haUnlocked=!!(_ovrRec&&_ovrRec.state==="recording"&&String(_ovrLeadId)===String(lead.id));
+        // Saved-assessment stamp for THIS client. applyCoachProfile refreshes it from the restored
+        // profile a moment later; this clears the previous client's value in the meantime.
+        _haSavedAt="";
+        try{ _haGateApply(); }catch(_){}
+      }
       // The Request-to-BDM chip must describe THIS client. Requests load lazily on the first open,
       // then repaint from memory on every later one.
       try{ _bdmReqs.length?_bdmPaintState():_bdmLoad(); }catch(_){}
@@ -11918,6 +12143,11 @@ export function initApp(root: HTMLElement) {
       if(_coachSaveBusy) return;
       if(!_coachLeadId){ toast("Open a visited client first"); return; }
       const id=String(_coachLeadId);
+      // Saving the record is now the ONLY way to end an office-visit recording (the manual Stop
+      // button was removed). _ovrStop triggers the recorder's existing onstop -> _ovrFinalize
+      // path, so the audio uploads and attaches to this profile exactly as it always has; the
+      // record save below continues independently and is not blocked by it.
+      if(_ovrRec&&_ovrRec.state==="recording"){ try{ w._ovrStop(); toast("Recording stopped — saving to this profile"); }catch(_){} }
       const obj=collectCoachProfile();
       // Review Date must be today-or-future for the join / this-week / month plans. Only these
       // four consultation statuses are validated; every other status is left untouched. An empty
@@ -11978,6 +12208,10 @@ export function initApp(root: HTMLElement) {
           }
         }
       }
+      // Stamp the assessment save. This is what locks it read-only until a BDM-approved edit that
+      // is NEWER than this stamp — so saving again after an approved edit re-locks automatically.
+      // Written into the same coach_profile object, so it persists with everything else.
+      if(obj){ (obj as any).haSavedAt=new Date().toISOString(); _haSavedAt=(obj as any).haSavedAt; }
       saveCoachLocal(id,obj);
       const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
       _coachSaveBusy=true;
@@ -14507,7 +14741,12 @@ export function initApp(root: HTMLElement) {
       };
     }
     // The open client's requests, newest first (there may be a returned one before an approved one).
-    const _bdmForLead=(id:string)=>_bdmReqs.filter((r:any)=>String(r.lead_id)===String(id))
+    // Two request kinds now share this queue. Rows written before the `kind` column existed have
+    // no kind and ARE enrollment requests, hence the ||"enrollment" default — without it every
+    // historic request would vanish from the coach's enrolment chip.
+    const _bdmKind=(r:any)=>String(r&&r.kind||"enrollment");
+    const _bdmForLead=(id:string,kind:string="enrollment")=>_bdmReqs
+      .filter((r:any)=>String(r.lead_id)===String(id)&&_bdmKind(r)===kind)
       .sort((a:any,b:any)=>new Date(b.requested_at||0).getTime()-new Date(a.requested_at||0).getTime());
     function _bdmPaintState(){
       const el=root.querySelector("#bdmReqState") as HTMLElement|null;
@@ -14546,48 +14785,141 @@ export function initApp(root: HTMLElement) {
       toast("Sent to BDM ✓ — "+nm+" · "+snap.program);
     };
     // ---- BDM page: one report per request ----
+    // ---- BDM page ------------------------------------------------------------------------------
+    // Category-first queue: a scannable table (who asked, for what, when, what stage) with the full
+    // report opening inline on Review. The old design stacked every request as a tall card, so the
+    // BDM had to scroll through complete payment reports just to see what was waiting.
+    const _bdmE=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    const _bdmMoney=(v:any)=>{ const n=Number(String(v).replace(/[₹,\s]/g,"")); return isFinite(n)&&n>0?"₹"+Math.round(n).toLocaleString("en-IN"):String(v||"—"); };
+    const _bdmF=(l:string,v:any,mono?:boolean)=>'<div class="bdm-f"><div class="k">'+_bdmE(l)+'</div><div class="v'+(mono?" mono":"")+'">'+(v?_bdmE(v):"—")+'</div></div>';
+    const BDM_CATS:any=[
+      {k:"all",             label:"All requests"},
+      {k:"enrollment",      label:"Enrolment",       chip:"Enrolment",       sub:"Deal approval — approving enrols the client"},
+      {k:"assessment_edit", label:"Assessment edit", chip:"Assessment edit", sub:"Reopen a saved health assessment"},
+    ];
+    let _bdmCat="all";
+    let _bdmOpen="";            // id of the request whose report is expanded
+    const _bdmCatChip=(r:any)=>_bdmKind(r)==="assessment_edit"
+      ? '<span class="bdm-cat edit">Assessment edit</span>'
+      : '<span class="bdm-cat enrol">Enrolment</span>';
+    // "Stage" = where the request has reached, which is what the BDM scans for.
+    const _bdmStage=(r:any)=>{
+      const st=String(r.status||"");
+      if(st==="pending")  return '<span class="bdm-stage w"><i></i>Awaiting BDM review</span>';
+      if(st==="approved") return '<span class="bdm-stage o"><i></i>'+(_bdmKind(r)==="assessment_edit"?"Edit approved":"Approved — enrolled")+'</span>';
+      return '<span class="bdm-stage a"><i></i>Returned to coach</span>';
+    };
+    w._bdmSetCat=(k:string,el:any)=>{ _bdmCat=String(k||"all"); _bdmOpen="";
+      root.querySelectorAll("#bdmCats button").forEach((b:any)=>b.classList.toggle("on",b===el)); _bdmRender(); };
+    w._bdmToggleRow=(id:string)=>{ _bdmOpen=String(_bdmOpen)===String(id)?"":String(id); _bdmRender(); };
+
+    // The full report — only built for the row the BDM opened.
+    function _bdmDetail(r:any){
+      const s=r.snapshot||{}, st=String(r.status), e=_bdmE, F=_bdmF, money=_bdmMoney;
+      const act=st==="pending"
+        ?'<div class="bdm-act"><button class="btn bp" onclick="event.stopPropagation();window._bdmApprove(\''+e(String(r.id))+'\')">✓ '
+          +(_bdmKind(r)==="assessment_edit"?"Approve — allow edit":"Approve — enrol client")+'</button>'
+         +'<button class="btn" onclick="event.stopPropagation();window._bdmReturn(\''+e(String(r.id))+'\')">↩ Return to coach</button></div>'
+        :'';
+      const ret=st==="returned"&&r.return_reason?'<div class="bdm-sec" style="color:var(--alert-ink)">Returned: '+e(r.return_reason)+'</div>':'';
+      if(_bdmKind(r)==="assessment_edit"){
+        const a=s.assessment||{};
+        return '<div class="bdm-sec">Reason for the edit</div>'
+          +'<div class="bdm-grid">'+F("Coach’s reason",s.reason)+F("Assessment saved",s.saved_at?fmtIST(s.saved_at):"—")+'</div>'
+          +'<div class="bdm-sec">Assessment as saved</div>'
+          +'<div class="bdm-grid">'
+          +F("Chief complaint",a.chief)+F("Duration of diabetes",a.duration)
+          +F("Height (cm)",a.height,true)+F("Weight (kg)",a.weight,true)
+          +F("BMI",a.bmi,true)+F("BP",a.bp,true)+F("Pulse",a.pulse,true)+F("Temp",a.temp,true)
+          +F("Symptoms",(a.symptoms&&a.symptoms.length)?a.symptoms.join(" · "):"none")+F("Notes",a.notes)
+          +'</div>'+ret+act;
+      }
+      return '<div class="bdm-sec">Consultation &amp; program</div>'
+        +'<div class="bdm-grid">'
+        +F("Consultation status",s.consultation_status)+F("Consultation date",s.consultation_date)
+        +F("Program suggested",s.program)+F("Special offer amt",s.special_offer_amt?money(s.special_offer_amt):"—",true)
+        +F("L2 price",s.l2_price?money(s.l2_price):"—",true)+F("Coupon code",s.coupon)
+        +F("Client category",s.client_category)+F("Date of joining",s.date_of_joining,true)
+        +F("Access planned",s.access_planned,true)+F("Attended by",s.attended_by)
+        +'</div>'
+        +'<div class="bdm-sec">Payment</div>'
+        +'<div class="bdm-grid">'
+        +F("Payment method",s.payment_method)+F("Collected by",s.collected_by)
+        +F("Program cost",s.program_cost?money(s.program_cost):"—",true)+F("Down payment",s.down_payment?money(s.down_payment):"—",true)
+        +F("Financed balance",s.financed_balance?money(s.financed_balance):"—",true)+F("Tenure (months)",s.tenure_months,true)
+        +F("EMI / month",s.emi_per_month?money(s.emi_per_month):"—",true)+F("Documentation date",s.documentation_date,true)
+        +F("Disbursement ETA",s.disbursement_eta,true)+F("Net after subvention",s.net_after_subvention?money(s.net_after_subvention):"—",true)
+        +'</div>'
+        +'<div class="bdm-sec">Proof</div>'
+        +'<div class="bdm-grid">'+F("Attachments",(s.proofs&&s.proofs.length)?s.proofs.join(" · "):"none attached")+'</div>'
+        +ret+act;
+    }
+
     function _bdmRender(){
       const host=root.querySelector("#bdmReqList") as HTMLElement|null; if(!host) return;
-      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const e=_bdmE;
       const tab=_bdmTab;
-      const rows=_bdmReqs.filter((r:any)=>tab==="pending"?r.status==="pending":r.status!=="pending");
-      const cnt=root.querySelector("#bdmPendingCount"); if(cnt) cnt.textContent=String(_bdmReqs.filter((r:any)=>r.status==="pending").length);
-      if(!rows.length){ host.innerHTML='<div class="ctk-empty"><div class="ctk-empty-ic">✓</div><div class="ctk-empty-t">'+(tab==="pending"?"Nothing waiting":"No decided requests yet")+'</div><div class="ctk-empty-s">'+(tab==="pending"?"When a Health Coach presses Request to BDM, the client’s full report appears here.":"Approved and returned requests will be listed here.")+'</div></div>'; return; }
-      const money=(v:any)=>{ const n=Number(String(v).replace(/[₹,\s]/g,"")); return isFinite(n)&&n>0?"₹"+Math.round(n).toLocaleString("en-IN"):String(v||"—"); };
-      const F=(l:string,v:any,mono?:boolean)=>'<div class="bdm-f"><div class="k">'+e(l)+'</div><div class="v'+(mono?" mono":"")+'">'+(v?e(v):"—")+'</div></div>';
-      host.innerHTML=rows.map((r:any)=>{
-        const s=r.snapshot||{};
-        const st=String(r.status);
-        const chip=st==="pending"?'<span class="chipb warn">Pending</span>':(st==="approved"?'<span class="chipb ok">Approved</span>':'<span class="chipb al">Returned</span>');
-        return '<div class="bdm-card">'
-          +'<div class="bdm-hd"><div><span class="nm">'+e(r.client_name||"Client")+'</span> <span class="pg">'+e(r.program||"")+'</span> '+chip+'</div>'
-          +'<div class="meta">Requested by '+e(r.requested_by||"—")+' · '+e(r.requested_at?fmtIST(r.requested_at):"—")
-          +(r.decided_at?' · Decided '+e(fmtIST(r.decided_at))+' by '+e(r.decided_by||"—"):'')+'</div></div>'
-          +'<div class="bdm-sec">Consultation &amp; program</div>'
-          +'<div class="bdm-grid">'
-          +F("Consultation status",s.consultation_status)+F("Consultation date",s.consultation_date)
-          +F("Program suggested",s.program)+F("Special offer amt",s.special_offer_amt?money(s.special_offer_amt):"—",true)
-          +F("L2 price",s.l2_price?money(s.l2_price):"—",true)+F("Coupon code",s.coupon)
-          +F("Client category",s.client_category)+F("Date of joining",s.date_of_joining,true)
-          +F("Access planned",s.access_planned,true)+F("Attended by",s.attended_by)
-          +'</div>'
-          +'<div class="bdm-sec">Payment</div>'
-          +'<div class="bdm-grid">'
-          +F("Payment method",s.payment_method)+F("Collected by",s.collected_by)
-          +F("Program cost",s.program_cost?money(s.program_cost):"—",true)+F("Down payment",s.down_payment?money(s.down_payment):"—",true)
-          +F("Financed balance",s.financed_balance?money(s.financed_balance):"—",true)+F("Tenure (months)",s.tenure_months,true)
-          +F("EMI / month",s.emi_per_month?money(s.emi_per_month):"—",true)+F("Documentation date",s.documentation_date,true)
-          +F("Disbursement ETA",s.disbursement_eta,true)+F("Net after subvention",s.net_after_subvention?money(s.net_after_subvention):"—",true)
-          +'</div>'
-          +'<div class="bdm-sec">Proof</div>'
-          +'<div class="bdm-grid">'+F("Attachments",(s.proofs&&s.proofs.length)?s.proofs.join(" · "):"none attached")+'</div>'
-          +(st==="returned"&&r.return_reason?'<div class="bdm-sec" style="color:var(--alert-ink)">Returned: '+e(r.return_reason)+'</div>':'')
-          +(st==="pending"
-            ?'<div class="bdm-act"><button class="btn bp" onclick="window._bdmApprove(\''+e(String(r.id))+'\')">✓ Approve — enrol client</button>'
-             +'<button class="btn" onclick="window._bdmReturn(\''+e(String(r.id))+'\')">↩ Return to coach</button></div>'
-            :'')
-          +'</div>';
+      const inTab=(r:any)=>tab==="pending"?r.status==="pending":r.status!=="pending";
+      const pend=_bdmReqs.filter((r:any)=>r.status==="pending");
+      const cnt=root.querySelector("#bdmPendingCount"); if(cnt) cnt.textContent=String(pend.length);
+
+      // Category counts always describe the CURRENT tab, so the numbers match what the table shows.
+      const tabRows=_bdmReqs.filter(inTab);
+      const cats=BDM_CATS.map((c:any)=>{
+        const n=c.k==="all"?tabRows.length:tabRows.filter((r:any)=>_bdmKind(r)===c.k).length;
+        return '<button class="'+(_bdmCat===c.k?"on":"")+'" onclick="window._bdmSetCat(\''+c.k+'\',this)">'
+          +e(c.label)+' <span class="n">'+n+'</span></button>';
       }).join("");
+      const catBar='<div class="bdm-cats" id="bdmCats">'+cats+'</div>';
+
+      // Queue health at a glance — pending split by category, regardless of the tab being viewed.
+      const kpi='<div class="bdm-kpis">'
+        +'<div class="bdm-kpi"><div class="k">Awaiting review</div><div class="v">'+pend.length+'</div></div>'
+        +'<div class="bdm-kpi"><div class="k">Enrolment</div><div class="v">'+pend.filter((r:any)=>_bdmKind(r)==="enrollment").length+'</div></div>'
+        +'<div class="bdm-kpi"><div class="k">Assessment edits</div><div class="v">'+pend.filter((r:any)=>_bdmKind(r)==="assessment_edit").length+'</div></div>'
+        +'<div class="bdm-kpi"><div class="k">Decided</div><div class="v">'+_bdmReqs.filter((r:any)=>r.status!=="pending").length+'</div></div>'
+        +'</div>';
+
+      const rows=tabRows.filter((r:any)=>_bdmCat==="all"||_bdmKind(r)===_bdmCat)
+        .sort((a:any,b:any)=>new Date(b.requested_at||0).getTime()-new Date(a.requested_at||0).getTime());
+
+      if(!rows.length){
+        host.innerHTML=kpi+catBar+'<div class="ctk-empty"><div class="ctk-empty-ic">✓</div><div class="ctk-empty-t">'
+          +(tab==="pending"?"Nothing waiting":"No decided requests yet")+'</div><div class="ctk-empty-s">'
+          +(tab==="pending"?"When a Health Coach sends a request it appears here for review.":"Approved and returned requests are listed here.")
+          +'</div></div>';
+        return;
+      }
+
+      const body=rows.map((r:any)=>{
+        const open=String(_bdmOpen)===String(r.id);
+        const subject=_bdmKind(r)==="assessment_edit"
+          ?String((r.snapshot&&r.snapshot.reason)||"Assessment edit")
+          :String(r.program||"—");
+        const tr='<tr class="bdm-r'+(open?" open":"")+'" onclick="window._bdmToggleRow(\''+e(String(r.id))+'\')">'
+          +'<td><div class="cl">'+e(r.client_name||"Client")+'</div><div class="sb">'+e(subject)+'</div></td>'
+          +'<td>'+_bdmCatChip(r)+'</td>'
+          +'<td>'+_bdmStage(r)+'</td>'
+          +'<td><div class="cl">'+e(r.requested_by||"—")+'</div><div class="sb">'+e(_bdmRole(r))+'</div></td>'
+          +'<td class="mono nw">'+e(r.requested_at?fmtIST(r.requested_at):"—")+'</td>'
+          +'<td class="mono nw">'+(r.decided_at?e(fmtIST(r.decided_at))+'<div class="sb">by '+e(r.decided_by||"—")+'</div>':'—')+'</td>'
+          +'<td class="nw"><button class="btn bsm'+(r.status==="pending"?" bp":"")+'" onclick="event.stopPropagation();window._bdmToggleRow(\''+e(String(r.id))+'\')">'
+          +(open?"Close":(r.status==="pending"?"Review":"View"))+'</button></td>'
+          +'</tr>';
+        return tr+(open?'<tr class="bdm-d"><td colspan="7"><div class="bdm-dwrap">'+_bdmDetail(r)+'</div></td></tr>':'');
+      }).join("");
+
+      host.innerHTML=kpi+catBar
+        +'<div class="bdm-tw"><table class="bdm-t"><thead><tr>'
+        +'<th>Client / subject</th><th>Category</th><th>Stage</th><th>Requested by</th><th>Requested at</th><th>Decided</th><th></th>'
+        +'</tr></thead><tbody>'+body+'</tbody></table></div>';
+    }
+    // Requester's role, read from the assignees list the app already holds — the request row stores
+    // only a name. Falls back to a neutral label rather than guessing.
+    function _bdmRole(r:any){
+      const nm=String(r&&r.requested_by||"").trim().toLowerCase(); if(!nm) return "—";
+      const a=_assignees.find((x:any)=>String(x.name||"").trim().toLowerCase()===nm);
+      return a&&a.role?String(a.role):"Requester";
     }
     let _bdmTab:"pending"|"done"="pending";
     w._bdmSetTab=(t:any,el:any)=>{ _bdmTab=t==="done"?"done":"pending";
@@ -14595,6 +14927,22 @@ export function initApp(root: HTMLElement) {
     w._bdmApprove=async(id:string)=>{
       const r=_bdmReqs.find((x:any)=>String(x.id)===String(id)); if(!r||r.status!=="pending") return;
       const who=(_currentUser&&(_currentUser.name||_currentUser.email))||"BDM";
+      // An assessment-edit approval only reopens the form. It must NEVER run the enrolment writer —
+      // that would enrol a client off the back of a typo correction.
+      if(_bdmKind(r)==="assessment_edit"){
+        csvConfirm("<b>Allow "+String(r.client_name||"this client")+"’s health assessment to be edited?</b><br><br>"
+          +"The Health Coach can change the saved assessment once. Saving it again re-locks it. This does not enrol anyone.",
+          async()=>{
+          const at=new Date().toISOString();
+          if(!(await _dbOk(supabase.from("bdm_requests").update({status:"approved",decided_by:who,decided_at:at}).eq("id",r.id),"Edit approval"))) return;
+          r.status="approved"; r.decided_by=who; r.decided_at=at;
+          logActivity(String(r.lead_id),[{action:"Status Changed",field:"Assessment edit",new:"Approved by "+who}]);
+          _bdmRender();
+          try{ _haGateApply(); }catch(_){}   // unlock immediately if that client is open here
+          toast("Edit approved ✓ — "+String(r.client_name||"client")+" can be edited");
+        },"Approve edit");
+        return;
+      }
       csvConfirm("<b>Approve "+String(r.client_name||"this client")+" · "+String(r.program||"")+"?</b><br><br>"
         +"Approval enrols the client immediately — Enrolled status updates on the Health Coach, Advisor and Reception pages automatically.",
         async()=>{

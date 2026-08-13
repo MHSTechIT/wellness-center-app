@@ -362,9 +362,27 @@ export function getMainContent(): string {
             <div class="fld" style="grid-column:span 3"><label class="lbl">Captured by</label><input aria-label="Captured by" class="input" value="Screening desk · M0 baseline · locked" readonly></div>
           </div>
         </div></div>
-      <div class="sec closed"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-heart"></use></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
+      <div class="sec closed" id="haSec"><div class="sec-hd" onclick="window._haSecToggle(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-heart"></use></svg> Health assessment <span class="chipb warn" style="margin-left:6px">In progress</span> <span class="arr">▾</span></div>
         <div class="sec-bd">
-          <div class="aud" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
+          <!-- Office-visit recording bar — moved here from the Consultation section on request; markup
+               and ids unchanged, all logic still lives on the same handlers. Coach-profile restores
+               stay aligned via the v:2 remap in applyCoachProfile. -->
+          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg aria-hidden="true" focusable="false" class="icon" style="width:19px;height:19px"><use href="#i-mic"></use></svg></button>
+            <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
+            <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
+            <input aria-label="Consultation recording link" class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"><button class="btn bsm bp" id="coachSaveZoomBtn" onclick="window._coachSaveZoomLink()" style="margin-left:6px;white-space:nowrap">Save Link</button></div>
+          <div id="ovrList" style="margin-top:8px"></div>
+
+          <!-- Assessment gate: these three sections stay hidden until Start Recording is clicked in the
+               #haGateModal popup, so a consultation is always captured alongside the data. Markup and
+               ids inside are unchanged — only a wrapper class and a locked notice were added. -->
+          <div id="haLockNote" class="aud" style="background:#fff;text-align:center;padding:22px 14px">
+            <div style="font-size:34px;line-height:1">🎙️</div>
+            <div class="ahd" style="margin-top:6px">Health assessment is locked</div>
+            <div style="font-size:12.5px;color:var(--muted);margin-top:4px">Start the office-visit recording to open Basic health info, Lifestyle &amp; diet and Symptoms reported.</div>
+            <button class="btn bp" style="margin-top:12px" onclick="window._haGateOpen()">● Start Recording</button>
+          </div>
+          <div class="aud ha-gated" id="haSecBasic" style="background:#fff"><div class="ahd">Basic health info</div><div class="g4">
             <div class="fld fw"><label class="lbl" for="haChief">Chief complaint</label><input  class="input" id="haChief"></div>
             <div class="fld"><label class="lbl" for="haDuration">Duration of diabetes <span class="req">*</span></label><select  class="select" id="haDuration"><option value="">-- Select --</option><option>Newly Diagnosed</option><option>1–3 yrs</option><option>3–5 yrs</option><option>5–10 yrs</option><option>10+ yrs</option></select></div>
             <div class="fld"><label class="lbl">Family history</label><select aria-label="Family history" class="select"><option>None</option><option selected>Father</option><option>Mother</option><option>Both Parents</option><option>Sibling</option></select></div>
@@ -374,18 +392,22 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="haBp">BP</label><input  class="input mono" id="haBp"></div>
             <div class="fld"><label class="lbl" for="haPulse">Pulse</label><input  class="input mono" id="haPulse" inputmode="numeric" oninput="window._numOnly(this)"></div>
             <div class="fld"><label class="lbl" for="haTemp">Temp</label><input  class="input mono" id="haTemp" inputmode="decimal" oninput="window._numOnly(this)"></div></div></div>
-          <div class="aud" style="background:#fff"><div class="ahd">Lifestyle &amp; diet</div><div class="g4">
+          <div class="aud ha-gated" id="haSecLifestyle" style="background:#fff"><div class="ahd">Lifestyle &amp; diet</div><div class="g4">
             <div class="fld"><label class="lbl">Diet type</label><select aria-label="Diet type" class="select"><option>Vegetarian</option><option selected>Non-Vegetarian</option><option>Vegan</option><option>Eggetarian</option></select></div>
             <div class="fld"><label class="lbl">Physical activity</label><select aria-label="Physical activity" class="select"><option selected>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
             <div class="fld"><label class="lbl">Sleep</label><select aria-label="Sleep" class="select"><option>&lt;5</option><option selected>5–6 hrs</option><option>6–7</option><option>7–8</option><option>8+</option></select></div>
             <div class="fld"><label class="lbl">Water (L/day)</label><select aria-label="Water (L/day)" class="select"><option>&lt;1L</option><option selected>1–2L</option><option>2–3L</option><option>3L+</option></select></div>
             <div class="fld"><label class="lbl">Smoking</label><select aria-label="Smoking" class="select"><option selected>Never</option><option>Occasional</option><option>Regular</option><option>Quit</option></select></div>
             <div class="fld"><label class="lbl">Alcohol</label><select aria-label="Alcohol" class="select"><option>Never</option><option selected>Occasional</option><option>Regular</option><option>Quit</option></select></div></div></div>
-          <div class="aud" style="background:#fff"><div class="ahd">Symptoms reported</div>
+          <div class="aud ha-gated" id="haSecSymptoms" style="background:#fff"><div class="ahd">Symptoms reported</div>
             <div class="chips" data-oth="syOth"><button class="chip-o">Frequent Urination</button><button class="chip-o">Excessive Thirst</button><button class="chip-o">Fatigue</button><button class="chip-o">Blurred Vision</button><button class="chip-o">Tingling/Numbness</button><button class="chip-o">Slow Healing Wounds</button><button class="chip-o">Weight Loss</button><button class="chip-o">Headache</button><button class="chip-o" data-others="1">Others</button></div>
             <input aria-label="Other symptom — please specify" class="input hideblock" id="syOth" style="margin-top:8px;max-width:360px" placeholder="Enter details…"></div>
           <div class="fld"><label class="lbl" for="haDocNotes">Doctor / consultant notes</label><textarea  class="area" id="haDocNotes"></textarea></div>
-          <button class="btn bp" style="margin-top:12px" onclick="window._coachSaveRecord()">Save health assessment</button>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px">
+            <button class="btn bp" id="haSaveBtn" onclick="window._coachSaveRecord()">Save health assessment</button>
+            <button class="btn" id="haEditReqBtn" onclick="window._haEditRequest()">✎ Edit Request to BDM</button>
+            <span id="haLockState" style="font-size:12px;font-weight:600"></span>
+          </div>
         </div></div>
 
       <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-stetho"></use></svg> Consultation status &amp; program <span class="arr">▾</span></div>
@@ -394,16 +416,13 @@ export function getMainContent(): string {
             <div class="fld"><label class="lbl" for="haAttendedBy">Attended by (HC)</label><input  class="input" id="haAttendedBy" readonly></div>
             <div class="fld"><label class="lbl" for="haConsultDate">Consultation date</label><input  class="input" type="date" id="haConsultDate"></div>
             <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="date" id="haReviewDate" data-future="1"></div>
-            <div class="fld"><label class="lbl">Recording status</label><div class="pills" id="recStatusPills"><button class="pill p-vio on" onclick="window._recStatusSet('open')">Open</button><button class="pill p-ok" onclick="window._recStatusSet('done')">Done</button><button class="pill p-al" onclick="window._recStatusSet('notdone')">Not Done</button></div></div>
+            <!-- Recording status hidden on request — NOT deleted: the coach profile saves pill states
+                 positionally across the whole panel, so removing these three pills would shift every
+                 later pill (consultation status, payment status) on previously saved profiles. The
+                 auto-promote on a saved recording (_recStatusApply) also keeps working unchanged. -->
+            <div class="fld" style="display:none"><label class="lbl">Recording status</label><div class="pills" id="recStatusPills"><button class="pill p-vio on" onclick="window._recStatusSet('open')">Open</button><button class="pill p-ok" onclick="window._recStatusSet('done')">Done</button><button class="pill p-al" onclick="window._recStatusSet('notdone')">Not Done</button></div></div>
           </div>
-          <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="micBtn" onclick="window._ovrToggle()"><svg aria-hidden="true" focusable="false" class="icon" style="width:19px;height:19px"><use href="#i-mic"></use></svg></button>
-            <div style="flex:1;min-width:180px"><b style="font-size:13px" id="micTxt">Start office-visit recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="ovrStatus">In-clinic Audio — Auto-saved to this Customer Profile</span> <span id="ovrTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
-            <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
-            <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none">■ Stop Recording</button>
-            <input aria-label="Consultation recording link" class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"><button class="btn bsm bp" id="coachSaveZoomBtn" onclick="window._coachSaveZoomLink()" style="margin-left:6px;white-space:nowrap">Save Link</button></div>
-          <div id="ovrList" style="margin-top:8px"></div>
-
-          <div class="fld"><label class="lbl">Consultation status — drives payment &amp; follow-up flow</label>
+                    <div class="fld"><label class="lbl">Consultation status — drives payment &amp; follow-up flow</label>
             <div class="pills" id="consStatus">
               <button class="pill p-vio on" onclick="consAct('open',this)">Open</button>
               <button class="pill p-ok" onclick="consAct('join',this)">Will Join Immediately</button>
@@ -1172,9 +1191,16 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="sc_bp">BP</label><input  class="input mono" id="sc_bp"></div>
               <div class="fld"><label class="lbl" for="sc_pu">Pulse</label><input  class="input mono" id="sc_pu" inputmode="numeric" oninput="window._numOnly(this)"></div>
               <div class="fld"><label class="lbl" for="sc_sp">SpO2 (%)</label><input  class="input mono" id="sc_sp" inputmode="numeric" oninput="window._numOnly(this)"></div>
-              <div class="fld"><label class="lbl" for="sc_wa">Waist (cm)</label><input  class="input mono" id="sc_wa" inputmode="decimal" oninput="window._numOnly(this)"></div>
               <div class="fld"><label class="lbl" for="sc_te">Temperature</label><input  class="input mono" id="sc_te" inputmode="decimal" oninput="window._numOnly(this)"></div>
               <div class="fld"><label class="lbl" for="sc_gl">Desk glucose (mg/dL)</label><input  class="input mono" id="sc_gl" inputmode="decimal" oninput="window._numOnly(this)"></div>
+              <div class="fld" style="grid-column:span 3">
+                <label class="lbl">Report — attachment</label>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <button type="button" class="btn bsm" onclick="window._scAddReport()">⬆ Upload report</button>
+                  <span id="scAttNote" style="font-size:11px;color:var(--faint)">PDF or image, up to 15 MB</span>
+                </div>
+                <div id="scAttList" style="display:flex;flex-direction:column;gap:4px;margin-top:6px"></div>
+              </div>
             </div>
             <div class="g3" style="margin-top:6px">
               <div class="fld"><label class="lbl" for="sc_by">Screened by <span class="ab">AUTO</span></label><input  class="input" id="sc_by" readonly></div>
@@ -1804,7 +1830,7 @@ export function getMainContent(): string {
         <div>
           <div class="ctk-eyebrow"><span class="ctk-dot"></span> BDM</div>
           <h1 class="ctk-title">BDM Requisition</h1>
-          <p class="ctk-sub">Every deal a Health Coach has frozen for approval — approve to enrol, or return with a reason.</p>
+          <p class="ctk-sub">Every request waiting on the BDM — enrolment deals and assessment edits — with who raised it and when. Open one to review the full report, then approve or return it.</p>
         </div>
         <div class="ctk-hero-act">
           <div class="ctk-seg" id="bdmTabs">
@@ -2094,6 +2120,50 @@ export function getMainContent(): string {
   </div></section>
 
   <!-- USER CREATE / EDIT MODAL -->
+  <!-- Health assessment gate. Reuses the existing .umodal styling (no new CSS) and lives OUTSIDE
+       #s-coach so it can never enter the coach panel's positional field capture. Contains only
+       buttons — no inputs — for the same reason. -->
+  <!-- Edit-request reason. Replaces window.prompt(), which rendered as a raw "localhost says"
+       browser dialog — indistinguishable from a system error. Outside #s-coach, so its textarea can
+       never enter the coach panel's positional field capture. -->
+  <div class="umodal" id="haEditModal" role="dialog" aria-modal="true" aria-labelledby="haEditTitle">
+    <div class="umodal-card" style="width:min(520px,100%)">
+      <div class="umodal-hd">
+        <h2 id="haEditTitle">Request an assessment edit</h2>
+        <button class="umodal-x" aria-label="Close" onclick="window._haEditModalClose()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="umodal-bd">
+        <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;line-height:1.55">
+          This assessment is saved and locked. Tell the BDM what needs correcting — they see this reason on the request.
+        </p>
+        <div class="fld" style="margin:0"><label class="lbl" for="haEditReason">Reason <span class="req">*</span></label>
+          <textarea class="area" id="haEditReason" rows="3" placeholder="e.g. BP was entered as 120/80 but the reading was 140/90"></textarea></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+          <button class="btn" onclick="window._haEditModalClose()">Cancel</button>
+          <button class="btn bp" id="haEditSendBtn" onclick="window._haEditSend()">Send to BDM</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="umodal" id="haGateModal" role="dialog" aria-modal="true" aria-labelledby="haGateTitle">
+    <div class="umodal-card" style="width:min(460px,100%)">
+      <div class="umodal-hd">
+        <h2 id="haGateTitle">Health assessment</h2>
+        <button class="umodal-x" aria-label="Close" onclick="window._haGateClose()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="umodal-bd" style="text-align:center;padding:26px 22px">
+        <div style="font-size:44px;line-height:1">🎙️</div>
+        <div style="font-family:var(--disp);font-size:16px;margin-top:10px">Start the office-visit recording</div>
+        <p style="font-size:12.5px;color:var(--muted);margin:8px 0 0;line-height:1.55">
+          Basic health info, Lifestyle &amp; diet and Symptoms reported open once recording begins.<br>
+          The recording stops and saves automatically when you click <b>Save health record</b>.
+        </p>
+        <button class="btn bp" id="haGateStartBtn" style="height:44px;padding:0 26px;margin-top:18px" onclick="window._haGateStart()">● Start Recording</button>
+      </div>
+    </div>
+  </div>
+
   <div class="umodal" id="usrModal" role="dialog" aria-modal="true" aria-labelledby="usrModalTitle">
     <div class="umodal-card">
       <div class="umodal-hd">

@@ -121,6 +121,14 @@ const TABLES: Step[] = [
           )`,
   },
   {
+    // Two kinds of request now share this queue. 'enrollment' is the original deal approval (which
+    // enrols the client); 'assessment_edit' asks the BDM to reopen a SAVED health assessment so the
+    // coach can correct it — approval unlocks editing and enrols nobody. Existing rows default to
+    // 'enrollment', so the column is purely additive and the old flow is untouched.
+    name: 'bdm_requests.kind',
+    sql: `ALTER TABLE bdm_requests ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'enrollment'`,
+  },
+  {
     name: 'bdm_requests lead index',
     sql: `CREATE INDEX IF NOT EXISTS idx_bdm_requests_lead ON bdm_requests(lead_id)`,
   },

@@ -1344,6 +1344,51 @@ html{scroll-behavior:smooth}
 .bdm-f .v{font-size:13px;font-weight:600;color:var(--ink);margin-top:1px;word-break:break-word}
 .bdm-act{display:flex;gap:10px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
 
+/* ---- BDM Requisition: category-first queue ------------------------------------------------- */
+.bdm-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:2px 0 14px}
+.bdm-kpi{background:var(--surface,#fff);border:1px solid rgba(15,88,50,.10);border-radius:14px;padding:12px 14px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04);position:relative;overflow:hidden}
+.bdm-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand,#0F5832);opacity:.55}
+.bdm-kpi .k{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.bdm-kpi .v{font-family:var(--disp);font-size:26px;font-weight:800;color:var(--ink);line-height:1.15;margin-top:2px}
+.bdm-cats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.bdm-cats button{appearance:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;color:var(--muted);
+  background:var(--surface,#fff);border:1px solid var(--line);border-radius:999px;padding:7px 14px;
+  display:inline-flex;align-items:center;gap:7px;transition:background .16s,color .16s,border-color .16s,transform .12s}
+.bdm-cats button:hover{transform:translateY(-1px);border-color:rgba(15,88,50,.35);color:var(--ink)}
+.bdm-cats button .n{font-family:var(--mono);font-size:10.5px;background:rgba(15,88,50,.08);color:var(--brand,#0F5832);
+  border-radius:999px;padding:1px 7px}
+.bdm-cats button.on{background:var(--brand,#0F5832);border-color:var(--brand,#0F5832);color:#fff}
+.bdm-cats button.on .n{background:rgba(255,255,255,.22);color:#fff}
+.bdm-tw{background:var(--surface,#fff);border:1px solid rgba(15,88,50,.10);border-radius:16px;overflow-x:auto;
+  box-shadow:0 1px 3px rgba(16,24,40,.05)}
+.bdm-t{width:100%;border-collapse:collapse;font-size:13px;min-width:940px}
+.bdm-t thead th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);padding:12px 14px;border-bottom:1px solid var(--line);white-space:nowrap;background:rgba(15,88,50,.025)}
+.bdm-t td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+.bdm-t tbody tr:last-child td{border-bottom:0}
+.bdm-t .cl{font-weight:700;color:var(--ink)}
+.bdm-t .sb{font-size:11px;color:var(--faint);margin-top:2px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bdm-t .nw{white-space:nowrap}
+.bdm-r{cursor:pointer;transition:background .14s}
+.bdm-r:hover{background:rgba(15,88,50,.035)}
+.bdm-r.open{background:rgba(15,88,50,.055)}
+.bdm-r.open td{border-bottom-color:transparent}
+.bdm-cat{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.02em;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.bdm-cat.enrol{background:rgba(15,88,50,.09);color:var(--brand,#0F5832)}
+.bdm-cat.edit{background:rgba(91,63,196,.10);color:var(--vio-ink,#5B3FC4)}
+.bdm-stage{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.bdm-stage i{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.bdm-stage.w{color:var(--warn-ink,#B26A00)} .bdm-stage.w i{background:var(--warn-ink,#B26A00);
+  box-shadow:0 0 0 0 rgba(178,106,0,.5);animation:bdmPulse 2s infinite}
+.bdm-stage.o{color:var(--ok-ink,#10794A)}   .bdm-stage.o i{background:var(--ok-ink,#10794A)}
+.bdm-stage.a{color:var(--alert-ink,#D8442B)} .bdm-stage.a i{background:var(--alert-ink,#D8442B)}
+@keyframes bdmPulse{70%{box-shadow:0 0 0 6px rgba(178,106,0,0)}100%{box-shadow:0 0 0 0 rgba(178,106,0,0)}}
+.bdm-d>td{padding:0 !important;background:rgba(15,88,50,.03)}
+.bdm-dwrap{padding:4px 16px 18px;animation:bdmOpen .22s ease}
+@keyframes bdmOpen{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.bdm-dwrap{animation:none}.bdm-stage.w i{animation:none}.bdm-cats button:hover{transform:none}}
+
 /* ---- Check-in -> Screening celebration ----
    A transient overlay, never furniture: pointer-events none so it can never block a click,
    plays once (~2.8s) and removes itself. Skipped entirely under prefers-reduced-motion. */
