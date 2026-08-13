@@ -8891,7 +8891,7 @@ export function initApp(root: HTMLElement) {
       const el=document.createElement("div");
       el.className="mhs-cheer";
       el.innerHTML='<img src="/mhs-mascot.gif" alt="" aria-hidden="true">'
-        +'<div class="msg">🎉 '+e(name||"Client")+' → Screening</div>';
+        +'<div class="msg">🎉 '+e(name||"Client")+' → Visited</div>';
       document.body.appendChild(el);
       // 6s total: the CSS fade (5.8s) ends just before this removal so there is no flash.
       setTimeout(()=>{ try{ el.remove(); }catch(_){} },5900);
