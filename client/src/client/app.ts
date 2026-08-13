@@ -528,6 +528,7 @@ export function initApp(root: HTMLElement) {
         });
       }
       applyNavGating();
+      _applyExportPerm();
       renderFilters();
       renderAll();
       seed();
@@ -770,6 +771,20 @@ export function initApp(root: HTMLElement) {
         el.style.display=anyVisible?"":"none";
       });
     }
+    // Export / Download is limited to Super Admin and Accounts. Every data-export control carries
+    // data-exp, and a single class on the shell hides the lot — done in CSS rather than per-button
+    // JS so a table that re-renders itself cannot quietly bring its own Export button back.
+    // Multi-role: holding EITHER qualifying role is enough.
+    const EXPORT_ROLES=["Super Admin","Accounts"];
+    function _canExport():boolean{
+      if(!_currentUser) return false;
+      return _rolesOf(_currentUser).some((r:string)=>EXPORT_ROLES.indexOf(String(r).trim())>=0);
+    }
+    function _applyExportPerm(){
+      const shell=root.querySelector("#appShell")as HTMLElement|null;
+      if(shell) shell.classList.toggle("no-exp",!_canExport());
+    }
+    w._applyExportPerm=_applyExportPerm;
     function applyNavGating(){
       if(!_currentUser) return;
       // Multi-role: screens are the UNION of every role held (a Health Coach who is also an
@@ -10435,6 +10450,45 @@ export function initApp(root: HTMLElement) {
       const qh=root.querySelector("#scQueueList"); if(qh)(qh as HTMLElement).scrollIntoView?.({block:"nearest"}); };
     // (Quick test order card + its _scTogTest/_scOrderTests handlers removed on request —
     // blood-test ordering lives on the Blood Test page / Reception intake.)
+    // Reports attached to the OPEN assessment. Held here while the panel is up and written into
+    // screening_vitals.reports by screeningDone, so an attachment travels with the screening record
+    // rather than living in a second place that could drift from it.
+    let _scAtts:any[]=[];
+    function _scRenderAtts(){
+      const box=root.querySelector("#scAttList"); if(!box) return;
+      const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      box.innerHTML=_scAtts.length?_scAtts.map((a:any,i:number)=>
+        '<div style="display:flex;align-items:center;gap:6px;font-size:11.5px">'
+        +'<span>📄</span>'
+        +(a.url?'<a href="'+e(a.url)+'" target="_blank" rel="noopener" style="color:var(--brand-600);text-decoration:underline">'+e(a.name)+'</a>':'<span>'+e(a.name)+'</span>')
+        +'<button type="button" class="pill" style="font-size:10px;margin-left:auto" onclick="window._scDelReport('+i+')" title="Remove this attachment">✕</button>'
+        +'</div>').join(""):"";
+    }
+    w._scDelReport=(i:number)=>{ _scAtts.splice(i,1); _scRenderAtts(); };
+    w._scAddReport=()=>{
+      if(!_scOpenAppt){ toast("Open a client first"); return; }
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".pdf,.jpg,.jpeg,.png,.webp,.heic";
+      inp.onchange=async()=>{
+        const file=inp.files&&inp.files[0]; if(!file) return;
+        if(file.size>15*1024*1024){ toastErr("File too large (max 15 MB)"); return; }
+        toast("Uploading "+file.name+"…");
+        const key=String(_scOpenAppt.lead_id||_scOpenAppt.id).replace(/[^a-zA-Z0-9._-]/g,"_");
+        const path=key+"/screening/"+Date.now()+"_"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+        try{
+          const up=await supabase.storage.from("lead-files").upload(path,file,{upsert:false});
+          if(up.error) throw up.error;
+          const {data}=supabase.storage.from("lead-files").getPublicUrl(path);
+          _scAtts.unshift({name:file.name,url:(data&&data.publicUrl)||"",at:new Date().toISOString()});
+          _scRenderAtts();
+          toast("Report attached — Save & send to HC to keep it");
+        }catch(e:any){
+          toastErr(/bucket|not found|does not exist|404/i.test(e&&e.message||"")
+            ?"Storage bucket 'lead-files' is missing — create it before uploading"
+            :("Upload failed: "+((e&&e.message)||"unknown error")));
+        }
+      };
+      inp.click();
+    };
     w._scOpenAssess=(id:any)=>{
       const r=_scAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;} _scOpenAppt=r;   // id is BIGSERIAL → gateway returns a string
       const el=(s:string)=>root.querySelector("#"+s)as any;
@@ -10455,6 +10509,8 @@ export function initApp(root: HTMLElement) {
       const _scDtFmt=(t:any)=>new Date(t).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
       if(el("sc_dt")) el("sc_dt").value=v.screened_at?_scDtFmt(v.screened_at):_scDtFmt(Date.now());
       if(el("sc_notes")) el("sc_notes").value=v.notes||"";
+      _scAtts=Array.isArray(v.reports)?v.reports.slice():[];   // re-opening shows what is already attached
+      _scRenderAtts();
       _scEligVal=v.eligible||"";
       root.querySelectorAll("#scEligPills .pill").forEach((b:any)=>b.classList.remove("on"));
       if(_scEligVal==="yes") root.querySelector("#scEligPills .pill.p-ok")?.classList.add("on");
@@ -10510,6 +10566,7 @@ export function initApp(root: HTMLElement) {
       vitals.screened_at=new Date().toISOString();
       vitals.screened_by=((root.querySelector("#sc_by")as HTMLInputElement)?.value||"").trim()||_scCurrentUser();
       vitals.notes=(root.querySelector("#sc_notes")as HTMLTextAreaElement)?.value||"";
+      if(_scAtts.length) vitals.reports=_scAtts;   // omit the key entirely when nothing is attached
       // Stamp the AUTO fields in the form so the screener sees them immediately on save.
       const byEl=root.querySelector("#sc_by")as HTMLInputElement|null; if(byEl) byEl.value=vitals.screened_by;
       const dtEl=root.querySelector("#sc_dt")as HTMLInputElement|null; if(dtEl) dtEl.value=new Date(vitals.screened_at).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});

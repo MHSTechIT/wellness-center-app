@@ -1403,3 +1403,7 @@ html{scroll-behavior:smooth}
 @keyframes mhsCheerFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
 @keyframes mhsCheerFade{0%,72%{opacity:1}100%{opacity:0}}
 @media(prefers-reduced-motion:reduce){.mhs-cheer{display:none}}
+
+/* Export / Download is Super Admin + Accounts only. The gate is a single class on the shell so it
+   survives table re-renders — a per-button JS hide would be undone the next time a page redrew. */
+#appShell.no-exp [data-exp]{display:none!important}

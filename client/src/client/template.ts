@@ -43,7 +43,7 @@ export function getMainContent(): string {
         <span style="font-size:12.5px;font-weight:600;color:var(--ink)" id="asnPageInfo">Page 1 of 1</span>
         <button class="btn bsm" id="asnNextBtn" onclick="window._asnPage(1)">Next →</button>
         <button class="btn bsm" id="asnLastBtn" onclick="window._asnPage('last')">Last »</button>
-        <button class="btn bsm" onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
+        <button class="btn bsm" data-exp onclick="window._assignedDownload()" style="margin-left:auto">⬇ Download</button>
       </div></div></div>
     <div class="sec" style="margin-bottom:14px" id="asnHistSec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"></use></svg> Assigned leads history <span class="chipb neu" id="asnHistCount" style="margin-left:8px">0</span></div>
       <div class="sec-bd">
@@ -56,7 +56,7 @@ export function getMainContent(): string {
           <select aria-label="History filter by service" class="select" id="asnHistService" style="height:30px;font-size:12px;width:150px" onchange="window._asnHistFilter()"><option value="all">All services</option></select>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap"><input type="checkbox" id="asnHistPool" onchange="window._asnHistFilter()"> Unassigned pool only</label>
           <input aria-label="Search assigned leads history by name, number or advisor" class="input" id="asnHistSearch" placeholder="Search name / number / advisor…" style="height:30px;font-size:12px;width:230px;margin-left:auto" oninput="window._asnHistSearch()">
-          <button class="btn bsm" onclick="window._asnHistDownload()">⬇ Download</button>
+          <button class="btn bsm" data-exp onclick="window._asnHistDownload()">⬇ Download</button>
         </div>
         <div class="tscroll stick1"><table class="tbl" style="min-width:940px"><thead><tr id="asnHistHead"></tr></thead><tbody id="asnHistBody"></tbody></table></div>
       </div></div>
@@ -305,7 +305,7 @@ export function getMainContent(): string {
       <div class="sec-bd"><div class="metrics" id="coachDash" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div></div></div>
     <div class="sec" style="margin-bottom:14px" id="coachClientsSec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Visited clients <span class="chipb ok" id="coachCliCount" style="margin-left:8px">0</span>
       <input aria-label="Search visited clients by client, phone or coach" class="input" id="coCliSearch" placeholder="Search client / phone / coach…" style="height:30px;font-size:12px;width:250px;margin-left:auto" oninput="window._coachCliSearch()">
-      <button class="btn bsm" style="margin-left:8px" onclick="window._coachCliDownload()">⬇ Download</button></div>
+      <button class="btn bsm" style="margin-left:8px" data-exp onclick="window._coachCliDownload()">⬇ Download</button></div>
       <div class="sec-bd">
         <div id="coachCliTableWrap">
           <div class="tscroll stick1"><table class="tbl" style="min-width:860px"><thead><tr id="coachClientsHead"></tr></thead><tbody id="coachClientsBody"></tbody></table></div>
@@ -628,7 +628,7 @@ export function getMainContent(): string {
   <!-- ===== META LEADS — pick an ad account / campaign / form and see exactly what arrived ===== -->
   <section class="screen" id="s-metaleads"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Meta leads</h1><p>Every lead captured from Meta — filter by ad account, campaign or form to check what is coming in.</p></div>
-      <div class="pha"><button class="btn" onclick="window._mlExport()">⬇ Export</button><button class="btn bp" onclick="window._mlReload()">↻ Refresh</button></div></div>
+      <div class="pha"><button class="btn" data-exp onclick="window._mlExport()">⬇ Export</button><button class="btn bp" onclick="window._mlReload()">↻ Refresh</button></div></div>
     <!-- overflow:visible on BOTH the card and its body: the Campaign/Form menus are absolutely
          positioned inside this card, and .sec clips its content by default — which is why the
          dropdown appeared cut off after the first row. Same fix the pool "Assign to" menu uses. -->
@@ -721,7 +721,7 @@ export function getMainContent(): string {
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
         <select class="select" id="srcBulkAction" style="height:32px;font-size:12px;width:250px"><option value="pool">Send unassigned leads → assignment</option><option value="export">Export leads (CSV)</option></select>
         <button class="btn bsm bp" onclick="window._srcBulkAction()">Apply bulk action</button>
-        <button class="btn bsm" onclick="window._srcExportSelected()">Export selected</button>
+        <button class="btn bsm" data-exp onclick="window._srcExportSelected()">Export selected</button>
       </div>
       <div class="rb" id="metaLeadAlert" style="margin-top:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px">
         <span id="metaLeadAlertText" style="font-size:12.5px;font-weight:600;color:var(--ink)">Alert: notify ABM if no Meta lead for 30 min during campaign hours</span><span class="chipb ok" id="metaLeadAlertChip">Monitoring</span></div></div></div>
@@ -736,7 +736,7 @@ export function getMainContent(): string {
         </div>
         <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <input class="input" id="feedSearch" placeholder="🔍 Search leads…" style="height:32px;font-size:12px;width:210px" oninput="window._feedSearch()">
-          <button class="btn bsm" onclick="window._feedDownload()">⬇ Download</button>
+          <button class="btn bsm" data-exp onclick="window._feedDownload()">⬇ Download</button>
         </div>
       </div>
       <div class="tscroll"><table class="tbl" style="min-width:1480px"><thead><tr id="liveFeedHead"><th style="width:36px"><input type="checkbox" id="feedSelAll" style="accent-color:var(--brand)" title="Select all leads matching the current filter (all pages)"></th><th>Date &amp; Time (IST)</th><th>Campaign</th><th>Ad Name</th><th>Lead Name</th><th>Phone Number</th><th>Sugar Poll</th><th>City</th><th>Street</th><th>Source</th><th>Service</th><th>Language</th><th>Received</th><th>Dedup</th></tr></thead><tbody id="liveFeedBody">
@@ -839,7 +839,7 @@ export function getMainContent(): string {
               <span style="color:var(--faint);font-size:12px">to</span>
               <input class="input mono" id="rvTo" type="date" style="height:31px;font-size:12px;width:130px">
               <select class="select" id="rvSource" style="height:31px;font-size:12px;width:150px"><option value="all">All Sources</option></select>
-              <button class="btn bsm" onclick="window._rvDownload()" style="margin-left:auto">⬇ Download</button>
+              <button class="btn bsm" data-exp onclick="window._rvDownload()" style="margin-left:auto">⬇ Download</button>
             </div>
             <div class="metrics" id="rvKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px"></div>
             <div class="tscroll stick1"><table class="tbl" style="min-width:920px"><thead><tr id="rvHead"><th>Lead Number</th><th>Lead Name</th><th>Total Visits</th><th>First Visit Date</th><th>Last Visit Date</th><th>Repeat Visitor</th></tr></thead><tbody id="rvBody"></tbody></table></div>
@@ -858,7 +858,7 @@ export function getMainContent(): string {
     <div class="sec" id="impDrillWrap" style="display:none;margin-bottom:14px">
       <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-inbox"></use></svg> <span id="impDrillTitle">Leads</span> <span class="chipb ok" id="impDrillCount" style="margin-left:8px">0</span>
         <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
-          <button class="btn bsm" onclick="window._impDrillDownload()">⬇ Download</button>
+          <button class="btn bsm" data-exp onclick="window._impDrillDownload()">⬇ Download</button>
           <button class="btn bsm" onclick="window._impDrillClose()">Close</button>
         </span>
       </div>
@@ -930,7 +930,7 @@ export function getMainContent(): string {
               <span style="font-size:10.5px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">Lead search</span>
               <input class="input" id="advLeadsSearch" placeholder="Search leads…" oninput="window._advLeadsSearchFn(this.value)" style="height:31px;font-size:12px;width:230px">
             </div>
-            <button class="btn bsm" onclick="window._advLeadsDownload()" style="margin-left:auto;align-self:flex-end">⬇ Download</button>
+            <button class="btn bsm" data-exp onclick="window._advLeadsDownload()" style="margin-left:auto;align-self:flex-end">⬇ Download</button>
           </div>
           <div class="tscroll stick1"><table class="tbl" style="min-width:1360px"><thead><tr id="advLeadsHead"></tr></thead><tbody id="advLeadsBody"><tr><td colspan="11" style="text-align:center;color:var(--faint);padding:18px">Select an advisor in Advisor load to see their leads.</td></tr></tbody></table></div>
           <div id="advLeadsPager" style="display:flex;gap:10px;margin-top:12px;align-items:center;justify-content:center;flex-wrap:wrap">
@@ -1176,7 +1176,7 @@ export function getMainContent(): string {
       <input type="date" class="input" id="scFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="scTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="scApplyBtn" style="display:none;height:30px" onclick="window._scApplyDate()">Apply</button>
-      <button class="btn" style="margin-left:auto" onclick="window._scExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
+      <button class="btn" style="margin-left:auto" data-exp onclick="window._scExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="scMetrics"></div>
     <div style="display:grid;grid-template-columns:1fr 310px;gap:14px">
@@ -1235,7 +1235,7 @@ export function getMainContent(): string {
       <input type="date" class="input" id="btFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="btTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="btApplyBtn" style="display:none;height:30px" onclick="window._btApplyDate()">Apply</button>
-      <button class="btn" style="margin-left:auto" onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
+      <button class="btn" style="margin-left:auto" data-exp onclick="window._btExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <!-- Total billed / Thyrocare cost / our margin / paid-to-Thyrocare moved to Accounts & finance
          → "Blood test — Thyrocare" tab, where they're broken down per day instead of one running
@@ -1341,7 +1341,7 @@ export function getMainContent(): string {
       <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Collected</span>
       <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)" id="phRevenue">₹0</span>
       <span style="font-size:11px;color:var(--muted);font-weight:600" id="phBilled"></span>
-      <button class="btn" style="margin-left:auto" onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
+      <button class="btn" style="margin-left:auto" data-exp onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
     <!-- Single-column layout, Sessions FIRST (~80% of the space) with the compact Active-patients
@@ -1450,7 +1450,7 @@ export function getMainContent(): string {
   <!-- ACCOUNTS -->
   <section class="screen" id="s-accounts"><div class="wrap">
     <div class="ph"><div><h1>Accounts &amp; finance</h1><p>Gross vs net always two numbers. Verification closes the loop.</p></div>
-      <div class="pha"><button class="btn" onclick="window._accExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export Excel</button></div></div>
+      <div class="pha"><button class="btn" data-exp onclick="window._accExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export Excel</button></div></div>
     <span class="viewing"><span class="vd"></span> Viewing as Accounts</span>
     <div class="sec" style="margin-top:10px"><div class="sec-bd" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div class="fld" style="margin:0"><label class="lbl">From date &amp; time</label><input  class="input" type="datetime-local" id="accFrom" style="height:34px;width:190px;font-size:12px"></div>
@@ -1486,21 +1486,21 @@ export function getMainContent(): string {
         <span><svg class="icon"><use href="#i-check"></use></svg> Verify transactions — pending verification (nothing counts as received until verified)</span>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input class="input" id="accVerSearch" placeholder="Search name / phone / ref…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accVerSearch()">
-          <button class="btn bsm" onclick="window._accVerDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accVerDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accVerBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="out" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg class="icon"><use href="#i-bell"></use></svg> Outstanding — balance chasing lives here</span>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input class="input" id="accOutSearch" placeholder="Search name / phone / service…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accOutSearch()">
-          <button class="btn bsm" onclick="window._accOutDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accOutDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accOutBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div></div>
     <div class="acc-p" data-p="ref" style="display:none">
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg class="icon"><use href="#i-coin"></use></svg> Refund console</span>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input class="input" id="accRefSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accRefSearch()">
-          <button class="btn bsm" onclick="window._accRefDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accRefDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accRefBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
       <!-- PAYOUT — confirmed by Accounts, money not sent yet. A confirmed refund is a promise, not a
            payment, so it waits here as "Not Paid Yet". Mark as paid moves it down to Refund history. -->
@@ -1510,7 +1510,7 @@ export function getMainContent(): string {
           <span id="accPayoutSelInfo" style="font-size:11px;color:var(--muted)"></span>
           <input class="input" id="accPayoutSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accPayoutSearch()">
           <button class="btn bsm bp" onclick="window._accRefMarkPaid()">✓ Mark as paid</button>
-          <button class="btn bsm" onclick="window._accPayoutDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accPayoutDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accPayoutBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div></div></div></div>
       <!-- REFUND HISTORY — the settled ledger. A row only reaches this table once the money has
            actually gone out, so everything here reads "Paid" and nothing is editable. -->
@@ -1518,7 +1518,7 @@ export function getMainContent(): string {
         <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-doc"></use></svg> Refund history <span id="accRefHistCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <input class="input" id="accRefHistSearch" placeholder="Search name / phone / reason…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accRefHistSearch()">
-          <button class="btn bsm" onclick="window._accRefHistDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accRefHistDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accRefHistBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div></div></div></div></div>
     <!-- Blood test — Thyrocare: day-by-day reconciliation with the lab partner. Counts and money use
          the SAME definitions as the Blood Test page's own cards, so the two screens always agree. -->
@@ -1532,7 +1532,7 @@ export function getMainContent(): string {
           <span id="accThyroSelInfo" style="font-size:11px;color:var(--muted)"></span>
           <button class="btn bsm bp" id="accThyroProceed" style="display:none" onclick="window._accThyroProceed()">→ Proceed to payout</button>
           <button class="btn bsm" id="accThyroClearSel" style="display:none" onclick="window._accThyroSelClear()">Clear</button>
-          <button class="btn bsm" onclick="window._accThyroDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accThyroDownload()">⬇ Download</button></span></div>
         <div class="sec-bd" id="accThyroBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
       <!-- Payout ledger — real money SENT to Thyrocare. The reconciliation table above only ever
            recognizes what we OWE (a record's cost once its lab report is received, per the
@@ -1549,7 +1549,7 @@ export function getMainContent(): string {
                table above, so its amount and the days it covers always come from real records
                rather than being typed in and having to agree with them by hand. -->
           <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col" style="width:32px"><input type="checkbox" id="accThyroPayoutSelAll" onclick="window._accThyroPayoutSelAll(this.checked)" style="accent-color:var(--brand)"></th><th scope="col">Raised on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroPayoutBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
-          <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn bsm" onclick="window._accThyroPayoutDownload()">⬇ Download</button></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn bsm" data-exp onclick="window._accThyroPayoutDownload()">⬇ Download</button></div>
         </div></div>
 
       <!-- THYROCARE PAYMENTS HISTORY — the settled ledger. A payout only reaches this table once
@@ -1559,7 +1559,7 @@ export function getMainContent(): string {
         <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-doc"></use></svg> Thyrocare payments history <span id="accThyroHistCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
         <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
           <input class="input" id="accThyroHistSearch" placeholder="Search amount / day / person…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accThyroHistSearch()">
-          <button class="btn bsm" onclick="window._accThyroHistDownload()">⬇ Download</button></span></div>
+          <button class="btn bsm" data-exp onclick="window._accThyroHistDownload()">⬇ Download</button></span></div>
         <div class="sec-bd">
           <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col">Paid on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroHistBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
         </div></div>
@@ -1617,7 +1617,7 @@ export function getMainContent(): string {
             <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line></svg>
             Columns
           </button>
-          <button class="btn-s green" onclick="window._rpcExport()">
+          <button class="btn-s green" data-exp onclick="window._rpcExport()">
             <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Export
           </button>
@@ -1715,7 +1715,7 @@ export function getMainContent(): string {
         </div>
         <div class="ctk-hero-act">
           <span class="ctk-stamp" id="ctkStamp"></span>
-          <button class="ctk-btn ghost" onclick="window._ctkExport()"><span>⬇</span> Export</button>
+          <button class="ctk-btn ghost" data-exp onclick="window._ctkExport()"><span>⬇</span> Export</button>
           <button class="ctk-btn" id="ctkRefreshBtn" onclick="window._ctkLoad(true)"><span class="ctk-spin">↻</span> Refresh</button>
         </div>
       </div>
@@ -1758,7 +1758,7 @@ export function getMainContent(): string {
         <span class="ctk-ph-t" id="ctkDrillTitle"></span>
         <span class="ctk-ph-s" id="ctkDrillSub"></span>
         <span style="margin-left:auto;display:flex;gap:8px">
-          <button class="ctk-btn ghost" style="color:var(--ink);background:var(--surface-2);border-color:var(--line)" onclick="window._ctkDrillExport()">⬇ Export</button>
+          <button class="ctk-btn ghost" style="color:var(--ink);background:var(--surface-2);border-color:var(--line)" data-exp onclick="window._ctkDrillExport()">⬇ Export</button>
           <button class="ctk-btn ghost" style="color:var(--ink);background:var(--surface-2);border-color:var(--line)" onclick="window._ctkDrillClose()">✕ Close</button>
         </span>
       </div>
@@ -1850,7 +1850,7 @@ export function getMainContent(): string {
     <div class="sec" style="margin-bottom:16px" id="ovrTblSec">
       <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"></use></svg> Office Visit Recordings <span class="chipb ok" id="ovrTblCount" style="margin-left:8px">0</span>
         <input class="input" id="ovrTblSearch" placeholder="Search name / recorded by…" style="height:30px;font-size:12px;width:220px;margin-left:auto" oninput="window._ovrTblSearch()">
-        <button class="btn bsm" style="margin-left:8px" onclick="window._ovrTblDownload()">⬇ Download</button></div>
+        <button class="btn bsm" style="margin-left:8px" data-exp onclick="window._ovrTblDownload()">⬇ Download</button></div>
       <div class="sec-bd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <span style="font-size:12px;color:var(--faint)">Date</span>
@@ -1874,7 +1874,7 @@ export function getMainContent(): string {
     <div class="sec" id="zoomTblSec">
       <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chat"></use></svg> Zoom Meeting Recordings <span class="chipb ok" id="zoomTblCount" style="margin-left:8px">0</span>
         <input class="input" id="zoomTblSearch" placeholder="Search name / link…" style="height:30px;font-size:12px;width:220px;margin-left:auto" oninput="window._zoomTblSearch()">
-        <button class="btn bsm" style="margin-left:8px" onclick="window._zoomTblDownload()">⬇ Download</button></div>
+        <button class="btn bsm" style="margin-left:8px" data-exp onclick="window._zoomTblDownload()">⬇ Download</button></div>
       <div class="sec-bd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <span style="font-size:12px;color:var(--faint)">Date</span>
@@ -1898,7 +1898,7 @@ export function getMainContent(): string {
     <div class="sec" id="callRecSec" style="margin-bottom:16px;display:none">
       <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-mic"></use></svg> Call Recordings <span class="chipb ok" id="callRecCount" style="margin-left:8px">0</span>
         <input class="input" id="callRecSearch" placeholder="Search customer / number / status…" style="height:30px;font-size:12px;width:240px;margin-left:auto" oninput="window._callRecSearch()">
-        <button class="btn bsm" style="margin-left:8px" onclick="window._callRecDownload()">⬇ Download</button></div>
+        <button class="btn bsm" style="margin-left:8px" data-exp onclick="window._callRecDownload()">⬇ Download</button></div>
       <div class="sec-bd">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <span style="font-size:12px;color:var(--faint)">Date</span>
