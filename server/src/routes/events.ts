@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { requireAuth } from '../shared/session';
 
 // ============================================================
 // Server-Sent Events — the app's ONLY server→client push channel.
@@ -36,6 +37,19 @@ export function broadcastChange(table: string): void {
   }
 }
 
+// Relay a check-in celebration to every connected device. Same privacy bar as broadcastChange:
+// the frame carries a HASH of the lead id plus a timestamp — no name, no phone, no raw id. A
+// receiving client hashes the leads it is ALREADY authorised to hold in memory and celebrates only
+// on a match, which also scopes the animation to the people who can see that lead (its advisor,
+// admins) with no role logic on this unauthenticated stream.
+export function broadcastCheer(h: string, at: string): void {
+  if (!h || !clients.size) return;
+  const frame = `data: ${JSON.stringify({ t: '_cheer', h: String(h).slice(0, 32), at: String(at).slice(0, 40) })}\n\n`;
+  for (const c of clients) {
+    try { c.res.write(frame); } catch { /* dead socket — the close handler removes it */ }
+  }
+}
+
 export function registerEventRoutes(app: Express) {
   app.get('/events', (req: Request, res: Response) => {
     res.set({
@@ -59,5 +73,15 @@ export function registerEventRoutes(app: Express) {
     const cleanup = () => { clearInterval(beat); clients.delete(client); };
     req.on('close', cleanup);
     req.on('error', cleanup);
+  });
+
+  // The stream is open (EventSource cannot send headers), but CAUSING a broadcast requires a
+  // session — otherwise anyone could make every clinic screen celebrate at will.
+  app.post('/events/cheer', requireAuth, (req: Request, res: Response) => {
+    const h = String(req.body?.h || '').trim();
+    const at = String(req.body?.at || '').trim();
+    if (!h || !at) { res.status(400).json({ error: 'h and at are required' }); return; }
+    broadcastCheer(h, at);
+    res.json({ ok: true });
   });
 }

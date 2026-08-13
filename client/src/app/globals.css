@@ -1348,7 +1348,7 @@ html{scroll-behavior:smooth}
    A transient overlay, never furniture: pointer-events none so it can never block a click,
    plays once (~2.8s) and removes itself. Skipped entirely under prefers-reduced-motion. */
 .mhs-cheer{position:fixed;inset:0;z-index:100002;display:flex;align-items:center;justify-content:center;
-  flex-direction:column;gap:10px;pointer-events:none;animation:mhsCheerFade 2.8s ease forwards}
+  flex-direction:column;gap:10px;pointer-events:none;animation:mhsCheerFade 5.8s ease forwards}
 .mhs-cheer img{width:min(240px,46vw);height:auto;filter:drop-shadow(0 18px 40px rgba(15,88,50,.30));
   animation:mhsCheerPop .55s cubic-bezier(.34,1.56,.64,1) both,mhsCheerFloat 2.2s .55s ease-in-out infinite}
 .mhs-cheer .msg{font-size:15px;font-weight:800;color:#0B3D26;background:rgba(255,255,255,.94);

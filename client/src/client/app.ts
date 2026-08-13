@@ -3756,6 +3756,12 @@ export function initApp(root: HTMLElement) {
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
       setV("#advfName",l.name||"");setV("#advfPhone",l.phone||"");setV("#advfWhats",l.phone||"");setV("#advfEmail",l.email||"");
+      // HC assigned must NEVER carry over from the previously opened lead. The profile restore only
+      // runs when a lead HAS a saved profile — a fresh lead restores nothing, so #hcSel kept the
+      // last client's coach and the slot board booked with it (confirmed live: two leads whose
+      // advisor chose Kavipriya were booked under sugashini, the coach left over in the dropdown).
+      // Cleared here, before the restore; a saved profile immediately re-fills it with its own HC.
+      setV("#hcSel","");setV("#apptHc","");
       // Sugar level must open on the lead's OWN stored level. The markup marks "150–250" selected,
       // so without this every profile opened at 150–250 regardless of the lead — and since saving
       // now persists this field back to the lead, that default would silently rewrite the real
@@ -4414,6 +4420,12 @@ export function initApp(root: HTMLElement) {
         // Reflect it in memory so the dropdown filters correctly before any reload.
         [_metaLeads,_assignedExtras].forEach((arr:any[])=>{ const t=arr.find((x:any)=>String(x.id)===id); if(t) t.sugar=_sg; });
       }
+      // SAVE is the third HC-sync point (open clears it; the dropdown's onchange propagates it).
+      // Booking snapshots hc_pt, so any path that leaves the form's HC differing from a pending
+      // appointment would strand the coach queue on the old name — the production Kavipriya/
+      // sugashini mismatch. Only 'expected' rows: a visited appointment is history.
+      const _hcNow=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||"";
+      if(_hcNow){ try{ await supabase.from("appointments").update({hc_pt:_hcNow}).eq("lead_id",id).eq("status","expected"); }catch(_){} }
       try{
         const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",id);
         if(error){
@@ -6024,8 +6036,14 @@ export function initApp(root: HTMLElement) {
         try{ if(w.__wosSse) w.__wosSse.close(); }catch(_){}
         _sse=new EventSource(_api("/events"));
         _sse.onmessage=(ev:any)=>{
-          let t=""; try{ t=String((JSON.parse(ev.data)||{}).t||""); }catch(_){ return; }
+          let msg:any=null; try{ msg=JSON.parse(ev.data)||{}; }catch(_){ return; }
+          const t=String(msg.t||"");
           if(!t) return;
+          // Cross-DEVICE check-in celebration. The frame carries only a hash + timestamp; this
+          // device celebrates only if a lead IT ALREADY HOLDS hashes to the same value — which is
+          // what scopes the mascot to the people who can see that lead (its advisor, admins)
+          // without any identifier crossing the unauthenticated stream.
+          if(t==="_cheer"){ try{ _cheerFromHash(String(msg.h||""),String(msg.at||"")); }catch(_){} return; }
           // Debounce PER TABLE: one user action often writes several rows in a burst (a coach save
           // rewrites every installment row), and each write emits its own event. Without this the
           // whole fleet would re-query once per row instead of once per action.
@@ -8845,6 +8863,26 @@ export function initApp(root: HTMLElement) {
     // load, which is what guarantees it plays only when the status actually changes and not on
     // refresh/reopen. Keyed by lead+timestamp so the same event can't replay in any tab.
     const _cheerSeen=new Set<string>();
+    // FNV-1a over the lead id — what the SSE relay carries instead of the id itself, keeping the
+    // unauthenticated stream free of identifiers. Every delivery path (local, same-browser
+    // broadcast, cross-device SSE) keys dedup on THIS hash + timestamp, so the acting device
+    // receiving its own relay echo can never celebrate twice.
+    function _cheerHash(id:string):string{
+      let h=0x811c9dc5;
+      const s=String(id||"");
+      for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=(h>>>0)*0x01000193>>>0; }
+      return (h>>>0).toString(36);
+    }
+    // Resolve an incoming hash against the leads THIS device already holds. No match → no mascot:
+    // an advisor who cannot see the lead sees nothing, which is the role scoping.
+    function _cheerFromHash(h:string,at:string){
+      if(!h||!at) return;
+      if(_cheerSeen.has(h+"@"+at)) return;
+      const all=[..._metaLeads,..._assignedExtras];
+      const hit=all.find((l:any)=>_cheerHash(String(l.id))===h);
+      if(!hit) return;
+      _mhsCheer(String(hit.name||""),h+"@"+at);
+    }
     function _mhsCheer(name:string,key:string){
       if(!_currentUser) return;                       // sign-in gate; roles keep their normal screens
       if(key){ if(_cheerSeen.has(key)) return; _cheerSeen.add(key); }
@@ -8855,7 +8893,8 @@ export function initApp(root: HTMLElement) {
       el.innerHTML='<img src="/mhs-mascot.gif" alt="" aria-hidden="true">'
         +'<div class="msg">🎉 '+e(name||"Client")+' → Screening</div>';
       document.body.appendChild(el);
-      setTimeout(()=>{ try{ el.remove(); }catch(_){} },2900);
+      // 6s total: the CSS fade (5.8s) ends just before this removal so there is no flash.
+      setTimeout(()=>{ try{ el.remove(); }catch(_){} },5900);
     }
     function _applyLeadSync(m:any){
       if(!m) return;
@@ -8870,7 +8909,7 @@ export function initApp(root: HTMLElement) {
       // The other half of the check-in celebration: an Advisor/Admin page open in ANOTHER tab plays
       // the same event once. The key matches the sender's, so between tabs it still fires only once
       // per actual status change — and never from a data load, which carries no such message.
-      if(m.screening&&m.visitedAt){ try{ _mhsCheer(String(m.clientName||""),id+"@"+String(m.visitedAt)); }catch(_){} }
+      if(m.screening&&m.visitedAt){ try{ _mhsCheer(String(m.clientName||""),_cheerHash(id)+"@"+String(m.visitedAt)); }catch(_){} }
       const set=(arr:any[])=>arr.forEach((l:any)=>{ if(String(l.id)===id){ if(m.callStatus!=null)l.callStatus=m.callStatus; if("enrolledAt" in m)l.enrolledAt=m.enrolledAt; if("visitedAt" in m)l.visitedAt=m.visitedAt; } });
       try{ set(_metaLeads); set(_assignedExtras); }catch(_){}
       // Coach in-memory client: apply every synced field INCLUDING visitedAt (was omitted) so an
@@ -9140,7 +9179,14 @@ export function initApp(root: HTMLElement) {
         }
         // The celebration belongs to the STATUS CHANGE itself — only the screening route, and only
         // here at the action (never from a render), so a refresh or reopen can never replay it.
-        if(stage==="screening") _mhsCheer(m.name||"",String(m.lead_id||m.id||"")+"@"+nowIso);
+        // Three deliveries share ONE dedup key (hash@time): this local fire, the same-browser
+        // broadcast above, and the cross-device SSE relay below — Reception, the lead's Advisor
+        // and Admins all celebrate the same moment exactly once each.
+        if(stage==="screening"){
+          const _ck=_cheerHash(String(m.lead_id||m.id||""));
+          _mhsCheer(m.name||"",_ck+"@"+nowIso);
+          try{ fetch(_api("/events/cheer"),{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},body:JSON.stringify({h:_ck,at:nowIso})}); }catch(_){}
+        }
       }catch(e:any){ toastErr("Check-in save failed: "+(e.message||"db error")); return; }
       const vis=root.querySelector("#rcVis")as HTMLInputElement|null; if(vis)vis.value=now;
       const reg=root.querySelector("#rcReg")as HTMLInputElement|null; if(reg)reg.value=now;
@@ -9373,7 +9419,18 @@ export function initApp(root: HTMLElement) {
     w.renderSlots = renderSlots;
     // Assigning a Health Coach in "Assignment & pipeline" links it to the appointment booking:
     // the slot board switches to that coach's schedule.
-    w._hcAssignedChange=()=>{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; const a=root.querySelector("#apptHc")as HTMLSelectElement|null; if(a) a.value=h; selSlot=null; renderSlots(); };
+    w._hcAssignedChange=()=>{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; const a=root.querySelector("#apptHc")as HTMLSelectElement|null; if(a) a.value=h; selSlot=null; renderSlots();
+      // A corrected HC must follow the lead onto its PENDING appointment — the booking snapshots
+      // hc_pt at book time, so changing this dropdown afterwards silently left the appointment (and
+      // the coach queue) on the old coach. Only 'expected' rows: a visited appointment is history.
+      if(h&&_advLeadId){ (async()=>{ try{
+        const id=String(_advLeadId);
+        const {data}=await supabase.from("appointments").select("id").eq("lead_id",id).eq("status","expected").limit(5);
+        if(!data||!data.length) return;   // nothing pending — nothing to say
+        if(await _dbOk(supabase.from("appointments").update({hc_pt:h}).eq("lead_id",id).eq("status","expected"),"HC update"))
+          toast("HC updated on the pending appointment → "+h);
+      }catch(_){} })(); }
+    };
     w._apptHcChange=()=>{ selSlot=null; renderSlots(); };   // changing the board's HC reloads that coach's schedule
     // Book the CURRENTLY OPEN lead into the selected slot (real appointment row).
     let _bookSlotBusy=false;
