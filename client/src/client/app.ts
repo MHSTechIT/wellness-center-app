@@ -529,6 +529,7 @@ export function initApp(root: HTMLElement) {
       }
       applyNavGating();
       _applyExportPerm();
+      _advLoadPriority();
       renderFilters();
       renderAll();
       seed();
@@ -2904,6 +2905,27 @@ export function initApp(root: HTMLElement) {
     // client confirmed it, and counting those made the card read the whole appointment book.
     // Visited still wins: a lead who turned up is past the confirming stage and belongs to Visited.
     const _advIsConfirmed=(l:any)=>!!(l&&l.confirmedAt&&!l.visitedAt);
+    // Leads the advisor has starred. Priority lives in advisor_profile.stars (an array of booleans,
+    // one per star), which the dashboard otherwise only reads when a lead is opened — so the card
+    // needs its own small pass. Loaded once with the rest of the advisor data.
+    const _advPrioStars:Record<string,number>=Object.create(null);
+    const _advPrioOf=(l:any)=>{
+      const live=l&&l.advisorProfile&&l.advisorProfile.stars;   // an open lead's unsaved edits win
+      if(Array.isArray(live)) return live.filter(Boolean).length;
+      return _advPrioStars[String(l&&l.id)]||0;
+    };
+    async function _advLoadPriority(){
+      try{
+        const r:any=await supabase.from("leads").select("meta_lead_id,advisor_profile").eq("is_assigned",true);
+        if(r&&r.error) return;
+        (r&&r.data||[]).forEach((row:any)=>{
+          const st=row&&row.advisor_profile&&row.advisor_profile.stars;
+          const n=Array.isArray(st)?st.filter(Boolean).length:0;
+          if(n) _advPrioStars[String(row.meta_lead_id)]=n;
+        });
+        try{ renderHealthDashboard(); }catch(_){}
+      }catch(_){ /* the card simply reads 0 — never block the dashboard */ }
+    }
     async function loadAssignmentExtras(){
       try{
         const [pr,ar]=await Promise.all([
@@ -4944,7 +4966,10 @@ export function initApp(root: HTMLElement) {
     function haBucketOf(cs:string){
       const s=(cs||"").toLowerCase();
       if(/enrol/.test(s)) return "enrolled";
-      if(/payment completed|converted/.test(s)) return "closed";
+      // "Payment Done" is what the collect-payment paths actually write (Reception, Accounts, Coach);
+      // the dropdown's own wording is "Payment Completed". Only the latter was matched, so every
+      // collected payment fell through to Open and the advisor saw paid clients as unworked leads.
+      if(/payment completed|payment done|converted/.test(s)) return "closed";
       if(/payment pending|already paid/.test(s)) return "payment";
       // Appointments split by TYPE into their own cards (the old single "Walk-in Sales Stage" lumped
       // them together). "Zoom" was renamed to "Home" (same afz code), so match both — otherwise a
@@ -4954,10 +4979,31 @@ export function initApp(root: HTMLElement) {
       // Appointment-Direct here rather than vanishing, so the cards still sum to Total.
       if(/appointment/.test(s)) return /zoom|home/.test(s)?"apptZoom":"apptDirect";
       if(/visited/.test(s)) return "health";
-      if(/follow up|call back|callback/.test(s)) return "followup";
-      if(/not interested|no sugar|wrong number|dnd/.test(s)) return "closed";
-      return "open"; // New/Open/RNR/Line Busy/Switched Off/Interested/etc.
+      // Every status that DEMANDS a next follow-up date belongs to Follow-up, not Open — the same
+      // family FU_REQUIRED_CODES enforces (cb, fu, rnr, busy, so, nr, cbr, disc). These used to fall
+      // through to Open, so a lead the advisor had already called and marked "Switched Off" still
+      // counted as untouched and sat in the Open Leads list waiting to be worked again.
+      if(/follow up|call back|callback|rnr|line busy|switched|not reachable|disconnect/.test(s)) return "followup";
+      // Dead ends: the client said no, or the number cannot be reached at all. "Not Registered" and
+      // "Out of Service" belong here with Wrong Number — all three mean the number is unusable — but
+      // were listed nowhere, so they landed in Open and kept being re-worked.
+      if(/not interested|no sugar|wrong number|not registered|out of service|dnd/.test(s)) return "closed";
+      // ANYTHING unmatched lands here, which is why this function has twice sent worked leads back to
+      // Open. Before adding a call status to HA_STATUSES, give it a branch above — Open must mean
+      // "nobody has actioned this yet": New, Open, Interested, or no status at all.
+      return "open";
     }
+    // Self-check, dev only: every call status the advisor can pick must have a home. Twice now a
+    // status has been added to the dropdown without a branch in haBucketOf and quietly landed in
+    // Open — worked leads reappearing as unworked, found only when someone noticed on screen.
+    // This says it in the console the moment the app boots instead.
+    try{
+      if(location.hostname==="localhost"||location.hostname==="127.0.0.1"){
+        const OPEN_OK=["new","open","interested"];
+        const stray=HA_STATUSES.filter((s:string)=>haBucketOf(s)==="open"&&OPEN_OK.indexOf(s.toLowerCase())<0);
+        if(stray.length) console.warn("[haBucketOf] these call statuses fall into Open Leads with no branch of their own:",stray);
+      }
+    }catch(_){}
     const HA_CARDS=[
       // "total" is not a status bucket — it's the advisor's whole book (the denominator every other
       // card is a subset of), so renderHealthDashboard fills its count separately and
@@ -5317,6 +5363,10 @@ export function initApp(root: HTMLElement) {
         // person personally dialed — see _advCallScopedStats for why that changed.
         const _callScopeName=_advCallScopeName();
         const _callScopeNote=_callScopeName?(" · "+_callScopeName+"’s leads"):" · your leads";
+        // Priority — leads the advisor starred, sitting just before the call KPIs. Like Confirmed and
+        // Visited-ever it OVERLAPS the status buckets (a starred lead is also Open, Follow-up, …), so
+        // it is an overlay and stays out of the sum-to-Total partition.
+        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Leads you marked with a priority star (★ to ★★★) — click to see them. Overlaps the status cards, so it is not part of the sum to Total." onclick="window._haCardClick(\'priority\')"><div class="ml">Priority</div>'+mv(book.filter((l:any)=>_advPrioOf(l)>0).length)+'</div>');
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time), across every call linked to these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across every connected call on these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
         // (Per-service split cards were removed on request — the Service filter above still scopes
@@ -5397,9 +5447,11 @@ export function initApp(root: HTMLElement) {
         // the number on its face). Its sub-line drills here instead: everyone who has ever visited,
         // including those who have since moved on.
         // Confirmed drills into the SAME set its count comes from — leads holding a live appointment.
+        // Priority drills into the same set it counts, highest stars first.
+        : (_haActiveBucket==="priority"?book.filter((l:any)=>_advPrioOf(l)>0).sort((a:any,b:any)=>_advPrioOf(b)-_advPrioOf(a))
         : (_haActiveBucket==="confirmed"?book.filter((l:any)=>_advIsConfirmed(l))
         : (_haActiveBucket==="visitedEver"?book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))
-        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket)))));
+        : (_haActiveBucket==="callstatus"?book:book.filter((l:any)=>haBucketOf(haEffStatus(l))===_haActiveBucket))))));
       // Search box above the table — applies to EVERY card's table, matching the fields the tables
       // actually show so what you type lines up with what you see.
       if(_haQuery){
@@ -5410,7 +5462,10 @@ export function initApp(root: HTMLElement) {
       // visitedEver has no card of its own (it is the Visited card's sub-line), so give it a title
       // rather than letting the header fall back to a blank label.
       const card=HA_CARDS.find(c=>c.key===_haActiveBucket)
-        ||(_haActiveBucket==="visitedEver"?{key:"visitedEver",label:"Ever visited",c:""}:undefined);
+        ||(_haActiveBucket==="visitedEver"?{key:"visitedEver",label:"Ever visited",c:""}:undefined)
+        // Priority is an overlay card, so it is not in HA_CARDS; without this its drill-down title
+        // fell through to the "Call status" default.
+        ||(_haActiveBucket==="priority"?{key:"priority",label:"Priority",c:""}:undefined);
       wrap.style.display="";
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       if(_isCallCard){
@@ -5450,6 +5505,29 @@ export function initApp(root: HTMLElement) {
             +'<td>'+(overdue?'<span class="chipb al">Overdue</span>':'<span class="chipb '+(nf?"warn":"neu")+'">Pending</span>')+'</td></tr>';
         }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'
           +(_haQuery?('No match for “'+e(_haQuery)+'”'):(list.length?'No rows match the column filters':'No pending follow-ups'))+'</td></tr>';
+        return;
+      }
+      // Priority card → its own table, so the star rating can have a column of its own. Kept separate
+      // from the shared "haResults" grid on purpose: adding the column there would put it on every
+      // other card's drill-down too.
+      if(_haActiveBucket==="priority"){
+        const hd=root.querySelector("#haResultsHead");
+        if(hd) hd.innerHTML='<th>Lead</th><th>Source · Lang</th><th>Assigned To</th><th>Call Status</th><th>Priority</th>';
+        const _pR=list;   // the search box already narrowed `list` above
+        body.innerHTML=_pR.length?_pR.map((l:any)=>{ const n=_advPrioOf(l);
+          return '<tr>'
+            +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
+            +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
+            +'<td>'+e(l.assignedTo||"—")+'</td>'
+            +'<td>'+(l.enrolledAt
+                ?'<span class="chipb ok" style="white-space:normal;line-height:1.5">'+e(_enrollStatusLine(String(l.id),l.enrolledLevel||"",_advProgPay))+'</span>'
+                :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td>'
+            // Filled stars up to the rating, hollow for the rest, so 1 / 2 / 3 read at a glance.
+            +'<td title="Priority '+n+' of 3" style="white-space:nowrap;font-size:14px;letter-spacing:1px">'
+            +'<span style="color:#E8A33D">'+"★".repeat(n)+'</span><span style="color:var(--line)">'+"★".repeat(Math.max(0,3-n))+'</span></td>'
+            +'</tr>';
+        }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:16px">'
+          +(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads have a priority star yet')+'</td></tr>';
         return;
       }
       // The Enrolled rows below render the DETAILED payment stage from _advProgPay. That map is loaded
@@ -6080,7 +6158,10 @@ export function initApp(root: HTMLElement) {
         loadAssignmentExtras().then(()=>{ try{ rebuildPoolFromDB(); renderAssignedLeads(); renderHealthDashboard(); if(scr==="abm"){ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); } }catch(_){} });
       }
       if(scr==="reception"&&(table==="appointments"||table==="payments"||table==="leads")){ try{ loadReceptionData(); }catch(_){} }
-      if(scr==="coach"&&(table==="leads"||table==="payments")){ try{ loadCoachClients(); }catch(_){} }
+      // "appointments" belongs here: the client's Health Coach is read from appointments.hc_pt, so a
+      // reassignment at Reception left the Coach page showing the OLD coach until someone re-clicked
+      // the nav — the new coach could not see a client who had just been handed to them.
+      if(scr==="coach"&&(table==="leads"||table==="payments"||table==="appointments")){ try{ loadCoachClients(); }catch(_){} }
       // Physio + Blood Test pages were the LAST screens with no live refresh — a check-in at
       // Reception or a payment collected elsewhere never appeared until the nav was re-clicked
       // ("page still not updating"). Same pattern as Reception above: re-read when active.
@@ -8105,6 +8186,20 @@ export function initApp(root: HTMLElement) {
     // Health Coaches for the consultation services, Physiotherapists for Physio. The legacy
     // placeholder names ("Dr. Suresh" / "Ganesh (PT)") survive only as fallbacks when a group has
     // no real staff yet, so the form never renders an empty dropdown.
+    // Staff who can host an appointment for a service. Same two sources and dedup as
+    // _nwFillProviders — assignees for Health Coaches, plus _usrLite so a Physiotherapist (whose
+    // role is not assignable and therefore never reaches `assignees`) is still offered.
+    function _apptProvidersFor(service:string):string[]{
+      const uniqCI=(ns:string[])=>{ const seen=new Set<string>(); const out:string[]=[];
+        ns.forEach(n=>{ const t=String(n||"").trim(); const k=t.toLowerCase(); if(t&&!seen.has(k)){ seen.add(k); out.push(t); } }); return out; };
+      const act=_assignees.filter((a:any)=>a.is_active!==false);
+      const liveU=(_usrLite||[]).filter((u:any)=>u.active!==false);
+      const pick=(re:RegExp)=>uniqCI([
+        ...act.filter((a:any)=>re.test(String(a.role||""))).map((a:any)=>String(a.name||"")),
+        ...liveU.filter((u:any)=>re.test(String(u.role||""))).map((u:any)=>String(u.name||"")),
+      ]);
+      return /phys/i.test(String(service||"")) ? pick(/physio/i) : pick(/^Health Coach$/i);
+    }
     function _nwFillProviders(){
       const sel=root.querySelector("#nwProv")as HTMLSelectElement|null; if(!sel) return;
       const cur=sel.value;
@@ -8269,7 +8364,7 @@ export function initApp(root: HTMLElement) {
     // the Reschedule action on every appointment row AND from the confirmation shown right after
     // "Save & Proceed". The appointment's OWN slot is marked CURRENT (not BOOKED) so it can be kept
     // when only the date changes.
-    let _reschCtx:{id:any;lead:string;name:string;prov:string;date:string;time:string;pick:string;origDate:string}|null=null;
+    let _reschCtx:{id:any;lead:string;name:string;prov:string;origProv:string;svc:string;date:string;time:string;pick:string;origDate:string}|null=null;
     const _reschEsc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     function _reschOverlay():HTMLElement{
       let o=root.querySelector("#reschModal")as HTMLElement|null;
@@ -8307,6 +8402,18 @@ export function initApp(root: HTMLElement) {
         +'<button type="button" class="btn bsm" style="margin-left:auto" onclick="window._reschClose()">✕</button></div>'
         +'<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Currently <b>'+_reschEsc(_recFmtDate(c.date))+'</b>'+(c.time?' · <b>'+_reschEsc(c.time)+'</b>':'')+'</div>'
         +'<div class="fld" style="max-width:220px;margin-bottom:10px"><label class="lbl" for="reschDate">New date</label><input type="date" class="input" id="reschDate" value="'+_reschEsc(c.date)+'" onchange="window._reschDate(this.value)"></div>'
+        +'<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">'
+        // Changing the provider re-reads THAT person's board, because a slot free for one coach can
+        // be taken for another — picking a coach after a slot would otherwise book over them.
+        +'<div class="fld" style="max-width:260px;margin:0"><label class="lbl" for="reschProv">'+(/phys/i.test(c.svc)?"Physiotherapist":"Health Coach")+'</label>'
+        +'<select class="select" id="reschProv" onchange="window._reschProv(this.value)">'
+        +_apptProvidersFor(c.svc).map((n:string)=>'<option value="'+_reschEsc(n)+'"'+(n.toLowerCase()===String(c.prov||"").toLowerCase()?" selected":"")+'>'+_reschEsc(n)+'</option>').join("")
+        +(c.prov&&!_apptProvidersFor(c.svc).some((n:string)=>n.toLowerCase()===String(c.prov).toLowerCase())
+            ?'<option value="'+_reschEsc(c.prov)+'" selected>'+_reschEsc(c.prov)+' (current)</option>':'')
+        +'</select></div>'
+        +(String(c.prov||"").toLowerCase()!==String(c.origProv||"").toLowerCase()
+            ?'<div style="font-size:11.5px;color:var(--warn-ink);padding-bottom:6px">Reassigning from <b>'+_reschEsc(c.origProv||"—")+'</b> → <b>'+_reschEsc(c.prov||"—")+'</b></div>':'')
+        +'</div>'
         +'<div id="reschSlots"></div>'
         +'<div style="display:flex;gap:9px;margin-top:14px"><button type="button" class="btn bp" onclick="window._reschSave()">Confirm reschedule</button><button type="button" class="btn" onclick="window._reschClose()">Cancel</button></div></div>';
       await _reschSlots();
@@ -8327,6 +8434,10 @@ export function initApp(root: HTMLElement) {
       (b as any)._t=setTimeout(()=>{ try{ w._recBookedBarClose(); }catch(_){} },45000);
     }
     w._recBookedBarClose=()=>{ const b=root.querySelector("#recBookedBar")as HTMLElement|null; if(b){ try{ clearTimeout((b as any)._t); }catch(_){} b.style.display="none"; b.innerHTML=""; } };
+    // Switching provider clears the pick: the chosen time belonged to the OLD provider's board and
+    // may already be taken on the new one. Full re-render so the header chip and the reassignment
+    // note follow the selection.
+    w._reschProv=(v:string)=>{ if(_reschCtx){ _reschCtx.prov=String(v||""); _reschCtx.pick=""; _reschRender(); } };
     w._reschPick=(t:string)=>{ if(_reschCtx){ _reschCtx.pick=t; _reschSlots(); } };
     w._reschDate=(v:string)=>{ if(_reschCtx){ _reschCtx.date=String(v||"").slice(0,10)||_reschCtx.date; _reschCtx.pick=""; _reschSlots(); } };
     w._reschClose=()=>{ _reschCtx=null; const o=root.querySelector("#reschModal")as HTMLElement|null; if(o){ o.style.display="none"; o.innerHTML=""; } };
@@ -8335,7 +8446,8 @@ export function initApp(root: HTMLElement) {
       if(!r){ toastErr("Appointment not found — refresh and try again"); return; }
       if(r.status==="cancelled"){ toastErr("A cancelled appointment can't be rescheduled"); return; }
       const _d0=String(r._date||"").slice(0,10)||_todayLocal();
-      _reschCtx={id:r.id,lead:String(r.lead_id||""),name:r.name||"Client",prov:(r.hc&&r.hc!=="—")?String(r.hc):"",date:_d0,origDate:_d0,time:r.time||"",pick:""};
+      const _p0=(r.hc&&r.hc!=="—")?String(r.hc):"";
+      _reschCtx={id:r.id,lead:String(r.lead_id||""),name:r.name||"Client",prov:_p0,origProv:_p0,svc:String(r.service||r.svcLabel||""),date:_d0,origDate:_d0,time:r.time||"",pick:""};
       _reschRender();
     };
     w._reschSave=async()=>{
@@ -8350,12 +8462,26 @@ export function initApp(root: HTMLElement) {
       // Move the slot ONLY — never touch status. Flipping a checked-in walk-in ("visited") to
       // "expected" would drop it out of Reception's pending-payment list (renderPay filters on
       // status==="visited") and out of the screening queue, losing money owed.
-      if(!(await _dbOk(supabase.from("appointments").update({appt_date:c.date,appt_time:c.pick}).eq("id",c.id),"Reschedule"))) return;
-      try{ logActivity(c.lead,[{action:"Rescheduled",field:"Appointment",old:from,new:_recFmtDate(c.date)+" · "+c.pick}]); }catch(_){}
+      // ONE row is updated in place — date, time and provider together. Reassigning must never
+      // insert a second appointment: that would double-book the client, show them on two coaches'
+      // boards, and break the appointment counts that read one row per visit.
+      const provChanged=String(c.prov||"").toLowerCase()!==String(c.origProv||"").toLowerCase();
+      const patch:any={appt_date:c.date,appt_time:c.pick};
+      if(provChanged) patch.hc_pt=c.prov||null;
+      if(!(await _dbOk(supabase.from("appointments").update(patch).eq("id",c.id),"Reschedule"))) return;
+      try{
+        const acts:any[]=[{action:"Rescheduled",field:"Appointment",old:from,new:_recFmtDate(c.date)+" · "+c.pick}];
+        if(provChanged) acts.push({action:"Reassigned",field:"Health Coach",old:c.origProv||"—",new:c.prov||"—"});
+        logActivity(c.lead,acts);
+      }catch(_){}
       const moved=c.pick; const movedDate=c.date; const leadId=c.lead;
       w._reschClose();
       toast("Rescheduled → "+_recFmtDate(movedDate)+" · "+moved);
       await loadReceptionData(); _recRevealAppt(movedDate);
+      // Refresh the coach book in THIS tab too: _liveRefresh only reacts to the SSE broadcast, which
+      // reloads whichever screen is currently open elsewhere. Without this the desk could reassign
+      // and still see the old coach on its own Coach tab.
+      try{ await loadCoachClients(); }catch(_){}
       try{ _broadcastLeadSync({leadId:leadId,appointment:true}); }catch(_){}
     };
 
@@ -11576,7 +11702,16 @@ export function initApp(root: HTMLElement) {
           const k=l1&&l2?"Enrolled – L1 + L2":(l1?"Enrolled – L1":(l2?"Enrolled – L2":"Enrolled – Level pending"));
           counts[k]=(counts[k]||0)+1;
         }
-        else counts[s]=(counts[s]||0)+1;
+        // A status with no card of its own would create a key nothing renders, so the client would
+        // vanish from the faces while still counting in Total — the partition silently breaking, the
+        // same way unmatched call statuses used to fall into the Advisor's Open card. Park it on Open
+        // (the neutral bucket) so the sum always holds, and say so in dev.
+        else if(counts[s]!==undefined) counts[s]++;
+        else {
+          counts["Open"]=(counts["Open"]||0)+1;
+          if(location.hostname==="localhost"||location.hostname==="127.0.0.1")
+            console.warn("[renderCoachDash] consultation status has no card, counted under Open:",s);
+        }
       });
       counts["Instalment 2 pending"]=list.filter(_coachInst2Pending).length;   // payment state, orthogonal to consStatus
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");

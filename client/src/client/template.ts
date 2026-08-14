@@ -166,7 +166,11 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option><option>Physiotherapy Telecaller Team</option></select></div>
           <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
-          <div class="fld"><label class="lbl">Probability</label><div class="prob"><input aria-label="Probability" type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
+          <!-- Probability retired from the UI. The input STAYS in the DOM: collectAdvisorProfile
+               serialises this panel's inputs POSITIONALLY and restores them by index (els[i]), so
+               deleting it would shift every field after it and every saved profile would reload its
+               values into the wrong boxes. Hidden, it keeps its slot and stays harmless. -->
+          <div class="fld" style="display:none" aria-hidden="true"><label class="lbl">Probability</label><div class="prob"><input aria-label="Probability" type="range" min="0" max="100" value="0" oninput="document.getElementById('pv').textContent=this.value+'%'"><span class="pv" id="pv">0%</span></div></div>
           <div class="fld"><label class="lbl">Tags</label><input aria-label="Tags" class="input" placeholder="e.g. hot-lead, follow-up"></div>
         </div></div></div>
 
