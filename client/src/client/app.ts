@@ -4441,7 +4441,20 @@ export function initApp(root: HTMLElement) {
       const obj=collectAdvisorProfile();
       if(!obj){ toast("Open a lead first (from Assigned leads)"); return; }
       const entries:any[]=[];
-      if(!prev){ entries.push({action:"Created",field:"Lead record",new:"created"}); }
+      if(!prev){
+        entries.push({action:"Created",field:"Lead record",new:"created"});
+        // ...and record WHAT the first save actually captured. This used to stop at "created", so
+        // every value the form started with — including dropdowns that arrive pre-selected — entered
+        // the record with no trace of who set it or when. That is how a lead nobody ever spoke to
+        // ended up with a Treatment and a Years-of-treatment nobody could account for.
+        const first=_advNamed();
+        Object.keys(first).forEach(k=>{
+          const v=String(first[k]==null?"":first[k]).trim();
+          if(!v||/call status/i.test(k)) return;          // call status logs on its own path
+          if(v.length>120) return;                         // skip message templates and other bulk text
+          entries.push({action:"Updated",field:k,old:"—",new:v});
+        });
+      }
       else{
         const before=_advNamed(prev.f); const after=_advNamed();
         Object.keys(after).forEach(k=>{ if(/call status/i.test(k)) return; const o=before[k]==null?"":before[k]; const n=after[k]; if(o!==n) entries.push({action:"Updated",field:k,old:o,new:n}); });
@@ -4476,6 +4489,17 @@ export function initApp(root: HTMLElement) {
       // than blanking a value they never saw.
       const _sg=_fv("#advfSugar");
       if(_sg&&!_advLayoutBt){
+        // Log the change. Sugar level was the one clinical field that could move without leaving a
+        // trace: it is written as a plain column update, not through the profile diff, so asking
+        // "who changed this reading?" needed a database query and still came back empty. Compared
+        // against the value the lead already carried, and only recorded when it actually differs —
+        // re-saving an unchanged record must not fill the trail with noise.
+        try{
+          const _prevL=_advFindLead(id);
+          const _prev=String((_prevL&&(_prevL.sugar||_prevL.sugar_poll))||"").trim();
+          const _same=_prev&&_haSugarBand(_prev)===_haSugarBand(_sg);
+          if(!_same) logActivity(id,[{action:"Status Changed",field:"Sugar level",old:_prev||"—",new:_sg}]);
+        }catch(_){}
         upd.sugar_poll=_sg;
         // Reflect it in memory so the dropdown filters correctly before any reload.
         [_metaLeads,_assignedExtras].forEach((arr:any[])=>{ const t=arr.find((x:any)=>String(x.id)===id); if(t) t.sugar=_sg; });
@@ -4697,9 +4721,17 @@ export function initApp(root: HTMLElement) {
     // first. Each call shows date/time, direction, duration, status, agent + a recording Play/Download.
     // Shared by the Advisor + Coach pages. targetSel = the panel to fill; curId = which lead is
     // currently open on that page (so a mid-fetch switch aborts cleanly).
+    // Whether the call panel is expanded past the 2 most recent. Held per lead: _callHistLead
+    // resets it when a different client is opened, so the panel always starts collapsed.
+    let _callHistAll=false, _callHistLead="";
+    let _callHistRedraw:(()=>void)|null=null;
+    w._callHistToggle=()=>{ _callHistAll=!_callHistAll; if(_callHistRedraw) _callHistRedraw(); };
     async function renderCallLogs(lead:any, targetSel:string="#advCallLog", curId:()=>string=()=>String(_advLeadId)){
       const el=root.querySelector(targetSel); if(!el||!lead) return;
       const leadId=String(lead.id); const ph=(lead.phone||"").replace(/\D/g,"");
+      // A different client → start collapsed, and let the toggle redraw THIS panel.
+      if(_callHistLead!==leadId){ _callHistLead=leadId; _callHistAll=false; }
+      _callHistRedraw=()=>{ try{ renderCallLogs(lead,targetSel,curId); }catch(_){} };
       // Pull the latest call status + recordings from the provider CDR first (resolves calls stuck
       // at "initiated" and surfaces recordings the push webhook never delivered), then read the DB.
       try{ await _callSync(leadId); }catch(_){}
@@ -4719,7 +4751,9 @@ export function initApp(root: HTMLElement) {
       // Keep the panel clean: show only the 2 MOST RECENT calls (rows are already sorted latest-first).
       // The chips below still report the true totals, and any older calls are noted — a "View All"
       // can surface the full history later without cluttering the default view.
-      const shown=rows.slice(0,2);
+      // Default to the 2 most recent, but let the rest be opened — the chips report the true totals
+      // (5 calls / 4 recordings), so a collapsed list read as a mismatch against what was on screen.
+      const shown=_callHistAll?rows:rows.slice(0,2);
       el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span></div>'
         +shown.map((r:any)=>{
           const out=/out/i.test(r.direction||"outbound");
@@ -4738,7 +4772,9 @@ export function initApp(root: HTMLElement) {
             +'<span style="font-size:11.5px;color:var(--muted)">→ '+e(r.to_number||"—")+'</span></div>'
             +rec+'</div>';
         }).join("")
-        +(rows.length>shown.length?'<div style="text-align:center;color:var(--faint);font-size:11.5px;padding:9px 0 2px">Showing the 2 most recent · '+(rows.length-shown.length)+' older call'+(rows.length-shown.length===1?"":"s")+' hidden</div>':"");
+        +(rows.length>shown.length
+          ?'<div style="text-align:center;padding:9px 0 2px"><button type="button" class="btn bsm" onclick="window._callHistToggle()">Show all '+rows.length+' calls · '+(rows.length-shown.length)+' hidden</button></div>'
+          :(rows.length>2?'<div style="text-align:center;padding:9px 0 2px"><button type="button" class="btn bsm" onclick="window._callHistToggle()">Show fewer</button></div>':""));
     }
     w.addFuNoteA=()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
