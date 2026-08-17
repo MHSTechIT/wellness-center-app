@@ -4387,8 +4387,36 @@ export function initApp(root: HTMLElement) {
     }
     function _advFindLead(id:string){ return [..._openLeads.map((o:any)=>o.lead),..._metaLeads,..._otherFeedLeads].find((x:any)=>x&&String(x.id)===id); }
     // Save the profile WITHOUT toast/diff (used after attachment / note changes).
+    // Field-level differences between two saved profiles. Shared by the explicit Save and by every
+    // quiet save, so a change is logged the same way whichever path persisted it.
+    function _advProfileDiff(prev:any,obj:any):any[]{
+      const out:any[]=[];
+      if(!prev||!obj) return out;
+      const before=_advNamed(prev.f), after=_advNamed();
+      Object.keys(after).forEach(k=>{ if(/call status/i.test(k)) return;
+        const o=before[k]==null?"":before[k], n=after[k];
+        if(o!==n) out.push({action:"Updated",field:k,old:o||"—",new:n||"—"}); });
+      const val=(label:string,o:string,n:string)=>{ if(o!==n) out.push({action:"Updated",field:label,old:o||"—",new:n||"—"}); };
+      const cB=_advChipLabels(prev.chips), cA=_advChipLabels(obj.chips);
+      Object.keys(cA).forEach(g=>val(g,(cB[g]||[]).join(", "),(cA[g]||[]).join(", ")));
+      const stars=(a:any[])=>{ const n=(a||[]).filter(Boolean).length; return n?("★".repeat(n)+" ("+n+")"):""; };
+      val("Priority",stars(prev.stars),stars(obj.stars));
+      val("Visited status",_advOnLabel(".pill",prev.pills),_advOnLabel(".pill",obj.pills));
+      val("BDM score",_advOnLabel("#bdm button",prev.score),_advOnLabel("#bdm button",obj.score));
+      return out;
+    }
     function persistAdvProfileQuiet(id:string){
       const obj=collectAdvisorProfile();
+      // LOG BEFORE MOVING THE BASELINE. This function overwrites l.advisorProfile, which is the very
+      // value the explicit Save diffs against — so a quiet save (an eligibility chip, an attachment,
+      // a slot booking) used to advance the baseline silently. By the time the advisor pressed Save
+      // there was nothing left to compare, the diff came up empty, and a real edit was recorded
+      // nowhere. That is why changes could be saved successfully and still never reach the log.
+      try{
+        const l0=_advFindLead(id);
+        const ents=_advProfileDiff(l0?l0.advisorProfile:null,obj);
+        if(ents.length) logActivity(id,ents);
+      }catch(_){}
       saveProfileLocal(id,obj);
       const l=_advFindLead(id); if(l) l.advisorProfile=obj;
       supabase.from("leads").update({advisor_profile:obj}).eq("meta_lead_id",id).then(()=>{},()=>{});
@@ -4480,21 +4508,8 @@ export function initApp(root: HTMLElement) {
           entries.push({action:"Updated",field:k,old:"—",new:v});
         });
       }
-      else{
-        const before=_advNamed(prev.f); const after=_advNamed();
-        Object.keys(after).forEach(k=>{ if(/call status/i.test(k)) return; const o=before[k]==null?"":before[k]; const n=after[k]; if(o!==n) entries.push({action:"Updated",field:k,old:o,new:n}); });
-        // Every one of these used to log the single word "changed", which told an auditor that
-        // something moved but never what — and the two chip sections shared one heading, so a
-        // Health-issues edit could read as a Managing-now edit. Each now reports its real before and
-        // after, and each multi-select section is named on its own.
-        const val=(label:string,o:string,n:string)=>{ if(o!==n) entries.push({action:"Updated",field:label,old:o||"—",new:n||"—"}); };
-        const cB=_advChipLabels(prev.chips), cA=_advChipLabels(obj.chips);
-        Object.keys(cA).forEach(g=>val(g,(cB[g]||[]).join(", "),(cA[g]||[]).join(", ")));
-        const stars=(a:any[])=>{ const n=(a||[]).filter(Boolean).length; return n?("★".repeat(n)+" ("+n+")"):""; };
-        val("Priority",stars(prev.stars),stars(obj.stars));
-        val("Visited status",_advOnLabel(".pill",prev.pills),_advOnLabel(".pill",obj.pills));
-        val("BDM score",_advOnLabel("#bdm button",prev.score),_advOnLabel("#bdm button",obj.score));
-      }
+      // Same diff the quiet save uses, so an edit reads identically whichever path wrote it.
+      else{ _advProfileDiff(prev,obj).forEach((x:any)=>entries.push(x)); }
       saveProfileLocal(id,obj);
       const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
       const csLabel=cs?_csLabelOf(cs.value):"";
