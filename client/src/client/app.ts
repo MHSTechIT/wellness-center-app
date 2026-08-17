@@ -535,6 +535,7 @@ export function initApp(root: HTMLElement) {
       seed();
       loadReceptionData();
       try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
+      try{ loadTgtMaster(); }catch(_){}  // Advisor targets master (Settings CRUD + the Advisor dashboard's targets)
       try{ loadPhysioPricing(); }catch(_){}   // Physio pricing master (Settings CRUD + Physio page card + payment defaults)
       try{ _cpnLoad(); }catch(_){}   // Coupon codes master (Settings CRUD + every Apply-coupon field)
       setTimeout(()=>{ try{ w._renderCallDeviation(); w._renderLeadsDeviation(); }catch(_){} },4000);
@@ -3813,6 +3814,11 @@ export function initApp(root: HTMLElement) {
       { const band=_haSugarBand(l.sugar||l.sugar_poll);
         const lbl=band==="sugar:none"?"No Sugar":(band==="sugar:hi"?"Above 250":(band==="sugar:mid"?"150–250":""));
         if(lbl) setV("#advfSugar",lbl); }
+      // Lead source is AUTO: it mirrors leads.source, the value the sync/import actually recorded.
+      // It used to be a free dropdown with its own default, so the form could read "web" while the
+      // overview correctly read "Meta Ads" — two stores for one fact, disagreeing. Set from the lead
+      // every time it is opened, so the form can no longer contradict the record.
+      _advSetLeadSource(l);
       // Rebuild the WhatsApp message for THIS lead — otherwise it keeps the previous lead's name.
       try{ waTpl(); }catch(_){}
       // Lead generated (AUTO): the lead's real creation timestamp. Stored so it survives a profile restore.
@@ -3836,6 +3842,18 @@ export function initApp(root: HTMLElement) {
     // ===== Persisted lead profile (Health Advisor "Save lead record") =====
     // The editable form is a single template reused for every lead, so we can
     // serialize it index-based (positions are stable across saves & refreshes).
+    //
+    // THE DIFF BASELINE. The Activity Log answers "what did this save change?", which needs a
+    // picture of the record BEFORE the edit. That picture used to be l.advisorProfile — but the
+    // draft autosave rewrites that on every keystroke, so the "before" silently became the "after"
+    // and every save diffed to nothing. The baseline now lives here and moves ONLY when a save has
+    // actually been logged. _advBaseId pins it to one lead so a snapshot can never leak across leads.
+    let _advBaseId=""; let _advBase:any=null;
+    const _advClone=(o:any)=>{ if(o==null) return null; try{ return JSON.parse(JSON.stringify(o)); }catch(_){ return o; } };
+    // obj===null is meaningful: "this lead has no saved profile yet" → the first save logs every
+    // field it captured. Distinguished from "no baseline tracked" (a different lead) by _advBaseId.
+    function _advSetBase(id:any,obj:any){ _advBaseId=String(id||""); _advBase=_advClone(obj); }
+    function _advBaseOf(id:any){ return _advBaseId===String(id)?_advBase:undefined; }
     function _advPanelEl(){ return root.querySelector('#s-advisor .a-p[data-p="sales"]')as HTMLElement|null; }
     // [data-nocap] controls (the Physiotherapy-specific panel) are EXCLUDED from the positional
     // capture so adding them never shifts the index-based save/restore of every existing profile.
@@ -3919,6 +3937,20 @@ export function initApp(root: HTMLElement) {
       root.querySelectorAll("#advpReports .chip-o").forEach((c:any)=>c.classList.toggle("on",set.has((c.textContent||"").trim())));
       _advpAtts=Array.isArray(ph.atts)?ph.atts.slice():[]; _advpRenderAtts();
     }
+    // Lead source mirrors leads.source, the value the sync/import actually recorded. It must be
+    // re-applied AFTER applyAdvisorProfile: that restore writes the saved profile back positionally
+    // over every control, so a prefill done at open time was immediately overwritten by the stored
+    // (often blank) value — which is why the dropdown kept showing "- Select -".
+    function _advSetLeadSource(l:any){
+      const el=root.querySelector('[aria-label="Lead source"]')as HTMLSelectElement|null;
+      if(!el||!l) return;
+      const s=String(l.source||"").toLowerCase();
+      const lbl=/meta/.test(s)?"Meta":/whats|wati/.test(s)?"WhatsApp":/web/.test(s)?"web"
+        :/walk|telecall/.test(s)?"Direct Walk-in":/referr/.test(s)?"Referral":"";
+      if(!lbl) return;   // no matching option - leave whatever is there rather than blanking it
+      if(!Array.from(el.options).some(o=>o.value===lbl||o.text===lbl)) el.add(new Option(lbl,lbl));
+      el.value=lbl;
+    }
     function applyAdvisorProfile(obj:any){
       const p=_advPanelEl(); if(!p||!obj) return;
       _advApplying=true;
@@ -3964,6 +3996,7 @@ export function initApp(root: HTMLElement) {
             // dropdown lock, so a non-enrolled lead opened after an enrolled one must run it to UNLOCK.
             _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
             _advApplyServiceLayout(l.service||l.svc||"");   // re-assert the physio/default layout after restore
+            _advSetLeadSource(l);                          // ...and the AUTO lead source the restore just overwrote
           }
         }catch(_){}
       } finally { _advApplying=false; }
@@ -4214,8 +4247,35 @@ export function initApp(root: HTMLElement) {
     };
     w._advpRemoveAtt=(i:number)=>{ const a=_advpAtts[i]; if(!a) return; _advpAtts.splice(i,1); _advpRenderAtts(); if(_advLeadId){ try{ persistAdvProfileQuiet(String(_advLeadId)); }catch(_){} } };
     const _advpKey=(id:any)=>"wos_advp_"+id;
-    function readProfileLocal(id:any){ try{ const s=localStorage.getItem(_advpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
+    // DRAFT lives in its OWN key. It used to share _advpKey with the saved profile, which made the
+    // as-you-type autosave overwrite the very snapshot the Activity Log diffs against: by the time
+    // Save ran, "before" and "after" were the same object, the diff came up empty and a fully filled
+    // Basic-info / Sugar form was saved with NOTHING recorded in the log. Saved state and unsaved
+    // draft are now different things in different places, so typing can never erase the baseline.
+    const _advdKey=(id:any)=>"wos_advd_"+id;
+    // The last SAVED profile — the diff baseline. Never a draft: a legacy entry carrying the old
+    // _draftAt stamp is treated as a draft, not as a baseline, so pre-existing drafts don't keep
+    // suppressing the log after this fix ships.
+    function readProfileLocal(id:any){
+      try{
+        const s=localStorage.getItem(_advpKey(id)); if(!s) return null;
+        const o=JSON.parse(s);
+        return (o&&o._draftAt)?null:o;
+      }catch(_){ return null; }
+    }
     function saveProfileLocal(id:any,obj:any){ try{ localStorage.setItem(_advpKey(id),JSON.stringify(obj)); }catch(_){/* storage full/unavailable */} }
+    // The unsaved draft (form-restore only). Also reads a legacy draft left in the old shared key.
+    function readDraftLocal(id:any){
+      try{
+        const s=localStorage.getItem(_advdKey(id));
+        if(s){ const o=JSON.parse(s); if(o) return o; }
+        const legacy=localStorage.getItem(_advpKey(id));
+        if(legacy){ const o=JSON.parse(legacy); if(o&&o._draftAt) return o; }
+      }catch(_){}
+      return null;
+    }
+    function saveDraftLocal(id:any,obj:any){ try{ localStorage.setItem(_advdKey(id),JSON.stringify(obj)); }catch(_){/* storage full/unavailable */} }
+    function clearDraftLocal(id:any){ try{ localStorage.removeItem(_advdKey(id)); }catch(_){} }
     // ---- Auto-save DRAFT: capture the form as the user types, so navigating away / refreshing /
     // reopening the lead never loses unsaved entry (reported: a fully-filled form gone after a page
     // switch). Uses the SAME capture + local store as the explicit save, so the existing restore
@@ -4230,7 +4290,11 @@ export function initApp(root: HTMLElement) {
       if(!_advLeadId||_advApplying) return;
       const obj=collectAdvisorProfile(); if(!obj) return;
       (obj as any)._draftAt=Date.now();
-      saveProfileLocal(String(_advLeadId),obj);
+      // DRAFT ONLY. This must never write the saved-profile key or advance _advBase — both are the
+      // Activity Log's "before" picture, and overwriting them as the user types is what made a save
+      // record nothing at all. l.advisorProfile is still updated because the dashboard's priority
+      // card reads an open lead's unsaved stars from it; it is no longer used as the diff baseline.
+      saveDraftLocal(String(_advLeadId),obj);
       const l=_advFindLead(String(_advLeadId)); if(l) l.advisorProfile=obj;
     }
     {
@@ -4338,9 +4402,18 @@ export function initApp(root: HTMLElement) {
       if(!l) return;
       // 1) INSTANT apply. The device-local copy is the authoritative latest (every
       //    save writes it synchronously), so prefer it over any stale in-memory cache.
-      let prof:any = readProfileLocal(l.id);
+      //    SAVED and DRAFT are read separately: the draft is what goes on SCREEN (it is the newest
+      //    typing), the saved profile is what the Activity Log diffs against. Collapsing the two is
+      //    what let a page reload turn unsaved typing into the baseline, so the next save compared
+      //    the form against itself and logged nothing.
+      const _saved:any = readProfileLocal(l.id);
+      const _draft:any = readDraftLocal(l.id);
+      let prof:any = _draft || _saved;
       if(prof==null) prof = (l.advisorProfile!=null ? l.advisorProfile : null);
       l.advisorProfile = prof || null;
+      // Baseline = the last SAVED state, never the draft. null is deliberate: a lead with no saved
+      // profile must still take the "first save logs every field" path.
+      if(String(_advLeadId)===String(l.id)) _advSetBase(l.id,_saved);
       if(prof && String(_advLeadId)===String(l.id)) applyAdvisorProfile(prof);
       // Runs AFTER the restore so a saved Salesperson always wins; only fills a blank one.
       if(String(_advLeadId)===String(l.id)) _advDefaultSalesperson(l);
@@ -4366,7 +4439,13 @@ export function initApp(root: HTMLElement) {
         // anything in the DB: skip re-applying the DB copy or the reopened form would snap back to
         // the last explicit save, losing the draft this feature exists to preserve. The draft stamp
         // clears on explicit save, after which the DB copy is authoritative again.
-        if(row.advisor_profile && !(prof&&prof._draftAt)){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)){ applyAdvisorProfile(row.advisor_profile); _advDefaultSalesperson(l); } }
+        if(row.advisor_profile){
+          // The DB copy is the authoritative SAVED state, so it is the diff baseline even when a
+          // pending draft means the form itself must NOT be repainted from it (that would throw
+          // away live typing). Baseline and screen are set independently, on purpose.
+          if(String(_advLeadId)===String(l.id)) _advSetBase(l.id,row.advisor_profile);
+          if(!_draft){ l.advisorProfile=row.advisor_profile; if(String(_advLeadId)===String(l.id)){ applyAdvisorProfile(row.advisor_profile); _advDefaultSalesperson(l); } }
+        }
         if(row.enrolled_at) l.enrolledAt=row.enrolled_at;   // cache for the enrolled table
         l.callStatus=row.call_status||l.callStatus;         // keep in-memory fresh (dashboard cards + re-opens)
         let enrLvl=_advEnrolLevel(row.coach_profile);     // consStatus level — may be a SUBSET of what's paid
@@ -4407,17 +4486,23 @@ export function initApp(root: HTMLElement) {
     }
     function persistAdvProfileQuiet(id:string){
       const obj=collectAdvisorProfile();
-      // LOG BEFORE MOVING THE BASELINE. This function overwrites l.advisorProfile, which is the very
-      // value the explicit Save diffs against — so a quiet save (an eligibility chip, an attachment,
-      // a slot booking) used to advance the baseline silently. By the time the advisor pressed Save
-      // there was nothing left to compare, the diff came up empty, and a real edit was recorded
-      // nowhere. That is why changes could be saved successfully and still never reach the log.
+      // LOG BEFORE MOVING THE BASELINE. A quiet save (an eligibility chip, an attachment, a slot
+      // booking) persists the whole form, so without this the edit it carried along would advance
+      // the baseline silently: by the time the advisor pressed Save there was nothing left to
+      // compare, the diff came up empty, and a real edit was recorded nowhere. That is why changes
+      // could be saved successfully and still never reach the log.
       try{
+        const _b=_advBaseOf(id);
         const l0=_advFindLead(id);
-        const ents=_advProfileDiff(l0?l0.advisorProfile:null,obj);
+        // Same rule as the explicit save: a draft-stamped object is never a baseline, or the quiet
+        // save would compare the form against the user's own in-progress typing and log nothing.
+        const _fb=readProfileLocal(id)||((l0&&l0.advisorProfile&&!l0.advisorProfile._draftAt)?l0.advisorProfile:null);
+        const prev=_b!==undefined?_b:_fb;
+        const ents=_advProfileDiff(prev,obj);
         if(ents.length) logActivity(id,ents);
       }catch(_){}
       saveProfileLocal(id,obj);
+      _advSetBase(id,obj);   // this IS now the saved state — the next diff compares against it
       const l=_advFindLead(id); if(l) l.advisorProfile=obj;
       supabase.from("leads").update({advisor_profile:obj}).eq("meta_lead_id",id).then(()=>{},()=>{});
     }
@@ -4490,7 +4575,22 @@ export function initApp(root: HTMLElement) {
       }
       const id=String(_advLeadId);
       const lead=_advFindLead(id);
-      const prev=lead?lead.advisorProfile:null;
+      // The BASELINE the diff compares against. If this is missing the save cannot know what changed,
+      // and every edit would go unlogged with nothing on screen to say so — which is exactly how a
+      // silent logging failure looks from the outside. Fall back to the copy kept in local storage
+      // rather than treating "no baseline in memory" as "nothing to compare".
+      // Prefer the tracked baseline: l.advisorProfile is rewritten by the draft autosave on every
+      // keystroke, so using it here compared the form against ITSELF — the diff came up empty and a
+      // fully filled Basic-info / Sugar & medical form was saved with nothing in the activity trail.
+      // The fallbacks are for a baseline that was never tracked (e.g. a lead opened before this
+      // code ran); a draft-stamped object is never accepted as a baseline.
+      let prev:any; const _base=_advBaseOf(id);
+      if(_base!==undefined) prev=_base;
+      else{
+        prev=null;
+        try{ prev=readProfileLocal(id)||null; }catch(_){}
+        if(!prev&&lead&&lead.advisorProfile&&!lead.advisorProfile._draftAt) prev=lead.advisorProfile;
+      }
       const obj=collectAdvisorProfile();
       if(!obj){ toast("Open a lead first (from Assigned leads)"); return; }
       const entries:any[]=[];
@@ -4510,7 +4610,23 @@ export function initApp(root: HTMLElement) {
       }
       // Same diff the quiet save uses, so an edit reads identically whichever path wrote it.
       else{ _advProfileDiff(prev,obj).forEach((x:any)=>entries.push(x)); }
+      // Say when a save recorded nothing. "Saved" with an empty trail is indistinguishable from a
+      // broken log, and that ambiguity is what made this take three attempts to pin down: the save
+      // reported success either way, so there was no way to tell "you changed nothing" apart from
+      // "the diff failed". Dev also names the fields it compared, so a miss is diagnosable on sight.
+      if(!entries.length){
+        try{
+          if(location.hostname==="localhost"||location.hostname==="127.0.0.1")
+            console.warn("[save] no field changes detected · baseline:",prev?("f["+((prev.f||[]).length)+"]"):"MISSING",
+              "· compared",Object.keys(_advNamed()).length,"named fields");
+        }catch(_){}
+      }
       saveProfileLocal(id,obj);
+      // This is now the saved state, so it becomes the baseline the NEXT save diffs against, and the
+      // draft that was standing in for it is spent. `entries` is already computed, so moving the
+      // baseline here cannot swallow what this save is about to log.
+      _advSetBase(id,obj);
+      clearDraftLocal(id);
       const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
       const csLabel=cs?_csLabelOf(cs.value):"";
       const upd:any={advisor_profile:obj}; if(csLabel) upd.call_status=csLabel;
@@ -4604,7 +4720,7 @@ export function initApp(root: HTMLElement) {
           if(await _dbOk(supabase.from("appointments").update({blood_test_data:Object.assign({},cur,_planData)}).eq("id",ex.data[0].id),"Plan hand-off")){
             toast(_plan!.name+" plan sent to Reception — ₹"+_plan!.price.toLocaleString("en-IN"));
             try{ await loadReceptionData(); }catch(_){}
-            try{ _recRevealAppt(String(ex.data[0].appt_date||"").slice(0,10)); }catch(_){}
+            try{ const _rv=String(ex.data[0].appt_date||""); _recRevealAppt(/T/.test(_rv)?_istDay(_rv):_rv.slice(0,10)); }catch(_){}
             _broadcastLeadSync({leadId:id,appointment:true});
           }
         }
@@ -4709,7 +4825,14 @@ export function initApp(root: HTMLElement) {
       // WITHOUT the entry just written — it only appeared after some later action or refresh, which
       // is the reported "takes a minute / needs another save". renderActivityLog also merges the
       // local copy now, so the entry is on screen even if the insert is slow or fails outright.
-      try{ await supabase.from("lead_activity").insert(rows); }catch(_){/* local copy still shows it */}
+      // The /db gateway RESOLVES with {error} rather than throwing, so a catch alone can never see a
+      // rejected insert: a failed write looked exactly like a successful one, and the entry survived
+      // only in localStorage — on screen for this advisor, absent for everyone else and gone at the
+      // next device. Check the returned error and say so out loud.
+      try{
+        const r:any=await supabase.from("lead_activity").insert(rows);
+        if(r&&r.error) toastErr("Activity log not saved: "+(r.error.message||"database error"));
+      }catch(e:any){ toastErr("Activity log not saved: "+(e?.message||"network error")); }
       if(String(_advLeadId)===String(leadId)) renderActivityLog(leadId);
     }
     // ---- Assignment history (immutable audit trail behind "Assigned Leads History") ----
@@ -4955,7 +5078,9 @@ export function initApp(root: HTMLElement) {
         // initiated_by_email = who was actually LOGGED IN when Call was clicked (captured
         // server-side from the authenticated session — see /api/calls/initiate). Always fetched:
         // even a full-access viewer needs it the moment they filter the dashboard to one advisor.
-        const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds,initiated_by_email").limit(5000);
+        // created_at + direction feed the Call Performance section (PRD §5.8): speed-to-contact needs
+        // WHEN the first call happened, and incoming/missed need to tell inbound from outbound.
+        const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds,initiated_by_email,created_at,direction").limit(5000);
         _advCallRows=data||[];
       }catch(_){ _advCallRows=[]; }
     }
@@ -5239,7 +5364,18 @@ export function initApp(root: HTMLElement) {
         const id=String(l.id); if(seen.has(id)) return false; seen.add(id);   // duplicate phone rows
         const ack=_fuAckMap[id];
         return !(ack&&(ack==="*"||ack===String(nf)));
-      }).sort((a:any,b:any)=>new Date(_haFuNext(a)).getTime()-new Date(_haFuNext(b)).getTime());
+      }).sort((a:any,b:any)=>{
+        // A priority lead WITH an appointment booked outranks everything else: the advisor has
+        // marked real interest AND the client has committed to a slot, so that follow-up is the one
+        // that must not be missed. Within the same rank the planned time still decides, so the queue
+        // stays chronological rather than becoming an arbitrary priority list.
+        // "Appointment scheduled" reads off the lead's own status - the same fact the Appointment
+        // Fixed cards count - so this needs no extra lookup and cannot drift from them.
+        const booked=(l:any)=>/appointment/i.test(String((l&&l.callStatus)||""));
+        const r=(l:any)=>(_advPrioOf(l)>0&&booked(l))?_advPrioOf(l)+10:_advPrioOf(l);
+        const d=r(b)-r(a); if(d) return d;
+        return new Date(_haFuNext(a)).getTime()-new Date(_haFuNext(b)).getTime();
+      });
     }
     // ADMIN mode shows one card at a time, 30s each, then advances. Index + timer live here so a
     // re-render (which happens on every dashboard refresh) doesn't restart the rotation.
@@ -5386,6 +5522,266 @@ export function initApp(root: HTMLElement) {
       _asnApplied={src:"all",svc:"all",from:"",to:"",advisor:"all"};
       _asnPage=1; renderAssignedLeads(); renderHealthDashboard();
     };
+    // ===================== Advisor dashboard enhancements (PRD v1.0 §5–§7) =====================
+    // Everything below renders INTO the containers added to template.ts and drills into the same
+    // results table the original cards use, so there is one navigation contract for the whole screen.
+    //
+    // Where the reference numbers come from, and the assumptions taken where the PRD left a question
+    // open (§9). All of these are stated on screen too, so nobody has to read this comment to know
+    // which source produced a number:
+    //   §9.1/§9.4  advisor_targets (per advisor, per month) is authoritative when the table exists and
+    //              has a row. Without it the dashboard still works: revenue/enrollment fall back to the
+    //              constants below, and pipeline "expected" is derived as a share of the advisor's OWN
+    //              book — an advisor holding 40 leads and one holding 400 cannot share an absolute
+    //              expected count without one of them being wrong every single day.
+    //   §9.2       "Avg 1st Call Touch Time" = SPEED TO CONTACT (assigned → first call attempt). It is
+    //              the number that can be coached; first-call DURATION is already covered by Talk
+    //              Duration. Labelled on the card so the two are never confused.
+    //   §9.3       CRM Active Usage has no source — there is no session/heartbeat tracking anywhere in
+    //              this app. The card renders as "Not tracked" rather than inventing a number.
+    //   §9.5       Every metric that maps to a lead set drills into the results table. Talk Duration and
+    //              CRM Active Usage have no lead set, so they are not clickable.
+    //   §9.6       The pacing line is rule-based and templated — deterministic, so the same numbers
+    //              always produce the same sentence.
+    //   §9.7       Leads with NO next_followup are excluded from all four Follow-up cards. They are not
+    //              overdue; nobody ever promised to call them back.
+    const HA_FUNNEL_GOALS:any={leadAppt:35,apptVisit:50,leadVisit:15,visitEnrol:45,leadEnrol:5};
+    // Fallback expected counts as a share of the book, used only when advisor_targets has no row.
+    const HA_EXPECTED_SHARE:any={apptDirect:0.30,apptZoom:0.08,confirmed:0.12,health:0.15,enrolled:0.05};
+    // Fallbacks ONLY — used when an advisor has no advisor_targets row for the current month. The
+    // real numbers live in Settings → Advisor targets.
+    const HA_TARGET_FALLBACK:any={revenue:1800000,enrollment:90,crmHours:8};
+    // §7 colour rule for a plain attainment ratio (actual ÷ target).
+    function _haAttainCls(pct:number){ return pct>=90?"g":(pct>=70?"a":"r"); }
+    // §7 colour rule for a GOAL comparison. Green requires being AT OR ABOVE the goal — not merely
+    // within 90% of it. Without that distinction 41% against a 45% goal scores 91% and paints green,
+    // while the PRD's own table calls it amber. Below goal it falls back to the ratio bands.
+    function _haGoalCls(actual:number,goal:number){
+      if(!goal) return "g";
+      if(actual>=goal) return "g";
+      return (actual/goal)*100>=70?"a":"r";
+    }
+    const _haPct=(a:number,b:number)=>b>0?Math.round((a/b)*100):0;
+    const _haInr=(n:number)=>{ const v=Math.round(Number(n)||0);
+      if(v>=10000000) return "₹"+(v/10000000).toFixed(2).replace(/\.00$/,"")+"Cr";
+      if(v>=100000) return "₹"+(v/100000).toFixed(1).replace(/\.0$/,"")+"L";
+      if(v>=1000) return "₹"+(v/1000).toFixed(1).replace(/\.0$/,"")+"K";
+      return "₹"+v; };
+    // ---- advisor_targets (optional table — the dashboard degrades gracefully without it) ----
+    let _haTargets:any=null; let _haTargetsLoaded=false; let _haTargetsMissing=false;
+    const _haPeriod=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); };
+    async function _loadHaTargets(){
+      if(_haTargetsLoaded) return; _haTargetsLoaded=true;
+      const who=_advCallScopeName();
+      try{
+        const res:any=await supabase.from("advisor_targets").select("*").eq("period",_haPeriod()).limit(200);
+        if(res&&res.error){ _haTargetsMissing=true; return; }
+        const rows=res?.data||[];
+        _haTargets=who?(rows.find((r:any)=>String(r.advisor||"").toLowerCase()===who.toLowerCase())||null):null;
+        // No advisor selected (a manager looking at the whole team) → sum the team's targets so the
+        // cards still measure against something real rather than one person's number.
+        if(!who&&rows.length){
+          _haTargets=rows.reduce((a:any,r:any)=>({advisor:"All advisors",
+            revenue_target:(a.revenue_target||0)+Number(r.revenue_target||0),
+            enrollment_target:(a.enrollment_target||0)+Number(r.enrollment_target||0),
+            expected_appt_direct:(a.expected_appt_direct||0)+Number(r.expected_appt_direct||0),
+            expected_appt_zoom:(a.expected_appt_zoom||0)+Number(r.expected_appt_zoom||0),
+            expected_confirmed:(a.expected_confirmed||0)+Number(r.expected_confirmed||0),
+            expected_visited:(a.expected_visited||0)+Number(r.expected_visited||0),
+            expected_enrolled:(a.expected_enrolled||0)+Number(r.expected_enrolled||0)}),{});
+        }
+      }catch(_){ _haTargetsMissing=true; }
+    }
+    // ---- Revenue actuals (payments on the leads currently on screen) ----
+    let _haPayRows:any[]=[]; let _haPayLoaded=false;
+    async function _loadHaPayments(){
+      if(_haPayLoaded) return; _haPayLoaded=true;
+      // paid_at + created_at drive the revenue sparkline. paid_at is the money's real date; created_at
+      // is the fallback for older rows that never had one stamped.
+      try{ const {data}=await supabase.from("payments").select("lead_id,amount,status,refund_amount,paid_at,created_at"); _haPayRows=data||[]; }
+      catch(_){ _haPayRows=[]; }
+    }
+    // Collected money, net of refunds, for a given set of leads. `status==="paid"` is what every
+    // collect-payment path writes; a due row is a promise, not revenue.
+    function _haRevenueOf(ids:Set<string>){
+      let sum=0;
+      _haPayRows.forEach((p:any)=>{ if(!ids.has(String(p.lead_id||""))) return; if(String(p.status||"")!=="paid") return;
+        sum+=Math.max(0,(Number(p.amount)||0)-(Number(p.refund_amount)||0)); });
+      return sum;
+    }
+    // ---- Per-lead call facts, built once per render from the same rows the KPI cards use ----
+    // ===== Call Touch Time — advisor x hour dialer performance =====
+    // Built from the same call rows the Call Performance cards use, so the two can never disagree.
+    // Grouped by WHO dialled and the IST hour the call started: the question is when each advisor is
+    // on the phone and how much of that time is real conversation.
+    function _advCallHourly(book:any[]){
+      const advOf:Record<string,string>={};
+      (book||[]).forEach((l:any)=>{ advOf[String(l.id)]=String(l.assignedTo||""); });
+      const m:Record<string,any>={};
+      (_advCallRows||[]).forEach((r:any)=>{
+        const t=r.created_at?new Date(r.created_at):null; if(!t||isNaN(t.getTime())) return;
+        // The caller is whoever dialled; a row logged without one falls back to the lead's advisor
+        // rather than being dropped, so the dial still counts against somebody.
+        const adv=String(r.initiated_by_name||"").trim()||advOf[String(r.contact_id||"")]||"—";
+        // IST hour, because the clinic's day is an IST day.
+        const hh=Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",hour:"2-digit",hour12:false}).format(t));
+        const day=_istDay(r.created_at);
+        const k=adv+"|"+day+"|"+hh;
+        const o=(m[k]=m[k]||{adv,day,hh,dials:0,conn:0,dur:0});
+        const secs=Number(r.duration_seconds)||0;
+        o.dials++;
+        if(String(r.call_status||"").toLowerCase()==="answered"||secs>0){ o.conn++; o.dur+=secs; }
+      });
+      const h12=(h:number)=>{ const ap=h<12?"AM":"PM"; const x=h%12===0?12:h%12; return x+":00 "+ap; };
+      return Object.keys(m).map(k=>{
+        const o=m[k];
+        return Object.assign({},o,{
+          label:h12(o.hh)+"–"+h12((o.hh+1)%24),
+          avg:o.conn?Math.round(o.dur/o.conn):0
+        });
+      }).sort((a:any,b:any)=>
+        a.adv.localeCompare(b.adv) || (a.day<b.day?1:a.day>b.day?-1:0) || (a.hh-b.hh));
+    }
+    function _advRenderCallHourly(book:any[]){
+      const host=root.querySelector("#haCallHourly") as HTMLElement|null; if(!host) return;
+      const rows=_advCallHourly(book);
+      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const tot=rows.reduce((a:any,r:any)=>{ a.d+=r.dials; a.c+=r.conn; a.t+=r.dur; return a; },{d:0,c:0,t:0});
+      host.innerHTML='<div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:8px">'
+        +'<svg class="icon"><use href="#i-phone"></use></svg> Call Touch Time — hourly by advisor'
+        +'<span class="chipb neu" style="margin-left:auto">'+tot.d+' dials · '+tot.c+' connected · '+_fmtCallDur(tot.t)+'</span></div>'
+        +'<div style="font-size:11.5px;color:var(--faint);padding:0 2px 8px">When each advisor is dialling, how much connects, and how much of it is real conversation. Same call rows as the cards above.</div>'
+        +'<div class="tscroll"><table class="tbl" style="min-width:720px"><thead><tr>'
+        +'<th>Advisor Name</th><th>Time</th><th>Dials</th><th>Connected Calls</th><th>Talk Time</th><th>Avg. Talk Time</th>'
+        +'</tr></thead><tbody>'
+        +(rows.length?rows.map((r:any)=>'<tr>'
+            +'<td style="font-weight:600">'+e(r.adv)+'</td>'
+            +'<td class="mono" style="white-space:nowrap">'+e(r.label)+'</td>'
+            +'<td class="mono" style="font-weight:700">'+r.dials+'</td>'
+            +'<td class="mono">'+r.conn+'</td>'
+            +'<td class="mono">'+e(_fmtCallDur(r.dur))+'</td>'
+            +'<td class="mono">'+e(r.conn?_fmtCallDur(r.avg):"—")+'</td></tr>').join("")
+          :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No calls recorded for these leads yet.</td></tr>')
+        +'</tbody></table></div>';
+    }
+    function _haCallFacts(){
+      const m:Record<string,any>={};
+      _advCallRows.forEach((r:any)=>{
+        const k=String(r.contact_id||""); if(!k) return;
+        const o=(m[k]=m[k]||{total:0,connected:0,dur:0,inbound:0,missed:0,first:0,last:0});
+        const secs=Number(r.duration_seconds)||0;
+        const conn=String(r.call_status||"").toLowerCase()==="answered"||secs>0;
+        const inbound=/in/i.test(String(r.direction||""))&&!/out/i.test(String(r.direction||""));
+        const t=r.created_at?new Date(r.created_at).getTime():0;
+        o.total++;
+        if(conn){ o.connected++; o.dur+=secs; }
+        if(inbound){ o.inbound++; if(!conn) o.missed++; }
+        if(t){ if(!o.first||t<o.first) o.first=t; if(t>o.last) o.last=t; }
+      });
+      return m;
+    }
+    // ---- Follow-up state (PRD §5.2) ----
+    const _haDayKey=(ms:number)=>{ try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(ms)); }catch(_){ return ""; } };
+    // A follow-up counts as DONE when the advisor demonstrably acted on the lead AFTER the time they
+    // planned to: a follow-up note written since, or a call placed since. Both already load for this
+    // screen, so this needs no migration and — unlike the existing reminder-acknowledgement map, which
+    // lives in localStorage — it reads the same on every device.
+    function _haFuBuckets(book:any[],facts:Record<string,any>){
+      const now=Date.now(), today=_haDayKey(now);
+      const out:any={total:[],done:[],today:[],overdue:[]};
+      book.forEach((l:any)=>{
+        const nf=_haFuNext(l); if(!nf) return;               // §9.7 — no plan, no follow-up
+        const t=new Date(nf).getTime(); if(isNaN(t)) return;
+        out.total.push(l);
+        const det=_advLeadsDet[String(l.id)]||{};
+        const lastNote=det.last_fu?new Date(det.last_fu).getTime():0;
+        const lastCall=(facts[String(l.id)]||{}).last||0;
+        const actioned=(lastNote&&lastNote>t)||(lastCall&&lastCall>t);
+        if(actioned){ out.done.push(l); return; }
+        const day=_haDayKey(t);
+        if(day===today){ out.today.push(l); return; }
+        // "Date has passed, lead still open" — a lead that already enrolled is not an overdue chase.
+        if(t<now && day<today && !l.enrolledAt) out.overdue.push(l);
+      });
+      return out;
+    }
+    // ---- Funnel sets (PRD §5.7). Stages are MILESTONES ("ever reached"), not current buckets —
+    // a funnel whose earlier stages empty out as leads progress cannot produce a meaningful rate.
+    function _haFunnelSets(book:any[]){
+      const appts:any[]=[],visits:any[]=[],enrolled:any[]=[];
+      book.forEach((l:any)=>{
+        const st=haEffStatus(l), b=haBucketOf(st);
+        const visited=!!l.visitedAt||/visited/i.test(st);
+        const enrol=!!l.enrolledAt||b==="enrolled";
+        const appt=b==="apptDirect"||b==="apptZoom"||_advIsConfirmed(l)||visited||enrol;
+        if(appt) appts.push(l);
+        if(visited) visits.push(l);
+        if(enrol) enrolled.push(l);
+      });
+      return {leads:book,appts,visits,enrolled};
+    }
+    // ---- Call disposition groups (PRD §5.4). Exactly the 20 codes the PRD lists; the four codes it
+    // explicitly excludes (Callback requested, Payment pending, Payment done, Interested) are absent.
+    // `c` is CATEGORICAL colour — what the group MEANS — not the §7 attainment rule. §7 governs only
+    // cards that have a target, and a disposition has none: "42 leads on DND" is neither good nor bad
+    // performance, it is a fact about the numbers. Painting all five groups the same green made the
+    // section unreadable at a glance; painting them with attainment colours would have been a lie.
+    const HA_DISPO_GROUPS:any[]=[
+      {g:"New",c:"#5B7FA6",codes:["New"]},
+      {g:"No contact made",c:"#8A8F8B",codes:["DND","RNR","Line Busy","Switched Off","Out of Service","Wrong Number","Not Reachable","Disconnect"]},
+      {g:"Needs follow-up",c:"var(--warn)",codes:["Call Back","Follow Up"]},
+      {g:"Negative outcome",c:"var(--alert)",codes:["Not Interested","No Sugar","Already Paid","Not Registered"]},
+      {g:"Positive · conversion path",c:"var(--ok)",codes:["Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled"]},
+    ];
+    // Leads carrying a given disposition. "New" also absorbs Open/blank — a lead nobody has touched is
+    // new, and leaving it uncounted would make the groups fail to add up to the book. "Appointment
+    // Confirmed" was retired as a selectable status here, so it reads the manual Confirm milestone
+    // (leads.confirmed_at) — the same source the Confirmed card counts.
+    function _haDispoMatch(l:any,code:string){
+      const st=String(haEffStatus(l)||"").trim().toLowerCase();
+      if(code==="Appointment Confirmed") return _advIsConfirmed(l);
+      if(code==="New") return !st||st==="new"||st==="open";
+      return st===code.toLowerCase();
+    }
+    // Resolve one of the enhancement sections' drill-down keys to a lead set + a title. Returns null
+    // for anything it doesn't own, so renderHaResults falls through to the original card logic
+    // untouched — the new sections extend the drill-down, they don't replace it.
+    function _haCustomList(key:string,book:any[],fullBook:any[]):{list:any[];label:string}|null{
+      if(!key||key.indexOf(":")<0) return null;
+      const [ns,arg]=[key.slice(0,key.indexOf(":")),key.slice(key.indexOf(":")+1)];
+      if(ns==="fu"){
+        const b=_haFuBuckets(book,_haCallFacts());
+        const m:any={total:["Follow-ups · all planned",b.total],done:["Follow-ups · done",b.done],
+          today:["Follow-ups · due today",b.today],overdue:["Follow-ups · overdue",b.overdue]};
+        const hit=m[arg]; return hit?{label:hit[0],list:hit[1]}:null;
+      }
+      if(ns==="dispo") return {label:"Call disposition · "+arg,list:book.filter((l:any)=>_haDispoMatch(l,arg))};
+      if(ns==="vs"){
+        if(arg==="visited") return {label:"Visited status · Visited",list:book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))};
+        if(arg==="confirm") return {label:"Visited status · Confirm",list:book.filter((l:any)=>!l.visitedAt&&_advIsConfirmed(l))};
+        if(arg==="open") return {label:"Visited status · Open",list:book.filter((l:any)=>!l.visitedAt&&!/visited/i.test(haEffStatus(l))&&!_advIsConfirmed(l))};
+        return null;
+      }
+      if(ns==="es"){
+        const isEnr=(l:any)=>!!l.enrolledAt||haBucketOf(haEffStatus(l))==="enrolled";
+        if(arg==="enrolled") return {label:"Enrollment status · Enrolled",list:book.filter(isEnr)};
+        if(arg==="open") return {label:"Enrollment status · Open",list:book.filter((l:any)=>!isEnr(l))};
+        return null;
+      }
+      if(ns==="fn"){
+        const s=_haFunnelSets(book);
+        if(arg==="leads") return {label:"Funnel · Leads",list:fullBook};
+        if(arg==="appts") return {label:"Funnel · Reached appointment",list:s.appts};
+        if(arg==="visits") return {label:"Funnel · Visited",list:s.visits};
+        if(arg==="enrolled") return {label:"Funnel · Enrolled",list:s.enrolled};
+        // The Visit → Enrollment rate is only actionable as the leads it is MISSING: people who came
+        // in and have not enrolled. That is the work list, not the ones who already converted.
+        if(arg==="visitNotEnrolled"){ const enr=new Set(s.enrolled.map((l:any)=>String(l.id)));
+          return {label:"Visited, not yet enrolled",list:s.visits.filter((l:any)=>!enr.has(String(l.id)))}; }
+        return null;
+      }
+      return null;
+    }
     function renderHealthDashboard(){
       const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
       if(fsel && fsel.options.length<=1) _haFillStatusFilter(fsel);
@@ -5432,7 +5828,12 @@ export function initApp(root: HTMLElement) {
         // dashboard are untouched — this only decides which cards are rendered.
         const _btView=String(_asnApplied.svc||"all")==="Blood Test";
         const _btKeys=["total","open","apptDirect","apptZoom","health","payment"];
-        const _shownCards=_btView?HA_CARDS.filter(c=>_btKeys.indexOf(c.key)>=0):HA_CARDS;
+        // The three headline counters (Total / Open / Follow-up) now render as PANEL 1 in
+        // _renderAdvDashSections, with their own layout, icons and week-on-week trend — so this grid
+        // keeps only the overlay cards (Call Status filter, Priority), which are not pipeline stages.
+        // The Blood-Test layout is untouched: it is a specialised view with no funnel or enrolment
+        // journey, so it keeps its original six cards here and hides panels 2–4 entirely.
+        const _shownCards=_btView?HA_CARDS.filter(c=>_btKeys.indexOf(c.key)>=0):[];
         cards.push(..._shownCards.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
           +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number. (Confirmed is a milestone that overlaps them, so it is not part of the sum.)"':'')
@@ -5458,8 +5859,12 @@ export function initApp(root: HTMLElement) {
         // Visited-ever it OVERLAPS the status buckets (a starred lead is also Open, Follow-up, …), so
         // it is an overlay and stays out of the sum-to-Total partition.
         if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Leads you marked with a priority star (★ to ★★★) — click to see them. Overlaps the status cards, so it is not part of the sum to Total." onclick="window._haCardClick(\'priority\')"><div class="ml">Priority</div>'+mv(book.filter((l:any)=>_advPrioOf(l)>0).length)+'</div>');
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time), across every call linked to these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across every connected call on these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
+        // Connected Calls / Total Call Duration used to sit here. §5.8 Call Performance now reports the
+        // same two numbers (Connected, Talk Duration) alongside four more, so keeping these would print
+        // the same figure twice on one screen — and two copies of a number are how they end up
+        // disagreeing. The BLOOD-TEST view has no §5.8 section, so it keeps its own pair.
+        if(_btView) cards.push('<div class="metric" style="cursor:pointer" title="Calls that actually connected (answered, or with real talk time), across every call linked to these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'calls\')"><div class="ml">Connected Calls</div>'+mv(_callAgg.n)+'</div>');
+        if(_btView) cards.push('<div class="metric" style="cursor:pointer" title="Cumulative talk time across every connected call on these leads'+_callScopeNote+' — click to see them" onclick="window._haCardClick(\'callduration\')"><div class="ml">Total Call Duration</div>'+mv(_fmtCallDur(_callAgg.d))+'</div>');
         // (Per-service split cards were removed on request — the Service filter above still scopes
         // every card, so the per-line view is one dropdown away rather than permanent card clutter.)
         kpiEl.innerHTML=cards.join("");
@@ -5467,7 +5872,451 @@ export function initApp(root: HTMLElement) {
         // First paint: pull the call rows once, then repaint so the two cards fill in.
         if(!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ try{ renderHealthDashboard(); }catch(_){} }); }
       }
+      // The PRD sections. Targets and payment rows load lazily on the first paint and repaint once
+      // they arrive — same pattern as the call stats above, so nothing blocks the first render.
+      try{ _renderAdvDashSections(fullBook,book); }catch(_){}
+      if(!_haTargetsLoaded) _loadHaTargets().then(()=>{ try{ renderHealthDashboard(); }catch(_){} });
+      if(!_haPayLoaded) _loadHaPayments().then(()=>{ try{ renderHealthDashboard(); }catch(_){} });
       if(_haActiveBucket) renderHaResults();
+    }
+    // Render every enhancement section. Split out of renderHealthDashboard so the original card grid
+    // stays readable, and so a failure in one section can never blank the cards above it.
+    function _renderAdvDashSections(fullBook:any[],book:any[]){
+      const host=root.querySelector("#advDashSections")as HTMLElement|null; if(!host) return;
+      // A blood test has no enrolment, no conversion funnel and no revenue target. Panels 2–4 and the
+      // detail sections are hidden for that layout rather than filled with structurally-zero cards;
+      // panel 1 stays because it hosts the Blood-Test card grid (#haKpis).
+      const _btView=String(_asnApplied.svc||"all")==="Blood Test";
+      const showEl=(sel:string,on:boolean)=>{ const el=root.querySelector(sel)as HTMLElement|null; if(el) el.style.display=on?"":"none"; };
+      showEl("#haPanelPerf",!_btView); showEl("#haRow2",!_btView); showEl("#haLowerSections",!_btView);
+      const ovEl=root.querySelector("#haOverview")as HTMLElement|null;
+      if(ovEl) ovEl.style.display=_btView?"none":"";
+      if(_btView) return;
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const ready=_haBookReady();
+      // Write only when the markup ACTUALLY changed. This dashboard re-renders on many signals (SSE
+      // pushes, filter changes, the lazy target/payment loads), and rewriting identical HTML would
+      // restart every entrance animation on each one — turning a subtle reveal into a constant
+      // flicker. Compared against the last string we set, not against innerHTML: the browser
+      // normalises innerHTML on read, so that round-trip never matches and the guard would be dead.
+      const set=(sel:string,html:string)=>{ const el=root.querySelector(sel)as any;
+        if(!el||el.__lastHtml===html) return; el.__lastHtml=html; el.innerHTML=html; };
+      const txt=(sel:string,s:string)=>{ const el=root.querySelector(sel); if(el) el.textContent=s; };
+      // A card that measures against a reference. `dm` = the drill-down key (omit → not clickable).
+      // `score` is the attainment/deviation the colour was derived FROM. Passing it switches the card
+      // to the loud §7 treatment (tinted card + coloured value + badge). Cards with no target pass no
+      // score and stay neutral, so seeing colour on this screen always means "measured against
+      // something" rather than decoration.
+      const tCard=(label:string,valHtml:string,sub:string,cls:string,dm:string,tip:string,score?:string)=>{
+        const scored=!!score&&/^[gar]$/.test(cls);
+        return '<div class="metric '+cls+(scored?" hascore":"")+'"'+(dm?' style="cursor:pointer" data-metric="'+e(dm)+'"':'')
+          +(tip?' title="'+e(tip)+'"':'')+'>'
+          +(scored?'<span class="mscore">'+e(score)+'</span>':'')
+          +'<div class="ml">'+e(label)+'</div><div class="mv">'+valHtml+'</div>'
+          +(sub?'<div class="msub">'+sub+'</div>':'')+'</div>';
+      };
+      const dash='<span style="color:var(--faint)">—</span>';
+      // The rule itself, printed beside each section it governs.
+      const KEY='<span class="hakey"><i style="background:var(--ok)"></i>≥90%</span>'
+        +'<span class="hakey"><i style="background:var(--warn)"></i>70–89%</span>'
+        +'<span class="hakey"><i style="background:var(--alert)"></i>&lt;70%</span>';
+      const setKey=(sel:string,html:string)=>{ const el=root.querySelector(sel); if(el) el.innerHTML=html; };
+
+      const facts=_haCallFacts();
+      const fSets=_haFunnelSets(book);
+
+      // ---------- PANEL 1 · Pipeline overview ----------
+      // The trend is week-on-week INTAKE: leads that arrived in the last 7 days and currently sit in
+      // this bucket, against those that arrived in the 7 days before. It is deliberately not a
+      // "how many were Open last Tuesday" snapshot — the leads table stores only current status, so
+      // that number cannot be reconstructed, and inventing it would be worse than measuring intake.
+      const WK=7*864e5, nowMs=Date.now();
+      const leadMs=(l:any)=>{ const t=new Date(l.createdAt||l.poolAddedAt||l.assignedAt||0).getTime(); return isNaN(t)?0:t; };
+      const trend=(list:any[])=>{
+        const cur=list.filter((l:any)=>{ const t=leadMs(l); return t>nowMs-WK&&t<=nowMs; }).length;
+        const prev=list.filter((l:any)=>{ const t=leadMs(l); return t>nowMs-2*WK&&t<=nowMs-WK; }).length;
+        if(!prev) return cur?{pct:100,dir:"up"}:{pct:0,dir:"flat"};
+        const d=Math.round(((cur-prev)/prev)*100);
+        return {pct:Math.abs(d),dir:d>0?"up":(d<0?"dn":"flat")};
+      };
+      const ovCard=(label:string,n:number,desc:string,icon:string,tint:string,list:any[],dm:string)=>{
+        const t=trend(list);
+        const arrow=t.dir==="up"?"↑":(t.dir==="dn"?"↓":"→");
+        // NAMESPACED. ".dn" is already a global 7x7px status dot in globals.css — naming the
+        // downward-trend class the same forced the whole trend line into a 7px box, so its text
+        // overflowed and wrapped to one word per line ("vs / last / week"). Never reuse a bare
+        // two-letter class here.
+        const tcls=t.dir==="up"?"tup":(t.dir==="dn"?"tdn":"tfl");
+        // Trend and icon share a FOOTER ROW. The icon used to be absolutely positioned, so it sat on
+        // top of the trend text instead of reserving room for it — on a narrow card "vs last week"
+        // ran under the icon and wrapped one word per line.
+        return '<div class="dov-c" data-metric="'+e(dm)+'" title="'+e(label+": "+n+". Click to open these leads.")+'">'
+          +'<div class="k">'+e(label)+'</div>'
+          +'<div class="v">'+(ready?n.toLocaleString("en-IN"):dash)+'</div>'
+          +'<div class="d">'+e(desc)+'</div>'
+          +'<div class="dov-f">'
+            +(ready?'<span class="t '+tcls+'" title="New leads in the last 7 days vs the 7 days before">'
+              +'<b>'+arrow+' '+t.pct+'%</b><span class="tw">vs last week</span></span>':'<span class="t"></span>')
+            +'<span class="ic" style="background:'+tint+'"><svg class="icon" style="width:15px;height:15px;stroke:#fff"><use href="#'+icon+'"/></svg></span>'
+          +'</div>'
+          +'</div>';
+      };
+      const openList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="open");
+      const fuList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="followup");
+      set("#haOverview",
+        ovCard("Total Leads",fullBook.length,"All assigned leads","i-user","var(--brand)",fullBook,"total")
+        +ovCard("Open",openList.length,"No progress yet","i-inbox","#C07F0E",openList,"open")
+        +ovCard("Follow-up",fuList.length,"Requires follow-up","i-clock","#4C3FA8",fuList,"followup"));
+
+      // ---------- PANEL 2 · Pipeline performance (actual vs expected) ----------
+      // Expected values come from advisor_targets (Settings → Advisor targets). A blank column there
+      // means "derive from this advisor's own book", so one advisor can be on fixed numbers while
+      // another is on a share — without either of them being measured against someone else's book.
+      const expFor=(key:string,col:string)=>{
+        const t=_haTargets&&Number(_haTargets[col]);
+        if(t) return t;
+        return Math.max(1,Math.round(book.length*(HA_EXPECTED_SHARE[key]||0)));
+      };
+      const pipeRows:any[]=[
+        {key:"apptDirect",label:"Appt Fixed – Direct",col:"expected_appt_direct",actual:book.filter((l:any)=>haBucketOf(haEffStatus(l))==="apptDirect").length,dm:"apptDirect"},
+        {key:"apptZoom",label:"Appt Fixed – Zoom",col:"expected_appt_zoom",actual:book.filter((l:any)=>haBucketOf(haEffStatus(l))==="apptZoom").length,dm:"apptZoom"},
+        {key:"confirmed",label:"Confirmed",col:"expected_confirmed",actual:book.filter((l:any)=>_advIsConfirmed(l)).length,dm:"confirmed"},
+        {key:"health",label:"Visited",col:"expected_visited",actual:fSets.visits.length,dm:"visitedEver"},
+        {key:"enrolled",label:"Enrolled",col:"expected_enrolled",actual:fSets.enrolled.length,dm:"enrolled"},
+      ];
+      const CVAR:any={g:"var(--ok)",a:"var(--warn)",r:"var(--alert)"};
+      const CINK:any={g:"var(--ok-ink)",a:"var(--warn-ink)",r:"var(--alert-ink)"};
+      set("#haPipeTargets",pipeRows.map((r:any)=>{
+        const exp=expFor(r.key,r.col), pct=_haPct(r.actual,exp), c=_haAttainCls(pct);
+        return '<div class="dpf-c" data-metric="'+e(r.dm)+'" title="'+e(r.label+": actual "+r.actual+" against an expected "+exp+" ("+pct+"% attainment). Click to open these leads.")+'">'
+          +'<div class="k">'+e(r.label)+'</div>'
+          +'<div class="r">'+(ready?(r.actual+' / '+exp):'— / —')+'</div>'
+          +'<div class="p" style="color:'+(ready?CINK[c]:"var(--faint)")+'">'+(ready?(pct+'%'):'—')+'</div>'
+          +'<div class="dpf-bar"><span style="--w:'+(ready?Math.min(100,pct):0)+'%;background:'+CVAR[c]+'"></span></div>'
+          +'</div>';
+      }).join(""));
+      setKey("#haPipeKey",
+        '<span><i style="background:var(--ok)"></i>&ge; 90% (Green)</span>'
+        +'<span><i style="background:var(--warn)"></i>70% – 89% (Amber)</span>'
+        +'<span><i style="background:var(--alert)"></i>&lt; 70% (Red)</span>');
+      txt("#haPipeHint",_haTargets?("Expected values from advisor_targets · "+_haPeriod())
+        :(_haTargetsMissing?"No advisor_targets table yet — expected values derived from this book's size."
+          :"No target row for "+_haPeriod()+" — expected values derived from this book's size."));
+
+      // ---------- PANEL 3 · Follow-ups ----------
+      // Each ring is that bucket's SHARE of all planned follow-ups, so the four rings read as one
+      // picture of the same workload rather than four unrelated gauges. Total is therefore always a
+      // full ring — it is the denominator.
+      const fu=_haFuBuckets(book,facts);
+      const fuTot=fu.total.length;
+      // The COUNT sits inside the ring and its share of all planned follow-ups reads underneath, so
+      // each tile answers "how many" and "how much of the workload" without needing the other three.
+      const ring=(label:string,n:number,colour:string,dm:string,tip:string)=>{
+        const frac=fuTot>0?Math.min(1,n/fuTot):0;
+        const share=fuTot>0?Math.round((n/fuTot)*100):0;
+        const R=27, C=2*Math.PI*R;
+        return '<div class="dfu-c" data-metric="'+e(dm)+'" title="'+e(tip)+'">'
+          +'<div class="k">'+e(label)+'</div>'
+          // --c / --to drive the draw-on animation from CSS; the resting value is --to, so the ring
+          // still shows the right arc if animation is suppressed (reduced motion).
+          +'<div class="dring"><svg viewBox="0 0 64 64" aria-hidden="true">'
+            +'<circle cx="32" cy="32" r="'+R+'" fill="none" stroke="var(--line)" stroke-width="6"/>'
+            +'<circle class="arc" cx="32" cy="32" r="'+R+'" fill="none" stroke="'+colour+'" stroke-width="6" stroke-linecap="round"'
+            +' stroke-dasharray="'+C.toFixed(1)+'" style="--c:'+C.toFixed(1)+';--to:'+(C*(1-(ready?frac:0))).toFixed(1)+'"/>'
+          +'</svg><span class="ci"><span class="rv" style="color:'+colour+'">'+(ready?n:"—")+'</span></span></div>'
+          +'<div class="rs">'+(ready?(share+"%"):"&nbsp;")+'</div>'
+          +'</div>';
+      };
+      set("#haFollowupCards",
+        ring("Total",fuTot,"var(--brand)","fu:total","Every lead with a planned follow-up date & time. Click to open them.")
+        +ring("Done",fu.done.length,"var(--ok)","fu:done","A call or a follow-up note logged after the planned time. Click to open them.")
+        +ring("Due Today",fu.today.length,"#2A5378","fu:today","Planned for today and still not actioned. Click to open them.")
+        +ring("Overdue",fu.overdue.length,"var(--alert)","fu:overdue","The planned day has passed with no call or note since, and the lead has not enrolled. Click to open them."));
+
+      // ---------- PANEL 4 · Targets & performance ----------
+      // EVERY target here comes from the advisor_targets master (Settings → Advisor targets). The
+      // constants are a fallback for an advisor with no row for this month, never a hardcoded truth.
+      const ids=new Set(book.map((l:any)=>String(l.id)));
+      const revActual=_haRevenueOf(ids);
+      const revTarget=Number((_haTargets&&_haTargets.revenue_target)||HA_TARGET_FALLBACK.revenue);
+      const enrActual=fSets.enrolled.length;
+      const enrTarget=Number((_haTargets&&_haTargets.enrollment_target)||HA_TARGET_FALLBACK.enrollment);
+      const crmTarget=Number((_haTargets&&_haTargets.crm_usage_target_hours)||HA_TARGET_FALLBACK.crmHours);
+      const revPct=_haPct(revActual,revTarget), enrPct=_haPct(enrActual,enrTarget);
+      // Cumulative day-by-day series for the current month, so the sparkline shows the CLIMB toward
+      // the target rather than noisy per-day bars — the shape people actually read a target card for.
+      const mStart=new Date(); mStart.setDate(1); mStart.setHours(0,0,0,0);
+      const daysSoFar=Math.max(1,new Date().getDate());
+      const dayIdx=(iso:any)=>{ if(!iso) return -1; const t=new Date(iso).getTime(); if(isNaN(t)||t<mStart.getTime()) return -1;
+        const d=Math.floor((t-mStart.getTime())/864e5); return d<daysSoFar?d:-1; };
+      // (The series is plotted per-period, not cumulative: a rising cumulative curve always looks like
+      // progress even in a week where nothing was collected. Per-period shows the actual rhythm —
+      // steady, spiky, or trailing off — which is what the sparkline is there to reveal, since the
+      // ratio and the big percentage above it already state progress against the target.)
+      const revDaily=new Array(daysSoFar).fill(0);
+      _haPayRows.forEach((p:any)=>{ if(!ids.has(String(p.lead_id||""))||String(p.status||"")!=="paid") return;
+        const i=dayIdx(p.paid_at||p.created_at); if(i>=0) revDaily[i]+=Math.max(0,(Number(p.amount)||0)-(Number(p.refund_amount)||0)); });
+      const enrDaily=new Array(daysSoFar).fill(0);
+      fSets.enrolled.forEach((l:any)=>{ const i=dayIdx(l.enrolledAt); if(i>=0) enrDaily[i]+=1; });
+      // Reduce a day-by-day series to at most N plotted points by summing adjacent days. A month of
+      // daily bars would put 31 markers in a 150px card and read as noise; ~14 keeps every marker
+      // distinct while preserving the shape of the month.
+      const bucket=(vals:number[],n=14)=>{
+        if(vals.length<=n) return vals.slice();
+        const size=Math.ceil(vals.length/n), out:number[]=[];
+        for(let i=0;i<vals.length;i+=size) out.push(vals.slice(i,i+size).reduce((a,b)=>a+b,0));
+        return out;
+      };
+      // `key` makes the gradient id STABLE across renders. A counter would change it every paint, so
+      // the markup would never compare equal and the no-change guard above could never hold.
+      //
+      // NOTE the aspect ratio is preserved (no preserveAspectRatio="none"). Stretching the viewBox to
+      // fill the card would squash every circular marker into an ellipse — the whole reason the old
+      // version could not carry markers. The three cards in a row share a width, so they still share
+      // a chart height.
+      const spark=(vals:number[],colour:string,key:string)=>{
+        const W=160,H=56,PAD=5, gid="hasp-"+key;
+        const base=H-PAD;
+        if(!vals.length||vals.every(v=>!v)) return '<svg class="dspark" viewBox="0 0 '+W+' '+H+'" aria-hidden="true">'
+          +'<line x1="0" y1="'+base+'" x2="'+W+'" y2="'+base+'" stroke="var(--line)" stroke-width="1.4" stroke-dasharray="3 4"/></svg>';
+        const max=Math.max(1,...vals);
+        const x=(i:number)=>vals.length===1?W/2:PAD+(i/(vals.length-1))*(W-PAD*2);
+        const y=(v:number)=>base-((v/max)*(H-PAD*3));
+        const pts=vals.map((v,i)=>[x(i),y(v)]);
+        const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+        const area=line+" L"+pts[pts.length-1][0].toFixed(1)+" "+base+" L"+pts[0][0].toFixed(1)+" "+base+" Z";
+        // pathLength="1" normalises the stroke length, so one CSS keyframe draws any path shape.
+        return '<svg class="dspark" viewBox="0 0 '+W+' '+H+'" aria-hidden="true">'
+          +'<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'
+          +'<stop offset="0%" stop-color="'+colour+'" stop-opacity="0.26"/><stop offset="100%" stop-color="'+colour+'" stop-opacity="0.02"/>'
+          +'</linearGradient></defs>'
+          +'<line x1="0" y1="'+base+'" x2="'+W+'" y2="'+base+'" stroke="var(--line)" stroke-width="1"/>'
+          +'<path class="ar" d="'+area+'" fill="url(#'+gid+')"/>'
+          +'<path class="ln" pathLength="1" d="'+line+'" fill="none" stroke="'+colour+'" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>'
+          // Markers ringed in the card's own background so they stay legible where the line doubles back.
+          +pts.map((p,i)=>'<circle class="pt" style="--i:'+i+'" cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.4"'
+            +' fill="'+colour+'" stroke="var(--surface)" stroke-width="1.1"/>').join("")
+          +'</svg>';
+      };
+      // Titled header strip, then the ratio and the attainment centred under it — the card states
+      // what it measures before it states how it is doing.
+      const tgCard=(label:string,ratio:string,pct:number,cls:string,series:string,dm:string,tip:string,okToShow:boolean)=>
+        '<div class="dtg-c'+(dm?" clik":"")+'"'+(dm?' data-metric="'+e(dm)+'"':'')+' title="'+e(tip)+'">'
+        +'<div class="dtg-hd"><span class="k">'+e(label)+'</span>'
+          +(okToShow?'<span class="dtg-dot" style="background:'+CVAR[cls]+'"></span>':'')+'</div>'
+        +'<div class="dtg-bd">'
+          +'<div class="r">'+ratio+'</div>'
+          +'<div class="p" style="color:'+(okToShow?CINK[cls]:"var(--faint)")+'">'+(okToShow?(pct+"%"):"—")+'</div>'
+        +'</div>'
+        +series+'</div>';
+      const revOk=ready&&_haPayLoaded;
+      set("#haTargetCards",
+        tgCard("Revenue",revOk?(_haInr(revActual)+' <span style="color:var(--faint)">/ '+_haInr(revTarget)+'</span>'):"—",
+          revPct,_haAttainCls(revPct),spark(bucket(revDaily),CVAR[_haAttainCls(revPct)],"rev"),"",
+          "Collected payments on these leads this month, net of refunds, against the target set in Settings → Advisor targets.",revOk)
+        +tgCard("Enrollment",ready?(enrActual+' <span style="color:var(--faint)">/ '+enrTarget+'</span>'):"—",
+          enrPct,_haAttainCls(enrPct),spark(bucket(enrDaily),CVAR[_haAttainCls(enrPct)],"enr"),"enrolled",
+          "Enrolled leads against the target set in Settings → Advisor targets. Click to open them.",ready)
+        // The TARGET is configurable; the ACTUAL has no source — there is no session or heartbeat
+        // tracking anywhere in this app. Rather than leaving a visibly empty card, this states what
+        // is missing and what would fill it, so the gap reads as a known state, not a broken tile.
+        +'<div class="dtg-c dtg-empty" title="'+e("Target comes from Settings → Advisor targets. The actual cannot be reported: the app has no login-duration or activity tracking yet.")+'">'
+          +'<div class="dtg-hd"><span class="k">CRM Active Usage</span></div>'
+          +'<div class="dtg-bd">'
+            +'<div class="r"><span style="color:var(--faint)">Not tracked</span> <span style="color:var(--faint)">/ '+crmTarget+'h</span></div>'
+            +'<div class="dtg-note"><svg class="icon" style="width:13px;height:13px;stroke:var(--faint)"><use href="#i-clock"/></svg>'
+              +'<span>Needs session tracking before this can be measured.</span></div>'
+          +'</div>'
+          +spark([],"var(--brand)","crm")
+        +'</div>');
+      set("#haPacing",_haPacingHtml(revActual,revTarget,enrActual,enrTarget,revOk));
+      txt("#haTargetHint",_haTargets
+        ?("Targets from Settings → Advisor targets · "+(_haTargets.advisor||"")+" · "+_haPeriod())
+        :("No target row for "+_haPeriod()+" — showing defaults. Set them in Settings → Advisor targets."));
+      setKey("#haTargetKey",KEY);
+
+      // ---------- §5.4 Call disposition ----------
+      // FIVE COLUMNS, one per group. Stacking the groups vertically made the section a long ribbon
+      // you had to scroll to compare, when the whole point is reading the five outcome families
+      // against each other at a glance.
+      const dispo=HA_DISPO_GROUPS.map((grp:any)=>{
+        const rows=grp.codes.map((c:string)=>({code:c,n:book.filter((l:any)=>_haDispoMatch(l,c)).length}));
+        const gTot=rows.reduce((a:number,r:any)=>a+r.n,0);
+        // Bars are scaled against the group's LARGEST code, not its total: with eight codes sharing a
+        // group, a share-of-total bar is a sliver for every one of them and compares nothing.
+        const gMax=Math.max(1,...rows.map((r:any)=>r.n));
+        return '<div class="ddg">'
+          +'<div class="ddg-hd"><i style="background:'+grp.c+'"></i><span class="gn">'+e(grp.g)+'</span>'
+            +'<span class="gt">'+(ready?gTot:"—")+'</span></div>'
+          +'<div class="ddg-bd">'+rows.map((r:any)=>{
+            const share=gTot>0?Math.round((r.n/gTot)*100):0;
+            return '<div class="ddg-row" data-metric="dispo:'+e(r.code)+'" title="'+e(r.code+" — "+r.n+" lead"+(r.n===1?"":"s")+" ("+share+"% of "+grp.g+"). Click to open them.")+'">'
+              +'<span class="dl">'+e(r.code)+'</span>'
+              // .dcnt, not .dn — a bare .dn is the global 7px status dot and would squeeze this count
+              // into a circle.
+              +'<span class="dcnt">'+(ready?r.n:"—")+'</span>'
+              +'<span class="habar"><span style="width:'+Math.round((r.n/gMax)*100)+'%;background:'+grp.c+'"></span></span>'
+              +'</div>';
+          }).join("")+'</div></div>';
+      }).join("");
+      set("#haDispo",dispo);
+
+      // ---------- §5.5 / §5.6 Visited + Enrollment status ----------
+      const vVisited=fSets.visits.length;
+      const vConfirm=book.filter((l:any)=>!l.visitedAt&&_advIsConfirmed(l)).length;
+      const vOpen=Math.max(0,book.length-vVisited-vConfirm);
+      const eEnrolled=fSets.enrolled.length, eOpen=Math.max(0,book.length-eEnrolled);
+      // One thick proportional bar per status, each segment carrying its own count and share. A
+      // segment with nothing in it is dropped rather than rendered as a zero-width sliver whose
+      // label spills over its neighbour.
+      const segBar=(segs:any[])=>{
+        const live=segs.filter((s:any)=>s.n>0);
+        const tot=segs.reduce((a:number,s:any)=>a+s.n,0);
+        const shown=live.length?live:segs.slice(0,1);
+        return '<div class="dseg">'+shown.map((s:any)=>{
+          const raw=tot>0?(s.n/tot)*100:0, pct=Math.round(raw);
+          // A real lead must never read as "0%". One in 258 is not nothing — it rounds to nothing.
+          const pctTxt=(s.n>0&&pct===0)?"<1%":(pct+"%");
+          return '<span class="dseg-s" data-metric="'+e(s.dm)+'" style="flex:'+Math.max(1,s.n)+' 1 0;background:'+s.c+'"'
+            +' title="'+e(s.l+": "+s.n+" lead"+(s.n===1?"":"s")+" ("+pctTxt+" of "+tot+"). Click to open them.")+'">'
+            +'<b>'+e(s.l)+'</b><i>'+(ready?(s.n+" · "+pctTxt):"—")+'</i></span>';
+        }).join("")+'</div>'
+        +'<div class="dseg-ft">Total: <b>'+(ready?tot:"—")+'</b></div>';
+      };
+      set("#haVisitedBar",segBar([
+        {l:"Open",n:vOpen,c:"#5B7FA6",dm:"vs:open"},
+        {l:"Confirm",n:vConfirm,c:"var(--warn)",dm:"vs:confirm"},
+        {l:"Visited",n:vVisited,c:"var(--ok)",dm:"vs:visited"}]));
+      set("#haEnrollBar",segBar([
+        {l:"Open",n:eOpen,c:"#5B7FA6",dm:"es:open"},
+        {l:"Enrolled",n:eEnrolled,c:"var(--ok)",dm:"es:enrolled"}]));
+
+      // ---------- §5.7 Conversion funnel ----------
+      const stages=[{l:"All Leads",n:fSets.leads.length,dm:"fn:leads",c:"#5B7FA6"},
+        {l:"Appointments",n:fSets.appts.length,dm:"fn:appts",c:"#2A5378"},
+        {l:"Visits",n:fSets.visits.length,dm:"fn:visits",c:"var(--warn)"},
+        {l:"Enrolled",n:fSets.enrolled.length,dm:"fn:enrolled",c:"var(--ok)"}];
+      const top=stages[0].n||1;
+      // A real funnel: each tier tapers to the width of the tier BELOW it, so the silhouette is the
+      // drop-off. Width is a COMPRESSED scale, not raw proportion: at raw scale a typical book puts
+      // stages 2-4 all under the readable minimum, they clamp to the same floor and the funnel stops
+      // tapering exactly where the drop-off matters. Mapping the ratio onto [MIN,100] keeps every
+      // tier wide enough for its label while staying monotonic in the underlying number — and the
+      // exact count is printed on the tier, so the width indicates rather than measures.
+      const FUN_MIN=44;
+      const wOf=(n:number)=>Math.round(FUN_MIN+(100-FUN_MIN)*(top>0?Math.min(1,n/top):0));
+      set("#haFunnel",stages.map((s:any,i:number)=>{
+        const w=wOf(s.n), nw=i<stages.length-1?wOf(stages[i+1].n):Math.round(w*0.86);
+        const inset=Math.max(0,((1-nw/w)/2)*100);
+        return '<div class="dfun-t" data-metric="'+e(s.dm)+'" title="'+e(s.l+": "+s.n+" — click to open them")+'"'
+          +' style="width:'+w+'%;background:'+s.c+';clip-path:polygon(0 0,100% 0,'+(100-inset).toFixed(1)+'% 100%,'+inset.toFixed(1)+'% 100%)">'
+          +'<span>'+e(s.l)+' · '+(ready?s.n:"—")+'</span></div>';
+      }).join(""));
+      const rates=[
+        {l:"Lead → Appointment",a:_haPct(fSets.appts.length,fSets.leads.length),g:HA_FUNNEL_GOALS.leadAppt,dm:"fn:appts"},
+        {l:"Appointment → Visit",a:_haPct(fSets.visits.length,fSets.appts.length),g:HA_FUNNEL_GOALS.apptVisit,dm:"fn:visits"},
+        {l:"Lead → Visit",a:_haPct(fSets.visits.length,fSets.leads.length),g:HA_FUNNEL_GOALS.leadVisit,dm:"fn:visits"},
+        {l:"Visit → Enrollment",a:_haPct(fSets.enrolled.length,fSets.visits.length),g:HA_FUNNEL_GOALS.visitEnrol,dm:"fn:visitNotEnrolled"},
+        {l:"Lead → Enrollment",a:_haPct(fSets.enrolled.length,fSets.leads.length),g:HA_FUNNEL_GOALS.leadEnrol,dm:"fn:enrolled"},
+      ];
+      // Metric / Actual / Goal / Deviation / Status as a table — five rates compare far better in
+      // aligned columns than as five separate cards you have to scan across.
+      set("#haFunnelRates",
+        '<table class="dfun-tb"><thead><tr>'
+        +'<th scope="col">Metric</th><th scope="col">Actual</th><th scope="col">Goal</th>'
+        +'<th scope="col">Deviation</th><th scope="col">Status</th></tr></thead><tbody>'
+        +rates.map((r:any)=>{
+          const dev=r.a-r.g, sign=dev>=0?"+":"", c=_haGoalCls(r.a,r.g);
+          // POINTS, not per cent: 38% against a 35% goal is +3 percentage points. Writing "+3%" would
+          // claim a 3% relative change, which is a different (and wrong) number.
+          return '<tr data-metric="'+e(r.dm)+'" title="'+e(r.l+": "+r.a+"% against a "+r.g+"% goal ("+sign+dev+" points). Click to open the leads behind it.")+'">'
+            // No class here on purpose — `.mt` is an existing global, and this screen has already been
+            // bitten once by reusing a short generic name (see the .dn note in ovCard). Styled via
+            // `.dfun-tb td:first-child` instead.
+            +'<td>'+e(r.l)+'</td>'
+            +'<td class="mono">'+(ready?(r.a+"%"):"—")+'</td>'
+            +'<td class="mono" style="color:var(--muted)">'+r.g+'%</td>'
+            +'<td class="mono dv" style="color:'+CINK[c]+'">'+(ready?(sign+dev+" pts"):"—")+'</td>'
+            +'<td><span class="ddot" style="background:'+CVAR[c]+'"></span></td></tr>';
+        }).join("")
+        +'</tbody></table>');
+      setKey("#haFunnelKey",'<span class="hakey"><i style="background:var(--ok)"></i>at or above goal</span>'
+        +'<span class="hakey"><i style="background:var(--warn)"></i>below goal</span>'
+        +'<span class="hakey"><i style="background:var(--alert)"></i>under 70% of goal</span>');
+
+      // ---------- §5.8 Call performance ----------
+      let tot=0,conn=0,dur=0,inb=0,miss=0,touchSum=0,touchN=0;
+      book.forEach((l:any)=>{
+        const f=facts[String(l.id)]; if(!f) return;
+        tot+=f.total; conn+=f.connected; dur+=f.dur; inb+=f.inbound; miss+=f.missed;
+        // §9.2 speed-to-contact: assigned → first call attempt. Needs both timestamps; a lead with
+        // no assignment date or no call simply doesn't contribute to the average.
+        const det=_advLeadsDet[String(l.id)]||{};
+        const asg=det.assigned_at?new Date(det.assigned_at).getTime():(l.assignedAt?new Date(l.assignedAt).getTime():0);
+        if(asg&&f.first&&f.first>=asg){ touchSum+=(f.first-asg); touchN++; }
+      });
+      const touchTxt=touchN?_haDurWords(Math.round(touchSum/touchN/1000)):"—";
+      set("#haCallPerf",
+        tCard("Avg 1st Call Touch Time",ready&&_advCallLoaded?touchTxt:dash,
+          touchN?("Assigned → first call · "+touchN+" lead"+(touchN===1?"":"s")):"Assigned → first call",
+          "","calltouch","Average time from a lead being assigned to the first call attempt on it (speed to contact) — not the length of that call. Leads with no assignment date or no call yet are excluded.")
+        +tCard("Total Calls",ready&&_advCallLoaded?String(tot):dash,"All attempts on these leads","","calls","Every call row linked to these leads. Click to open the leads with calls.")
+        // §7 — Call Performance is informational and stays NEUTRAL: none of these has a target, and
+        // colouring them anyway is what makes the colour rule read as decoration. On this screen a
+        // coloured card always means "measured against a target"; these are counts.
+        +tCard("Connected",ready&&_advCallLoaded?String(conn):dash,tot?(_haPct(conn,tot)+"% of attempts"):"","","calls","Calls that answered or carried real talk time. Click to open those leads.")
+        +tCard("Talk Duration",ready&&_advCallLoaded?_fmtCallDur(dur):dash,"Across connected calls","","","Cumulative talk time. No lead list of its own — use Connected to browse the leads.")
+        +tCard("Incoming Calls",ready&&_advCallLoaded?String(inb):dash,"Inbound attempts","","callsin","Inbound calls on these leads. Click to open the leads with calls.")
+        +tCard("Missed Calls",ready&&_advCallLoaded?String(miss):dash,"Inbound, not answered","","callsmiss","Inbound calls that never connected. Click to open the leads with calls."));
+      txt("#haCallHint",_advCallLoaded?"Every call linked to these leads, however it was dialled.":"Loading call records…");
+      try{ _advRenderCallHourly(book); }catch(_){}   // hourly advisor breakdown, same rows as the cards
+    }
+    // "2h 14m" / "18m" / "45s" — for the speed-to-contact average, which is usually hours, not seconds.
+    function _haDurWords(secs:number){
+      const s=Math.max(0,Math.floor(secs||0));
+      const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60);
+      if(d) return d+"d "+h+"h";
+      if(h) return h+"h "+String(m).padStart(2,"0")+"m";
+      if(m) return m+"m";
+      return s+"s";
+    }
+    // §9.6 — rule-based and templated, so the same numbers always produce the same sentence. Names the
+    // target that is furthest behind, projects where it lands at the current daily rate, and gives one
+    // concrete action. No projection is offered before there is enough of the month to project from.
+    function _haPacingHtml(revA:number,revT:number,enrA:number,enrT:number,revReady:boolean){
+      const e=(s:any)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const now=new Date();
+      const dayOfMonth=now.getDate();
+      const daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+      const elapsed=Math.max(1,dayOfMonth), left=Math.max(0,daysInMonth-dayOfMonth);
+      const items=[{k:"Revenue",a:revA,t:revT,pct:_haPct(revA,revT),money:true,ok:revReady},
+                   {k:"Enrollment",a:enrA,t:enrT,pct:_haPct(enrA,enrT),money:false,ok:true}].filter(x=>x.ok);
+      if(!items.length) return "";
+      const worst=items.slice().sort((a:any,b:any)=>a.pct-b.pct)[0];
+      const cls=_haAttainCls(worst.pct);
+      const col=cls==="g"?"var(--ok)":(cls==="a"?"var(--warn)":"var(--alert)");
+      const fmt=(n:number)=>worst.money?_haInr(n):String(Math.round(n));
+      const projected=Math.round((worst.a/elapsed)*daysInMonth);
+      const projPct=_haPct(projected,worst.t);
+      const gap=Math.max(0,worst.t-worst.a);
+      const perDay=left>0?(gap/left):gap;
+      let line;
+      if(worst.pct>=100) line='<b>'+e(worst.k)+'</b> is already past target at '+fmt(worst.a)+' of '+fmt(worst.t)+'. Hold the pace and bank the rest as headroom.';
+      else if(dayOfMonth<3) line='<b>'+e(worst.k)+'</b> is furthest behind at <b>'+worst.pct+'%</b> ('+fmt(worst.a)+' of '+fmt(worst.t)+'). Too early in the month to project a landing point yet.';
+      else if(left<=0) line='<b>'+e(worst.k)+'</b> closed the month at <b>'+worst.pct+'%</b> — '+fmt(worst.a)+' against '+fmt(worst.t)+'.';
+      else line='<b>'+e(worst.k)+'</b> is furthest behind at <b>'+worst.pct+'%</b> ('+fmt(worst.a)+' of '+fmt(worst.t)+'). '
+        +'At the current daily rate this lands at about <b>'+fmt(projected)+'</b> by month end — roughly <b>'+projPct+'%</b> of target. '
+        +'Closing the gap needs about <b>'+fmt(perDay)+'</b> per day across the '+left+' day'+(left===1?"":"s")+' left'
+        +(worst.k==="Enrollment"?', so prioritise the Visited leads who have not enrolled yet.':', so chase the leads already past Visited before working new ones.');
+      // A verdict pill, so the bar answers "are we on track?" before anyone reads the sentence. It
+      // uses the SAME thresholds as the §7 colour rule, so the pill and the card colours can never
+      // disagree about the same number.
+      const status=worst.pct>=90?"ON TRACK":(worst.pct>=70?"AT RISK":"OFF TRACK");
+      return '<div class="hapace" style="--pc:'+col+'">'
+        +'<span class="hapace-ic"><svg class="icon" style="width:17px;height:17px;stroke:#fff"><use href="#i-target"/></svg></span>'
+        +'<div class="hapace-bd"><div class="pt">Pacing recommendation</div><div class="pl">'+line+'</div></div>'
+        +'<span class="hapace-pill">'+status+'</span>'
+        +'</div>';
     }
     // Per-lead Enrolled status (advisor detail) — read-only, mirrors leads.call_status
     // + enrolled_at. Set automatically when the coach marks the client Enrolled.
@@ -5527,10 +6376,30 @@ export function initApp(root: HTMLElement) {
       if(filter!=="all") book=book.filter((l:any)=>_haPassesFilter(l,filter));
       // The two call cards aren't status buckets — they select leads by CALL ACTIVITY (at least one
       // connected call), so they can't go through haBucketOf like the others.
-      const _isCallCard=_haActiveBucket==="calls"||_haActiveBucket==="callduration";
+      // Each Call-Performance card drills into its OWN cohort. They used to share the "calls" key,
+      // so Incoming and Missed both opened the Connected list, and the Avg card had no key at all
+      // and opened nothing.
+      const _CALL_CARDS=["calls","callduration","callsin","callsmiss","calltouch"];
+      const _isCallCard=_CALL_CARDS.indexOf(String(_haActiveBucket))>=0;
       const _scopedCallStats=_isCallCard?_advCallScopedStats():{};
-      let list=_isCallCard
-        ? book.filter((l:any)=>{ const st=_scopedCallStats[String(l.id)]; return !!st&&st.connected>0; })
+      // Enhancement sections (PRD §5.2–§5.7) own the "ns:arg" keys; everything else falls through to
+      // the original card logic below exactly as before.
+      const _cust=_haCustomList(_haActiveBucket,book,fullBook);
+      // Each call card selects its OWN leads. Connected/Talk time need a connected call; Incoming and
+      // Missed need inbound activity; Avg 1st touch needs the two timestamps the average is built
+      // from, so the list is exactly the leads that contributed to the number on the card.
+      const _cf=_isCallCard?_haCallFacts():{};
+      const _touchMs=(l:any)=>{ const f=_cf[String(l.id)]; if(!f||!f.first) return 0;
+        const det=_advLeadsDet[String(l.id)]||{};
+        const asg=det.assigned_at?new Date(det.assigned_at).getTime():(l.assignedAt?new Date(l.assignedAt).getTime():0);
+        return (asg&&f.first>=asg)?(f.first-asg):0; };
+      let list=_cust?_cust.list:_isCallCard
+        ? book.filter((l:any)=>{
+            const f=_cf[String(l.id)];
+            if(_haActiveBucket==="callsin")   return !!f&&f.inbound>0;
+            if(_haActiveBucket==="callsmiss") return !!f&&f.missed>0;
+            if(_haActiveBucket==="calltouch") return _touchMs(l)>0;
+            const st=_scopedCallStats[String(l.id)]; return !!st&&st.connected>0; })
         // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
         // (every other card is a subset of it).
         : (_haActiveBucket==="total"?fullBook
@@ -5552,7 +6421,8 @@ export function initApp(root: HTMLElement) {
       }
       // visitedEver has no card of its own (it is the Visited card's sub-line), so give it a title
       // rather than letting the header fall back to a blank label.
-      const card=HA_CARDS.find(c=>c.key===_haActiveBucket)
+      const card=(_cust?{key:_haActiveBucket,label:_cust.label,c:""}:undefined)
+        ||HA_CARDS.find(c=>c.key===_haActiveBucket)
         ||(_haActiveBucket==="visitedEver"?{key:"visitedEver",label:"Ever visited",c:""}:undefined)
         // Priority is an overlay card, so it is not in HA_CARDS; without this its drill-down title
         // fell through to the "Call status" default.
@@ -5563,27 +6433,50 @@ export function initApp(root: HTMLElement) {
         // Both cards show the same leads; the ranking differs so each card leads with the number it
         // reported. Totals in the title tie back to the card face.
         const stOf=(l:any)=>_scopedCallStats[String(l.id)]||{connected:0,dur:0};
-        const rows=list.slice().sort((a:any,b:any)=>_haActiveBucket==="callduration"
-          ? (stOf(b).dur-stOf(a).dur) : (stOf(b).connected-stOf(a).connected));
+        const K=String(_haActiveBucket);
+        // Each card leads with the number it reported, so the top row explains the card face.
+        const metric=(l:any)=>K==="callduration"?stOf(l).dur
+          :K==="callsin"?((_cf[String(l.id)]||{}).inbound||0)
+          :K==="callsmiss"?((_cf[String(l.id)]||{}).missed||0)
+          :K==="calltouch"?_touchMs(l)
+          :stOf(l).connected;
+        const rows=list.slice().sort((a:any,b:any)=>metric(b)-metric(a));
         const tot=rows.reduce((a:any,l:any)=>{ const s=stOf(l); a.n+=s.connected; a.d+=s.dur; return a; },{n:0,d:0});
-        if(title) title.textContent=(_haActiveBucket==="callduration"?"Total Call Duration":"Connected Calls")
-          +" — "+_fmtCallDur(tot.d)+" across "+tot.n+" call"+(tot.n===1?"":"s")+" · "+rows.length+" lead"+(rows.length===1?"":"s");
+        const LBL:Record<string,string>={calls:"Connected Calls",callduration:"Total Call Duration",
+          callsin:"Incoming Calls",callsmiss:"Missed Calls",calltouch:"Avg 1st Call Touch Time"};
+        const sumM=rows.reduce((a:number,l:any)=>a+metric(l),0);
+        const lead=rows.length+" lead"+(rows.length===1?"":"s");
+        if(title) title.textContent=(LBL[K]||"Calls")+" — "+(
+            K==="calltouch"?(rows.length?_haDurWords(Math.round(sumM/rows.length/1000))+" average":"—")
+          : K==="callsin"?(sumM+" inbound call"+(sumM===1?"":"s"))
+          : K==="callsmiss"?(sumM+" missed call"+(sumM===1?"":"s"))
+          : (_fmtCallDur(tot.d)+" across "+tot.n+" call"+(tot.n===1?"":"s"))
+          )+" · "+lead;
         const hd=root.querySelector("#haResultsHead");
-        if(hd) hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned Advisor</th><th>Connected Calls</th><th>Talk Time</th>';
+        const COLS:Record<string,string>={callsin:'<th>Incoming</th><th>Missed</th>',
+          callsmiss:'<th>Missed</th><th>Incoming</th>', calltouch:'<th>Assigned → 1st call</th><th>Total calls</th>'};
+        if(hd) hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned Advisor</th>'
+          +(COLS[K]||'<th>Connected Calls</th><th>Talk Time</th>');
         body.innerHTML=rows.length?rows.map((l:any)=>{ const s=stOf(l);
           return '<tr>'
             +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
             +'<td class="mono">'+e(l.phone||"—")+'</td>'
             +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
             +'<td>'+e(l.assignedTo||"—")+'</td>'
-            +'<td class="mono" style="font-weight:700">'+s.connected+'</td>'
-            +'<td class="mono">'+e(_fmtCallDur(s.dur))+'</td></tr>';
+            +(function(){ const f=_cf[String(l.id)]||{inbound:0,missed:0,total:0};
+              if(K==="callsin")   return '<td class="mono" style="font-weight:700">'+f.inbound+'</td><td class="mono">'+f.missed+'</td>';
+              if(K==="callsmiss") return '<td class="mono" style="font-weight:700">'+f.missed+'</td><td class="mono">'+f.inbound+'</td>';
+              if(K==="calltouch") return '<td class="mono" style="font-weight:700">'+e(_haDurWords(Math.round(_touchMs(l)/1000)))+'</td><td class="mono">'+f.total+'</td>';
+              return '<td class="mono" style="font-weight:700">'+s.connected+'</td><td class="mono">'+e(_fmtCallDur(s.dur))+'</td>'; })()
+            +'</tr>';
         }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No connected calls for these leads yet')+'</td></tr>';
         return;
       }
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
       // Follow-ups card → dedicated table: name, number, planned date & time, source, advisor, status.
-      if(_haActiveBucket==="followup"){
+      // The four Follow-up cards drill in here too — the planned date & time column is the whole point
+      // of the list, and without it "Overdue — 12 leads" gives you no way to see WHEN they were due.
+      if(_haActiveBucket==="followup"||_haActiveBucket.indexOf("fu:")===0){
         const hd=root.querySelector("#haResultsHead"); if(hd)hd.innerHTML=gridHead("haFu");
         const _fuR=gridApply("haFu",list);
         body.innerHTML=_fuR.length?_fuR.map((l:any)=>{ const nf=_haFuNext(l); const overdue=_haFuState(l)==="Overdue";
@@ -5644,6 +6537,20 @@ export function initApp(root: HTMLElement) {
       // the table would render empty — pull them, then re-render.
       if((key==="calls"||key==="callduration")&&!_advCallLoaded){ _advCallLoaded=true; _loadAdvCallStats().then(()=>{ if(_haActiveBucket==="calls"||_haActiveBucket==="callduration") renderHaResults(); }); }
       const wr=root.querySelector("#haResultsWrap");if(wr)wr.scrollIntoView({behavior:"smooth",block:"nearest"});};
+    // PRD §6 — ONE delegated listener for every element in the enhancement sections. Each interactive
+    // element carries data-metric; the listener resolves the nearest one and routes it through the
+    // same _haCardClick the original cards use, so there is a single drill-down path for the screen.
+    // Delegation (rather than an onclick per element) is what lets these sections be re-rendered
+    // wholesale on every repaint without re-binding a single handler.
+    {
+      const host=root.querySelector("#advDashSections");
+      if(host) host.addEventListener("click",(ev:Event)=>{
+        const t=ev.target as HTMLElement|null; if(!t||!t.closest) return;
+        const el=t.closest("[data-metric]")as HTMLElement|null; if(!el) return;
+        const key=el.getAttribute("data-metric")||""; if(!key) return;
+        (w as any)._haCardClick(key);
+      });
+    }
     w._haCloseResults=()=>{_haActiveBucket="";const wr=root.querySelector("#haResultsWrap")as HTMLElement;if(wr)wr.style.display="none";
       // Reset the search with the table, so reopening a card doesn't show a silently filtered list.
       _haQuery=""; const sb=root.querySelector("#haResultsSearch")as HTMLInputElement|null; if(sb) sb.value="";};
@@ -7508,6 +8415,7 @@ export function initApp(root: HTMLElement) {
         if (curScFilter === "paydue") return r.payStatus === "due";
         if (curScFilter === "enrolled") return r.stage === "enrolled";
         if (curScFilter === "inst2") return _recInst2Pending(r);   // installment 1 paid, 2 outstanding
+        if (curScFilter === "prio") return (_advPrioStars[String(r.lead_id||"")]||0)>0;
         return true;
       });
       return d;
@@ -7569,17 +8477,23 @@ export function initApp(root: HTMLElement) {
     }
     function renderSc() {
       const f = curSvc === "all" ? RX : RX.filter((r) => _recSvcPass(r.serviceRaw, curSvc));
-      const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0,inst2:0 };
+      const c: Record<string,number> = { expected:0,visited:0,noshow:0,rescheduled:0,cancelled:0,paydue:0,enrolled:0,inst2:0,prio:0 };
       const enrolledLeads=new Set<string>();   // Enrolled is a LEAD fact, not an appointment fact — a
       // lead with 2+ appointments (any reschedule) must only count once, same root cause as renderRev.
       const inst2Leads=new Set<string>();      // same rule: installment state lives on the LEAD
       f.forEach((r: any) => { c[r.status]=(c[r.status]||0)+1; if(r.payStatus==="due")c.paydue++; if(r.enrolled)enrolledLeads.add(String(r.lead_id||r.id)); if(_recInst2Pending(r))inst2Leads.add(String(r.lead_id||r.id)); });
       c.enrolled=enrolledLeads.size;
       c.inst2=inst2Leads.size;
+      // Priority the advisor set. Counted over distinct LEADS so a client with two appointments in
+      // view is not counted twice, matching how Instalment 2 pending counts above.
+      { const seen=new Set<string>();
+        f.forEach((r:any)=>{ const k=String(r.lead_id||""); if(k&&(_advPrioStars[k]||0)>0) seen.add(k); });
+        c.prio=seen.size; }
       // "No show" card removed on request. Nothing in the app ever writes appointments.status
       // "noshow", so the card could only ever read 0 — the counter and its table filter are left in
       // place (harmless, unreachable) so the card can be restored by re-adding one entry here.
-      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"},{k:"inst2",l:"Instalment 2 pending",v:c.inst2,c:"a"}];
+      const cards = [{k:"expected",l:"Expected",v:c.expected,c:""},{k:"visited",l:"Visited",v:c.visited,c:"g"},{k:"rescheduled",l:"Rescheduled",v:c.rescheduled,c:"a"},{k:"cancelled",l:"Cancelled",v:c.cancelled,c:"r"},{k:"paydue",l:"Pay due",v:c.paydue,c:"a"},{k:"enrolled",l:"Enrolled",v:c.enrolled,c:"g"},{k:"inst2",l:"Instalment 2 pending",v:c.inst2,c:"a"},{k:"prio",l:"Priority",v:c.prio,c:"g"},{k:"noshow",l:"No turn up",v:c.noshow,c:"r"}];
+      try{ _remRender(); }catch(_){}   // keep the reminder badge in step with the loaded appointments
       const el = root.querySelector("#scCards");
       if (el) el.innerHTML = cards.map((x) => '<div class="metric '+x.c+'" style="cursor:pointer;'+(curScFilter===x.k?'outline:2.5px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._scClick(\''+x.k+'\')"><div class="ml">'+x.l+'</div><div class="mv">'+x.v+'</div></div>').join("");
     }
@@ -7621,6 +8535,10 @@ export function initApp(root: HTMLElement) {
       {key:"sno",label:"S.No.",filter:false,head:'<th style="min-width:52px">S.No.</th>'},
       {key:"dt",label:"Date · time",filter:true,text:(r:any)=>r.date+(r.time?", "+r.time:""),thStyle:"min-width:150px"},
       {key:"client",label:"Client",filter:true,text:(r:any)=>r.name||"",thStyle:"min-width:120px"},
+      // Priority the ADVISOR set, read from the same _advPrioStars map the advisor dashboard uses —
+      // one source, so the two pages cannot disagree and nothing needs syncing between them.
+      // Filterable as text ("3", "2", "-") so Reception can pull the priority leads to the top.
+      {key:"prio",label:"Priority",filter:true,text:(r:any)=>{const n=_advPrioStars[String(r.lead_id||"")]||0; return n?String(n):"—";},thStyle:"min-width:88px"},
       {key:"phone",label:"Phone",filter:true,text:(r:any)=>r.ph||"",thStyle:"min-width:110px"},
       {key:"svc",label:"Service",filter:true,text:(r:any)=>r.svcLabel||"",thStyle:"min-width:110px"},
       {key:"hc",label:"HC / PT",filter:true,text:(r:any)=>r.hc||"",thStyle:"min-width:90px"},
@@ -7663,6 +8581,135 @@ export function initApp(root: HTMLElement) {
       if(!planned&&!done) return "—";
       return _phProgressText(done,planned);
     }
+    // Priority stars for Reception, straight from the advisor's own map so the two pages show the
+    // same fact rather than each keeping a copy that can drift.
+    // ===== Reception appointment reminders =====
+    // Tiers come from the appointment's own date+time: 30 min out = upcoming, 15 = due, past = urgent.
+    // Nothing here writes an appointment; it only reads them and records what Reception decides, so
+    // the existing booking and check-in flows are untouched.
+    const REM_ACK_KEY="wc_rem_ack_v1";
+    const _remRead=()=>{ try{ return JSON.parse(localStorage.getItem(REM_ACK_KEY)||"{}"); }catch(_){ return {}; } };
+    const _remWrite=(o:any)=>{ try{ localStorage.setItem(REM_ACK_KEY,JSON.stringify(o)); }catch(_){} };
+    let _remOpen=false; const _remSounded:Record<string,boolean>={}; let _remTimer:any=null;
+    // Minutes until the appointment. NaN when the row has no usable date or time.
+    function _remMinsTo(r:any):number{
+      // appt_date is stored as IST MIDNIGHT EXPRESSED IN UTC ("2026-08-16T18:30:00.000Z" is 17 Aug
+      // in Chennai), so slicing the first 10 characters yields the PREVIOUS day - the appointment
+      // then computes ~24h in the past and never enters the queue. _istDay converts properly, and is
+      // the same helper the rest of the app uses for this exact trap.
+      const raw=String((r&&r._date)||"");
+      const d=/T/.test(raw)?_istDay(raw):raw.slice(0,10);
+      const t=String((r&&r.time)||"").trim();
+      if(!d||!t) return NaN;
+      const m=t.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i); if(!m) return NaN;
+      let h=Number(m[1])%12; if(/pm/i.test(m[3]||"")) h+=12; if(!m[3]&&Number(m[1])===12) h=12;
+      const at=new Date(d+"T00:00:00"); if(isNaN(at.getTime())) return NaN;
+      at.setHours(h,Number(m[2]),0,0);
+      return Math.round((at.getTime()-Date.now())/60000);
+    }
+    // Appointments still awaiting a reminder call. Anything already actioned drops out, and a
+    // No-Turn-Up stays out for 24 hours before returning to the queue, per the workflow.
+    function _remDue():any[]{
+      const ack=_remRead(); const now=Date.now();
+      return (_recAll||[]).filter((r:any)=>{
+        if(r.status!=="expected") return false;              // visited / cancelled are finished with
+        const a=ack[String(r.id)];
+        if(a&&a.done) return false;
+        if(a&&a.noturnup&&(now-Number(a.at||0))<86400000) return false;   // 24h cool-off
+        const mins=_remMinsTo(r); if(isNaN(mins)) return false;
+        return mins<=30&&mins>=-180;                         // 30 min before, up to 3h after
+      }).map((r:any)=>{ const mins=_remMinsTo(r);
+        return {r,mins,tier:mins<=0?"urg":(mins<=15?"due":"up")};
+      }).sort((a:any,b:any)=>a.mins-b.mins);                 // nearest / most urgent first
+    }
+    // One short beep when a reminder first reaches a stronger tier. WebAudio needs no asset; a
+    // blocked sound never hides the visual reminder, which stays the primary mechanism.
+    function _remBeep(){
+      try{
+        const AC=(window as any).AudioContext||(window as any).webkitAudioContext; if(!AC) return;
+        const ctx=new AC(); const o=ctx.createOscillator(); const g=ctx.createGain();
+        o.connect(g); g.connect(ctx.destination); o.type="sine"; o.frequency.value=880;
+        g.gain.setValueAtTime(0.0001,ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.12,ctx.currentTime+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35);
+        o.start(); o.stop(ctx.currentTime+0.36);
+        setTimeout(()=>{ try{ ctx.close(); }catch(_){} },600);
+      }catch(_){}
+    }
+    function _remAct(id:any,patch:any){
+      const ack=_remRead(); ack[String(id)]=Object.assign({},ack[String(id)]||{},patch,{at:Date.now()}); _remWrite(ack);
+    }
+    w._remToggle=()=>{ _remOpen=!_remOpen; _remRender(); };
+    w._remCallNow=(id:any)=>{
+      const r=(_recAll||[]).find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      try{ w._recCall(String(r.lead_id||""),String(r.ph||"")); }catch(_){}
+      logAction(r.lead_id,"Reminder","Reminder call started",(r.name||"client")+" · "+(r.time||""));
+      _remRender();
+    };
+    w._remDone=(id:any)=>{
+      const r=(_recAll||[]).find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      _remAct(id,{done:true});
+      // Records the CALL as completed. It deliberately does not mark the appointment visited: only a
+      // real check-in does that, and time passing must never imply the client turned up.
+      logAction(r.lead_id,"Reminder","Reminder call completed",(r.name||"client")+" · appt "+(r.time||""),"Pending");
+      _remRender();
+    };
+    w._remNoTurnUp=async(id:any)=>{
+      const r=(_recAll||[]).find((x:any)=>String(x.id)===String(id)); if(!r) return;
+      if(!(await _dbOk(supabase.from("appointments").update({status:"noshow"}).eq("id",r.id),"No turn up"))) return;
+      _remAct(id,{noturnup:true});
+      logAction(r.lead_id,"Reminder","No turn up","No Turn Up · appt "+(r.time||""),(STATUS_MAP[r.status]||{l:r.status}).l);
+      toast("Marked No Turn Up — returns to the queue in 24h");
+      try{ await loadReceptionData(); }catch(_){}
+      _remRender();
+    };
+    function _remRender(){
+      const onRec=_activeScreenId()==="reception";
+      let bell=root.querySelector("#remBell") as HTMLElement|null;
+      let panel=root.querySelector("#remPanel") as HTMLElement|null;
+      if(!onRec){ if(bell) bell.style.display="none"; if(panel) panel.classList.remove("open"); return; }
+      const due=_remDue();
+      if(!bell){ const b=document.createElement("button"); b.id="remBell"; b.className="rem-bell";
+        b.setAttribute("type","button"); b.onclick=()=>{ try{ w._remToggle(); }catch(_){} };
+        root.appendChild(b); bell=b; }
+      if(!panel){ const p=document.createElement("div"); p.id="remPanel"; p.className="rem-panel"; root.appendChild(p); panel=p; }
+      bell.style.display="flex";
+      bell.className="rem-bell"+(due.length?"":" quiet");
+      bell.innerHTML='<span style="font-size:15px">&#128276;</span><span class="n">'+due.length+'</span>';
+      bell.title=due.length?(due.length+" appointment follow-up"+(due.length===1?"":"s")+" pending"):"No appointment follow-ups due";
+      // Sound only when a reminder REACHES a stronger tier, never on a repaint or a timer tick.
+      due.forEach((x:any)=>{ const k=String(x.r.id)+":"+x.tier;
+        if(x.tier!=="up"&&!_remSounded[k]){ _remSounded[k]=true; _remBeep(); } });
+      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      panel.className="rem-panel"+(_remOpen?" open":"");
+      panel.innerHTML='<div class="rem-hd"><span>&#128276; Appointment follow-ups</span>'
+        +'<span class="chipb neu">'+due.length+'</span>'
+        +'<button type="button" class="pill" style="margin-left:auto;font-size:11px" onclick="window._remToggle()">&#10005;</button></div>'
+        +(due.length?due.map((x:any)=>{ const r=x.r;
+          const when=x.mins>0?("in "+x.mins+" min"):(x.mins===0?"now":(Math.abs(x.mins)+" min ago"));
+          const tl=x.tier==="urg"?"Urgent":(x.tier==="due"?"Due":"Upcoming");
+          return '<div class="rem-row">'
+            +'<div style="display:flex;align-items:center;gap:6px">'
+            +'<span class="rem-nm">'+e(r.name||"Client")+'</span>'
+            +'<span class="rem-tier '+x.tier+'" style="margin-left:auto">'+tl+'</span></div>'
+            +'<div class="rem-sub">'+e(r.time||"—")+' · '+e(r.svcLabel||"—")+' · '+when+'</div>'
+            +'<div class="rem-acts">'
+            +'<button type="button" class="go" onclick="window._remCallNow(&quot;'+e(String(r.id))+'&quot;)">Call now</button>'
+            +'<button type="button" onclick="window._remDone(&quot;'+e(String(r.id))+'&quot;)">Done</button>'
+            +'<button type="button" onclick="window._remNoTurnUp(&quot;'+e(String(r.id))+'&quot;)">No turn up</button>'
+            +'</div></div>';
+        }).join(""):'<div class="rem-row" style="color:var(--faint);font-size:12px">Nothing due right now.</div>');
+    }
+    w._remRender=_remRender;
+    // Recompute on a timer so a reminder becomes due without needing a page interaction.
+    if(!_remTimer) _remTimer=setInterval(()=>{ try{ _remRender(); }catch(_){} },30000);
+    function _recPrioCell(r:any):string{
+      const n=_advPrioStars[String(r&&r.lead_id||"")]||0;
+      if(!n) return '<td class="mono" style="color:var(--faint)">—</td>';
+      return '<td title="Priority '+n+' of 3 - set by the advisor" style="white-space:nowrap;font-size:13px;letter-spacing:1px">'
+        +'<span style="color:#E8A33D">'+"★".repeat(n)+'</span>'
+        +'<span style="color:var(--line)">'+"★".repeat(Math.max(0,3-n))+'</span></td>';
+    }
     function _recPhNext(r:any):string{ const v=String((r&&r.phNext)||"").trim(); return v?fmtIST(v):"—"; }
     regGrid("appt",()=>_apptColsFn(),()=>renderAppt());
     // Quick "lead number" search box in the Appointments header — matches phone digits, lead id, or name.
@@ -7683,7 +8730,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any,i:number) => {
         const sm = STATUS_MAP[r.status]||{l:r.status,c:"neu"};
         const pm = PAY_MAP[r.payStatus]||{l:"—",c:"neu"};
-        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td><td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChips&&r.stageChips.length?'<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+r.stageChips.map((c:any)=>'<span class="chipb '+c.c+'" style="white-space:normal;line-height:1.3;display:inline-block;max-width:150px;font-size:10.5px;padding:3px 7px">'+c.t+'</span>').join("")+'</div>':(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—"))+'</td>'+(_recPhysioView()?('<td class="mono" style="font-size:11.5px;font-weight:700">'+_recPhProgress(r)+'</td>'+'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recPhNext(r)+'</td>'):'')+'<td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td>'
+        rows += '<tr onclick="window._openDrawer('+r.id+')" style="cursor:pointer"><td class="mono">'+(i+1)+'</td><td class="mono">'+r.date+(r.time?', '+r.time:'')+'</td><td style="font-weight:600">'+r.name+'</td>'+_recPrioCell(r)+'<td class="mono">'+r.ph+'</td><td><span class="tag">'+r.svcLabel+'</span></td><td>'+r.hc+'</td><td><span class="chipb '+sm.c+'">'+sm.l+'</span></td><td class="mono">'+(r.visitedAt?fmtIST(r.visitedAt):"—")+'</td><td><span class="chipb '+pm.c+'">'+pm.l+'</span></td><td class="mono" style="font-weight:700">'+(r.payAmt?("₹"+r.payAmt.toLocaleString("en-IN")):"—")+'</td><td>'+((r.payStatus==="paid"||r.hasPaid)?'<button class="btn bsm" title="Download invoice PDF" onclick="event.stopPropagation();window._recDownloadInvoice(\''+r.id+'\')">⬇</button>':"—")+'</td><td>'+(r.stageChips&&r.stageChips.length?'<div style="display:flex;flex-direction:column;align-items:flex-start;gap:4px">'+r.stageChips.map((c:any)=>'<span class="chipb '+c.c+'" style="white-space:normal;line-height:1.3;display:inline-block;max-width:150px;font-size:10.5px;padding:3px 7px">'+c.t+'</span>').join("")+'</div>':(r.stageChip&&r.stageChip.t?'<span class="chipb '+r.stageChip.c+'" style="white-space:normal;line-height:1.35;display:inline-block;max-width:230px">'+r.stageChip.t+'</span>':"—"))+'</td>'+(_recPhysioView()?('<td class="mono" style="font-size:11.5px;font-weight:700">'+_recPhProgress(r)+'</td>'+'<td class="mono" style="font-size:11px;white-space:nowrap">'+_recPhNext(r)+'</td>'):'')+'<td>'+(r.status==="cancelled"?"—":'<button class="btn bsm" title="Reschedule this appointment" onclick="event.stopPropagation();window._recReschedule(\''+r.id+'\')">⟳</button>')+'</td>'
           // Order mirrors _apptColsFn: these two follow Reschedule, only in the Instalment-2 view.
           // The "+30d" suffix becomes a small chip so a DERIVED due date is visually distinct from
           // one actually committed when a collection request was sent.
@@ -8536,7 +9583,11 @@ export function initApp(root: HTMLElement) {
       const r=_recAll.find((x:any)=>String(x.id)===String(id))||RX.find((x:any)=>String(x.id)===String(id));
       if(!r){ toastErr("Appointment not found — refresh and try again"); return; }
       if(r.status==="cancelled"){ toastErr("A cancelled appointment can't be rescheduled"); return; }
-      const _d0=String(r._date||"").slice(0,10)||_todayLocal();
+      // appt_date is IST midnight stored as UTC ("2026-08-16T18:30:00Z" is 17 Aug in Chennai), so
+      // slicing the string gives the PREVIOUS day. The modal then opened on yesterday and its own
+      // "can't be in the past" guard rejected the save before anything had been changed.
+      const _draw=String(r._date||"");
+      const _d0=(/T/.test(_draw)?_istDay(_draw):_draw.slice(0,10))||_todayLocal();
       const _p0=(r.hc&&r.hc!=="—")?String(r.hc):"";
       _reschCtx={id:r.id,lead:String(r.lead_id||""),name:r.name||"Client",prov:_p0,origProv:_p0,svc:String(r.service||r.svcLabel||""),date:_d0,origDate:_d0,time:r.time||"",pick:""};
       _reschRender();
@@ -12929,6 +13980,110 @@ export function initApp(root: HTMLElement) {
       const t=_btmList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
       if(!window.confirm('Delete "'+(t.name||"this panel")+'" from the pricing master? Past records keep their stored prices.')) return;
       supabase.from("bt_tests").delete().eq("id",id).then(async()=>{ toast("Panel deleted"); await loadBtMaster(); }).catch((e:any)=>toast("Delete failed: "+(e?.message||"db error")));
+    };
+    // ===== Advisor Targets Master (advisor_targets) — the ONLY source of the Health Advisor
+    // dashboard's targets and expected values. Nothing on that screen is hardcoded: a change saved
+    // here re-reads on the dashboard immediately (see the _haTargetsLoaded reset in _tgtRefresh).
+    let _tgtList:any[]=[]; let _tgtEditId:any=null;
+    const _tgtV=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|null)?.value||"").trim();
+    const _tgtSetV=(id:string,val:string)=>{ const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=val; };
+    const _tgtNum=(id:string)=>{ const v=_tgtV(id); return v===""?null:Number(v); };
+    const _tgtThisMonth=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); };
+    // Advisors come from the SAME live assignee master the rest of the app uses, so a new joiner is
+    // selectable the moment they are added rather than needing a second list kept in step by hand.
+    function _tgtFillAdvisors(){
+      const sel=root.querySelector("#tgtAdvisor")as HTMLSelectElement|null; if(!sel) return;
+      const cur=sel.value;
+      const ppl=_assignees.filter((a:any)=>a.is_active&&a.role!=="Health Coach").map((a:any)=>String(a.name||"")).filter(Boolean);
+      sel.innerHTML='<option value="">— Select advisor —</option>'+ppl.map((n:string)=>'<option>'+_attr(n)+'</option>').join("");
+      if(cur) sel.value=cur;
+    }
+    function _renderTgtMaster(){
+      const body=root.querySelector("#tgtBody"); if(!body) return;
+      const money=(n:any)=>n==null?"—":"₹"+(Number(n)||0).toLocaleString("en-IN");
+      const or=(n:any)=>n==null||n===""?"auto":String(n);
+      body.innerHTML=_tgtList.length?_tgtList.map((t:any)=>'<tr>'
+        +'<td style="font-weight:600">'+_attr(String(t.advisor||"—"))+'</td>'
+        +'<td class="mono">'+_attr(String(t.period||"—"))+'</td>'
+        +'<td class="mono">'+money(t.revenue_target)+'</td>'
+        +'<td class="mono">'+(t.enrollment_target==null?"—":t.enrollment_target)+'</td>'
+        +'<td class="mono">'+(t.crm_usage_target_hours==null?"—":(t.crm_usage_target_hours+"h"))+'</td>'
+        +'<td class="mono" style="font-size:11.5px">'+[t.expected_appt_direct,t.expected_appt_zoom,t.expected_confirmed,t.expected_visited,t.expected_enrolled].map(or).join(" / ")+'</td>'
+        +'<td><div style="display:flex;gap:5px;flex-wrap:wrap">'
+          +'<button class="btn bsm" onclick="window._tgtEdit(\''+_attr(String(t.id))+'\')">Edit</button>'
+          +'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._tgtDelete(\''+_attr(String(t.id))+'\')">Delete</button>'
+        +'</div></td></tr>').join("")
+        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No targets set yet — the dashboard is using its fallback defaults. Add a row above.</td></tr>';
+    }
+    async function loadTgtMaster(){
+      try{ const r:any=await supabase.from("advisor_targets").select("*").order("period",{ascending:false}); _tgtList=(r&&r.error)?[]:((r&&r.data)||[]); }
+      catch(_){ _tgtList=[]; }
+      _tgtFillAdvisors(); _renderTgtMaster();
+      if(!_tgtV("tgtPeriod")) _tgtSetV("tgtPeriod",_tgtThisMonth());
+    }
+    // Saved targets must show up on the dashboard WITHOUT a reload — that is the whole point of moving
+    // them out of the code. Dropping the loaded flag makes the next render re-read the table.
+    function _tgtRefresh(){
+      _haTargetsLoaded=false; _haTargets=null; _haTargetsMissing=false;
+      try{ renderHealthDashboard(); }catch(_){}
+    }
+    w._tgtSave=async()=>{
+      const advisor=_tgtV("tgtAdvisor"); if(!advisor){ toast("Pick an advisor"); return; }
+      const period=_tgtV("tgtPeriod"); if(!/^\d{4}-\d{2}$/.test(period)){ toast("Pick a period (month)"); return; }
+      const row:any={advisor,period,
+        revenue_target:Number(_tgtV("tgtRevenue"))||0,
+        enrollment_target:Math.round(Number(_tgtV("tgtEnroll"))||0),
+        crm_usage_target_hours:_tgtNum("tgtCrm"),
+        expected_appt_direct:_tgtNum("tgtExpDirect"), expected_appt_zoom:_tgtNum("tgtExpZoom"),
+        expected_confirmed:_tgtNum("tgtExpConfirmed"), expected_visited:_tgtNum("tgtExpVisited"),
+        expected_enrolled:_tgtNum("tgtExpEnrolled"), updated_at:new Date().toISOString()};
+      // The gateway RESOLVES with {error} rather than throwing, so the result is checked rather than
+      // relying on a catch that a failed write never reaches.
+      const res:any=_tgtEditId
+        ? await supabase.from("advisor_targets").update(row).eq("id",_tgtEditId)
+        : await supabase.from("advisor_targets").insert(row);
+      if(res&&res.error){
+        const m=String(res.error.message||"");
+        toastErr(/exist|relation|column|schema/i.test(m)?"Run db/migration-advisor-targets.sql first":"Save failed: "+(m||"database error"));
+        return;
+      }
+      toast(_tgtEditId?("Target updated — "+advisor+" · "+period):("Target saved — "+advisor+" · "+period));
+      w._tgtCancel(); await loadTgtMaster(); _tgtRefresh();
+    };
+    w._tgtEdit=(id:any)=>{
+      const t=_tgtList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
+      _tgtFillAdvisors();
+      const sel=root.querySelector("#tgtAdvisor")as HTMLSelectElement|null;
+      // An advisor who has since been deactivated is no longer in the dropdown; add them back for
+      // this edit so opening an old row can never silently reassign its target to someone else.
+      if(sel&&t.advisor&&!Array.from(sel.options).some(o=>o.value===t.advisor||o.text===t.advisor)) sel.add(new Option(String(t.advisor),String(t.advisor)));
+      if(sel) sel.value=String(t.advisor||"");
+      _tgtSetV("tgtPeriod",String(t.period||""));
+      _tgtSetV("tgtRevenue",t.revenue_target!=null?String(t.revenue_target):"");
+      _tgtSetV("tgtEnroll",t.enrollment_target!=null?String(t.enrollment_target):"");
+      _tgtSetV("tgtCrm",t.crm_usage_target_hours!=null?String(t.crm_usage_target_hours):"");
+      _tgtSetV("tgtExpDirect",t.expected_appt_direct!=null?String(t.expected_appt_direct):"");
+      _tgtSetV("tgtExpZoom",t.expected_appt_zoom!=null?String(t.expected_appt_zoom):"");
+      _tgtSetV("tgtExpConfirmed",t.expected_confirmed!=null?String(t.expected_confirmed):"");
+      _tgtSetV("tgtExpVisited",t.expected_visited!=null?String(t.expected_visited):"");
+      _tgtSetV("tgtExpEnrolled",t.expected_enrolled!=null?String(t.expected_enrolled):"");
+      _tgtEditId=id;
+      const b=root.querySelector("#tgtAddBtn"); if(b)b.textContent="Update target";
+      const c=root.querySelector("#tgtCancelBtn")as HTMLElement|null; if(c)c.style.display="";
+    };
+    w._tgtCancel=()=>{
+      _tgtEditId=null;
+      ["tgtRevenue","tgtEnroll","tgtCrm","tgtExpDirect","tgtExpZoom","tgtExpConfirmed","tgtExpVisited","tgtExpEnrolled"].forEach(id=>_tgtSetV(id,""));
+      const b=root.querySelector("#tgtAddBtn"); if(b)b.textContent="+ Save target";
+      const c=root.querySelector("#tgtCancelBtn")as HTMLElement|null; if(c)c.style.display="none";
+    };
+    w._tgtDelete=(id:any)=>{
+      const t=_tgtList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
+      if(!window.confirm('Delete the '+(t.period||"")+' target for '+(t.advisor||"this advisor")+'? The dashboard will fall back to its defaults.')) return;
+      supabase.from("advisor_targets").delete().eq("id",id).then(async(r:any)=>{
+        if(r&&r.error){ toastErr("Delete failed: "+(r.error.message||"database error")); return; }
+        toast("Target deleted"); await loadTgtMaster(); _tgtRefresh();
+      });
     };
 
     // ===== COUPON CODES MASTER (Settings → Coupon codes) =====

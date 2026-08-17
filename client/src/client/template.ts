@@ -21,7 +21,83 @@ export function getMainContent(): string {
       <div class="pills" id="asnViewToggle" style="margin-left:auto"><button class="pill on" onclick="window._asnToggleView('list')">List View</button><button class="pill" onclick="window._asnToggleView('kanban')">Kanban View</button></div>
       <select aria-label="Filter by call or lead status" class="select" id="haStatusFilter" style="height:30px;font-size:12px;width:210px"><option value="all">All call/lead statuses</option></select></div>
       <div class="sec-bd">
-        <div class="metrics" id="haKpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0"></div>
+        <!-- ===== Advisor dashboard — four primary panels =====
+             Filled by _renderAdvDashSections() in app.ts. Everything is click-through: elements carry
+             data-metric and ONE delegated listener on #advDashSections routes the click to the shared
+             drill-down table. No target on this screen is hardcoded — they all come from the
+             advisor_targets master in Settings → Advisor targets. -->
+        <div id="advDashSections">
+          <div class="dgrid">
+            <div class="dpanel">
+              <div class="dpanel-hd"><span class="dnum">1</span><h4>Pipeline overview</h4></div>
+              <div class="dov" id="haOverview"></div>
+              <!-- Overlay cards (Call Status filter, Priority) — not pipeline stages, so they sit
+                   below the three headline counters rather than competing with them. -->
+              <div class="dovmore" id="haKpis"></div>
+            </div>
+            <div class="dpanel" id="haPanelPerf">
+              <div class="dpanel-hd"><span class="dnum">2</span><h4>Pipeline performance</h4><span class="sub">(Actual vs Expected)</span></div>
+              <div class="dpf" id="haPipeTargets"></div>
+              <div class="dlegend" id="haPipeKey"></div>
+              <div class="dsrc" id="haPipeHint"></div>
+            </div>
+          </div>
+          <div class="dgrid2" id="haRow2">
+            <div class="dpanel">
+              <div class="dpanel-hd"><span class="dnum">3</span><h4>Follow-ups</h4></div>
+              <div class="dfu" id="haFollowupCards"></div>
+            </div>
+            <div class="dpanel">
+              <div class="dpanel-hd"><span class="dnum">4</span><h4>Targets &amp; performance</h4><span class="sub" id="haTargetKey"></span></div>
+              <div class="dtg" id="haTargetCards"></div>
+              <div class="dsrc" id="haTargetHint"></div>
+            </div>
+          </div>
+          <!-- Pacing spans the FULL width, below both panels. Inside panel 4 it made that panel far
+               taller than the Follow-ups panel beside it, and since the two stretch to equal height
+               the difference showed up as dead white space under the rings. Full width also suits it:
+               it is a sentence, not a tile. -->
+          <div id="haPacing"></div>
+
+          <!-- Panels 5–9 continue the numbered system from the four above, so the whole screen reads
+               as one sequence rather than four designed panels followed by loose sections. -->
+          <div id="haLowerSections">
+          <div class="dpanel" style="margin-top:14px">
+            <div class="dpanel-hd"><span class="dnum">5</span><h4>Call disposition</h4><span class="sub">(20 codes)</span></div>
+            <div class="dsub">Colour shows the <b>group</b>, not performance — a disposition has no target. Click any row to open those leads.</div>
+            <div id="haDispo" class="hadisp"></div>
+          </div>
+
+          <div class="dgrid3">
+            <div class="dpanel">
+              <div class="dpanel-hd"><span class="dnum">6</span><h4>Visited status</h4></div>
+              <div class="dsub">Track leads across the visited journey</div>
+              <div id="haVisitedBar"></div>
+            </div>
+            <div class="dpanel">
+              <div class="dpanel-hd"><span class="dnum">7</span><h4>Enrollment status</h4></div>
+              <div class="dsub">Track enrollment progress</div>
+              <div id="haEnrollBar"></div>
+            </div>
+            <div class="dpanel">
+              <div class="dpanel-hd"><span class="dnum">8</span><h4>Conversion funnel</h4><span class="sub" id="haFunnelKey"></span></div>
+              <div class="dsub">Overall conversion with reference goals and deviation</div>
+              <div class="dfun-wrap">
+                <div id="haFunnel" class="dfun"></div>
+                <div id="haFunnelRates"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dpanel" style="margin-top:14px">
+            <div class="dpanel-hd"><span class="dnum">9</span><h4>Call performance</h4></div>
+            <div class="dsub" id="haCallHint"></div>
+            <div class="metrics" id="haCallPerf" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin:11px 0 0"></div>
+            <!-- Call Touch Time: advisor x hour dialer performance, filled by _advRenderCallHourly. -->
+            <div id="haCallHourly" style="margin:16px 0 0"></div>
+          </div>
+          </div>
+        </div>
         <div id="haResultsWrap" style="display:none;margin-top:14px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><span style="font-weight:700;font-size:13px" id="haResultsTitle"></span>
             <!-- Lives OUTSIDE the table so a re-render (which rewrites thead/tbody only) can't steal focus mid-typing. -->
@@ -1927,7 +2003,7 @@ export function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-cpn">Coupon codes</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-cpn">Coupon codes</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-tgt">Advisor targets</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
 
     <div class="st-p" data-p="st-svc">
@@ -2036,6 +2112,35 @@ export function getMainContent(): string {
             </tbody></table>
             <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bsm bp" onclick="toast('+ New field added — configure type, label, validation')">+ Add field</button><button class="btn bsm" onclick="toast('Fields saved — screening form updated')">Save field config</button></div>
           </div></div></div>
+    </div>
+
+    <!-- ADVISOR TARGETS MASTER — dynamic CRUD on advisor_targets. This is the single source of truth
+         for the Health Advisor dashboard's "Targets & performance" and "Pipeline performance" cards:
+         nothing on that screen is hardcoded any more, so changing a number here moves the dashboard
+         with no code change or redeploy. -->
+    <div class="st-p" data-p="st-tgt" style="display:none">
+      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Advisor Targets Master — drives the Health Advisor dashboard</div>
+        <div class="sec-bd">
+          <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px">One row per advisor per month. The Health Advisor dashboard reads these live — Revenue, Enrollment and CRM usage fill the <b>Targets &amp; performance</b> cards; the five expected counts fill <b>Pipeline performance</b>. Leave an expected value blank to have it derived from that advisor's own book size instead of a fixed number.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtAdvisor">Advisor</label><select class="select" id="tgtAdvisor" style="height:34px;width:190px"></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtPeriod">Period (month)</label><input class="input mono" id="tgtPeriod" type="month" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtRevenue">Revenue target (₹)</label><input class="input mono" id="tgtRevenue" type="number" min="0" placeholder="1800000" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtEnroll">Enrollment target</label><input class="input mono" id="tgtEnroll" type="number" min="0" placeholder="90" style="height:34px;width:140px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtCrm">CRM usage target (hours/day)</label><input class="input mono" id="tgtCrm" type="number" min="0" step="0.5" placeholder="8" style="height:34px;width:170px"></div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpDirect">Expected · Appt Direct</label><input class="input mono" id="tgtExpDirect" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpZoom">Expected · Appt Zoom</label><input class="input mono" id="tgtExpZoom" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpConfirmed">Expected · Confirmed</label><input class="input mono" id="tgtExpConfirmed" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpVisited">Expected · Visited</label><input class="input mono" id="tgtExpVisited" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpEnrolled">Expected · Enrolled</label><input class="input mono" id="tgtExpEnrolled" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
+            <button class="btn bp" id="tgtAddBtn" onclick="window._tgtSave()" style="height:34px">+ Save target</button>
+            <button class="btn bsm" id="tgtCancelBtn" onclick="window._tgtCancel()" style="height:34px;display:none">Cancel</button>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:980px"><thead><tr><th scope="col">Advisor</th><th scope="col">Period</th><th scope="col">Revenue</th><th scope="col">Enrollment</th><th scope="col">CRM / day</th><th scope="col">Expected (D/Z/C/V/E)</th><th scope="col">Actions</th></tr></thead><tbody id="tgtBody"></tbody></table></div>
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Targets do not roll over — each month is set explicitly, so a missed month never silently inflates the next one. An advisor with no row for the current month falls back to the defaults shown on the dashboard.</p>
+        </div></div>
     </div>
 
     <div class="st-p" data-p="st-usr" style="display:none">

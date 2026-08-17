@@ -1411,3 +1411,554 @@ html{scroll-behavior:smooth}
 /* Export / Download is Super Admin + Accounts only. The gate is a single class on the shell so it
    survives table re-renders — a per-button JS hide would be undone the next time a page redrew. */
 #appShell.no-exp [data-exp]{display:none!important}
+
+/* ===== Health Advisor dashboard — enhancement sections (PRD v1.0) =====
+   Section dividers, proportion bars, disposition rows and the funnel. Everything here is
+   click-through (see the delegated [data-metric] handler in app.ts), so rows carry hover
+   affordances rather than looking like static read-outs. */
+.hasub{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--brand);
+  margin:22px 0 0;padding-bottom:7px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hasub .hint{font-weight:500;letter-spacing:0;text-transform:none;color:var(--faint);font-size:11px}
+.hasub .hint b{color:var(--muted);font-weight:600}
+/* Proportion / segment bar. Segments are <span> children with an inline width + background. */
+.habar{display:flex;height:9px;border-radius:6px;overflow:hidden;background:var(--surface-2);border:1px solid var(--line)}
+.habar>span{display:block;height:100%;transition:width .35s var(--ease)}
+/* Call disposition: a labelled row per code, with its share of the group as a bar. */
+.hadisp{display:grid;gap:5px;margin-top:9px}
+/* Conversion funnel: one row per stage, width proportional to the top stage. */
+/* Segmented status bar legend (Visited / Enrollment status). */
+/* Pacing recommendation. Border colour tracks the worst target, set inline. */
+.hapace{border:1px solid var(--line);border-left-width:4px;border-radius:var(--r);background:var(--surface);
+  padding:12px 14px;margin-top:12px;font-size:12.5px;line-height:1.6;color:var(--ink)}
+.hapace .pt{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px}
+/* Sub-line under a metric value: "74 / 80 · 93%". */
+.metric .msub{font-size:11px;margin-top:4px;font-weight:600;color:var(--muted)}
+.metric .msub b{font-weight:800}
+
+/* ---------- PRD §7 colour coding, made legible ----------
+   .metric.g/.a/.r on their own paint only a 3.5px stripe down the card's left edge — structurally
+   correct but almost invisible, which is exactly how a dashboard ends up looking like it has no
+   colour coding at all. `.hascore` upgrades that to a tinted card, a coloured value and an explicit
+   attainment badge. It is a SEPARATE class on purpose: the same g/a/r classes are used by Reception,
+   Accounts and Lead Import cards, and those keep the original subtle treatment untouched. */
+.metric.hascore{padding-right:62px}
+.metric.hascore::before{width:5px}
+.metric.hascore.g{background:linear-gradient(135deg,var(--ok-bg),var(--surface) 66%);border-color:rgba(22,168,120,.38)}
+.metric.hascore.a{background:linear-gradient(135deg,var(--warn-bg),var(--surface) 66%);border-color:rgba(192,127,14,.38)}
+.metric.hascore.r{background:linear-gradient(135deg,var(--alert-bg),var(--surface) 66%);border-color:rgba(216,68,43,.38)}
+.metric.hascore.g .mv{color:var(--ok-ink)}
+.metric.hascore.a .mv{color:var(--warn-ink)}
+.metric.hascore.r .mv{color:var(--alert-ink)}
+/* Attainment / deviation badge, top-right. This is the number the colour is derived FROM, so the
+   card says why it is the colour it is instead of leaving the reader to infer the threshold. */
+.mscore{position:absolute;top:11px;right:11px;font-size:10.5px;font-weight:800;padding:3px 7px;
+  border-radius:7px;letter-spacing:-.2px;white-space:nowrap;color:#fff}
+.metric.hascore.g .mscore{background:var(--ok)}
+.metric.hascore.a .mscore{background:var(--warn)}
+.metric.hascore.r .mscore{background:var(--alert)}
+/* §5.2 accent (blue) — Due Today. Categorical, not an attainment score. */
+.metric.acc::before{background:linear-gradient(180deg,#7FB0D8,#2A5378)}
+.metric.acc{border-color:rgba(42,83,120,.3)}
+/* Threshold legend printed next to every section the rule governs, so it is discoverable on screen
+   rather than only in the PRD. */
+.hakey{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:var(--muted);
+  background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:2px 7px}
+.hakey i{width:9px;height:9px;border-radius:3px;display:inline-block;font-style:normal}
+
+/* ===== Advisor dashboard — four-panel responsive system =====
+   MOBILE FIRST. Column counts are EXPLICIT at every breakpoint rather than auto-fit: with five
+   performance cards, auto-fit produces a 3 + 2 row where the last two stretch to double width, which
+   reads as a mistake. Fixed counts keep every row square at every size.
+
+   Ladder:  base <560  phone     1 / 2 / 2 / 1   (overview / performance / rings / targets)
+            >=560      big phone 3 / 3 / 4 / 2
+            >=860      tablet    3 / 5 / 4 / 3
+            >=1080     laptop    row 2 goes side-by-side; row 1 stays full width (the five
+                                 performance cards need the whole content width to stay legible)
+            >=1400     desktop   both rows side-by-side — the reference layout                     */
+.dgrid,.dgrid2{display:grid;gap:14px;margin-top:4px;grid-template-columns:minmax(0,1fr)}
+.dgrid2{margin-top:14px}
+.dpanel{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  padding:clamp(12px,1.6vw,16px) clamp(13px,1.8vw,18px) clamp(14px,1.8vw,18px);box-shadow:var(--sh);min-width:0}
+.dpanel-hd{display:flex;align-items:center;gap:9px;margin-bottom:13px;flex-wrap:wrap}
+.dnum{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#129468,var(--brand-600));color:#fff;
+  font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.dpanel-hd h4{font-size:clamp(10.5px,1.1vw,11.5px);font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink);margin:0}
+.dpanel-hd .sub{font-size:10.5px;color:var(--faint);font-weight:600;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.dsrc{font-size:10.5px;color:var(--faint);margin-top:10px;line-height:1.5}
+
+/* 1 — Pipeline overview */
+.dov{display:grid;grid-template-columns:minmax(0,1fr);gap:11px}
+.dov-c{border:1px solid var(--line);border-radius:13px;padding:12px 13px 11px;position:relative;cursor:pointer;
+  transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease);
+  min-width:0;display:flex;flex-direction:column}
+.dov-c .k{font-size:11px;color:var(--muted);font-weight:600}
+.dov-c .v{font-family:var(--disp);font-size:clamp(24px,2.4vw,28px);font-weight:800;margin:3px 0 2px;letter-spacing:-.7px;line-height:1.1}
+/* Grows so the footer is pinned to the bottom and every card in the row aligns on it, whatever the
+   description wraps to. */
+.dov-c .d{font-size:10.5px;color:var(--faint);line-height:1.4;flex:1 1 auto}
+/* Trend + icon on ONE row. The icon is in normal flow (it used to be position:absolute, which meant
+   it reserved no space and sat on top of the trend text). */
+.dov-f{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;min-width:0}
+.dov-c .t{font-size:10.5px;font-weight:700;display:flex;align-items:baseline;gap:4px;
+  min-width:0;overflow:hidden;white-space:nowrap}
+.dov-c .t b{font-weight:800;flex:0 0 auto}
+/* The label truncates rather than wrapping. As a flex item with no min-width:0 it shrank below its
+   content width and broke "vs last week" onto one word per line. */
+.dov-c .t .tw{color:var(--faint);font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dov-c .t.tup{color:var(--ok-ink)}.dov-c .t.tdn{color:var(--alert-ink)}.dov-c .t.tfl{color:var(--faint)}
+.dov-c .ic{position:static;flex:0 0 auto;width:28px;height:28px;border-radius:9px;
+  display:flex;align-items:center;justify-content:center}
+.dovmore{display:flex;gap:9px;flex-wrap:wrap;margin-top:11px}
+.dovmore .metric{flex:1 1 calc(50% - 5px);padding:9px 11px;border-radius:11px;box-shadow:none;min-width:0}
+.dovmore .metric .mv{font-size:17px;margin-top:2px}
+.dovmore .metric:hover{transform:none;box-shadow:none}
+
+/* 2 — Pipeline performance */
+.dpf{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.dpf-c{border:1px solid var(--line);border-radius:13px;padding:11px 10px 12px;text-align:center;cursor:pointer;min-width:0;
+  transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease)}
+.dpf-c .k{font-size:10.5px;color:var(--muted);font-weight:700;line-height:1.35;
+  /* Two lines reserved so a wrapping label like "Appt Fixed Direct" and a short one like "Visited"
+     still put their numbers on the same baseline across the row. */
+  min-height:2.7em;display:flex;align-items:center;justify-content:center;text-align:center}
+.dpf-c .r{font-family:var(--mono,ui-monospace,monospace);font-size:12.5px;font-weight:700;margin-top:6px;color:var(--ink)}
+.dpf-c .p{font-family:var(--disp);font-size:clamp(18px,1.7vw,21px);font-weight:800;margin:2px 0 8px;letter-spacing:-.4px}
+.dpf-bar{height:7px;border-radius:5px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
+.dpf-bar span{display:block;height:100%;border-radius:5px;transition:width .4s var(--ease)}
+.dlegend{display:flex;gap:13px;flex-wrap:wrap;margin-top:13px;font-size:10.5px;color:var(--muted);font-weight:600}
+.dlegend i{display:inline-block;width:16px;height:5px;border-radius:3px;margin-right:5px;vertical-align:middle;font-style:normal}
+
+/* 3 — Follow-ups (donut rings) */
+.dfu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.dfu-c{border:1px solid var(--line);border-radius:13px;padding:12px 8px 13px;text-align:center;cursor:pointer;min-width:0;
+  transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease)}
+.dfu-c .k{font-size:10.5px;color:var(--muted);font-weight:700;line-height:1.3;min-height:2.6em;
+  display:flex;align-items:center;justify-content:center}
+.dring{width:clamp(58px,5.2vw,68px);aspect-ratio:1;margin:7px auto;position:relative}
+/* DIRECT CHILD ONLY. `.dring svg` also matched the icon nested inside .ci, so the -90deg meant for
+   the donut arc (so it starts at 12 o'clock) was rotating every icon a quarter turn as well. */
+.dring>svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
+.dring .ci{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.dring .ci svg{transform:none}
+.dfu-c:hover .ci svg{transform:scale(1.08)}
+.dring .ci svg{transition:transform .25s var(--ease)}
+.dfu-c .v{font-family:var(--disp);font-size:clamp(18px,1.7vw,21px);font-weight:800;letter-spacing:-.4px}
+
+/* 4 — Targets & performance (sparklines) */
+.dtg{display:grid;grid-template-columns:minmax(0,1fr);gap:11px}
+.dtg-c{border:1px solid var(--line);border-radius:13px;padding:12px 13px 8px;min-width:0;
+  transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease)}
+.dtg-c.clik{cursor:pointer}
+.dtg-c .k{font-size:11px;color:var(--muted);font-weight:700}
+.dtg-c .r{font-family:var(--disp);font-size:clamp(14px,1.4vw,16px);font-weight:800;margin:7px 0 1px;letter-spacing:-.3px;color:var(--ink)}
+.dtg-c .p{font-family:var(--disp);font-size:clamp(21px,2.1vw,25px);font-weight:800;letter-spacing:-.5px;margin-bottom:2px}
+/* The chart keeps its aspect ratio now (markers must stay circular), so height follows width rather
+   than being pinned. The three target cards share a width, so they still share a chart height. */
+.dspark{display:block;width:100%;height:auto;overflow:visible}
+
+/* ---------- Breakpoint ladder ---------- */
+@media(min-width:560px){
+  .dov{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dpf{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dfu{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .dtg{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dovmore .metric{flex:1 1 118px}
+}
+@media(min-width:860px){
+  .dpf{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .dtg{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+/* Row 2 pairs up first: four rings and three target cards survive the narrower column, while the five
+   performance cards would be squeezed to roughly 90px each and stop being readable. */
+/* Panel pairing is CONTAINER-driven (block at the end of this file). Viewport thresholds measure the
+   WINDOW, but .wrap caps content at 1120px — so the window can grow by hundreds of pixels while the
+   space the panels actually get does not move. That mismatch is why the layout changed with browser
+   zoom: zooming out inflates the viewport past a threshold without widening the content at all.
+   These remain only for browsers without container query support. */
+@supports not (container-type:inline-size){
+  @media(min-width:1080px){ .dgrid2{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr)} }
+  @media(min-width:1400px){ .dgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.32fr)} }
+}
+
+/* Hover lift only where hovering is real. On touch, :hover sticks after a tap and leaves cards
+   floating at random — the most common way a "premium" dashboard ends up feeling broken on a phone. */
+@media(hover:hover) and (pointer:fine){
+  .dov-c:hover,.dpf-c:hover,.dfu-c:hover,.dtg-c.clik:hover{transform:translateY(-2px);box-shadow:var(--sh-md)}
+  .dov-c:hover{border-color:var(--brand-line)}
+}
+/* Comfortable tap targets on touch devices. */
+@media(pointer:coarse){
+  .dov-c,.dpf-c,.dfu-c,.dtg-c{min-height:88px}
+  }
+/* Detail sections below the panels. The label / bar / number row cannot hold three columns on a
+   phone, so the bar moves to its own line under the label rather than being crushed to a few pixels. */
+@media(max-width:560px){
+    .hasub{font-size:10.5px}
+  .metric.hascore{padding-right:56px}
+}
+@media(prefers-reduced-motion:reduce){
+  .dov-c,.dpf-c,.dfu-c,.dtg-c,.dpf-bar span,.habar>span,  .dov-c:hover,.dpf-c:hover,.dfu-c:hover,.dtg-c.clik:hover{transform:none}
+}
+
+/* ---------- Container queries: cards size to their PANEL, not the viewport ----------
+   A viewport breakpoint cannot know how wide a panel actually is: the same 1200px screen gives the
+   Follow-ups panel the full content width when rows are stacked, but roughly a third of it once row 2
+   pairs up — which squeezed four ring cards into ~84px each. Sizing against the container fixes that
+   at the source, so a panel always picks the column count its own width can carry, whatever the
+   sidebar, the row pairing or the screen is doing. The viewport ladder above stays as the fallback
+   for browsers without container query support. */
+@supports (container-type:inline-size){
+  .dpanel{container-type:inline-size}
+  /* Thresholds are set from the REFERENCE DESIGN's card size, not from a round number: five
+     performance cards in a ~540px panel land at ~92px each, which is exactly where 'Appt Fixed
+     Direct' breaks onto two lines as the mockup shows. Going wider would have forced 3-across and
+     lost the single-row read the panel is for. */
+  @container (max-width:339px){ .dov{grid-template-columns:minmax(0,1fr)} }
+  @container (min-width:340px){ .dov{grid-template-columns:repeat(3,minmax(0,1fr))} }
+
+  @container (max-width:339px){ .dpf{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @container (min-width:340px) and (max-width:469px){ .dpf{grid-template-columns:repeat(3,minmax(0,1fr))} }
+  @container (min-width:470px){ .dpf{grid-template-columns:repeat(5,minmax(0,1fr))} }
+
+  @container (max-width:389px){ .dfu{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @container (min-width:390px){ .dfu{grid-template-columns:repeat(4,minmax(0,1fr))} }
+
+  @container (max-width:339px){ .dtg{grid-template-columns:minmax(0,1fr)} }
+  @container (min-width:340px) and (max-width:449px){ .dtg{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @container (min-width:450px){ .dtg{grid-template-columns:repeat(3,minmax(0,1fr))} }
+}
+
+@supports (container-type:inline-size){
+  /* Below this width the trend label would truncate to something meaningless ("vs l…"), so drop it
+     and keep the percentage — the part that actually carries the information. The card's tooltip
+     still spells out what the comparison is. */
+  @container (max-width:559px){ .dov-c .t .tw{display:none} }
+}
+
+/* ===== Advisor dashboard — even sizing + micro-interactions =====
+   Two jobs here. FIRST, make every card in a row the same height with its parts on the same
+   baselines, so a row reads as one object instead of four loose tiles. Grid already stretches the
+   cards; what was missing is that their INSIDES were top-aligned, so a two-line label pushed the
+   bar or sparkline out of line with its neighbours. Each card is now a flex column with its bottom
+   element pushed down by margin-top:auto.
+   SECOND, motion. Everything is short (under half a second), plays once on real change, and is
+   fully removed under prefers-reduced-motion. The render guard in app.ts means these fire when the
+   numbers actually move, not on every background repaint. */
+
+/* ---------- Even card heights + shared baselines ---------- */
+.dov,.dpf,.dfu,.dtg{align-items:stretch}
+.dpf-c,.dfu-c,.dtg-c{display:flex;flex-direction:column}
+.dpf-c .dpf-bar{margin-top:auto}
+.dfu-c .v{margin-top:auto}
+.dtg-c .dspark{margin-top:auto}
+.dtg-c .p{margin-bottom:6px}
+
+/* The two overlay tiles (Call Status, Priority) were plain .metric boxes sitting under three
+   designed cards and read as a different species. Same border radius, same label treatment. */
+.dovmore .metric{border-radius:13px;border:1px solid var(--line);background:var(--surface);
+  transition:border-color .2s var(--ease),transform .2s var(--ease)}
+.dovmore .metric .ml{font-size:11px;color:var(--muted);font-weight:600}
+.dovmore .metric::before{display:none}
+
+/* The CRM card has no data to show; give it a stated reason instead of dead space. */
+.dtg-empty .dtg-note{display:flex;align-items:flex-start;gap:6px;margin-top:8px;
+  font-size:10.5px;line-height:1.45;color:var(--faint)}
+.dtg-empty .dtg-note svg{flex:0 0 auto;margin-top:1px}
+.dtg-empty .dspark{opacity:.55}
+
+/* ---------- Motion ---------- */
+@keyframes dcard-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@keyframes dbar-grow{from{width:0}to{width:var(--w)}}
+@keyframes dring-draw{from{stroke-dashoffset:var(--c)}to{stroke-dashoffset:var(--to)}}
+@keyframes dspark-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes dfade-in{from{opacity:0}to{opacity:1}}
+
+/* animation-fill-mode is BACKWARDS, not both: `both` would keep the final `transform:none` applied
+   after the animation ends and permanently override the hover lift. Backwards only pre-applies the
+   start frame, then hands the element back to its normal styles. */
+.dov-c,.dpf-c,.dfu-c,.dtg-c{animation:dcard-in .34s var(--ease) backwards}
+/* Nano-stagger: 45ms apart. Enough for the eye to read the row left-to-right, short enough that the
+   whole row has landed in under a quarter second. */
+.dov-c:nth-child(1),.dpf-c:nth-child(1),.dfu-c:nth-child(1),.dtg-c:nth-child(1){animation-delay:0s}
+.dov-c:nth-child(2),.dpf-c:nth-child(2),.dfu-c:nth-child(2),.dtg-c:nth-child(2){animation-delay:.045s}
+.dov-c:nth-child(3),.dpf-c:nth-child(3),.dfu-c:nth-child(3),.dtg-c:nth-child(3){animation-delay:.09s}
+.dpf-c:nth-child(4),.dfu-c:nth-child(4){animation-delay:.135s}
+.dpf-c:nth-child(5){animation-delay:.18s}
+
+/* Bars grow from zero; the resting width is var(--w) so a suppressed animation still shows the
+   right fill rather than an empty track. */
+.dpf-bar span{width:var(--w);animation:dbar-grow .62s var(--ease) .1s backwards}
+/* Ring draws round from empty to its arc. Resting value is var(--to) for the same reason. */
+.dring .arc{stroke-dashoffset:var(--to);animation:dring-draw .78s var(--ease) .08s backwards}
+/* Sparkline draws left to right, then the area fill fades in behind it. */
+.dspark .ln{stroke-dasharray:1;stroke-dashoffset:0;animation:dspark-draw .85s var(--ease) .12s backwards}
+.dspark .ar{animation:dfade-in .5s var(--ease) .5s backwards}
+
+/* Micro-interactions on hover — pointer-fine only, so nothing sticks after a tap. */
+@media(hover:hover) and (pointer:fine){
+  .dov-c .ic{transition:transform .25s var(--ease),box-shadow .25s var(--ease)}
+  .dov-c:hover .ic{transform:scale(1.07) rotate(-3deg)}
+  .dpf-c:hover .dpf-bar span{filter:saturate(1.18)}
+  .dtg-c.clik:hover .dspark{filter:saturate(1.12)}
+  .dovmore .metric:hover{border-color:var(--brand-line);transform:translateY(-1px)}
+  .dnum{transition:transform .25s var(--ease)}
+  .dpanel:hover .dnum{transform:scale(1.06)}
+}
+/* Press feedback: a card that can be clicked should acknowledge the click. */
+.dov-c:active,.dpf-c:active,.dfu-c:active,.dtg-c.clik:active{transform:translateY(0) scale(.985)}
+
+@media(prefers-reduced-motion:reduce){
+  .dov-c,.dpf-c,.dfu-c,.dtg-c,.dpf-bar span,.dring .arc,.dspark .ln,.dspark .ar{animation:none}
+  .dov-c:hover .ic,.dfu-c:hover .ci svg,.dpanel:hover .dnum{transform:none}
+  .dov-c:active,.dpf-c:active,.dfu-c:active,.dtg-c.clik:active{transform:none}
+}
+
+/* ===== Layout taken from the reference mockup (structure only — palette stays the app's own) =====
+   Four changes: the follow-up count moves INSIDE its ring with its share underneath; target cards
+   gain a titled header strip; the pacing bar gains an icon badge and a verdict pill; and call
+   disposition becomes five side-by-side group columns instead of one long stacked ribbon. */
+
+/* ---------- Follow-up rings: number inside, share underneath ---------- */
+.dring{width:clamp(66px,5.8vw,78px)}
+.dring .ci .rv{font-family:var(--disp);font-size:clamp(17px,1.7vw,20px);font-weight:800;letter-spacing:-.5px;line-height:1}
+.dfu-c .rs{font-size:11px;font-weight:700;color:var(--muted);margin-top:auto;padding-top:2px}
+.dfu-c .k{min-height:1.4em;font-size:11px;color:var(--ink);font-weight:700}
+
+/* ---------- Target cards: titled header strip, centred body ---------- */
+.dtg-c{padding:0;overflow:hidden}
+.dtg-hd{display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 11px;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.dtg-hd .k{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.dtg-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.dtg-bd{padding:12px 13px 4px;text-align:center}
+.dtg-c .r{margin:0 0 2px}
+.dtg-c .p{margin-bottom:8px}
+.dtg-c .dspark{margin-top:auto}
+.dtg-empty .dtg-note{justify-content:center;text-align:left;padding:0 4px 4px}
+
+/* ---------- Pacing bar: icon badge, body, verdict pill ---------- */
+.hapace{display:flex;align-items:center;gap:13px;border:1px solid var(--line);border-left:4px solid var(--pc,var(--line));
+  border-radius:var(--r);background:var(--surface);padding:12px 14px;margin-top:13px;flex-wrap:wrap}
+.hapace-ic{width:34px;height:34px;border-radius:11px;background:var(--pc,var(--brand));flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center}
+.hapace-bd{flex:1 1 240px;min-width:0}
+.hapace .pt{font-weight:800;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px}
+.hapace .pl{font-size:12.5px;line-height:1.6;color:var(--ink)}
+.hapace-pill{flex:0 0 auto;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:#fff;background:var(--pc,var(--brand));padding:6px 13px;border-radius:999px;white-space:nowrap}
+
+/* ---------- Call disposition: five group columns ---------- */
+.hadisp{grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;align-items:start}
+.ddg{border:1px solid var(--line);border-radius:13px;background:var(--surface);overflow:hidden;min-width:0;
+  display:flex;flex-direction:column}
+.ddg-hd{display:flex;align-items:center;gap:7px;padding:8px 10px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.ddg-hd i{width:9px;height:9px;border-radius:3px;flex:0 0 auto;font-style:normal}
+.ddg-hd .gn{font-size:10.5px;font-weight:800;color:var(--ink);line-height:1.25;min-width:0}
+.ddg-hd .gt{margin-left:auto;font-size:11px;font-weight:800;color:var(--muted);font-family:var(--mono,ui-monospace,monospace)}
+.ddg-bd{padding:5px 6px 7px}
+/* label | count | mini bar — the bar is scaled to the group's largest code, so the codes inside a
+   group are comparable with each other rather than all being slivers of a big total. */
+.ddg-row{display:grid;grid-template-columns:minmax(0,1fr) auto 34px;gap:7px;align-items:center;
+  padding:5px 5px;border-radius:8px;cursor:pointer;transition:background .15s var(--ease)}
+.ddg-row .dl{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ddg-row .dcnt{font-size:11.5px;font-weight:800;color:var(--ink);font-family:var(--mono,ui-monospace,monospace)}
+.ddg-row .habar{height:5px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden;display:block}
+.ddg-row .habar>span{display:block;height:100%;border-radius:4px;transition:width .4s var(--ease)}
+@media(hover:hover) and (pointer:fine){
+  .ddg-row:hover{background:var(--brand-tint)}
+  .ddg-row:hover .dl{color:var(--ink)}
+}
+@media(pointer:coarse){ .ddg-row{min-height:34px} }
+
+/* Disposition columns follow the panel width, same as every other grid on this screen. */
+@supports (container-type:inline-size){
+  #haLowerSections{container-type:inline-size}
+  /* Five across is the reference layout and the whole point of the section — the five outcome
+     families compared side by side. At a 1000px panel that is ~200px a column, which still fits
+     the longest code ("Appt Fixed – Direct") plus its count and bar. */
+  @container (max-width:479px){ .hadisp{grid-template-columns:minmax(0,1fr)} }
+  @container (min-width:480px) and (max-width:699px){ .hadisp{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @container (min-width:700px) and (max-width:899px){ .hadisp{grid-template-columns:repeat(3,minmax(0,1fr))} }
+  @container (min-width:900px){ .hadisp{grid-template-columns:repeat(5,minmax(0,1fr))} }
+}
+/* Viewport fallback ONLY for browsers without container queries. Unscoped, these sat after the
+   @container block and won on source order, so the container ladder above could never take effect. */
+@supports not (container-type:inline-size){
+  @media(max-width:900px){ .hadisp{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @media(max-width:560px){ .hadisp{grid-template-columns:minmax(0,1fr)} }
+}
+
+/* Group columns join the staggered entrance the panels above already use. */
+.ddg{animation:dcard-in .34s var(--ease) backwards}
+.ddg:nth-child(1){animation-delay:0s}
+.ddg:nth-child(2){animation-delay:.045s}
+.ddg:nth-child(3){animation-delay:.09s}
+.ddg:nth-child(4){animation-delay:.135s}
+.ddg:nth-child(5){animation-delay:.18s}
+@media(prefers-reduced-motion:reduce){ .ddg{animation:none} }
+
+/* ---------- No dead space inside a panel ----------
+   Side-by-side panels stretch to equal height, so whichever panel has less content used to end in a
+   blank strip (the Follow-ups panel under its rings). The panel is now a flex column and its card
+   grid takes the leftover height, so the cards themselves grow instead of the panel ending in white.
+   Ring tiles space their label / ring / share out over the extra height rather than clumping. */
+.dpanel{display:flex;flex-direction:column}
+#haOverview,#haPipeTargets,#haFollowupCards,#haTargetCards{flex:1 1 auto}
+.dov,.dpf,.dfu,.dtg{align-content:stretch}
+.dfu-c{justify-content:space-between}
+.dfu-c .rs{margin-top:0}
+.dpanel>.dsrc,.dpanel>.dlegend{flex:0 0 auto}
+/* The pacing bar is now a full-width row of its own, under both panels. */
+#haPacing{margin-top:14px}
+
+/* ===== Panels 6-8 — structure from the reference, palette unchanged =====
+   Visited / Enrollment become one thick proportional bar each with the count and share written into
+   the segment, and the funnel becomes an actual tapered silhouette beside a comparison table. */
+
+.dgrid3{display:grid;gap:14px;margin-top:14px;grid-template-columns:minmax(0,1fr)}
+/* Panel 8 carries a funnel AND a five-row table, so it gets roughly double the width of the two
+   status panels once there is room for all three across. */
+@supports not (container-type:inline-size){
+  @media(min-width:1080px){ .dgrid3{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @media(min-width:1400px){ .dgrid3{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,2fr)} }
+}
+
+/* Panel subtitle, under the numbered header. */
+.dsub{font-size:11px;color:var(--faint);line-height:1.5;margin:-6px 0 12px}
+.dsub b{color:var(--muted);font-weight:600}
+
+/* ---------- 6 / 7 — segmented status bar ---------- */
+.dseg{display:flex;height:74px;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+/* A readable MINIMUM. Sized purely by share, a segment holding 1 of 258 leads renders about 2px
+   wide and its label collapses into an unreadable vertical smear. Flooring the width costs a little
+   proportional accuracy on tiny slices and buys a label you can actually read — and the exact count
+   and share are printed inside the segment anyway, so the numbers stay honest even where the width
+   flatters them. Segments with a zero count are dropped before render, so this never inflates an
+   empty one. */
+.dseg-s{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  min-width:min(74px,32%);padding:6px 5px;cursor:pointer;color:#fff;text-align:center;
+  transition:filter .2s var(--ease);overflow:hidden}
+.dseg-s b{font-size:12.5px;font-weight:800;letter-spacing:-.2px;line-height:1.2;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dseg-s i{font-size:10.5px;font-weight:700;font-style:normal;opacity:.92;white-space:nowrap;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.dseg-ft{margin-top:10px;font-size:11.5px;color:var(--muted);text-align:center}
+.dseg-ft b{color:var(--ink);font-weight:800}
+@media(hover:hover) and (pointer:fine){ .dseg-s:hover{filter:brightness(1.08)} }
+
+/* ---------- 8 — funnel + comparison table ---------- */
+.dfun-wrap{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);align-items:start}
+.dfun{display:flex;flex-direction:column;align-items:center;gap:3px;padding:2px 0}
+/* Each tier is clipped to a trapezoid that tapers to the width of the tier below it — the taper IS
+   the drop-off, which a stack of plain bars cannot show. */
+.dfun-t{display:flex;align-items:center;justify-content:center;min-height:34px;padding:5px 10px;
+  color:#fff;font-size:11.5px;font-weight:800;letter-spacing:-.1px;cursor:pointer;
+  transition:filter .2s var(--ease);text-align:center}
+.dfun-t span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+@media(hover:hover) and (pointer:fine){ .dfun-t:hover{filter:brightness(1.1)} }
+
+.dfun-tb{width:100%;border-collapse:collapse;font-size:11.5px}
+.dfun-tb th{text-align:left;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);padding:0 8px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+.dfun-tb th:nth-child(2),.dfun-tb th:nth-child(3),.dfun-tb th:nth-child(4){text-align:right}
+.dfun-tb th:last-child{text-align:center}
+.dfun-tb td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.dfun-tb tbody tr:last-child td{border-bottom:0}
+.dfun-tb td:first-child{color:var(--ink);font-weight:600;line-height:1.35}
+.dfun-tb td:nth-child(2),.dfun-tb td:nth-child(3),.dfun-tb td:nth-child(4){text-align:right;white-space:nowrap}
+.dfun-tb td:last-child{text-align:center}
+.dfun-tb .dv{font-weight:800}
+.dfun-tb tbody tr{cursor:pointer;transition:background .15s var(--ease)}
+@media(hover:hover) and (pointer:fine){ .dfun-tb tbody tr:hover{background:var(--brand-tint)} }
+.ddot{display:inline-block;width:9px;height:9px;border-radius:50%}
+
+/* Funnel beside the table once the panel is wide enough to carry both. */
+@supports (container-type:inline-size){
+  @container (min-width:430px){ .dfun-wrap{grid-template-columns:minmax(128px,0.7fr) minmax(0,1.9fr)} }
+}
+@supports not (container-type:inline-size){
+  @media(min-width:1400px){ .dfun-wrap{grid-template-columns:minmax(128px,0.7fr) minmax(0,1.9fr)} }
+}
+
+/* Entrance, matching the panels above. */
+.dseg-s,.dfun-t{animation:dcard-in .34s var(--ease) backwards}
+.dfun-t:nth-child(1){animation-delay:0s}
+.dfun-t:nth-child(2){animation-delay:.05s}
+.dfun-t:nth-child(3){animation-delay:.1s}
+.dfun-t:nth-child(4){animation-delay:.15s}
+@media(prefers-reduced-motion:reduce){ .dseg-s,.dfun-t{animation:none} }
+
+/* ===== Zoom-stable layout: pair panels on CONTENT width, not window width =====
+   The page content is capped by .wrap{max-width:1120px}. Above roughly a 1400px window the content
+   width stops growing entirely, so a viewport media query keeps firing on changes the user cannot
+   see while ignoring the width that actually decides whether two panels fit side by side. Browser
+   zoom made that visible: at 80% the window reports ~25% more CSS pixels and crossed the 1400px
+   threshold, while the content stayed the same size — same page, different layout.
+   Querying the container fixes it at the source: identical content width now always produces an
+   identical layout, whatever the zoom level or screen size behind it. */
+@supports (container-type:inline-size){
+  #advDashSections{container-type:inline-size}
+  @container (min-width:860px){ .dgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.32fr)} }
+  @container (min-width:780px){ .dgrid2{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr)} }
+  /* Panels 6 and 7 are compact (one bar and a total); panel 8 carries a funnel AND a five-row table.
+     Three equal columns stretched the two short panels to the tall one and left ~315px of white
+     inside each. Stacking 6 over 7 in a narrow left column, with 8 spanning both rows, spends that
+     height on content instead. align-items:start keeps every card at its natural size, so leftover
+     space lands BETWEEN cards rather than boxed inside one. */
+  @container (min-width:760px){
+    .dgrid3{grid-template-columns:repeat(2,minmax(0,1fr))}
+    /* Panel 8 spans the full width UNDERNEATH the two status panels. Side by side it was either the
+       tall one (stretching 6 and 7 into ~315px of white) or, once its funnel sat beside its table,
+       the short one (leaving a void next to a taller left column). Full width it needs no filler,
+       and the funnel and the five-row table both get room to breathe. */
+    .dgrid3>*:nth-child(3){grid-column:1 / -1}
+  }
+}
+
+/* ===== Reception appointment reminders =====
+   Deliberately the same visual language as the advisor follow-up rail (.fu-*): a fixed edge
+   launcher plus a compact list, so it never overlaps the Reception tables or cards and needs no
+   layout space of its own. Sizing is in rem/px pairs that hold at 80-110% browser zoom. */
+/* Sits DIRECTLY BELOW the advisor follow-up tab and mirrors its shape, so the two edge launchers
+   read as one deliberate stack instead of colliding. Both are fixed to the right edge: .fu-tab runs
+   from --fu-top for 52px, so this starts 62px lower (52 + a 10px gap) and follows automatically if
+   that variable ever moves. */
+.rem-bell{position:fixed;right:0;top:calc(var(--fu-top,96px) + 62px);z-index:540;
+  width:46px;height:52px;padding:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:1px;cursor:pointer;font:inherit;
+  background:var(--surface);border:1px solid var(--line);border-right:0;
+  border-radius:26px 0 0 26px;box-shadow:-5px 0 20px rgba(17,34,27,.13);
+  transition:width .17s ease,box-shadow .17s ease}
+.rem-bell:hover{width:56px;box-shadow:-8px 0 26px rgba(17,34,27,.2)}
+.rem-bell .n{font-family:var(--mono,ui-monospace,Consolas,monospace);font-size:10.5px;font-weight:800;
+  min-width:18px;height:16px;border-radius:999px;background:var(--alert-ink,#B3261E);color:#fff;
+  display:flex;align-items:center;justify-content:center;padding:0 4px}
+.rem-bell.quiet .n{background:var(--line);color:var(--muted)}
+.rem-panel{position:fixed;right:0;top:calc(var(--fu-top,96px) + 62px);z-index:541;width:min(360px,94vw);max-height:min(70vh,560px);
+  overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px 0 0 12px;
+  box-shadow:0 18px 50px rgba(17,34,27,.22);display:none}
+.rem-panel.open{display:block}
+.rem-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);
+  font-weight:800;font-size:12.5px;position:sticky;top:0;background:#fff}
+.rem-row{padding:10px 12px;border-bottom:1px solid var(--line)}
+.rem-row:last-child{border-bottom:0}
+.rem-nm{font-weight:700;font-size:13px}
+.rem-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.rem-acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.rem-acts button{font:inherit;font-size:11px;font-weight:700;padding:4px 9px;border-radius:7px;
+  border:1px solid var(--line);background:#fff;cursor:pointer}
+.rem-acts .go{background:var(--brand-600);border-color:var(--brand-600);color:#fff}
+.rem-tier{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px}
+.rem-tier.up{background:var(--surface-2);color:var(--muted)}
+.rem-tier.due{background:var(--warn-bg);color:var(--warn-ink)}
+.rem-tier.urg{background:#FDECEA;color:var(--alert-ink,#B3261E)}
+
+/* ---------- Target sparkline: markers ---------- */
+.dspark .pt{transition:r .18s var(--ease)}
+/* Markers pop in just behind the line as it draws, each a beat after the last. */
+@keyframes dpt-in{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+.dspark .pt{transform-box:fill-box;transform-origin:center;
+  animation:dpt-in .3s var(--ease) backwards;animation-delay:calc(.28s + var(--i) * .035s)}
+@media(hover:hover) and (pointer:fine){ .dtg-c:hover .dspark .pt{r:3.1} }
+@media(prefers-reduced-motion:reduce){ .dspark .pt{animation:none} }
