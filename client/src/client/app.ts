@@ -9000,6 +9000,7 @@ export function initApp(root: HTMLElement) {
           // L1 balance still outstanding could report "Fully Paid" as soon as L2 alone cleared.
           let fully=false; try{ const {data:all}=await supabase.from("payments").select("status,total_installments").eq("lead_id",_recCollect.leadId).eq("payment_type","installment").eq("program",_prog); const rws=all||[]; const tot=Math.max(2,...rws.map((r:any)=>Number(r.total_installments||2))); const paidN=rws.filter((r:any)=>r.status==="paid").length; fully=rws.length>0&&rws.every((r:any)=>r.status==="paid")&&paidN>=tot; }catch(_){}
           if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} }
+          logAction(_recCollect.leadId,"Payment","Instalment "+num+" collected","₹"+amt.toLocaleString("en-IN")+" · "+method.toUpperCase()+(fully?" · Fully Paid":""));
           toast("Installment "+num+" collected"+(fully?" — Fully Paid ✓":" · balance updated"));
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           _recCollect=null; return;
@@ -9022,6 +9023,7 @@ export function initApp(root: HTMLElement) {
             // here must not call the Diabetes enrollment writer (see _svcPayLabel/_svcDoneStage above).
             if(_rowSvc==="dia"){ try{ await _enrollLeadShared(String(_recCollect.leadId),"Accounts collect",_payProg); }catch(_){} }
             if(String(_coachLeadId)===String(_recCollect.leadId)){ try{ _renderCoachPayHistory(String(_recCollect.leadId)); }catch(_){} } }
+          logAction(_recCollect.leadId,"Payment","Payment collected","₹"+amt.toLocaleString("en-IN")+" · "+method.toUpperCase()+" · balance cleared");
           toast("₹"+amt.toLocaleString("en-IN")+" collected — balance cleared");
           await loadReceptionData(); try{ loadAccountsData(); }catch(_){} try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
           _recCollect=null; return;
@@ -9762,6 +9764,8 @@ export function initApp(root: HTMLElement) {
           ? await _dbOk(supabase.from("appointments").update({appt_date:date,appt_time:selSlot,hc_pt:hc,status:"expected",..._modeCol}).eq("id",existing[0].id),"Booking")
           : await _dbOk(supabase.from("appointments").insert({lead_id:_advLeadId,client_name:name,phone:lead?(lead.phone||""):"",service:_leadApptService(lead),hc_pt:hc,appt_date:date,appt_time:selSlot,status:"expected",source:"Advisor slot board",language:lead?(lead.lang||"Tamil"):"Tamil",..._modeCol}),"Booking");
         if(!_wOk) return;
+        logAction(_advLeadId,existing[0]?"Rescheduled":"Booked","Appointment",
+          _recFmtDate(date)+" · "+selSlot+(hc?(" · "+hc):""));
         // A lead has ONE pending appointment. Any extra 'expected' rows are leftovers from the bug
         // above — cancel them so their slots are released instead of blocking the board forever.
         // Cancelled (not deleted) so the history stays auditable.
@@ -10008,6 +10012,7 @@ export function initApp(root: HTMLElement) {
           left-=take; total+=take;
         }
         logActivity(id,[{action:"Refund",field:"Requested",new:"₹"+total.toLocaleString("en-IN")+" · "+reason}]);
+        logAction(id,"Refund","Refund requested","₹"+total.toLocaleString("en-IN")+" → ABM approval");
         toast("Refund request submitted → ABM approval queue (₹"+total.toLocaleString("en-IN")+")");
         try{ _renderCoachPayHistory(id); }catch(_){}
         try{ _refreshRefundPanel(); }catch(_){}
@@ -10409,6 +10414,15 @@ export function initApp(root: HTMLElement) {
       if(to) to.textContent=p?("Opens WhatsApp chat with +"+p):"No phone number on this lead";
     }
     w.waTpl = waTpl;
+    // One line for the subsystems that write outside the advisor profile — payments, appointments,
+    // the slot board, WhatsApp, the coach assessment. Each persists through its own path, so none of
+    // them passed through the profile diff and none of them appeared in the trail.
+    function logAction(leadId:any,action:string,field:string,newVal:any,oldVal?:any){
+      if(!leadId) return;
+      const e:any={action,field,new:newVal==null?"":String(newVal)};
+      if(oldVal!=null&&String(oldVal)!=="") e.old=String(oldVal);
+      try{ logActivity(String(leadId),[e]); }catch(_){}
+    }
     w._waSend=()=>{
       const p=_waPhone();
       if(!p){ toastErr("This lead has no phone number — add one before messaging"); return; }
@@ -10417,6 +10431,9 @@ export function initApp(root: HTMLElement) {
         ||_waFill(WA_TPLS.welcome);
       const url="https://api.whatsapp.com/send?phone="+encodeURIComponent(p)+"&text="+encodeURIComponent(txt);
       window.open(url,"_blank","noopener,noreferrer");
+      // The trail records that a message was OPENED for sending, which is the last point this app
+      // controls — delivery happens in WhatsApp itself and cannot be observed from here.
+      logAction(_advLeadId,"Message sent","WhatsApp","+"+p+" · "+txt.slice(0,80)+(txt.length>80?"…":""));
       toast("WhatsApp opened for +"+p+" — press send there");
     };
 
@@ -12025,6 +12042,7 @@ export function initApp(root: HTMLElement) {
         return {};
       };
       const commit=async(ptype:string,rows:any[],label:string,collected:number)=>{
+        logAction(id,"Payment","Payment recorded (Coach)",label+" · ₹"+Number(collected||0).toLocaleString("en-IN")+" · "+_prog);
         // Scope the re-write to THIS program so an L2 save never wipes the L1 payment (and vice versa).
         // Abort if the delete failed — inserting on top of rows we couldn't clear duplicates them.
         if(!(await _dbOk(supabase.from("payments").delete().eq("lead_id",id).eq("payment_type",ptype).eq("program",_prog),"Payment update"))) return;
@@ -12502,6 +12520,7 @@ export function initApp(root: HTMLElement) {
       _coachSaveBusy=true;
       try{
         const {error}=await supabase.from("leads").update({coach_profile:obj}).eq("meta_lead_id",id);
+        if(!error) logAction(id,"Updated","Health assessment (Coach)",_coachConsOf({coachProfile:obj})||"saved");
         if(error){
           if(/coach_profile|column|schema|exist/i.test(error.message||"")) toast("Saved locally — run supabase-migration-coach-screening.sql for DB sync");
           else toastErr("Save failed: "+(error.message||"DB error"));
