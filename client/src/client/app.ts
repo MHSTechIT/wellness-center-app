@@ -3866,6 +3866,31 @@ export function initApp(root: HTMLElement) {
       });
       return out;
     }
+    // Multi-select groups are stored as a flat boolean array covering EVERY .chip-o in the panel, so
+    // on its own it says nothing readable. This maps an array back to the labels it represents, split
+    // by the section each chip lives in — the audit trail needs "Diet, Yoga → Diet, Yoga, Fitness",
+    // not "changed", and it must not merge two unrelated sections under one heading.
+    const CHIP_GROUPS:Record<string,string>={
+      mgOth:"How are they managing now", hiOth:"Health issues", elOth:"Appointment eligibility criteria" };
+    function _advChipLabels(arr:any[]):Record<string,string[]>{
+      const out:Record<string,string[]>={};
+      const p=_advPanelEl(); if(!p) return out;
+      Array.from(p.querySelectorAll(".chip-o")).filter((b:any)=>!b.hasAttribute("data-nocap"))
+        .forEach((el:any,i:number)=>{
+          const box=el.closest(".chips");
+          const name=CHIP_GROUPS[(box&&box.getAttribute("data-oth"))||""]||"Other selections";
+          if(!out[name]) out[name]=[];
+          if(arr&&arr[i]) out[name].push(String(el.textContent||"").trim());
+        });
+      return out;
+    }
+    // The label of whichever button in a group is switched on (Visited status, BDM score).
+    function _advOnLabel(sel:string,arr:any[]):string{
+      const p=_advPanelEl(); if(!p) return "";
+      const els=Array.from(p.querySelectorAll(sel)).filter((b:any)=>!b.hasAttribute("data-nocap"));
+      const i=(arr||[]).findIndex((x:any)=>!!x);
+      return i>=0&&els[i]?String((els[i] as any).textContent||"").trim():"";
+    }
     function collectAdvisorProfile(){
       const p=_advPanelEl(); if(!p) return null;
       const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
@@ -4458,8 +4483,17 @@ export function initApp(root: HTMLElement) {
       else{
         const before=_advNamed(prev.f); const after=_advNamed();
         Object.keys(after).forEach(k=>{ if(/call status/i.test(k)) return; const o=before[k]==null?"":before[k]; const n=after[k]; if(o!==n) entries.push({action:"Updated",field:k,old:o,new:n}); });
-        const grp=(label:string,a:any,b:any)=>{ if(JSON.stringify(a||[])!==JSON.stringify(b||[])) entries.push({action:"Updated",field:label,new:"changed"}); };
-        grp("Priority",prev.stars,obj.stars); grp("Managing-now / Health issues",prev.chips,obj.chips); grp("Visited status",prev.pills,obj.pills); grp("BDM score",prev.score,obj.score);
+        // Every one of these used to log the single word "changed", which told an auditor that
+        // something moved but never what — and the two chip sections shared one heading, so a
+        // Health-issues edit could read as a Managing-now edit. Each now reports its real before and
+        // after, and each multi-select section is named on its own.
+        const val=(label:string,o:string,n:string)=>{ if(o!==n) entries.push({action:"Updated",field:label,old:o||"—",new:n||"—"}); };
+        const cB=_advChipLabels(prev.chips), cA=_advChipLabels(obj.chips);
+        Object.keys(cA).forEach(g=>val(g,(cB[g]||[]).join(", "),(cA[g]||[]).join(", ")));
+        const stars=(a:any[])=>{ const n=(a||[]).filter(Boolean).length; return n?("★".repeat(n)+" ("+n+")"):""; };
+        val("Priority",stars(prev.stars),stars(obj.stars));
+        val("Visited status",_advOnLabel(".pill",prev.pills),_advOnLabel(".pill",obj.pills));
+        val("BDM score",_advOnLabel("#bdm button",prev.score),_advOnLabel("#bdm button",obj.score));
       }
       saveProfileLocal(id,obj);
       const cs=root.querySelector("#callStatus")as HTMLSelectElement|null;
@@ -4633,17 +4667,23 @@ export function initApp(root: HTMLElement) {
     function _actSummarize(entries:any[]):any[]{
       const order:string[]=[]; const by:Record<string,any[]>={};
       entries.forEach((e:any)=>{ const a=String(e.action||"Updated"); if(!by[a]){ by[a]=[]; order.push(a); } by[a].push(e); });
-      const MAX=6;   // list this many in full, then name the rest
-      return order.map((a:string)=>{
+      // ONE ROW PER FIELD. This used to fold every same-action change into a single
+      // "N fields changed" line with the detail crammed into one cell, which is unreadable and
+      // un-filterable — you could see that something moved but not scan for a particular field, and
+      // an audit trail exists precisely to answer "what happened to THIS field". Each change keeps
+      // its own row, with its own before and after.
+      // A cap remains so one save can never write an unbounded number of rows; the overflow is named
+      // rather than dropped, so nothing disappears silently.
+      const MAX=25;
+      const out:any[]=[];
+      order.forEach((a:string)=>{
         const g=by[a];
-        if(g.length===1) return g[0];
-        const val=(v:any)=>(v==null||v==="")?"—":String(v);
-        const parts=g.slice(0,MAX).map((x:any)=>String(x.field||"field")+": "+val(x.old)+" → "+val(x.new));
+        g.slice(0,MAX).forEach((x:any)=>out.push(x));
         const rest=g.slice(MAX);
-        let txt=parts.join(" · ");
-        if(rest.length) txt+=" · +"+rest.length+" more ("+rest.slice(0,8).map((x:any)=>String(x.field||"field")).join(", ")+(rest.length>8?", …":"")+")";
-        return {action:a, field:g.length+" fields changed", new:txt};
+        if(rest.length) out.push({action:a, field:"+"+rest.length+" more field"+(rest.length===1?"":"s"),
+          new:rest.slice(0,12).map((x:any)=>String(x.field||"field")).join(", ")+(rest.length>12?", …":"")});
       });
+      return out;
     }
     async function logActivity(leadId:any,entries:any[]){
       if(!leadId||!entries||!entries.length) return;
@@ -15087,6 +15127,36 @@ export function initApp(root: HTMLElement) {
         +ret+act;
     }
 
+    // Decided history — every request already approved or returned, shown BELOW the main table so it
+    // is readable without switching tabs. With an empty queue the page was otherwise blank while
+    // decided requests existed, and "what did we decide, and who decided it" is the question the
+    // history is for. Read-only: deciding again happens on the request itself, never from here.
+    function _bdmDecidedHistory(){
+      const done=_bdmReqs.filter((r:any)=>r.status!=="pending")
+        .sort((a:any,b:any)=>new Date(b.decided_at||b.requested_at||0).getTime()-new Date(a.decided_at||a.requested_at||0).getTime());
+      if(!done.length) return "";
+      const e=_bdmE;
+      return '<div style="margin-top:22px">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+        +'<b style="font-family:var(--disp);font-size:14px">Decided history</b>'
+        +'<span class="chipb neu">'+done.length+'</span></div>'
+        +'<div class="bdm-tw"><table class="bdm-t"><thead><tr>'
+        +'<th>Client / subject</th><th>Source</th><th>Category</th><th>Decision</th><th>Decided by</th><th>Decided at</th>'
+        +'</tr></thead><tbody>'
+        +done.map((r:any)=>{
+          const ap=/approv/i.test(String(r.status||""));
+          const subject=_bdmKind(r)==="assessment_edit"
+            ?String((r.snapshot&&r.snapshot.reason)||"Assessment edit"):String(r.program||"—");
+          return '<tr class="bdm-r" onclick="window._bdmToggleRow(\''+e(String(r.id))+'\')" style="cursor:pointer">'
+            +'<td><div class="cl">'+e(r.client_name||"Client")+'</div><div class="sb">'+e(subject)+'</div></td>'
+            +'<td class="nw"><span class="bdm-src">'+e(_bdmSource(r))+'</span></td>'
+            +'<td>'+_bdmCatChip(r)+'</td>'
+            +'<td><span class="chipb '+(ap?"ok":"al")+'">'+e(ap?"Approved":"Returned")+'</span></td>'
+            +'<td><div class="cl">'+e(r.decided_by||"—")+'</div></td>'
+            +'<td class="mono nw">'+e(r.decided_at?fmtIST(r.decided_at):"—")+'</td></tr>';
+        }).join("")
+        +'</tbody></table></div></div>';
+    }
     function _bdmRender(){
       const host=root.querySelector("#bdmReqList") as HTMLElement|null; if(!host) return;
       const e=_bdmE;
@@ -15119,7 +15189,7 @@ export function initApp(root: HTMLElement) {
         host.innerHTML=kpi+catBar+'<div class="ctk-empty"><div class="ctk-empty-ic">✓</div><div class="ctk-empty-t">'
           +(tab==="pending"?"Nothing waiting":"No decided requests yet")+'</div><div class="ctk-empty-s">'
           +(tab==="pending"?"When a Health Coach sends a request it appears here for review.":"Approved and returned requests are listed here.")
-          +'</div></div>';
+          +'</div></div>'+_bdmDecidedHistory();
         return;
       }
 
@@ -15145,7 +15215,10 @@ export function initApp(root: HTMLElement) {
       host.innerHTML=kpi+catBar
         +'<div class="bdm-tw"><table class="bdm-t"><thead><tr>'
         +'<th>Client / subject</th><th>Source</th><th>Category</th><th>Stage</th><th>Requested by</th><th>Requested at</th><th>Decided</th><th></th>'
-        +'</tr></thead><tbody>'+body+'</tbody></table></div>';
+        +'</tr></thead><tbody>'+body+'</tbody></table></div>'
+        // Only under the PENDING queue: on the Decided tab the main table already IS the decided
+        // list, and repeating it below would show every row twice.
+        +(tab==="pending"?_bdmDecidedHistory():"");
     }
     // Requester's role, read from the assignees list the app already holds — the request row stores
     // only a name. Falls back to a neutral label rather than guessing.
