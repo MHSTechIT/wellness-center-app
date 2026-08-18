@@ -91,6 +91,44 @@ const STEPS: Step[] = [
     name: 'thyrocare_payouts.paid_at index',
     sql: `CREATE INDEX IF NOT EXISTS idx_thyrocare_payouts_paid_at ON thyrocare_payouts(paid_at)`,
   },
+  {
+    // Per-advisor targets (Advisor Dashboard PRD §8.2, §9.1, §9.4). One row per advisor per
+    // period, `period` being 'YYYY-MM'. Targets do NOT roll over: each month is set explicitly,
+    // so a missed month never silently inflates the next one's target. An advisor with no row
+    // falls back to org-wide defaults, which is why the dashboard works before any row exists.
+    // Moved here from db/migration-advisor-targets.sql — a hand-run file is exactly what left
+    // leads.confirmed_at applied to dev and never to production.
+    name: 'advisor_targets',
+    sql: `CREATE TABLE IF NOT EXISTS advisor_targets (
+      id                   BIGSERIAL PRIMARY KEY,
+      advisor              TEXT NOT NULL,
+      period               TEXT NOT NULL,
+      revenue_target       NUMERIC(12,2) NOT NULL DEFAULT 0,
+      enrollment_target    INT           NOT NULL DEFAULT 0,
+      expected_appt_direct INT,
+      expected_appt_zoom   INT,
+      expected_confirmed   INT,
+      expected_visited     INT,
+      expected_enrolled    INT,
+      created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (advisor, period)
+    )`,
+  },
+  {
+    // ALTER, not just CREATE: a database that already ran the original .sql has the table but
+    // not this column, and CREATE TABLE IF NOT EXISTS is a no-op there.
+    name: 'advisor_targets.crm_usage_target_hours',
+    sql: `ALTER TABLE advisor_targets ADD COLUMN IF NOT EXISTS crm_usage_target_hours NUMERIC(5,2) DEFAULT 8`,
+  },
+  {
+    name: 'advisor_targets.period index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_advisor_targets_period ON advisor_targets(period)`,
+  },
+  {
+    name: 'advisor_targets.advisor index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_advisor_targets_advisor ON advisor_targets(advisor, period)`,
+  },
 ];
 
 // ---------------------------------------------------------------------------
