@@ -92,6 +92,83 @@ const STEPS: Step[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_thyrocare_payouts_paid_at ON thyrocare_payouts(paid_at)`,
   },
   {
+    // Physiotherapy payout ledger — Accounts & finance -> Physiotherapy tab. Same shape and the same
+    // reasoning as thyrocare_payouts above: real transfers to the physio provider/team, reconciled
+    // against a liability the tab computes LIVE from appointment data so the two cannot drift.
+    // Created with every column present (the Thyrocare table predates covers_days/status/settled_at
+    // and needed three ALTERs to catch up) — a new table has no legacy rows to protect.
+    name: 'physio_payouts',
+    sql: `CREATE TABLE IF NOT EXISTS physio_payouts (
+      id          BIGSERIAL PRIMARY KEY,
+      amount      INT NOT NULL CHECK (amount > 0),
+      paid_at     DATE NOT NULL,
+      method      TEXT,
+      txn_ref     TEXT,
+      notes       TEXT,
+      covers_days TEXT,
+      status      TEXT,
+      settled_at  TIMESTAMPTZ,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    name: 'physio_payouts.paid_at index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_physio_payouts_paid_at ON physio_payouts(paid_at)`,
+  },
+  {
+    // AUTO-ASSIGNMENT ON/OFF, per DAY. One row per calendar day (IST) rather than a single flag,
+    // because the requirement is date-based: a Super Admin stops it for today, or arms it for
+    // tomorrow, and those two decisions must not overwrite each other.
+    //
+    // The engine reads the most recent row on or BEFORE today, so a setting persists forward until
+    // something later changes it — set it once and it holds, and a row dated tomorrow cannot affect
+    // today. No row at all means ON, which preserves the behaviour that existed before this switch.
+    name: 'auto_assign_control',
+    sql: `CREATE TABLE IF NOT EXISTS auto_assign_control (
+      day        DATE PRIMARY KEY,
+      enabled    BOOLEAN NOT NULL,
+      updated_by TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    // Per-advisor DAILY LEAD ALLOCATION — Settings -> Advisor targets -> Advisor Leads Count Setting.
+    // How many pooled leads the auto-assigner may hand this advisor in one day.
+    //
+    // Deliberately NOT one row per day. The count of what an advisor has already received today is
+    // DERIVED from leads.assigned_at, so "the daily reset" is not an event anybody has to run — a new
+    // IST day simply matches no rows and the full allocation is available again. A stored counter
+    // would need a cron to zero it, and would drift the first time a lead was reassigned or deleted.
+    // advisor is the assignees.name the rest of the app already assigns by (leads.assigned_to).
+    name: 'advisor_lead_targets',
+    sql: `CREATE TABLE IF NOT EXISTS advisor_lead_targets (
+      advisor      TEXT PRIMARY KEY,
+      daily_target INT NOT NULL DEFAULT 0 CHECK (daily_target >= 0),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by   TEXT
+    )`,
+  },
+  {
+    // The auto-assigner reads "who did this lead go to, and when" for today across the whole book.
+    name: 'leads.assigned_at index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_leads_assigned_at ON leads(assigned_at) WHERE assigned_at IS NOT NULL`,
+  },
+  {
+    // Which workflow captured an office recording. NULL means the Health Coach office visit — every
+    // row that existed before physiotherapy consultations could be recorded, and treating NULL as
+    // 'office' is what lets those rows keep their meaning without a backfill.
+    name: 'office_recordings.kind',
+    sql: `ALTER TABLE office_recordings ADD COLUMN IF NOT EXISTS kind TEXT`,
+  },
+  {
+    // A physio recording belongs to ONE session, not just to the patient: the same lead is recorded
+    // again at every visit of a multi-session course, so lead_id alone cannot tell session 2 from
+    // session 5. Coach rows leave this null — an office visit has no appointment of its own here.
+    name: 'office_recordings.appointment_id',
+    sql: `ALTER TABLE office_recordings ADD COLUMN IF NOT EXISTS appointment_id TEXT`,
+  },
+  {
     // Per-advisor targets (Advisor Dashboard PRD §8.2, §9.1, §9.4). One row per advisor per
     // period, `period` being 'YYYY-MM'. Targets do NOT roll over: each month is set explicitly,
     // so a missed month never silently inflates the next one's target. An advisor with no row

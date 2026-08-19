@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { supabase } from '../shared/supabase';
-import { requireAuth } from '../shared/session';
+import { requireAuth, requireRole } from '../shared/session';
 import {
   syncMetaLeadsToSupabase,
   getMetaToken,
@@ -315,6 +315,65 @@ export function registerMetaRoutes(app: Express) {
   // per-tab auto-sync must NOT force, or the throttle it exists for is meaningless.
   app.get('/api/meta/sync', requireAuth, (req, res) => runSync(res, req.query.force === '1').catch((e) => res.status(500).json({ error: e.message })));
   app.post('/api/meta/sync', requireAuth, (req, res) => runSync(res, req.query.force === '1').catch((e) => res.status(500).json({ error: e.message })));
+  // Auto-assignment. The sync runs this itself, but the settings screen needs to (a) PREVIEW the
+  // split without writing, and (b) place the leads already sitting in the pool without waiting for
+  // the next crawl. dryRun=1 is the preview.
+  app.get('/api/meta/autoassign', requireAuth, async (req, res) => {
+    try {
+      const { runAutoAssign } = await import('../services/autoassign');
+      const by = String((req as any).user?.name || (req as any).user?.email || 'Admin');
+      res.json(await runAutoAssign({ dryRun: req.query.dryRun === '1', by }));
+    } catch (e: any) { res.status(500).json({ ok: false, error: e?.message || 'auto-assign failed' }); }
+  });
+  app.post('/api/meta/autoassign', requireAuth, async (req, res) => {
+    try {
+      const { runAutoAssign } = await import('../services/autoassign');
+      const by = String((req as any).user?.name || (req as any).user?.email || 'Admin');
+      res.json(await runAutoAssign({ dryRun: req.query.dryRun === '1', by }));
+    } catch (e: any) { res.status(500).json({ ok: false, error: e?.message || 'auto-assign failed' }); }
+  });
+  // AUTO-ASSIGNMENT SWITCH. Reading the state is open to any signed-in user (the settings screen
+  // shows it, and the Assign screens explain why nothing is being placed); CHANGING it is Super
+  // Admin only, enforced HERE rather than in the client. A client-side check hides a button; it does
+  // not stop anyone posting to the endpoint.
+  app.get('/api/meta/autoassign/control', requireAuth, async (_req, res) => {
+    try {
+      const { isAutoAssignOn } = await import('../services/autoassign');
+      const { pool } = await import('../shared/db');
+      const cur = await isAutoAssignOn();
+      // Upcoming rows too, so the screen can show "already scheduled OFF for tomorrow".
+      const { rows } = await pool.query(
+        `SELECT to_char(day,'YYYY-MM-DD') AS day, enabled, updated_by,
+                to_char(updated_at AT TIME ZONE 'Asia/Kolkata','YYYY-MM-DD HH24:MI') AS updated_at
+           FROM auto_assign_control
+          WHERE day >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 1
+          ORDER BY day DESC LIMIT 10`
+      ).catch(() => ({ rows: [] as any[] }));
+      res.json({ ok: true, ...cur, upcoming: rows });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e?.message || 'failed' }); }
+  });
+  app.post('/api/meta/autoassign/control', requireAuth, requireRole('Super Admin'), async (req, res) => {
+    try {
+      const { pool } = await import('../shared/db');
+      const enabled = !!(req.body && req.body.enabled);
+      // `day` is an IST calendar date. Omitted means today; the screen sends tomorrow's date to
+      // schedule ahead. A past date is refused — rewriting yesterday cannot change what already
+      // happened and would only confuse the "most recent row on or before today" lookup.
+      const raw = String((req.body && req.body.day) || '').trim();
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+      const by = String((req as any).user?.name || (req as any).user?.email || 'Super Admin');
+      const { rows } = await pool.query(
+        `INSERT INTO auto_assign_control (day, enabled, updated_by, updated_at)
+         VALUES (coalesce($1::date, (now() AT TIME ZONE 'Asia/Kolkata')::date), $2, $3, now())
+         ON CONFLICT (day) DO UPDATE SET enabled = EXCLUDED.enabled,
+                                         updated_by = EXCLUDED.updated_by,
+                                         updated_at = now()
+         RETURNING to_char(day,'YYYY-MM-DD') AS day, enabled`,
+        [day, enabled, by]
+      );
+      res.json({ ok: true, saved: rows[0] });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e?.message || 'failed' }); }
+  });
   app.get('/api/meta/token', requireAuth, tokenGet);
   app.post('/api/meta/token', requireAuth, tokenPost);
   // Ad-account id → display name, straight from META_TARGET_AD_ACCOUNT_NAMES.

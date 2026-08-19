@@ -499,6 +499,73 @@ export function initApp(root: HTMLElement) {
     // its "0" would be the same lie in a different disguise, so the cards stay on "—" and the
     // dashboard says why (see the banner in renderHealthDashboard).
     function _haBookReady(){ return _haFeedDone&&_haExtrasDone&&!_haFeedFailed; }
+    // ---- Per-page loading overlay -------------------------------------------------------------
+    // window._pgLoad(true|false, title?, sub?) — the reusable sibling of the sign-in splash, for any
+    // screen that fetches. Three behaviours make it usable rather than annoying:
+    //
+    //  REFERENCE COUNTED. Screens fire several loaders at once (Accounts pulls payments, appointments
+    //  and leads together) and some call each other. A boolean would let the first one to finish tear
+    //  the overlay off while three requests were still in flight, so shows and hides are balanced
+    //  instead: it lifts when the LAST caller is done.
+    //
+    //  DELAYED. Nothing appears for 260ms. A cached screen renders in ~30ms and a spinner that flashes
+    //  on and off in that window is worse than no spinner — the eye reads it as a glitch. Slow loads,
+    //  the ones this exists for, cross the threshold and get it.
+    //
+    //  SELF-RELEASING. A loader that throws before its hide, or a request that never settles, would
+    //  otherwise leave the app behind a permanent veil. A 20s net drops it regardless — the same
+    //  reasoning as the splash's own timeout.
+    let _pgN=0, _pgShowT:any=null, _pgSafetyT:any=null;
+    function _pgEl():HTMLElement|null{
+      const el=root.querySelector("#pageLoading")as HTMLElement|null; if(!el) return null;
+      // Deliberately NOT re-parented. The overlay is position:fixed, and a fixed element anchors to
+      // the nearest ancestor carrying a transform/filter/backdrop-filter rather than to the viewport
+      // — so moving it inside .main would silently break it the day .main gains one. Left where
+      // page.tsx puts it, next to the toast, its only containing block is the viewport.
+      return el;
+    }
+    w._pgLoad=(show:boolean,title?:string,sub?:string)=>{
+      const el=_pgEl(); if(!el) return;
+      if(show){
+        _pgN++;
+        if(title){ const t=root.querySelector("#pgLoadTitle"); if(t) t.textContent=title; }
+        const sEl=root.querySelector("#pgLoadSub");
+        if(sEl) sEl.textContent=sub||"Please wait while we prepare your data";
+        if(_pgN===1){
+          if(_pgShowT) clearTimeout(_pgShowT);
+          _pgShowT=setTimeout(()=>{ _pgShowT=null; el.classList.add("on"); el.setAttribute("aria-hidden","false"); },260);
+          if(_pgSafetyT) clearTimeout(_pgSafetyT);
+          _pgSafetyT=setTimeout(()=>{ _pgN=0; try{ w._pgLoad(false); }catch(_){} },20000);
+        }
+        return;
+      }
+      _pgN=Math.max(0,_pgN-1);
+      if(_pgN>0) return;
+      if(_pgShowT){ clearTimeout(_pgShowT); _pgShowT=null; }
+      if(_pgSafetyT){ clearTimeout(_pgSafetyT); _pgSafetyT=null; }
+      el.classList.remove("on"); el.setAttribute("aria-hidden","true");
+    };
+    // Wrap a loader so the overlay is always balanced, including when the loader throws — the case
+    // that would otherwise strand it. Every call site below is one line because of this.
+    async function _pgWrap(title:string,fn:()=>Promise<any>){
+      try{ w._pgLoad(true,title); return await fn(); }
+      finally{ w._pgLoad(false); }
+    }
+    // Every heavy screen loader runs behind the overlay. The originals keep their bodies under
+    // a __inner name and these thin wrappers front them, so the dozens of existing call sites
+    // (nav clicks, SSE refreshes, post-save reloads) pick the overlay up without being touched —
+    // and because _pgWrap balances in a finally, a loader that throws still releases it.
+    async function loadMetaLeadsData(...a:any[]){ return _pgWrap("Loading Meta leads…",()=>(loadMetaLeadsData__inner as any)(...a)); }
+    async function loadAccountsData(...a:any[]){ return _pgWrap("Loading Accounts…",()=>(loadAccountsData__inner as any)(...a)); }
+    async function loadReportsData(...a:any[]){ return _pgWrap("Loading Reports…",()=>(loadReportsData__inner as any)(...a)); }
+    async function loadPhysioData(...a:any[]){ return _pgWrap("Loading Physiotherapy…",()=>(loadPhysioData__inner as any)(...a)); }
+    async function loadBloodTestData(...a:any[]){ return _pgWrap("Loading Blood Test…",()=>(loadBloodTestData__inner as any)(...a)); }
+    async function loadRecordings(...a:any[]){ return _pgWrap("Loading Recordings…",()=>(loadRecordings__inner as any)(...a)); }
+    async function loadCoachClients(...a:any[]){ return _pgWrap("Loading Health Coach…",()=>(loadCoachClients__inner as any)(...a)); }
+    async function loadReceptionData(...a:any[]){ return _pgWrap("Loading Reception…",()=>(loadReceptionData__inner as any)(...a)); }
+    async function loadCsvData(...a:any[]){ return _pgWrap("Loading Lead import…",()=>(loadCsvData__inner as any)(...a)); }
+    async function loadScreeningData(...a:any[]){ return _pgWrap("Loading Screening…",()=>(loadScreeningData__inner as any)(...a)); }
+
     let _appShownOnce=false;
     function showApp(){
       const overlay=root.querySelector("#loginOverlay") as HTMLElement;
@@ -3246,6 +3313,227 @@ export function initApp(root: HTMLElement) {
     };
     // Close the Advisor multi-select when clicking outside it (mirrors the pool-assign menu).
     document.addEventListener("click",(e:any)=>{ const wrap=root.querySelector("#advLeadsAdvWrap"); const m=root.querySelector("#advLeadsAdvMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; });
+    // ===== Advisor Leads Count Setting — daily auto-assignment allocation =====
+    // The admin sets a per-advisor DAILY target; the server tops each advisor up to it as leads
+    // arrive (see server/src/services/autoassign.ts, which runs on every Meta sync).
+    //
+    // "Assigned today" is READ, never stored. It is the count of leads whose assigned_at falls on
+    // today's IST date, so it already includes anything the admin placed by hand — the two paths
+    // share one number and cannot between them exceed the target. It is also why there is no daily
+    // reset to run: tomorrow simply matches no rows.
+    let _alcRows:any[]=[];          // [{advisor, role, target, todayCount}]
+    let _alcTargets:Record<string,number>={};
+    const _alcIstToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+    async function loadAdvisorLeadTargets(){
+      try{
+        const res:any=await supabase.from("advisor_lead_targets").select("*");
+        _alcTargets={};
+        if(res&&!res.error) (res.data||[]).forEach((r:any)=>{ _alcTargets[String(r.advisor||"").trim()]=Number(r.daily_target)||0; });
+      }catch(_){ _alcTargets={}; }
+      renderAdvisorLeadCounts();
+      try{ _alcLoadSwitch(); }catch(_){}
+    }
+    // Today's assigned count per advisor, from the SAME leads the rest of the app reads.
+    function _alcTodayCounts():Record<string,number>{
+      const out:Record<string,number>={}; const today=_alcIstToday();
+      const istDay=(v:any)=>{ if(!v) return ""; try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(v)); }catch(_){ return String(v).slice(0,10); } };
+      const bump=(name:any)=>{ const k=String(name||"").trim(); if(k) out[k]=(out[k]||0)+1; };
+      [..._metaLeads,..._assignedExtras].forEach((l:any)=>{
+        if(!l||!l.assignedTo) return;
+        const det=_advLeadsDet[String(l.id)]||{};
+        const at=det.assigned_at||l.assignedAt; if(!at) return;
+        if(istDay(at)===today) bump(l.assignedTo);
+      });
+      return out;
+    }
+    function renderAdvisorLeadCounts(){
+      const body=root.querySelector("#alcBody")as HTMLElement|null; if(!body) return;
+      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      const today=_alcTodayCounts();
+      // "all" = the union across every service line, because the allocation is a DAILY limit for the
+      // advisor, not a per-service one. Same predicate as the Assign-to menus, so anyone who can be
+      // assigned a lead has a row here to set their limit in.
+      _alcRows=_assignableAdvisors("all")
+        .map((a:any)=>{ const name=String(a.name||"").trim(); const key=name;
+          // Show every role held, not just the mirrored one — otherwise sugashini reads "Health
+          // Coach" here and the admin cannot tell why she is in an advisor allocation table.
+          const roles=_rolesOf(a).filter(Boolean);
+          return {advisor:name,role:(roles.length?roles.join(" · "):String(a.role||"")),
+            target:Number(_alcTargets[key]||0),todayCount:Number(today[key]||0)}; })
+        .sort((x:any,y:any)=>x.advisor.localeCompare(y.advisor));
+      // NO DEDUPING, and names are matched CASE-SENSITIVELY throughout this table. "Deepak" and
+      // "deepak" look like one person typed twice but are two different staff members — different
+      // email addresses, separate logins, 54 and 17 leads of their own. leads.assigned_to stores the
+      // exact name, so exact matching is the only thing that can tell them apart; folding case would
+      // merge two people into one allocation and mis-state both their daily counts.
+      if(!_alcRows.length){
+        body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">No active advisors — add them in Settings → Users &amp; Assignees.</td></tr>';
+        const f0=root.querySelector("#alcFoot"); if(f0) f0.innerHTML=""; return;
+      }
+      const num='class="mono" style="text-align:right;white-space:nowrap"';
+      body.innerHTML=_alcRows.map((r:any)=>{
+        const remaining=Math.max(0,r.target-r.todayCount);
+        const off=r.target<=0;
+        return '<tr'+(off?' style="opacity:.62"':'')+'>'
+          +'<td style="font-weight:600">'+e(r.advisor)+'</td>'
+          +'<td>'+e(r.role)+'</td>'
+          +'<td style="text-align:right"><input class="input mono" type="number" min="0" step="1" data-alc="'+e(r.advisor)+'"'
+            +' value="'+r.target+'" oninput="window._alcInput()" style="height:32px;max-width:110px;text-align:right"></td>'
+          +'<td '+num+'>'+r.todayCount+'</td>'
+          // Not "0 of 0": with no target there is no allocation to have a remainder of, and a bare 0
+          // reads as "this advisor is full" when they are simply not in the rotation.
+          +'<td '+num+' style="font-weight:700;color:'+(off?"var(--faint)":(remaining>0?"var(--brand-600)":"var(--muted)"))+'">'
+            +(off?"—":String(remaining))+'</td></tr>';
+      }).join("");
+      _alcRenderFoot();
+    }
+    function _alcRenderFoot(){
+      const foot=root.querySelector("#alcFoot")as HTMLElement|null; if(!foot) return;
+      const vals=_alcReadInputs();
+      const totT=_alcRows.reduce((s:number,r:any)=>s+(vals[r.advisor]!=null?vals[r.advisor]:r.target),0);
+      const totToday=_alcRows.reduce((s:number,r:any)=>s+r.todayCount,0);
+      const totLeft=_alcRows.reduce((s:number,r:any)=>{ const t=(vals[r.advisor]!=null?vals[r.advisor]:r.target); return s+(t>0?Math.max(0,t-r.todayCount):0); },0);
+      const num='class="mono" style="text-align:right;white-space:nowrap;font-weight:700"';
+      foot.innerHTML='<tr style="border-top:2px solid var(--line)">'
+        +'<td style="font-weight:700">Total</td><td></td>'
+        +'<td '+num+'>'+totT+'</td><td '+num+'>'+totToday+'</td><td '+num+'>'+totLeft+'</td></tr>';
+      const info=root.querySelector("#alcInfo");
+      if(info) info.textContent=totT?(totT+" leads/day across "+_alcRows.filter((r:any)=>((vals[r.advisor]!=null?vals[r.advisor]:r.target)>0)).length+" advisor(s) · "+totLeft+" still to place today"):"No allocation set";
+    }
+    function _alcReadInputs():Record<string,number>{
+      const out:Record<string,number>={};
+      root.querySelectorAll("#alcBody input[data-alc]").forEach((el:any)=>{
+        const n=String(el.getAttribute("data-alc")||""); if(!n) return;
+        out[n]=Math.max(0,Math.round(Number(el.value)||0));
+      });
+      return out;
+    }
+    // Live totals as the admin types, without re-rendering the rows (which would steal focus).
+    w._alcInput=()=>{ try{ _alcRenderFoot(); }catch(_){} };
+    w._alcSave=async()=>{
+      const vals=_alcReadInputs();
+      const names=Object.keys(vals);
+      if(!names.length){ toast("Nothing to save"); return; }
+      const by=(_currentUser&&(_currentUser.name||_currentUser.email))||"Admin";
+      let ok=0;
+      for(const n of names){
+        // upsert on the advisor key: one standing row per advisor, not one per day.
+        const res:any=await supabase.from("advisor_lead_targets")
+          .upsert({advisor:n,daily_target:vals[n],updated_at:new Date().toISOString(),updated_by:by},{onConflict:"advisor"});
+        if(!(res&&res.error)) ok++;
+        else if(/advisor_lead_targets|relation|exist|unknown table/i.test(String(res.error.message||""))){
+          toastErr("Restart the server first — the allocation table is created by the self-applying schema on boot");
+          return;
+        }
+      }
+      Object.keys(vals).forEach(n=>{ _alcTargets[n.trim()]=vals[n]; });
+      renderAdvisorLeadCounts();
+      toast("Allocation saved for "+ok+" advisor"+(ok===1?"":"s"));
+    };
+    // ---- Auto-assignment ON/OFF (Super Admin only) --------------------------------------------
+    // The switch is stored per DAY, so "stop today" and "arm tomorrow" are separate rows and neither
+    // overwrites the other. The engine reads the most recent row on or before today, which is what
+    // makes a setting persist forward without needing a row every day.
+    //
+    // Rendered only for a Super Admin — and the POST is Super-Admin gated on the SERVER too. Hiding
+    // a button stops nobody from calling the endpoint; the route is the actual control.
+    const _alcIsSuperAdmin=()=>_rolesOf(_currentUser).some((r:string)=>String(r).trim().toLowerCase()==="super admin");
+    const _alcTomorrow=()=>{ const d=new Date(_alcIstToday()+"T12:00:00"); d.setDate(d.getDate()+1);
+      const p=(n:number)=>String(n).padStart(2,"0");
+      return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); };
+    async function _alcLoadSwitch(){
+      const host=root.querySelector("#alcSwitch")as HTMLElement|null; if(!host) return;
+      if(!_alcIsSuperAdmin()){ host.style.display="none"; host.innerHTML=""; return; }
+      let j:any=null;
+      try{ j=await (await fetch(_api("/api/meta/autoassign/control"),{headers:authHeaders()})).json(); }catch(_){ j=null; }
+      if(!j||j.ok===false){ host.style.display="none"; return; }
+      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const on=!!j.on, today=_alcIstToday(), tmr=_alcTomorrow();
+      const up=(j.upcoming||[]).filter((r:any)=>String(r.day)>today);
+      const tomorrowRow=up.find((r:any)=>String(r.day)===tmr);
+      host.style.display="";
+      host.innerHTML='<div class="aud" style="background:#fff;padding:12px 14px">'
+        +'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+        +'<span style="width:10px;height:10px;border-radius:50%;flex:0 0 auto;background:'+(on?"var(--ok)":"var(--alert)")+'"></span>'
+        +'<b style="font-size:13px">Auto assignment is '+(on?"ON":"OFF")+' today</b>'
+        +'<span style="font-size:11.5px;color:var(--muted)">'
+          +(j.day?("set "+e(j.day)+(j.by?" by "+e(j.by):"")):"default — no override set")+'</span>'
+        +'<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">'
+        +'<button class="btn bsm'+(on?"":" bp")+'" onclick="window._alcSetSwitch(&#39;'+today+'&#39;,'+(on?"false":"true")+')">'
+          +(on?"■ Stop for today":"▶ Start for today")+'</button>'
+        +'<button class="btn bsm" onclick="window._alcSetSwitch(&#39;'+tmr+'&#39;,true)">Enable tomorrow</button>'
+        +'<button class="btn bsm" onclick="window._alcSetSwitch(&#39;'+tmr+'&#39;,false)">Disable tomorrow</button>'
+        +'</span></div>'
+        +(tomorrowRow?('<div style="font-size:11.5px;color:var(--muted);margin-top:8px">Tomorrow ('+e(tmr)+') is already scheduled <b>'
+            +(tomorrowRow.enabled?"ON":"OFF")+'</b>'+(tomorrowRow.updated_by?" by "+e(tomorrowRow.updated_by):"")+'.</div>'):'')
+        +'<div style="font-size:11.5px;color:var(--faint);margin-top:6px">Applies to the AUTOMATIC assignment of today’s incoming Meta leads. Manual assignment, and the “Assign pooled leads now” button above, are unaffected.</div>'
+        +'</div>';
+    }
+    w._alcSetSwitch=async(day:string,enabled:boolean)=>{
+      try{
+        const r=await fetch(_api("/api/meta/autoassign/control"),{method:"POST",
+          headers:Object.assign({"Content-Type":"application/json"},authHeaders()),
+          body:JSON.stringify({day,enabled})});
+        const j=await r.json();
+        if(r.status===403){ toastErr("Only a Super Admin can change the auto-assignment switch"); return; }
+        if(!j||j.ok===false){ toastErr("Could not save: "+((j&&j.error)||"error")); return; }
+        toast("Auto assignment "+(enabled?"ON":"OFF")+" for "+day);
+        await _alcLoadSwitch();
+      }catch(e:any){ toastErr("Could not save: "+(e.message||"network error")); }
+    };
+    // Preview asks the SERVER for the same plan it would execute, rather than recomputing it here —
+    // two implementations of the split would be two chances to disagree with what actually happens.
+    async function _alcCall(dry:boolean){
+      const r=await fetch(_api("/api/meta/autoassign"+(dry?"?dryRun=1":"")),{method:"POST",headers:authHeaders()});
+      return await r.json();
+    }
+    function _alcShowPlan(j:any,dry:boolean){
+      const host=root.querySelector("#alcPlan")as HTMLElement|null; if(!host) return;
+      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      if(!j||j.ok===false){ host.innerHTML='<div class="banner warn">'+e((j&&(j.error||j.reason))||"Auto-assign failed")+'</div>'; return; }
+      const rows=(j.rows||[]).filter((r:any)=>r.assigned>0);
+      if(!j.assigned){
+        host.innerHTML='<div class="aud" style="background:#fff;font-size:12.5px;color:var(--muted);padding:10px 12px">'
+          +'Nothing to assign — '+e(j.reason||"no eligible leads in the pool")+'.</div>';
+        return;
+      }
+      host.innerHTML='<div class="aud" style="background:#fff;padding:10px 12px">'
+        +'<div class="ahd">'+(dry?"Preview — this is what would be assigned":"Assigned")+'</div>'
+        +'<div style="font-size:12.5px;color:var(--muted);margin-top:4px">'
+        +rows.map((r:any)=>e(r.advisor)+" → <b>"+r.assigned+"</b>").join(" · ")
+        +'<br>'+j.assigned+' of '+j.poolSeen+' eligible lead(s)'+(j.poolLeft?(' · '+j.poolLeft+' left in the pool for manual assignment'):'')
+        +'</div></div>';
+    }
+    w._alcPreview=async()=>{
+      try{ _alcShowPlan(await _alcCall(true),true); }
+      catch(e:any){ toastErr("Preview failed: "+(e.message||"network error")); }
+    };
+    w._alcRunNow=async()=>{
+      csvConfirm("Assign the pooled leads now, following each advisor's remaining daily allocation?"
+        +"<br><br>Anything beyond the configured targets stays in the pool for you to assign by hand.",
+        async()=>{
+        try{
+          const j=await _alcCall(false);
+          _alcShowPlan(j,false);
+          if(j&&j.assigned){ toast("Assigned "+j.assigned+" lead"+(j.assigned===1?"":"s")); }
+          else toast(String((j&&j.reason)||"Nothing to assign"));
+          // RELOAD THE META FEED FIRST. The leads this places are Meta leads, and they live in
+          // _metaLeads — which _afterAssign does not refetch (it reloads _assignedExtras, the
+          // CSV/manual/walk-in side). The manual assign path gets away with that because it patches
+          // the one lead it touched in memory; a server-side assignment has nothing to patch, so
+          // without this the client kept its pre-assignment copy and every screen counting that
+          // array — Advisor load, and the Health Advisor dashboard's whole book — showed the old
+          // numbers. The data was right in the database the entire time; only the cache was stale.
+          try{ _metaFetchRetries=0; _metaFetchInFlight=false; await fetchMetaLiveFeed(); }catch(_){}
+          // Then the SAME refresh the manual assign path runs: it repaints the Advisor load table
+          // and the assignees table, and broadcasts to other open tabs so an Advisor with the app
+          // already open sees the new leads without reloading.
+          try{ await _afterAssign(); }catch(_){}
+          renderAdvisorLeadCounts();
+        }catch(e:any){ toastErr("Assign failed: "+(e.message||"network error")); }
+      },"Assign now");
+    };
+
     async function loadAssignees(){
       try{
         const {data,error}=await supabase.from("assignees").select("*").order("name");
@@ -3253,6 +3541,9 @@ export function initApp(root: HTMLElement) {
         _assignees=data||[];
       }catch(e){ _assignees=[]; }
       renderAssigneesTable();renderAdvisorLoad();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();populateAdvisorDropdowns();
+      // The allocation table's rows ARE the assignees master, so it reloads with it — a newly added
+      // advisor appears in the setting without a page refresh.
+      try{ loadAdvisorLeadTargets(); }catch(_){}
       try{ _nwFillProviders(); }catch(_){}   // walk-in Provider dropdown follows the live staff list
     }
     // Fill the lead-profile Salesperson + HC dropdowns from the live Assignees master.
@@ -3693,7 +3984,7 @@ export function initApp(root: HTMLElement) {
     // Statuses that mean the advisor never actually spoke to this person. Nothing was learned on the
     // call, so NOTHING on the profile can be mandatory — otherwise recording "Wrong Number" would
     // require inventing an age, a gender and a sugar reading first. Every other status is unchanged.
-    const NO_CONTACT_CODES=["rnr","dnd","busy","cb","so","nreg","oos","wn","nr","disc"];
+    const NO_CONTACT_CODES=["rnr","dnd","busy","cb","so","nreg","oos","wn","nr","disc","invalid"];
     function _advNoContact():boolean{
       const v=String((root.querySelector("#callStatus")as HTMLSelectElement|null)?.value||"");
       return NO_CONTACT_CODES.indexOf(v)>=0;
@@ -3807,6 +4098,7 @@ export function initApp(root: HTMLElement) {
       // advisor chose Kavipriya were booked under sugashini, the coach left over in the dropdown).
       // Cleared here, before the restore; a saved profile immediately re-fills it with its own HC.
       setV("#hcSel","");setV("#apptHc","");
+      _advHcTouched=false;   // a restored value is not a choice the advisor made on this lead
       // Sugar level must open on the lead's OWN stored level. The markup marks "150–250" selected,
       // so without this every profile opened at 150–250 regardless of the lead — and since saving
       // now persists this field back to the lead, that default would silently rewrite the real
@@ -3837,6 +4129,100 @@ export function initApp(root: HTMLElement) {
       loadAndApplyProfile(l);   // restore the saved "Save lead record" form for this lead
       renderActivityLog(l.id);  // show this lead's audit history (latest first)
       renderCallLogs(l);        // show this lead's call logs + voice recordings (latest first)
+      _advLoadAppt(l.id);       // the live appointment row — drives the slot board (date / time / HC)
+    }
+
+    // ===== The open lead's LIVE appointment =====
+    // The slot board used to know nothing about the appointment it had booked. Its coach came from
+    // #hcSel ("HC assigned" in Assignment & pipeline) and its date defaulted to today, so once
+    // Reception rescheduled a lead or handed it to a different coach, the advisor kept looking at the
+    // ORIGINAL coach's schedule on the WRONG day — with no indication anything had moved. Reception
+    // writes appt_date / appt_time / hc_pt straight onto the appointments row and never touches the
+    // advisor's assignment field, so nothing the board read could ever reflect the change.
+    //
+    // This row is that missing source of truth. It is the appointment as it stands in the database
+    // right now, whoever last moved it.
+    let _advApptRow:any=null;        // {id, date, time, hc, status} for _advLeadId, or null
+    let _advApptFor="";              // which lead _advApptRow belongs to — never let it leak across leads
+    // Did the ADVISOR pick a coach on this lead in this session? Only then may a save push #hcSel
+    // onto the appointment. See the save handler for why an ungated push loses data.
+    let _advHcTouched=false;
+    async function _advLoadAppt(leadId:any,rerender:boolean=true){
+      const id=String(leadId||"");
+      // Clear FIRST. Switching leads must not leave the previous client's appointment driving the
+      // board even for the moment the query is in flight.
+      if(_advApptFor!==id){ _advApptRow=null; _advApptFor=id; }
+      if(!id) return;
+      try{
+        const _res:any=await supabase.from("appointments")
+          .select("id,appt_date,appt_time,hc_pt,status,client_name")
+          .eq("lead_id",id).neq("status","cancelled").limit(20);
+        // The gateway resolves {error} rather than throwing, so a failed read must not be mistaken
+        // for "this lead has no appointment" — that would silently drop the board back to the
+        // assignment and undo the whole point of this function.
+        if(!_res||_res.error) return;
+        if(String(_advLeadId)!==id) return;          // lead switched while the read was in flight
+        const rows:any[]=(_res.data||[]).slice();
+        // A lead can carry several rows — an earlier no-show, a rebooking, a completed visit. Lead
+        // 8300105865 is the worked example: two rows on the same slot, one 'noshow' under the old
+        // coach and one 'visited' under the coach Reception moved them to. Picking the wrong one
+        // shows the wrong coach, so the order is explicit:
+        //   1. a still-pending row wins outright — that is the appointment about to happen;
+        //   2. otherwise the most RECENT row by date, then by id, because a later row supersedes an
+        //      earlier one on the same day (the 'visited' 201 supersedes the 'noshow' 200).
+        const rank=(r:any)=>String(r.status||"")==="expected"?0:1;
+        const dayOf=(r:any)=>String(_apptDay(r.appt_date)||"");
+        rows.sort((a:any,b:any)=>{
+          const ra=rank(a), rb=rank(b); if(ra!==rb) return ra-rb;
+          if(ra===0) return dayOf(a).localeCompare(dayOf(b));        // pending: soonest first
+          const d=dayOf(b).localeCompare(dayOf(a)); if(d) return d;  // settled: most recent first
+          return Number(b.id||0)-Number(a.id||0);
+        });
+        const r:any=rows[0]||null;
+        _advApptRow=r?{id:r.id,date:_apptDay(r.appt_date),time:r.appt_time||"",hc:r.hc_pt||"",status:r.status||""}:null;
+        _advApptFor=id;
+        if(rerender){ try{ _advApplyApptToBoard(); }catch(_){} }
+      }catch(_){}
+    }
+    // Put the live appointment's coach into BOTH coach selects — the slot board's locked mirror and
+    // "HC assigned" in Assignment & pipeline.
+    //
+    // Called from two places on purpose. _advApplyApptToBoard runs it when the appointment loads or
+    // changes; applyAdvisorProfile runs it again at the end of every form restore. That second call
+    // is what makes it stick: loadAndApplyProfile repaints the whole panel from the DB copy AFTER
+    // its own await, and that await races the appointment read. Whichever landed last used to win,
+    // so the coach could revert to the saved one on a slow connection and look intermittent.
+    function _advSyncApptCoach(){
+      if(!_advApptLive()) return;
+      const hc=String((_advApptRow&&_advApptRow.hc)||""); if(!hc) return;
+      // A <select> silently rejects a value it has no <option> for, leaving it "" — which would read
+      // as "no coach" and blank the board. The coach on the appointment is authoritative even if the
+      // assignees master no longer lists them (renamed, deactivated, or a physio-line name while a
+      // diabetes layout is loaded), so the option is added rather than the value dropped.
+      const put=(sel:string,tip?:string)=>{
+        const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el) return;
+        if(!Array.from(el.options).some((o:any)=>o.value===hc||o.text===hc)){
+          const opt=document.createElement("option"); opt.value=hc; opt.text=hc; el.appendChild(opt);
+        }
+        if(el.value!==hc) el.value=hc;
+        if(tip) el.title=tip;
+      };
+      put("#apptHc");
+      // Set DIRECTLY, never via _hcAssignedChange: that handler means "the advisor picked someone",
+      // writes hc_pt back to the appointment, and sets _advHcTouched — the very flag that stops a
+      // later save from overwriting a reassignment. This is a display sync, not a choice.
+      put("#hcSel","Currently "+hc+" — taken from this lead's live appointment. Reception can reassign the coach and this follows it.");
+    }
+    // appt_date is IST midnight stored as UTC ("2026-08-16T18:30:00Z" IS 17 Aug in Chennai), so a
+    // bare .slice(0,10) yields the PREVIOUS day — the same trap _recReschedule documents.
+    // The IST formatting is inlined rather than calling _istDay: that helper is a `const` declared
+    // several thousand lines below this point, and a function that only works because its one caller
+    // happens to run after an await is a trap for the next edit.
+    function _apptDay(v:any):string{
+      const raw=String(v||""); if(!raw) return "";
+      if(!/T/.test(raw)) return raw.slice(0,10);
+      try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(raw)); }
+      catch(_){ return raw.slice(0,10); }
     }
 
     // ===== Persisted lead profile (Health Advisor "Save lead record") =====
@@ -3866,7 +4252,11 @@ export function initApp(root: HTMLElement) {
         // Strip badge text (NEW/AUTO/SYNCED) AND the "*" mandatory marker — otherwise the label
         // reads "Occupation *", the named key becomes "Occupation *", and every named["Occupation"]
         // lookup (coach read-only Sales view, recap fields) misses → the field shows blank.
-        let t=lab?(lab.textContent||"").replace(/\b(NEW|AUTO|SYNCED)\b/g,"").replace(/[*]/g,"").replace(/\s+/g," ").trim():"";
+        // FROM ASSIGNMENT / FROM APPOINTMENT is stripped because that badge is now DYNAMIC: it
+        // reports whether the slot board's coach came from the advisor's assignment or from the live
+        // appointment. Left in, the named key would rename itself as the badge flipped, so one field
+        // would log under two different names. Stripped, the key is stably "HC".
+        let t=lab?(lab.textContent||"").replace(/\bFROM (ASSIGNMENT|APPOINTMENT)\b/g,"").replace(/\b(NEW|AUTO|SYNCED)\b/g,"").replace(/[*]/g,"").replace(/\s+/g," ").trim():"";
         if(!t) t="Field "+(i+1);
         seen[t]=(seen[t]||0)+1; if(seen[t]>1) t=t+" ("+seen[t]+")";
         return t;
@@ -3999,6 +4389,9 @@ export function initApp(root: HTMLElement) {
             _advSetLeadSource(l);                          // ...and the AUTO lead source the restore just overwrote
           }
         }catch(_){}
+        // ...and the coach, which a saved profile holds as it was when the advisor last saved. If
+        // Reception has reassigned since, the appointment is the newer fact and must win the repaint.
+        try{ _advSyncApptCoach(); }catch(_){}
       } finally { _advApplying=false; }
     }
     // ---- Blood-report attachments + follow-up notes renderers ----
@@ -4472,7 +4865,30 @@ export function initApp(root: HTMLElement) {
       const out:any[]=[];
       if(!prev||!obj) return out;
       const before=_advNamed(prev.f), after=_advNamed();
-      Object.keys(after).forEach(k=>{ if(/call status/i.test(k)) return;
+      // The slot board's Date and HC sit inside the captured panel, so they diff like any other
+      // field — but they are no longer the advisor's to report. They now mirror the live appointment,
+      // which Reception can move at any time. Left in, an advisor who opened a rescheduled lead and
+      // saved an unrelated note would have "Updated Date" and "Updated HC" written to the log under
+      // their name, for a change someone else made — and Reception's own reschedule is already
+      // logged, at the moment it happened, by _reschSave. Skipped by CONTROL ID rather than by label
+      // text, so a renamed label or a duplicate "Date" elsewhere in the panel cannot silence the
+      // wrong field.
+      const _boardKeys=(()=>{
+        const ids:Record<string,1>={slotDate:1,apptHc:1};
+        // "HC assigned" is different from the other two: it IS a field the advisor edits, so it must
+        // keep logging normally. It is skipped only in the one case where the value on screen is not
+        // theirs — the advisor has not touched the dropdown this session AND it currently reads
+        // exactly the coach on the live appointment, i.e. it was synced from Reception's reassignment.
+        // Any other value is the advisor's own and is logged as before.
+        try{
+          const el=root.querySelector("#hcSel")as HTMLSelectElement|null;
+          if(el&&!_advHcTouched&&_advApptLive()&&_advApptRow&&_advApptRow.hc&&el.value===_advApptRow.hc) ids["hcSel"]=1;
+        }catch(_){}
+        const labels=_advLabels(); const out:Record<string,1>={};
+        _advCtrls().forEach((el:any,i:number)=>{ if(el&&ids[String(el.id||"")]) out[labels[i]]=1; });
+        return out;
+      })();
+      Object.keys(after).forEach(k=>{ if(/call status/i.test(k)||_boardKeys[k]) return;
         const o=before[k]==null?"":before[k], n=after[k];
         if(o!==n) out.push({action:"Updated",field:k,old:o||"—",new:n||"—"}); });
       const val=(label:string,o:string,n:string)=>{ if(o!==n) out.push({action:"Updated",field:label,old:o||"—",new:n||"—"}); };
@@ -4673,8 +5089,15 @@ export function initApp(root: HTMLElement) {
       // Booking snapshots hc_pt, so any path that leaves the form's HC differing from a pending
       // appointment would strand the coach queue on the old name — the production Kavipriya/
       // sugashini mismatch. Only 'expected' rows: a visited appointment is history.
+      // GATED ON AN ACTUAL EDIT. This push exists so a coach the advisor corrects on the form follows
+      // the lead onto its pending appointment. Ungated, it also fired on saves where the advisor never
+      // touched the coach at all — and then it did real damage: Reception reassigns a booked lead from
+      // Gomathi to Kavipriya (writing hc_pt, correctly leaving the advisor's assignment field alone),
+      // the advisor later opens that lead and saves any unrelated field, and this line silently wrote
+      // the stale Gomathi back over Kavipriya. The lead vanished from the new coach's book with
+      // nothing in the log to explain it. Only a deliberate change on this screen may move it now.
       const _hcNow=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||"";
-      if(_hcNow){ try{ await supabase.from("appointments").update({hc_pt:_hcNow}).eq("lead_id",id).eq("status","expected"); }catch(_){} }
+      if(_hcNow&&_advHcTouched){ try{ await supabase.from("appointments").update({hc_pt:_hcNow}).eq("lead_id",id).eq("status","expected"); }catch(_){} }
       try{
         const {error}=await supabase.from("leads").update(upd).eq("meta_lead_id",id);
         if(error){
@@ -5134,7 +5557,7 @@ export function initApp(root: HTMLElement) {
     // Removed on request (6 Aug 2026): Payment Pending, Payment Completed, Interested, Not
     // Interested, Callback Requested. They stay in the LABEL/CODE maps below so a lead that already
     // carries one of those stored values still displays it — the dropdown just no longer offers them.
-    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Visited","Enrolled","Not Reachable","Not Interested","Disconnect"];
+    const HA_STATUSES=["New","Open","DND","RNR","Line Busy","Call Back","Already Paid","Follow Up","Switched Off","Not Registered","No Sugar","Out of Service","Wrong Number","Appointment Fixed – Direct","Appointment Fixed – Zoom","Visited","Enrolled","Not Reachable","Not Interested","Disconnect","Invalid"];
     // The call/lead-status dropdown is TWO groups: the statuses above, and a sugar-level band.
     // Sugar options carry a "sugar:" prefix so a status and a sugar level can never collide, and
     // one matcher serves every place the dropdown filters (dashboard, drill-down, List + Kanban) —
@@ -5169,7 +5592,7 @@ export function initApp(root: HTMLElement) {
         +'<optgroup label="All Call/Lead statuses">'+HA_STATUSES.map((x:string)=>'<option>'+esc(x)+'</option>').join("")+'</optgroup>'
         +'<optgroup label="Sugar Level">'+HA_SUGAR.map(x=>'<option value="'+esc(x.v)+'">'+esc(x.l)+'</option>').join("")+'</optgroup>';
     }
-    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Disconnect:"disc",Open:"new"};
+    const HA_LABEL2CODE:any={New:"new",DND:"dnd",RNR:"rnr","Line Busy":"busy","Call Back":"cb","Already Paid":"paid","Follow Up":"fu","Switched Off":"so","Not Registered":"nreg","No Sugar":"nosugar","Not Interested":"ni","Out of Service":"oos","Wrong Number":"wn","Appointment Fixed – Direct":"afd","Appointment Fixed – Home":"afz","Appointment Fixed – Zoom":"afz","Appointment Confirmed":"apc","Visited":"vis","Enrolled":"enr","Payment Pending":"payp","Payment Completed":"payc","Interested":"int","Not Reachable":"nr","Callback Requested":"cbr",Disconnect:"disc",Invalid:"invalid",Open:"new"};
     // Which appointment MODE a call-status label implies, or null when the label is not an
     // appointment at all. Keyed off the afd/afz codes above so "Home" (the current wording) and
     // "Zoom" (the older one, same afz code) both resolve to the stored "zoom" that the reports and
@@ -5178,7 +5601,7 @@ export function initApp(root: HTMLElement) {
       const code=HA_LABEL2CODE[String(label||"").trim()];
       return code==="afz"?"zoom":code==="afd"?"direct":null;
     };
-    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested",disc:"Disconnect"};
+    const HA_CODE2LABEL:any={new:"New",dnd:"DND",rnr:"RNR",busy:"Line Busy",cb:"Call Back",paid:"Already Paid",fu:"Follow Up",so:"Switched Off",nreg:"Not Registered",nosugar:"No Sugar",ni:"Not Interested",oos:"Out of Service",wn:"Wrong Number",afd:"Appointment Fixed – Direct",afz:"Appointment Fixed – Zoom",apc:"Appointment Confirmed",vis:"Visited",enr:"Enrolled",payp:"Payment Pending",payc:"Payment Completed",int:"Interested",nr:"Not Reachable",cbr:"Callback Requested",disc:"Disconnect",invalid:"Invalid"};
     function haBucketOf(cs:string){
       const s=(cs||"").toLowerCase();
       if(/enrol/.test(s)) return "enrolled";
@@ -5203,7 +5626,11 @@ export function initApp(root: HTMLElement) {
       // Dead ends: the client said no, or the number cannot be reached at all. "Not Registered" and
       // "Out of Service" belong here with Wrong Number — all three mean the number is unusable — but
       // were listed nowhere, so they landed in Open and kept being re-worked.
-      if(/not interested|no sugar|wrong number|not registered|out of service|dnd/.test(s)) return "closed";
+      // "Invalid" belongs with the unusable-record dead ends, NOT with Open. Without a branch here it
+      // would fall through to the default below and an advisor who had already worked the lead and
+      // marked it invalid would keep seeing it in Open Leads — the exact trap this function's
+      // closing comment describes, which has caught two statuses before.
+      if(/not interested|no sugar|wrong number|not registered|out of service|dnd|invalid/.test(s)) return "closed";
       // ANYTHING unmatched lands here, which is why this function has twice sent worked leads back to
       // Open. Before adding a call status to HA_STATUSES, give it a branch above — Open must mean
       // "nobody has actioned this yet": New, Open, Interested, or no status at all.
@@ -5610,60 +6037,6 @@ export function initApp(root: HTMLElement) {
       return sum;
     }
     // ---- Per-lead call facts, built once per render from the same rows the KPI cards use ----
-    // ===== Call Touch Time — advisor x hour dialer performance =====
-    // Built from the same call rows the Call Performance cards use, so the two can never disagree.
-    // Grouped by WHO dialled and the IST hour the call started: the question is when each advisor is
-    // on the phone and how much of that time is real conversation.
-    function _advCallHourly(book:any[]){
-      const advOf:Record<string,string>={};
-      (book||[]).forEach((l:any)=>{ advOf[String(l.id)]=String(l.assignedTo||""); });
-      const m:Record<string,any>={};
-      (_advCallRows||[]).forEach((r:any)=>{
-        const t=r.created_at?new Date(r.created_at):null; if(!t||isNaN(t.getTime())) return;
-        // The caller is whoever dialled; a row logged without one falls back to the lead's advisor
-        // rather than being dropped, so the dial still counts against somebody.
-        const adv=String(r.initiated_by_name||"").trim()||advOf[String(r.contact_id||"")]||"—";
-        // IST hour, because the clinic's day is an IST day.
-        const hh=Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",hour:"2-digit",hour12:false}).format(t));
-        const day=_istDay(r.created_at);
-        const k=adv+"|"+day+"|"+hh;
-        const o=(m[k]=m[k]||{adv,day,hh,dials:0,conn:0,dur:0});
-        const secs=Number(r.duration_seconds)||0;
-        o.dials++;
-        if(String(r.call_status||"").toLowerCase()==="answered"||secs>0){ o.conn++; o.dur+=secs; }
-      });
-      const h12=(h:number)=>{ const ap=h<12?"AM":"PM"; const x=h%12===0?12:h%12; return x+":00 "+ap; };
-      return Object.keys(m).map(k=>{
-        const o=m[k];
-        return Object.assign({},o,{
-          label:h12(o.hh)+"–"+h12((o.hh+1)%24),
-          avg:o.conn?Math.round(o.dur/o.conn):0
-        });
-      }).sort((a:any,b:any)=>
-        a.adv.localeCompare(b.adv) || (a.day<b.day?1:a.day>b.day?-1:0) || (a.hh-b.hh));
-    }
-    function _advRenderCallHourly(book:any[]){
-      const host=root.querySelector("#haCallHourly") as HTMLElement|null; if(!host) return;
-      const rows=_advCallHourly(book);
-      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      const tot=rows.reduce((a:any,r:any)=>{ a.d+=r.dials; a.c+=r.conn; a.t+=r.dur; return a; },{d:0,c:0,t:0});
-      host.innerHTML='<div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:8px">'
-        +'<svg class="icon"><use href="#i-phone"></use></svg> Call Touch Time — hourly by advisor'
-        +'<span class="chipb neu" style="margin-left:auto">'+tot.d+' dials · '+tot.c+' connected · '+_fmtCallDur(tot.t)+'</span></div>'
-        +'<div style="font-size:11.5px;color:var(--faint);padding:0 2px 8px">When each advisor is dialling, how much connects, and how much of it is real conversation. Same call rows as the cards above.</div>'
-        +'<div class="tscroll"><table class="tbl" style="min-width:720px"><thead><tr>'
-        +'<th>Advisor Name</th><th>Time</th><th>Dials</th><th>Connected Calls</th><th>Talk Time</th><th>Avg. Talk Time</th>'
-        +'</tr></thead><tbody>'
-        +(rows.length?rows.map((r:any)=>'<tr>'
-            +'<td style="font-weight:600">'+e(r.adv)+'</td>'
-            +'<td class="mono" style="white-space:nowrap">'+e(r.label)+'</td>'
-            +'<td class="mono" style="font-weight:700">'+r.dials+'</td>'
-            +'<td class="mono">'+r.conn+'</td>'
-            +'<td class="mono">'+e(_fmtCallDur(r.dur))+'</td>'
-            +'<td class="mono">'+e(r.conn?_fmtCallDur(r.avg):"—")+'</td></tr>').join("")
-          :'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">No calls recorded for these leads yet.</td></tr>')
-        +'</tbody></table></div>';
-    }
     function _haCallFacts(){
       const m:Record<string,any>={};
       _advCallRows.forEach((r:any)=>{
@@ -5720,7 +6093,7 @@ export function initApp(root: HTMLElement) {
       });
       return {leads:book,appts,visits,enrolled};
     }
-    // ---- Call disposition groups (PRD §5.4). Exactly the 20 codes the PRD lists; the four codes it
+    // ---- Call disposition groups (PRD §5.4). The 20 codes the PRD lists plus "Invalid"; the four it
     // explicitly excludes (Callback requested, Payment pending, Payment done, Interested) are absent.
     // `c` is CATEGORICAL colour — what the group MEANS — not the §7 attainment rule. §7 governs only
     // cards that have a target, and a disposition has none: "42 leads on DND" is neither good nor bad
@@ -5728,7 +6101,7 @@ export function initApp(root: HTMLElement) {
     // section unreadable at a glance; painting them with attainment colours would have been a lie.
     const HA_DISPO_GROUPS:any[]=[
       {g:"New",c:"#5B7FA6",codes:["New"]},
-      {g:"No contact made",c:"#8A8F8B",codes:["DND","RNR","Line Busy","Switched Off","Out of Service","Wrong Number","Not Reachable","Disconnect"]},
+      {g:"No contact made",c:"#8A8F8B",codes:["DND","RNR","Line Busy","Switched Off","Out of Service","Wrong Number","Not Reachable","Disconnect","Invalid"]},
       {g:"Needs follow-up",c:"var(--warn)",codes:["Call Back","Follow Up"]},
       {g:"Negative outcome",c:"var(--alert)",codes:["Not Interested","No Sugar","Already Paid","Not Registered"]},
       {g:"Positive · conversion path",c:"var(--ok)",codes:["Appointment Fixed – Direct","Appointment Fixed – Zoom","Appointment Confirmed","Visited","Enrolled"]},
@@ -5879,6 +6252,48 @@ export function initApp(root: HTMLElement) {
       if(!_haPayLoaded) _loadHaPayments().then(()=>{ try{ renderHealthDashboard(); }catch(_){} });
       if(_haActiveBucket) renderHaResults();
     }
+    // ---------- Count-up on the headline figures ----------
+    // A dashboard figure that simply appears reads as static; one that rises to its value reads as
+    // measured. The whole effect is under 0.7s and it is deliberately NOT a decorative loop — it
+    // fires once, when a number actually changes.
+    //
+    // Two guards make that true. The markup carries the FINAL value as its text, so a figure is
+    // correct before this ever runs (and stays correct if it never does). And the last value is
+    // remembered per stable key, so the many repaints this dashboard takes — SSE pushes, the lazy
+    // target and payment loads, filter changes — only animate the figures whose number moved.
+    // Without that, a background push would restart every count on the screen.
+    const _dashCountLast:Record<string,number>={};
+    const _dashFmt=(v:number,kind:string)=>kind==="pct"?(Math.round(v)+"%"):Math.round(v).toLocaleString("en-IN");
+    function _dashCountUp(){
+      const reduce=typeof matchMedia==="function"&&matchMedia("(prefers-reduced-motion:reduce)").matches;
+      const els=root.querySelectorAll("[data-count]");
+      Array.prototype.forEach.call(els,(el:any,i:number)=>{
+        const to=Number(el.getAttribute("data-count"));
+        const key=el.getAttribute("data-ck")||"";
+        const kind=el.getAttribute("data-cfmt")||"int";
+        if(!isFinite(to)||!key) return;
+        const known=_dashCountLast[key];
+        const from=known==null?0:known;
+        _dashCountLast[key]=to;
+        // Cancel any run still in flight on this element, or two animations fight over textContent
+        // and the figure flickers between two series.
+        if(el.__cRaf){ cancelAnimationFrame(el.__cRaf); el.__cRaf=0; }
+        // Nothing to play: unchanged, reduced motion, or a jump so small the motion would read as a
+        // glitch rather than a count.
+        if(reduce||from===to||Math.abs(to-from)<2){ el.textContent=_dashFmt(to,kind); return; }
+        const DUR=620, delay=Math.min(i,7)*38, t0=performance.now()+delay;
+        const step=(now:number)=>{
+          const e2=(now-t0)/DUR;
+          if(e2<0){ el.__cRaf=requestAnimationFrame(step); return; }
+          const k=e2>=1?1:1-Math.pow(1-e2,3);          // ease-out cubic
+          el.textContent=_dashFmt(from+(to-from)*k,kind);
+          if(e2<1) el.__cRaf=requestAnimationFrame(step); else el.__cRaf=0;
+        };
+        el.textContent=_dashFmt(from,kind);
+        el.__cRaf=requestAnimationFrame(step);
+      });
+    }
+
     // Render every enhancement section. Split out of renderHealthDashboard so the original card grid
     // stays readable, and so a failure in one section can never blank the cards above it.
     function _renderAdvDashSections(fullBook:any[],book:any[]){
@@ -5939,23 +6354,29 @@ export function initApp(root: HTMLElement) {
         const d=Math.round(((cur-prev)/prev)*100);
         return {pct:Math.abs(d),dir:d>0?"up":(d<0?"dn":"flat")};
       };
-      const ovCard=(label:string,n:number,desc:string,icon:string,tint:string,list:any[],dm:string)=>{
+      // `goodDir` says which way is GOOD for this bucket, so the colour reports the meaning of the
+      // movement rather than its direction. Total Leads rising is intake growth; Open and Follow-up
+      // rising is untouched work piling up. Painting every arrow green because it points up would
+      // tell an advisor their backlog doubling is good news.
+      const ovCard=(label:string,n:number,desc:string,icon:string,tint:string,list:any[],dm:string,goodDir:1|-1)=>{
         const t=trend(list);
         const arrow=t.dir==="up"?"↑":(t.dir==="dn"?"↓":"→");
         // NAMESPACED. ".dn" is already a global 7x7px status dot in globals.css — naming the
         // downward-trend class the same forced the whole trend line into a 7px box, so its text
         // overflowed and wrapped to one word per line ("vs / last / week"). Never reuse a bare
         // two-letter class here.
-        const tcls=t.dir==="up"?"tup":(t.dir==="dn"?"tdn":"tfl");
+        const moved=t.dir==="up"?1:(t.dir==="dn"?-1:0);
+        const tcls=moved===0?"tfl":(moved===goodDir?"tup":"tdn");
         // Trend and icon share a FOOTER ROW. The icon used to be absolutely positioned, so it sat on
         // top of the trend text instead of reserving room for it — on a narrow card "vs last week"
         // ran under the icon and wrapped one word per line.
         return '<div class="dov-c" data-metric="'+e(dm)+'" title="'+e(label+": "+n+". Click to open these leads.")+'">'
           +'<div class="k">'+e(label)+'</div>'
-          +'<div class="v">'+(ready?n.toLocaleString("en-IN"):dash)+'</div>'
+          +'<div class="v"'+(ready?' data-count="'+n+'" data-ck="ov:'+e(dm)+'"':'')+'>'+(ready?n.toLocaleString("en-IN"):dash)+'</div>'
           +'<div class="d">'+e(desc)+'</div>'
           +'<div class="dov-f">'
-            +(ready?'<span class="t '+tcls+'" title="New leads in the last 7 days vs the 7 days before">'
+            +(ready?'<span class="t '+tcls+'" title="'+e("New leads in the last 7 days vs the 7 days before"
+              +(moved===0?"." : moved===goodDir?" — moving the right way for this bucket." : " — moving the wrong way for this bucket."))+'">'
               +'<b>'+arrow+' '+t.pct+'%</b><span class="tw">vs last week</span></span>':'<span class="t"></span>')
             +'<span class="ic" style="background:'+tint+'"><svg class="icon" style="width:15px;height:15px;stroke:#fff"><use href="#'+icon+'"/></svg></span>'
           +'</div>'
@@ -5964,9 +6385,10 @@ export function initApp(root: HTMLElement) {
       const openList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="open");
       const fuList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="followup");
       set("#haOverview",
-        ovCard("Total Leads",fullBook.length,"All assigned leads","i-user","var(--brand)",fullBook,"total")
-        +ovCard("Open",openList.length,"No progress yet","i-inbox","#C07F0E",openList,"open")
-        +ovCard("Follow-up",fuList.length,"Requires follow-up","i-clock","#4C3FA8",fuList,"followup"));
+        // Growth is good for intake (+1) and bad for both backlog buckets (-1).
+        ovCard("Total Leads",fullBook.length,"All assigned leads","i-user","var(--brand)",fullBook,"total",1)
+        +ovCard("Open",openList.length,"No progress yet","i-inbox","#C07F0E",openList,"open",-1)
+        +ovCard("Follow-up",fuList.length,"Requires follow-up","i-clock","#4C3FA8",fuList,"followup",-1));
 
       // ---------- PANEL 2 · Pipeline performance (actual vs expected) ----------
       // Expected values come from advisor_targets (Settings → Advisor targets). A blank column there
@@ -5991,14 +6413,15 @@ export function initApp(root: HTMLElement) {
         return '<div class="dpf-c" data-metric="'+e(r.dm)+'" title="'+e(r.label+": actual "+r.actual+" against an expected "+exp+" ("+pct+"% attainment). Click to open these leads.")+'">'
           +'<div class="k">'+e(r.label)+'</div>'
           +'<div class="r">'+(ready?(r.actual+' / '+exp):'— / —')+'</div>'
-          +'<div class="p" style="color:'+(ready?CINK[c]:"var(--faint)")+'">'+(ready?(pct+'%'):'—')+'</div>'
+          +'<div class="p" style="color:'+(ready?CINK[c]:"var(--faint)")+'"'
+            +(ready?' data-count="'+pct+'" data-ck="pf:'+e(r.key)+'" data-cfmt="pct"':'')+'>'+(ready?(pct+'%'):'—')+'</div>'
           +'<div class="dpf-bar"><span style="--w:'+(ready?Math.min(100,pct):0)+'%;background:'+CVAR[c]+'"></span></div>'
           +'</div>';
       }).join(""));
       setKey("#haPipeKey",
-        '<span><i style="background:var(--ok)"></i>&ge; 90% (Green)</span>'
-        +'<span><i style="background:var(--warn)"></i>70% – 89% (Amber)</span>'
-        +'<span><i style="background:var(--alert)"></i>&lt; 70% (Red)</span>');
+        '<span><i style="background:var(--ok)"></i>&ge; 90% &middot; on target</span>'
+        +'<span><i style="background:var(--warn)"></i>70% – 89% &middot; close</span>'
+        +'<span><i style="background:var(--alert)"></i>&lt; 70% &middot; below target</span>');
       txt("#haPipeHint",_haTargets?("Expected values from advisor_targets · "+_haPeriod())
         :(_haTargetsMissing?"No advisor_targets table yet — expected values derived from this book's size."
           :"No target row for "+_haPeriod()+" — expected values derived from this book's size."));
@@ -6011,11 +6434,17 @@ export function initApp(root: HTMLElement) {
       const fuTot=fu.total.length;
       // The COUNT sits inside the ring and its share of all planned follow-ups reads underneath, so
       // each tile answers "how many" and "how much of the workload" without needing the other three.
-      const ring=(label:string,n:number,colour:string,dm:string,tip:string)=>{
+      const ring=(label:string,n:number,colour:string,icon:string,dm:string,tip:string)=>{
         const frac=fuTot>0?Math.min(1,n/fuTot):0;
         const share=fuTot>0?Math.round((n/fuTot)*100):0;
         const R=27, C=2*Math.PI*R;
-        return '<div class="dfu-c" data-metric="'+e(dm)+'" title="'+e(tip)+'">'
+        // ICON inside the ring, COUNT underneath in the ring's own colour. The count outgrew the
+        // ring: "150" at the weight this figure needs nearly touches the arc on both sides, and the
+        // arc is the one thing that must stay readable — it is the only place the proportion lives.
+        // Below the ring the figure has the full card width, and the colour ties the two together.
+        // The share it displaced was never load-bearing (the arc already draws it) and now reads in
+        // the tooltip, where the exact number belongs.
+        return '<div class="dfu-c" data-metric="'+e(dm)+'" title="'+e(tip+(fuTot>0?" — "+share+"% of all planned follow-ups.":""))+'">'
           +'<div class="k">'+e(label)+'</div>'
           // --c / --to drive the draw-on animation from CSS; the resting value is --to, so the ring
           // still shows the right arc if animation is suppressed (reduced motion).
@@ -6023,15 +6452,15 @@ export function initApp(root: HTMLElement) {
             +'<circle cx="32" cy="32" r="'+R+'" fill="none" stroke="var(--line)" stroke-width="6"/>'
             +'<circle class="arc" cx="32" cy="32" r="'+R+'" fill="none" stroke="'+colour+'" stroke-width="6" stroke-linecap="round"'
             +' stroke-dasharray="'+C.toFixed(1)+'" style="--c:'+C.toFixed(1)+';--to:'+(C*(1-(ready?frac:0))).toFixed(1)+'"/>'
-          +'</svg><span class="ci"><span class="rv" style="color:'+colour+'">'+(ready?n:"—")+'</span></span></div>'
-          +'<div class="rs">'+(ready?(share+"%"):"&nbsp;")+'</div>'
+          +'</svg><span class="ci"><svg class="icon" style="width:21px;height:21px;stroke:'+colour+'"><use href="#'+icon+'"/></svg></span></div>'
+          +'<div class="rv" style="color:'+colour+'"'+(ready?' data-count="'+n+'" data-ck="'+e(dm)+'"':'')+'>'+(ready?n.toLocaleString("en-IN"):"—")+'</div>'
           +'</div>';
       };
       set("#haFollowupCards",
-        ring("Total",fuTot,"var(--brand)","fu:total","Every lead with a planned follow-up date & time. Click to open them.")
-        +ring("Done",fu.done.length,"var(--ok)","fu:done","A call or a follow-up note logged after the planned time. Click to open them.")
-        +ring("Due Today",fu.today.length,"#2A5378","fu:today","Planned for today and still not actioned. Click to open them.")
-        +ring("Overdue",fu.overdue.length,"var(--alert)","fu:overdue","The planned day has passed with no call or note since, and the lead has not enrolled. Click to open them."));
+        ring("Total Follow-ups",fuTot,"var(--brand)","i-board","fu:total","Every lead with a planned follow-up date & time. Click to open them.")
+        +ring("Done",fu.done.length,"var(--ok)","i-check","fu:done","A call or a follow-up note logged after the planned time. Click to open them.")
+        +ring("Due Today",fu.today.length,"#2A5378","i-cal","fu:today","Planned for today and still not actioned. Click to open them.")
+        +ring("Overdue",fu.overdue.length,"var(--alert)","i-warn","fu:overdue","The planned day has passed with no call or note since, and the lead has not enrolled. Click to open them."));
 
       // ---------- PANEL 4 · Targets & performance ----------
       // EVERY target here comes from the advisor_targets master (Settings → Advisor targets). The
@@ -6106,7 +6535,8 @@ export function initApp(root: HTMLElement) {
           +(okToShow?'<span class="dtg-dot" style="background:'+CVAR[cls]+'"></span>':'')+'</div>'
         +'<div class="dtg-bd">'
           +'<div class="r">'+ratio+'</div>'
-          +'<div class="p" style="color:'+(okToShow?CINK[cls]:"var(--faint)")+'">'+(okToShow?(pct+"%"):"—")+'</div>'
+          +'<div class="p" style="color:'+(okToShow?CINK[cls]:"var(--faint)")+'"'
+            +(okToShow?' data-count="'+pct+'" data-ck="tg:'+e(label)+'" data-cfmt="pct"':'')+'>'+(okToShow?(pct+"%"):"—")+'</div>'
         +'</div>'
         +series+'</div>';
       const revOk=ready&&_haPayLoaded;
@@ -6150,7 +6580,9 @@ export function initApp(root: HTMLElement) {
             +'<span class="gt">'+(ready?gTot:"—")+'</span></div>'
           +'<div class="ddg-bd">'+rows.map((r:any)=>{
             const share=gTot>0?Math.round((r.n/gTot)*100):0;
-            return '<div class="ddg-row" data-metric="dispo:'+e(r.code)+'" title="'+e(r.code+" — "+r.n+" lead"+(r.n===1?"":"s")+" ("+share+"% of "+grp.g+"). Click to open them.")+'">'
+            // A code with no leads against it is dimmed rather than dropped — the panel's job is to
+            // show all 20 codes, and a missing row would read as a rendering fault.
+            return '<div class="ddg-row'+(r.n?"":" zero")+'" data-metric="dispo:'+e(r.code)+'" title="'+e(r.code+" — "+r.n+" lead"+(r.n===1?"":"s")+" ("+share+"% of "+grp.g+"). Click to open them.")+'">'
               +'<span class="dl">'+e(r.code)+'</span>'
               // .dcnt, not .dn — a bare .dn is the global 7px status dot and would squeeze this count
               // into a circle.
@@ -6206,7 +6638,10 @@ export function initApp(root: HTMLElement) {
       const FUN_MIN=44;
       const wOf=(n:number)=>Math.round(FUN_MIN+(100-FUN_MIN)*(top>0?Math.min(1,n/top):0));
       set("#haFunnel",stages.map((s:any,i:number)=>{
-        const w=wOf(s.n), nw=i<stages.length-1?wOf(stages[i+1].n):Math.round(w*0.86);
+        // The LAST tier closes the shape. At 0.86 it barely narrowed, so the funnel ended on a band
+        // that looked cut off rather than finished; 0.62 gives a visible neck while still leaving the
+        // bottom edge wide enough for the label above it.
+        const w=wOf(s.n), nw=i<stages.length-1?wOf(stages[i+1].n):Math.round(w*0.62);
         const inset=Math.max(0,((1-nw/w)/2)*100);
         return '<div class="dfun-t" data-metric="'+e(s.dm)+'" title="'+e(s.l+": "+s.n+" — click to open them")+'"'
           +' style="width:'+w+'%;background:'+s.c+';clip-path:polygon(0 0,100% 0,'+(100-inset).toFixed(1)+'% 100%,'+inset.toFixed(1)+'% 100%)">'
@@ -6269,7 +6704,10 @@ export function initApp(root: HTMLElement) {
         +tCard("Incoming Calls",ready&&_advCallLoaded?String(inb):dash,"Inbound attempts","","callsin","Inbound calls on these leads. Click to open the leads with calls.")
         +tCard("Missed Calls",ready&&_advCallLoaded?String(miss):dash,"Inbound, not answered","","callsmiss","Inbound calls that never connected. Click to open the leads with calls."));
       txt("#haCallHint",_advCallLoaded?"Every call linked to these leads, however it was dialled.":"Loading call records…");
-      try{ _advRenderCallHourly(book); }catch(_){}   // hourly advisor breakdown, same rows as the cards
+
+      // Last, once every figure on the screen is in the DOM. Any element written above that carries
+      // data-count rises to its value from the one it last held.
+      try{ _dashCountUp(); }catch(_){}
     }
     // "2h 14m" / "18m" / "45s" — for the speed-to-contact average, which is usually hours, not seconds.
     function _haDurWords(secs:number){
@@ -6655,7 +7093,13 @@ export function initApp(root: HTMLElement) {
     // Receptionist / Accounts / Physiotherapist / Instructor whose role is explicitly non-assignable.
     // Note this deliberately does NOT gate the read-only "Assigned leads" advisor FILTER — that one
     // must still list whoever actually holds leads, including someone since made non-assignable.
-    function _assignTargets(svc:string):string[]{
+    // Who may RECEIVE leads for `svc`, as assignee ROWS. Pass "all" for the union across services.
+    // Extracted so the "Assign to" menus and the Advisor Leads Count Setting cannot disagree about
+    // who counts as an advisor — they did: the allocation table matched a regex against the single
+    // `assignees.role` column and so missed sugashini, who holds Health Coach there but qualifies on
+    // a SECOND role carried in app_users.roles. She appeared in the Assign-to menu and was absent
+    // from the allocation, which is the one place her daily limit would have been set.
+    function _assignableAdvisors(svc:string):any[]{
       // Multi-role: qualifies if ANY held role is an advisor/telecaller grade AND that same role is
       // marked assignable. Checked per-role so a Health Coach + Advisor gets in on the Advisor
       // role, while a Health Coach alone still does not.
@@ -6664,7 +7108,10 @@ export function initApp(root: HTMLElement) {
         const roles=_rolesOf(a);
         if(!roles.some(r=>_isAdvisorAssignRole(r)&&_roleIsAssignable(r))) return false;
         return _advisorInService(a,svc);
-      }).map((a:any)=>a.name);
+      });
+    }
+    function _assignTargets(svc:string):string[]{
+      return _assignableAdvisors(svc).map((a:any)=>a.name);
     }
     // Shown when a service has no advisor mapped to it — the list is empty because of configuration,
     // not a loading failure, so say where to fix it.
@@ -7152,6 +7599,11 @@ export function initApp(root: HTMLElement) {
         // shown on Advisor, Reception and Coach — this is the case reported repeatedly.
         if(scr==="advisor"||scr==="reception"||scr==="coach"){ try{ loadZoomCheckins(); }catch(_){} }
       }
+      // The Advisor's slot board is the OTHER thing an appointments change moves, and it was the one
+      // screen left out: only the Zoom queue above refreshed here, so a reschedule or a coach
+      // reassignment made at Reception sat invisible on an open lead until someone re-opened it.
+      // Re-reading the row re-derives the board's date, coach and booked slot in one step.
+      if(scr==="advisor"&&table==="appointments"&&_advLeadId){ try{ _advLoadAppt(_advLeadId); }catch(_){} }
       if(table==="leads"){
         loadAssignmentExtras().then(()=>{ try{ rebuildPoolFromDB(); renderAssignedLeads(); renderHealthDashboard(); if(scr==="abm"){ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); } }catch(_){} });
       }
@@ -7472,7 +7924,7 @@ export function initApp(root: HTMLElement) {
     }
 
     // ---- Load persisted CSV data from Supabase ----
-    async function loadCsvData(){
+    async function loadCsvData__inner(){
       try{
         const [lr,br]=await Promise.all([
           supabase.from("csv_leads").select("*").order("created_at",{ascending:false}),
@@ -8130,7 +8582,7 @@ export function initApp(root: HTMLElement) {
     const _istDay=(iso:any)=>{ try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(iso)); }catch(_){ return String(iso||"").slice(0,10); } };
     // Minutes-into-day for a slot label ("2:00 PM" → 840) so same-day rows sort chronologically.
     const _apptTimeMin=(t:string)=>{ const m=String(t||"").match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i); if(!m) return 0; let h=Number(m[1])%12; if(/pm/i.test(m[3])) h+=12; return h*60+Number(m[2]); };
-    async function loadReceptionData(){
+    async function loadReceptionData__inner(){
       try{
         const [ar,pr,cr]=await Promise.all([
           supabase.from("appointments").select("*").order("appt_date",{ascending:false}).limit(500),
@@ -8622,18 +9074,50 @@ export function initApp(root: HTMLElement) {
         return {r,mins,tier:mins<=0?"urg":(mins<=15?"due":"up")};
       }).sort((a:any,b:any)=>a.mins-b.mins);                 // nearest / most urgent first
     }
-    // One short beep when a reminder first reaches a stronger tier. WebAudio needs no asset; a
-    // blocked sound never hides the visual reminder, which stays the primary mechanism.
+    // A FIVE-BEEP chime when a reminder first reaches a stronger tier. One long tone read as a UI
+    // blip and was missed across a busy clinic floor; five short beeps with a gap between them read
+    // as a notification. WebAudio needs no asset, and a blocked sound never hides the visual
+    // reminder, which stays the primary mechanism.
+    //
+    // All five are SCHEDULED UP FRONT on one AudioContext against ctx.currentTime, not fired from
+    // setTimeout. Timer callbacks drift under load and would smear the rhythm; the audio clock does
+    // not, so the pattern sounds identical on a busy machine.
+    const REM_BEEPS=5, REM_TONE=0.13, REM_GAP=0.09;      // 5 x (130ms tone + 90ms gap) ≈ 1.1s total
+    let _remBeepUntil=0;
     function _remBeep(){
       try{
+        // One sequence at a time. Several reminders can cross a tier in the same render pass (the
+        // 2 o'clock and 2:15 appointments both coming due on one tick), and without this each would
+        // start its own five beeps over the top of the last — a smear, not a notification. The
+        // per-reminder _remSounded guard still decides WHETHER to notify; this decides that a
+        // notification already in the air is not doubled.
+        const now=Date.now(); if(now<_remBeepUntil) return;
         const AC=(window as any).AudioContext||(window as any).webkitAudioContext; if(!AC) return;
-        const ctx=new AC(); const o=ctx.createOscillator(); const g=ctx.createGain();
-        o.connect(g); g.connect(ctx.destination); o.type="sine"; o.frequency.value=880;
-        g.gain.setValueAtTime(0.0001,ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.12,ctx.currentTime+0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.35);
-        o.start(); o.stop(ctx.currentTime+0.36);
-        setTimeout(()=>{ try{ ctx.close(); }catch(_){} },600);
+        const ctx=new AC();
+        // Browsers start a context suspended until the page has been interacted with. Resuming is
+        // best-effort: if the policy still blocks it the visual reminder is unaffected.
+        try{ if(ctx.state==="suspended") ctx.resume(); }catch(_){}
+        const step=REM_TONE+REM_GAP;
+        const total=0.03+REM_BEEPS*step;
+        _remBeepUntil=now+Math.ceil(total*1000)+150;
+        // One master gain for the whole chime keeps the five beeps at an identical level and gives a
+        // single place to change the volume. 0.55 against the old 0.12 is the audible-across-a-room
+        // level asked for, and still short of the clipping a raw 1.0 sine would risk.
+        const master=ctx.createGain(); master.gain.value=0.55; master.connect(ctx.destination);
+        for(let i=0;i<REM_BEEPS;i++){
+          const t0=ctx.currentTime+0.03+i*step;
+          const o=ctx.createOscillator(); const g=ctx.createGain();
+          o.connect(g); g.connect(master);
+          o.type="sine"; o.frequency.setValueAtTime(880,t0);
+          // Ramped, never switched: a square-edged gain change on a sine is an audible click at this
+          // volume. exponentialRamp cannot reach 0, hence the 0.0001 floor at each end.
+          g.gain.setValueAtTime(0.0001,t0);
+          g.gain.exponentialRampToValueAtTime(1,t0+0.012);
+          g.gain.setValueAtTime(1,t0+REM_TONE-0.035);
+          g.gain.exponentialRampToValueAtTime(0.0001,t0+REM_TONE);
+          o.start(t0); o.stop(t0+REM_TONE+0.01);
+        }
+        setTimeout(()=>{ try{ ctx.close(); }catch(_){} },Math.ceil(total*1000)+400);
       }catch(_){}
     }
     function _remAct(id:any,patch:any){
@@ -10272,6 +10756,11 @@ export function initApp(root: HTMLElement) {
       // so an open Coach tab needs a reload to surface it — otherwise it only appears after a manual refresh.
       if(_scr==="coach"&&("visitedAt" in m)&&m.visitedAt&&!_coachClients.some((x:any)=>String(x.id)===id)){ try{ loadCoachClients(); }catch(_){} }
       // If the affected lead is OPEN in this tab's Advisor / Coach profile, apply it live.
+      // An appointment move (Reception reschedule, coach reassignment, a booking made elsewhere)
+      // changes the slot board's date, coach and booked slot, so re-read the row it draws from.
+      // Same-browser tabs land instantly here; other devices come through the SSE path, which is
+      // debounced by 400ms.
+      try{ if(String(_advLeadId)===id&&m.appointment) _advLoadAppt(id); }catch(_){}
       try{ if(String(_advLeadId)===id&&m.callStatus!=null) _advApplyEnrolled(m.callStatus,m.enrolledAt,m.consStatus); }catch(_){}
       try{ if(String(_advLeadId)===id&&("visitedAt" in m)) _advApplyVisited(m.visitedAt,"",m.confirmedAt); }catch(_){}
       // Open Coach profile on a cross-tab ENROLL: flip the consultation-status pills (not just the pay
@@ -10650,7 +11139,7 @@ export function initApp(root: HTMLElement) {
       }
       // Follow-up plan "Planned date & time" mirrors the canonical Next-follow-up field.
       if(v==="fu"){ const _fp=root.querySelector("#fuPlannedDt")as HTMLInputElement|null; if(_fp) _fp.value=((root.querySelector("#nextFollowUp")as HTMLInputElement)?.value)||_fp.value; }
-      const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:[_advLayoutBt?"Appt Fixed (Home)":"Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"],disc:["Disconnect","warn"]};
+      const map:Record<string,[string,string]>={new:["New","vio"],fu:["Follow Up","warn"],paid:["Already Paid","info"],afd:["Appt Fixed","ok"],afz:[_advLayoutBt?"Appt Fixed (Home)":"Appt Fixed (Zoom)","ok"],ni:["Not Interested","al"],cb:["Call Back","vio"],disc:["Disconnect","warn"],invalid:["Invalid","neu"]};
       const m=map[v]||[v,"neu"];
       if(badge){badge.textContent="Status: "+m[0];badge.className="chipb "+m[1];}
       if(v==="afd"||v==="afz"){ const sdEl=root.querySelector("#slotDate")as HTMLInputElement|null; if(sdEl&&!sdEl.value) sdEl.value=_todayLocal(); renderSlots(); }   // LOCAL date (not UTC) so an early-morning IST default isn't "yesterday" and rejected by bookSlot's _todayLocal check. no auto-popup/auto-book — the advisor opens the slot board and books a slot explicitly
@@ -10707,9 +11196,57 @@ export function initApp(root: HTMLElement) {
     // to the currently-selected HC so the board shows only that coach's schedule.
     type SlotBk={name:string;hc:string;leadId:string};
     const HC_CAP=SLOT_CAP; let slots:Record<string,SlotBk[]>={}; let selSlot:string|null=null; let booked:string|null=null; let resch=false;
-    // The HC that drives the slot board is ALWAYS the "HC assigned" value from Assignment &
-    // pipeline (the board's own HC dropdown is locked/read-only and only mirrors it).
-    function _apptHcVal():string{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; if(h) return h; return (root.querySelector("#apptHc")as HTMLSelectElement|null)?.value||""; }
+    // The HC that drives the slot board is the one on the LEAD'S LIVE APPOINTMENT when it has one,
+    // and only otherwise the "HC assigned" value from Assignment & pipeline.
+    //
+    // The order matters and it is the fix for the reported bug. Reception can reschedule a booked
+    // lead onto a different coach; it writes hc_pt on the appointments row and — correctly — leaves
+    // the advisor's own assignment field alone. Reading #hcSel first therefore pinned the board to
+    // whoever the advisor originally picked, so after a hand-off from Gomathi to Kavipriya the board
+    // kept showing Gomathi's schedule. Once an appointment exists, the appointment IS the booking;
+    // the assignment field is only the advisor's intent for a lead not yet booked.
+    function _apptHcVal():string{
+      if(_advApptLive()) { const h=String((_advApptRow&&_advApptRow.hc)||""); if(h) return h; }
+      const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; if(h) return h;
+      return (root.querySelector("#apptHc")as HTMLSelectElement|null)?.value||"";
+    }
+    // Should this row steer the board? It must belong to the lead on screen, and it must still be
+    // live in a useful sense.
+    //
+    // NOT simply status==='expected'. Lead 8300105865 — the reported case — sits at status 'visited'
+    // on today's date: the client was rescheduled onto Kavipriya and has since been seen. Requiring
+    // 'expected' would skip precisely the lead this is meant to fix, and the board would keep showing
+    // the coach from the advisor's assignment field.
+    //
+    // NOT "any row" either. A visit from three months ago is history, and letting it drive the board
+    // would drag the date backwards every time the advisor opened that lead to book something new.
+    // So: pending always counts; anything else counts only while it is still today or ahead.
+    function _advApptLive():boolean{
+      if(!_advApptRow||_advApptFor!==String(_advLeadId)) return false;
+      const st=String(_advApptRow.status||"");
+      if(st==="cancelled") return false;
+      if(st==="expected") return true;
+      const d=String(_advApptRow.date||"");
+      return !!d && d>=_todayLocal();
+    }
+    // Push the live appointment onto the board: its date, its coach, and the slot it holds.
+    // Called when a lead is opened and again whenever an appointments change arrives over SSE.
+    function _advApplyApptToBoard(){
+      if(!_advApptLive()){ renderSlots(); return; }
+      const a=_advApptRow;
+      const dEl=root.querySelector("#slotDate")as HTMLInputElement|null;
+      if(dEl&&a.date&&dEl.value!==a.date) dEl.value=a.date;
+      // A <select> silently rejects a value it has no <option> for, leaving it "" — which would read
+      // as "no coach" and blank the board. The coach on the appointment is authoritative even if the
+      // assignees master no longer lists them (renamed, deactivated, or a physio-line name while a
+      // diabetes layout is loaded), so the option is added rather than the value dropped.
+      // "HC assigned" in Assignment & pipeline follows the reschedule too. Leaving it on the previous
+      // coach while the board beside it showed the new one only moved the contradiction one panel up.
+      _advSyncApptCoach();
+      selSlot=a.time||null;
+      booked=a.time||null;
+      renderSlots();
+    }
     // Load REAL slot occupancy for the chosen date AND the selected HC from the appointments table.
     // Returns false when the availability check itself failed — the caller (bookSlot) must NOT
     // treat that as "every slot is free". Before this, a failed read here (the gateway resolves
@@ -10731,10 +11268,25 @@ export function initApp(root: HTMLElement) {
       const g=root.querySelector("#slotGrid"); if(!g) return;
       const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hc=_apptHcVal();
-      // The board's HC dropdown is LOCKED: always mirror the assigned HC + keep it disabled so
-      // it can't be changed here. Booking is only ever for the assigned Health Coach.
+      // The board's HC dropdown is LOCKED: it mirrors whoever actually owns this booking and stays
+      // disabled so it can't be changed here.
+      const fromAppt=_advApptLive()&&!!(_advApptRow&&_advApptRow.hc);
       const apptHcEl=root.querySelector("#apptHc")as HTMLSelectElement|null;
-      if(apptHcEl){ apptHcEl.value=hc; apptHcEl.disabled=true; apptHcEl.title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"; }
+      if(apptHcEl){
+        // Add the option before assigning: a <select> drops a value it has no option for, and the
+        // coach on a live appointment must show even when the assignees master no longer lists them.
+        if(hc&&!Array.from(apptHcEl.options).some((o:any)=>o.value===hc||o.text===hc)){
+          const opt=document.createElement("option"); opt.value=hc; opt.text=hc; apptHcEl.appendChild(opt);
+        }
+        apptHcEl.value=hc; apptHcEl.disabled=true;
+        apptHcEl.title=fromAppt
+          ?"Taken from this lead's live appointment — Reception can reassign the coach, and the board follows it. Change it from the Reception appointment row."
+          :"Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here";
+      }
+      // The badge has to say WHICH source, or a board showing Kavipriya under a label reading
+      // "FROM ASSIGNMENT" (where the advisor still sees Gomathi) looks like a bug in the page.
+      const hcSrcEl=root.querySelector("#apptHcSrc")as HTMLElement|null;
+      if(hcSrcEl) hcSrcEl.textContent=fromAppt?"FROM APPOINTMENT":"FROM ASSIGNMENT";
       const capEl=root.querySelector("#apptCapRule")as HTMLInputElement|null;
       if(capEl) capEl.value=hc?(SLOT_CAP+" booking / slot · "+hc):"Assign an HC first";
       if(!hc){ g.innerHTML='<div style="grid-column:1/-1;text-align:center;color:var(--faint);padding:22px 8px">Assign a <b>Health Coach</b> in <b>Assignment &amp; pipeline</b> (HC assigned) — the slot board loads that coach\'s schedule automatically. Each coach has an independent schedule.</div>'; selSlot=null; return; }
@@ -10760,7 +11312,9 @@ export function initApp(root: HTMLElement) {
     w.renderSlots = renderSlots;
     // Assigning a Health Coach in "Assignment & pipeline" links it to the appointment booking:
     // the slot board switches to that coach's schedule.
-    w._hcAssignedChange=()=>{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; const a=root.querySelector("#apptHc")as HTMLSelectElement|null; if(a) a.value=h; selSlot=null; renderSlots();
+    w._hcAssignedChange=()=>{ const h=(root.querySelector("#hcSel")as HTMLSelectElement|null)?.value||""; const a=root.querySelector("#apptHc")as HTMLSelectElement|null; if(a) a.value=h; selSlot=null;
+      _advHcTouched=true;   // an explicit choice — this one IS allowed to move the appointment
+      renderSlots();
       // A corrected HC must follow the lead onto its PENDING appointment — the booking snapshots
       // hc_pt at book time, so changing this dropdown afterwards silently left the appointment (and
       // the coach queue) on the old coach. Only 'expected' rows: a visited appointment is history.
@@ -10999,6 +11553,10 @@ export function initApp(root: HTMLElement) {
       if(!fu||fu.style.display==="none") return;   // guard: only the follow-up flow syncs
       const commit=(root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value||"";
       const rev=root.querySelector("#haReviewDate")as HTMLInputElement|null;
+      // Both fields are datetime-local now, so the mirror passes the value through whole — the time
+      // the client committed to IS the time to review them at. (While Review date was still a plain
+      // date input this had to slice the date half off, because a date field handed a datetime
+      // string is silently blanked by the browser.)
       if(rev){ rev.value=commit; rev.classList.remove("err"); }
     };
 
@@ -11151,12 +11709,15 @@ export function initApp(root: HTMLElement) {
       if(activeMethod!==t.method) return;                         // only the selected method enrolls
       if((sel.value||"").trim()!==t.trigger) return;              // only its "done/received/paid" value
       if(!_coachLeadId){ toast("Open a client first to enroll"); return; }
-      const prog=_curProgram();
-      let level=(prog==="L1")?"L1":(prog==="L2"?"L2":"L1 + L2");
-      // If the client is already enrolled in the OTHER program, mark them enrolled in BOTH.
-      const cur=_coachConsStatus||""; const hasL1=/\bL1\b/.test(cur), hasL2=/\bL2\b/.test(cur);
-      if(level==="L2"&&hasL1) level="L1 + L2"; else if(level==="L1"&&hasL2) level="L1 + L2";
-      _enrollLeadShared(String(_coachLeadId),"Payment "+t.trigger,level).then((iso:string|null)=>{ if(iso!==null){ _setPayEnrollDisplay(level,iso||((_coachClients.find((x:any)=>String(x.id)===String(_coachLeadId))||{}).enrolledAt)||""); toast("🏆 Enrolled – "+level+" (from payment)"); try{ _refreshPayEnrollChip(); }catch(_){} /* upgrade the generic "Enrolled – Lx" to the detailed stage once payment rows reflect it */ } });
+      // DOES NOT ENROL. Selecting a payment status states an intention; it is not a saved payment.
+      // This used to call _enrollLeadShared immediately, so picking "1st Paid" or "Payment Done"
+      // stamped enrolled_at the moment the dropdown changed, while the payments row is only written
+      // later by the save. Navigate away, close the drawer, or let the save fail, and the client was
+      // left ENROLLED WITH NO PAYMENT AT ALL - the state five of production's six enrolled leads are
+      // in (Shiva Arudhra, Abdul Salim: enrolled_at set, zero payment rows, Amount reading "-").
+      // _ensureEnrolledFromPayment already enrols on save, AFTER the insert is confirmed, and is
+      // idempotent - so the money and the enrolment can no longer disagree.
+      toast("Set - enrolment is recorded when you save this payment");
     };
     // After a profile restores the (hidden) pills, mirror each on-pill back into its dropdown.
     function _syncPayStSelects(){ root.querySelectorAll("#s-coach select[data-nocap]").forEach((sel:any)=>{ const grp=sel.parentElement&&sel.parentElement.querySelector(".pills"); const on=grp&&grp.querySelector(".pill.on"); if(on) sel.value=(on.textContent||"").trim(); }); }
@@ -11623,7 +12184,7 @@ export function initApp(root: HTMLElement) {
       if(_scDate==="cust"){ const f=(root.querySelector("#scFrom")as HTMLInputElement)?.value; const t=(root.querySelector("#scTo")as HTMLInputElement)?.value; return [f?sod(new Date(f)):null,t?eod(new Date(t)):null]; }
       return [null,null];
     }
-    async function loadScreeningData(){
+    async function loadScreeningData__inner(){
       try{
         // Fetch by MILESTONE, not by current stage: a client who was screened and then progressed
         // (stage → payment / enrolled / …) must stay on this page and in the day's Screened count.
@@ -11914,7 +12475,15 @@ export function initApp(root: HTMLElement) {
       _coachApplying=true;
       try{
         const els=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap"));
-        (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
+        (obj.f||[]).forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return;
+          if("c" in rec){ el.checked=!!rec.c; return; }
+          let v=rec.v==null?"":String(rec.v);
+          // Commitment date became a date+TIME field. Every profile saved before that holds a plain
+          // "YYYY-MM-DD", which a datetime-local input rejects outright — it would restore as blank
+          // and quietly drop the one date the strong-follow-up plan is built around. Default the
+          // time to 09:00 so an older record opens with its date intact.
+          if(el.type==="datetime-local"&&/^\d{4}-\d{2}-\d{2}$/.test(v)) v+="T09:00";
+          el.value=v; });
         const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
         const chipEls=Array.from(p.querySelectorAll(".chip-o")); (obj.chips||[]).forEach((on:boolean,i:number)=>{ if(chipEls[i]) (chipEls[i]as HTMLElement).classList.toggle("on",!!on); });
         _coachAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderCoachAtts();
@@ -12324,7 +12893,7 @@ export function initApp(root: HTMLElement) {
       {key:"act",label:"Actions",filter:false},
     ];
     regGrid("zoomTbl",()=>_zoomTblCols,()=>renderZoomTbl());
-    async function loadRecordings(){
+    async function loadRecordings__inner(){
       // Health Advisor: this page shows only THEIR Call Status + Call Recordings (advisors don't do
       // office visits / Zoom consults). Every other role keeps the Office-Visit + Zoom tables.
       const isAdv=_isAdvisorRole();
@@ -12664,7 +13233,7 @@ export function initApp(root: HTMLElement) {
       if(/enrol/i.test(String(c.consStatus||""))||!!c.enrolledAt||/l[12]/i.test(String(c.enrolledLevel||""))) return true;
       return !/(blood|phys|weight|sauna|cold|hbot|hyperbaric)/.test(s);
     }
-    async function loadCoachClients(){
+    async function loadCoachClients__inner(){
       try{
         let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status,enrolled_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
         if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
@@ -12922,7 +13491,12 @@ export function initApp(root: HTMLElement) {
       d.setDate(d.getDate()+30);
       return _pre+fmtIST(d.toISOString())+" (auto +30d)";
     }
-    function _coachCommitOf(c:any){ const d=c&&c.coachProfile&&c.coachProfile.commitDate; return d?fmtISTDate(d):"—"; }
+    function _coachCommitOf(c:any){
+      const d=c&&c.coachProfile&&c.coachProfile.commitDate; if(!d) return "—";
+      // Show the time when the record carries one — that is the point of the field now. Older
+      // date-only records keep reading as a plain date rather than gaining a fictitious 00:00.
+      return /T\d{2}:\d{2}/.test(String(d))?fmtIST(d):fmtISTDate(d);
+    }
     function _coachCliColsFn(){
       const cols:any[]=[
         {key:"name",label:"Lead Name",filter:true,text:(c:any)=>c.name||""},
@@ -13517,7 +14091,10 @@ export function initApp(root: HTMLElement) {
           try{ if(rd){ _setFutureMin(rd); rd.focus(); } }catch(_){}
           return;
         }
-        if(rd && rd.value && rd.value<_todayLocal()){ toastErr("Review date can't be in the past — choose today or a future date"); try{_setFutureMin(rd);rd.focus();}catch(_){} return; }
+        // _isPastVal, not a string compare against today's date: with a time on the field,
+        // "2026-08-19T09:00" sorts AFTER "2026-08-19", so a slot earlier this morning would have
+        // passed a lexical check. That helper already understands both input types.
+        if(rd && rd.value && _isPastVal(rd)){ toastErr("Review date can't be in the past — choose the current or a future date & time"); try{_setFutureMin(rd);rd.focus();}catch(_){} return; }
       }
       // Highlight-clearing helper for the coach form (mirrors the missing-field style used elsewhere).
       const _clr=(sel:string)=>{ const e=root.querySelector(sel)as HTMLElement|null; if(e) e.classList.remove("err"); };
@@ -14437,7 +15014,7 @@ export function initApp(root: HTMLElement) {
       h+='</tbody></table>';
       el.innerHTML=h;
     }
-    async function loadBloodTestData(){
+    async function loadBloodTestData__inner(){
       await _btLoadMasters();
       await _btLoadOrders();
       _btRenderOrders();
@@ -15153,7 +15730,7 @@ export function initApp(root: HTMLElement) {
       _phRenderProgressSel();   // package size changed → rebuild 1/N … N/N and keep the current session selected
     };
 
-    async function loadPhysioData(){
+    async function loadPhysioData__inner(){
       if(!_phpList.length){ try{ loadPhysioPricing(); }catch(_){} }   // pricing card + defaults ride along
       try{
         // "%phys%" (not "%physio%") also catches the legacy "Physio" / "Physiotherapy" spellings and
@@ -15252,13 +15829,7 @@ export function initApp(root: HTMLElement) {
     }
     function _phRenderAll(){
       const f=_phFiltered; const all=_phAll;
-      // Billed vs collected, the same split the Admin Report and Accounts use. The old single figure
-      // summed payAmt across every row regardless of status, so money still owed read as revenue.
-      const collected=f.reduce((s:number,r:any)=>s+(r.payStatus==="paid"?Math.max(0,Number(r.payAmt)||0):0),0);
-      const billed=f.reduce((s:number,r:any)=>s+Math.max(0,r.payStatus==="paid"?(Number(r.payAmt)||0):(Number(r.packPrice)||0)),0);
       const el=(id:string)=>root.querySelector("#"+id);
-      if(el("phRevenue"))(el("phRevenue") as HTMLElement).textContent="₹"+collected.toLocaleString("en-IN");
-      if(el("phBilled"))(el("phBilled") as HTMLElement).textContent="of ₹"+billed.toLocaleString("en-IN")+" billed"+(billed>collected?" · ₹"+(billed-collected).toLocaleString("en-IN")+" due":"");
       const activePlans=all.filter((r:any)=>r.sessionsPlanned>0&&r.sessionsCompleted<r.sessionsPlanned);   // side "Active patients" list — whole book, not the date window
       // Every card is a filter: its count comes from the SAME predicate the table applies, so the
       // number on the card is exactly how many rows clicking it will show.
@@ -15317,6 +15888,10 @@ export function initApp(root: HTMLElement) {
     }
     w._phOpenSession=(id:any)=>{
       const r=_phAll.find((x:any)=>String(x.id)===String(id)); if(!r){toast("Not found");return;} _phOpenAppt=r;   // id is BIGSERIAL → gateway returns a string
+      // Every patient starts LOCKED. _phUnlockedFor is keyed by appointment, so opening a second
+      // patient closes the first one's assessment instead of leaving it open with no recording
+      // running for the new one. _phRecRenderList re-opens it if this consultation already has audio.
+      if(_phUnlockedFor!==String(r.id)) _phUnlockedFor="";
       const el=(s:string)=>root.querySelector("#"+s) as any;
       if(el("phSoapTitle")) el("phSoapTitle").textContent=r.name+" · Session "+_phProgressText(r.sessionsCompleted,r.sessionsPlanned);
       if(el("phPlanTitle")) el("phPlanTitle").textContent=r.name;
@@ -15332,6 +15907,22 @@ export function initApp(root: HTMLElement) {
       setRO("phAdvMode",[r.advMode,r.advSlot].filter(Boolean).join(" · ")||"—");
       setRO("phAdvReports",r.advReports||"—");
       setRO("phAdvNotes",r.advRemarks||"");
+      // Lock state + this consultation's recordings. Both run before the fields are filled below,
+      // so the assessment is never briefly visible while its audio is still being looked up.
+      try{ _phGateApply(); }catch(_){}
+      // Opening a patient RAISES the recording popup — that is the prompt to start the consultation.
+      // It waits for the recordings lookup to settle first: a consultation that already has audio
+      // unlocks itself, and popping a "start recording" dialog over an already-recorded session
+      // would ask the physiotherapist to record the same visit twice. The guards re-check the open
+      // patient because the lookup is async and they may have moved on in the meantime.
+      try{
+        _phRecRenderList(String(r.id)).then(()=>{
+          if(!_phOpenAppt||String(_phOpenAppt.id)!==String(r.id)) return;
+          if(_phUnlockedFor===String(r.id)) return;      // already unlocked — nothing to prompt for
+          if(_phIsRecording()&&_phRecApptId===String(r.id)) return;   // already recording this one
+          w._phGateOpen();
+        }).catch(()=>{});
+      }catch(_){}
       // ---- Patient assessment (physio_data.assessment) — restore exactly what was entered ----
       const asm=r.assessment||{};
       PH_ASSESS_FIELDS.forEach(([id,key])=>{ const e2=el(id); if(e2) e2.value=asm[key]||""; });
@@ -15438,6 +16029,216 @@ export function initApp(root: HTMLElement) {
       // next_session is owned by the Session Details panel (#phTpNext, saved in _phSavePlan) —
       // the assessment form no longer carries the field, so it must not write (or blank) it here.
     }
+    // ===== Physiotherapy consultation recording =====
+    // Deliberately a PARALLEL implementation of the Health Coach's office-visit recorder rather than
+    // a shared one. The coach recorder is bound to _coachLeadId and to the #micBtn / #ovrTimer /
+    // #ovrList element ids; generalising it would mean editing every one of those call sites, on a
+    // workflow that is in daily use. These handlers own their own state and their own element ids,
+    // so a physio recording and a coach recording can even run in two tabs without touching.
+    //
+    // What IS shared, on purpose, is the destination: the same `office-recordings` storage bucket and
+    // the same `office_recordings` table, tagged kind:'physio'. One place to look for clinic audio.
+    // A physio row also carries appointment_id, because the same patient is recorded again at every
+    // visit of a multi-session course and lead_id alone cannot tell session 2 from session 5.
+    let _phRec:any=null; let _phRecChunks:any[]=[]; let _phRecStartMs=0; let _phRecTimer:any=null;
+    let _phRecApptId=""; let _phRecLeadId="";
+    // Unlocked PER APPOINTMENT, never globally: opening a different patient must re-lock, or the
+    // second patient's assessment would already be open with no recording running for them.
+    let _phUnlockedFor="";
+    const _phIsRecording=()=>!!(_phRec&&_phRec.state==="recording");
+
+    // The patient's position in their course — "2 / 6". Shown in the gate popup and on the recording
+    // bar, and stamped onto the saved recording so a file can be traced to the session it captured.
+    function _phSessionLabel(r:any):string{
+      if(!r) return "—";
+      const planned=Number(r.sessionsPlanned)||0;
+      return planned?("Session "+_phProgressText(r.sessionsCompleted,r.sessionsPlanned))
+                    :("Session "+_phCurrentSession(r.sessionsCompleted,r.sessionsPlanned));
+    }
+    // ONE gate, TWO sections. Patient assessment and Physiotherapy Session Details both carry the
+    // .ph-gated wrapper and both have their own lock note, so querySelectorAll — a single
+    // querySelector would have opened the assessment and silently left the session plan hidden.
+    function _phGateApply(){
+      const r=_phOpenAppt;
+      const open=!!r&&_phUnlockedFor===String(r.id);
+      root.querySelectorAll(".ph-gated").forEach((g:any)=>{
+        g.style.display=open?"":"none";
+        // Belt and braces: a hidden field cannot be typed into, but disabling also blocks programmatic
+        // focus and autofill — the same reasoning as the coach's gate.
+        g.querySelectorAll("input,select,textarea,button").forEach((f:any)=>{ f.disabled=!open; });
+      });
+      ["#phLockNote","#phPlanLockNote"].forEach(sel=>{
+        const note=root.querySelector(sel)as HTMLElement|null;
+        if(note) note.style.display=open?"none":(r?"":"none");
+      });
+      const prog=root.querySelector("#phRecProgress")as HTMLElement|null;
+      if(prog) prog.textContent=r?_phSessionLabel(r):"—";
+    }
+    w._phGateOpen=()=>{
+      const r=_phOpenAppt;
+      if(!r){ toast("Open a patient first"); return; }
+      const set=(sel:string,v:string)=>{ const el=root.querySelector(sel)as HTMLElement|null; if(el) el.textContent=v; };
+      set("#phGateWho",r.name||"Patient");
+      set("#phGateProgress",_phSessionLabel(r));
+      const th=root.querySelector("#phGateTherapist")as HTMLElement|null;
+      if(th){ th.textContent=r.pt||""; th.style.display=r.pt?"":"none"; }
+      const m=root.querySelector("#phGateModal")as HTMLElement|null; if(m) m.classList.add("open");
+    };
+    w._phGateClose=()=>{
+      const m=root.querySelector("#phGateModal")as HTMLElement|null; if(m) m.classList.remove("open");
+      _phGateApply();   // closing WITHOUT starting leaves the assessment locked
+    };
+    w._phGateStart=async()=>{
+      const btn=root.querySelector("#phGateStartBtn")as HTMLButtonElement|null;
+      if(btn) btn.disabled=true;
+      try{
+        // _phRecToggle is a TOGGLE: with a recording already running it would STOP that recording and
+        // return, leaving this patient locked. That happens whenever a physiotherapist moves to the
+        // next patient without completing the first. Stop the previous one explicitly (it finalises
+        // and uploads against the appointment it was started for, via _phRecApptId), then start a
+        // fresh one. A recording never bleeds from one patient's record into another's.
+        if(_phIsRecording()){
+          try{ w._phRecStop(); }catch(_){}
+          await new Promise(r=>setTimeout(r,200));   // let onstop → _phRecFinalize claim the chunks
+        }
+        await w._phRecToggle();
+        if(!_phIsRecording()) return;   // permission denied / insecure context — _phRecToggle explained why
+        _phUnlockedFor=String((_phOpenAppt&&_phOpenAppt.id)||"");
+        _phGateApply();
+        const m=root.querySelector("#phGateModal")as HTMLElement|null; if(m) m.classList.remove("open");
+      } finally { if(btn) btn.disabled=false; }
+    };
+    function _phRecSetUi(recording:boolean){
+      const mb=root.querySelector("#phMicBtn")as HTMLElement|null;
+      const txt=root.querySelector("#phMicTxt");
+      const st=root.querySelector("#phRecStatus");
+      const start=root.querySelector("#phRecStartBtn")as HTMLElement|null;
+      if(mb) mb.classList.toggle("rec",recording);
+      if(txt) txt.textContent=recording?"Recording…":"Start consultation recording";
+      if(st) st.textContent=recording?"● Recording in progress — auto-saving to this patient's record"
+                                     :"In-clinic audio — auto-saved to this patient's record";
+      if(start) start.textContent=recording?"■ Stop Recording":"● Start Recording";
+      const t=root.querySelector("#phRecTimer"); if(t&&!recording) t.textContent="";
+    }
+    w._phRecToggle=async()=>{
+      if(_phIsRecording()){ w._phRecStop(); return; }
+      const r=_phOpenAppt;
+      if(!r){ toast("Open a patient first"); return; }
+      // Browsers only expose the microphone (getUserMedia/MediaRecorder) on a SECURE context — HTTPS
+      // or localhost. On a plain http:// deployment navigator.mediaDevices is undefined, so surface
+      // the real cause instead of a generic "not supported".
+      if(!window.isSecureContext){ toastErr("Audio recording needs a secure (HTTPS) connection — it is blocked on this http:// address. Open the app over https:// to record."); return; }
+      if(!navigator.mediaDevices||!(window as any).MediaRecorder){ toastErr("Audio recording is not supported in this browser"); return; }
+      let stream:MediaStream;
+      try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+      catch(_){ toastErr("Microphone permission denied"); return; }
+      _phRecChunks=[];
+      const MR=(window as any).MediaRecorder;
+      const mime=MR.isTypeSupported&&MR.isTypeSupported("audio/webm")?"audio/webm":"";
+      _phRec=new MR(stream,mime?{mimeType:mime}:undefined);
+      _phRec.ondataavailable=(ev:any)=>{ if(ev.data&&ev.data.size) _phRecChunks.push(ev.data); };
+      _phRec.onstop=()=>{ try{ stream.getTracks().forEach((t:any)=>t.stop()); }catch(_){} _phRecFinalize(); };
+      _phRec.start();
+      _phRecStartMs=Date.now();
+      // Pinned at START time. The physiotherapist can open another patient mid-recording, and the
+      // finished file must still be filed against the one it actually captured.
+      _phRecApptId=String(r.id||"");
+      _phRecLeadId=String(r.lead_id||"");
+      _phRecSessionLbl=_phSessionLabel(r);
+      _phRecSetUi(true);
+      const tEl=root.querySelector("#phRecTimer");
+      _phRecTimer=setInterval(()=>{ const s=Math.floor((Date.now()-_phRecStartMs)/1000);
+        const mm=String(Math.floor(s/60)).padStart(2,"0"); const ss=String(s%60).padStart(2,"0");
+        if(tEl) tEl.textContent="● "+mm+":"+ss; },1000);
+      toast("Recording started");
+    };
+    let _phRecSessionLbl="";
+    // Locked from first paint, before any patient is opened — the same guarantee the coach's
+    // trailing _haGateApply() call gives, so the fields are never briefly live on a fresh load.
+    try{ _phGateApply(); }catch(_){}
+    w._phRecStop=()=>{
+      if(_phRec&&_phRec.state!=="inactive"){ try{ _phRec.stop(); }catch(_){} }
+      if(_phRecTimer){ clearInterval(_phRecTimer); _phRecTimer=null; }
+      _phRecSetUi(false);
+    };
+    async function _phRecFinalize(){
+      const apptId=String(_phRecApptId||""); const leadId=String(_phRecLeadId||"");
+      if(!apptId||!_phRecChunks.length) return;
+      const dur=Math.round((Date.now()-_phRecStartMs)/1000);
+      const blob=new Blob(_phRecChunks,{type:(_phRecChunks[0]&&_phRecChunks[0].type)||"audio/webm"});
+      _phRecChunks=[];
+      // Foldered by LEAD where there is one so a patient's audio stays together, falling back to the
+      // appointment for a walk-in with no lead record.
+      const safe=(leadId||("appt-"+apptId)).replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=safe+"/"+Date.now()+"_physio-consult.webm";
+      toast("Saving recording…");
+      try{
+        const up=await supabase.storage.from("office-recordings").upload(path,blob as any,{upsert:false});
+        if(up.error) throw up.error;
+        // Store the URL WITHOUT the session token — getPublicUrl signs with whoever is logged in, so
+        // a stored link dies when the uploader's token expires. Playback re-signs per viewer from
+        // file_path (_ovrUrl), which is why that helper is shared rather than copied.
+        const {data}=supabase.storage.from("office-recordings").getPublicUrl(path);
+        const url=String((data&&data.publicUrl)||"").split("?")[0];
+        const ins:any={lead_id:leadId||apptId,file_url:url,file_path:path,
+          file_name:"Physio consultation"+(_phRecSessionLbl?(" · "+_phRecSessionLbl):"")+" · "+fmtIST(new Date().toISOString()),
+          duration_seconds:dur,recorded_by:_recBy(),kind:"physio",appointment_id:apptId,
+          created_at:new Date().toISOString()};
+        const res:any=await supabase.from("office_recordings").insert(ins);
+        // The gateway resolves {error} rather than throwing. A missing column must not be reported as
+        // a save failure when the audio itself uploaded fine — retry once without the new columns so
+        // the recording is never lost to a server that has not restarted onto the new schema yet.
+        if(res&&res.error){
+          if(/kind|appointment_id|column/i.test(String(res.error.message||""))){
+            delete ins.kind; delete ins.appointment_id;
+            const res2:any=await supabase.from("office_recordings").insert(ins);
+            if(res2&&res2.error) throw new Error(res2.error.message||"insert failed");
+            toast("✓ Recording saved (restart the server to tag it as physio)");
+          } else throw new Error(res.error.message||"insert failed");
+        } else toast("✓ Recording saved to this patient");
+        if(_phOpenAppt&&String(_phOpenAppt.id)===apptId) _phRecRenderList(apptId);
+      }catch(e:any){ toastErr("Recording save failed: "+(e.message||"upload error")); }
+    }
+    // The saved recordings for the OPEN consultation: play inline, download, duration and who
+    // recorded it — the same row of controls the Health Coach list offers.
+    async function _phRecRenderList(apptId:string){
+      const el=root.querySelector("#phRecList"); if(!el) return;
+      const id=String(apptId||""); if(!id){ el.innerHTML=""; return; }
+      let rows:any[]=[];
+      try{
+        // Match on appointment_id (this session's own audio). Rows saved before the column existed
+        // carry only lead_id, so they are picked up by the fallback below rather than disappearing.
+        const res:any=await supabase.from("office_recordings").select("*").eq("appointment_id",id)
+          .order("created_at",{ascending:false}).limit(50);
+        rows=(res&&!res.error&&res.data)||[];
+      }catch(_){ rows=[]; }
+      if(!rows.length){
+        const lead=String((_phOpenAppt&&_phOpenAppt.lead_id)||"");
+        if(lead){
+          try{
+            const res2:any=await supabase.from("office_recordings").select("*").eq("lead_id",lead)
+              .order("created_at",{ascending:false}).limit(50);
+            rows=((res2&&!res2.error&&res2.data)||[]).filter((r:any)=>String(r.kind||"")==="physio");
+          }catch(_){ rows=[]; }
+        }
+      }
+      // The patient may have been switched while the read was in flight.
+      if(!_phOpenAppt||String(_phOpenAppt.id)!==id) return;
+      // A consultation that already has audio must not be re-locked on reopen, or a completed record
+      // could never be read back without recording over it.
+      if(rows.length&&_phUnlockedFor!==id){ _phUnlockedFor=id; _phGateApply(); }
+      const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const dur=(s:number)=>{ s=s||0; const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
+      el.innerHTML=rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">CONSULTATION RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
+        '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">'
+        +'<span style="font-size:12px;font-weight:600">🎙 '+e(fmtIST(r.created_at))+'</span>'
+        +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
+        +(r.recorded_by?'<span style="font-size:10.5px;color:var(--muted)">'+e(r.recorded_by)+'</span>':'')
+        +'<audio controls preload="none" src="'+e(_safeHref(_ovrUrl(r)))+'" style="height:32px;flex:1;min-width:180px"></audio>'
+        +'<a class="btn bsm" href="'+e(_safeHref(_ovrUrl(r)))+'" download style="text-decoration:none">⬇ Download</a>'
+        +'</div>'
+      ).join("")):'<div style="font-size:12px;color:var(--faint)">No consultation recordings yet.</div>';
+    }
     w._phSaveNotes=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;}
       const pd=_phOpenAppt.phData||{}; _phCollectAssessment(pd); pd.started=true;
@@ -15448,6 +16249,11 @@ export function initApp(root: HTMLElement) {
     w._phSaveSoap=async()=>{
       if(!_phOpenAppt){toast("Open a patient first");return;}
       const r=_phOpenAppt;
+      // Completing the consultation ends the recording, the same way Save health record does on the
+      // Health Coach screen. _phRecStop triggers the recorder's onstop → _phRecFinalize, which
+      // uploads against the appointment the recording was STARTED for — so this is safe even if the
+      // physiotherapist has since opened someone else.
+      if(_phIsRecording()){ try{ w._phRecStop(); toast("Recording stopped — saving to this patient"); }catch(_){} }
       if(await _phFinishConsult(r,_phCollectAssessment)) toast("✓ Consultation completed — "+r.name+" sent to Reception for payment");
     };
     w._phSavePlan=async()=>{
@@ -15830,8 +16636,11 @@ export function initApp(root: HTMLElement) {
     };
 
     w._ctkLoad=async(force?:boolean)=>{
+      // The guard comes FIRST: a re-entrant call returns without ever showing the overlay, so the
+      // reference count cannot be raised by a call that does no work and never reaches the finally.
       if(_ctkLoading) return;
       _ctkLoading=true;
+      w._pgLoad(true,"Loading Campaign Tracker…","Pulling Meta spend and joining it to your funnel");
       _ctkInitDates();
       const {from,to}=_ctkRange();
       const btn=root.querySelector("#ctkRefreshBtn") as HTMLElement|null; if(btn) btn.classList.add("loading");
@@ -15883,6 +16692,7 @@ export function initApp(root: HTMLElement) {
       }catch(e:any){
         _ctkRows=[]; _ctkBlocked=[{account:"all",reason:e?.message||"load failed"}];
       }finally{
+        w._pgLoad(false);
         _ctkLoading=false;
         if(btn) btn.classList.remove("loading");
         _ctkRender();
@@ -16477,7 +17287,7 @@ export function initApp(root: HTMLElement) {
 
     // ========== ACCOUNTS & FINANCE MODULE (live data) ==========
     let _accPays:any[]=[], _accAppts:Record<string,any>={};
-    async function loadAccountsData(){
+    async function loadAccountsData__inner(){
       _fillSvcMaster("#accSvcF");   // standardized master list — a new service shows up here on its own
       try{
         const [pr,ar,lr]=await Promise.all([
@@ -16515,6 +17325,21 @@ export function initApp(root: HTMLElement) {
         const {data:tpo}=await supabase.from("thyrocare_payouts").select("*").order("paid_at",{ascending:false});
         _accThyroPayouts=tpo||[];
       }catch(_){ _accThyroPayouts=[]; }
+      // Physiotherapy appointments for the Physiotherapy tab. Separate query for the same reason as
+      // the blood-test one above: it needs the physio_data blob (sessions planned/completed, plan
+      // price, payment model) that nothing else on this screen reads. "%phys%" not "%physio%" so the
+      // legacy "Physio" spelling and combined strings ("Diabetes Counselling + Physiotherapy") match,
+      // exactly as _recSvcCode and the Physiotherapy page itself do.
+      try{
+        const {data:phA}=await supabase.from("appointments")
+          .select("id,client_name,phone,service,status,stage,visited_at,appt_date,appt_time,physio_data")
+          .ilike("service","%phys%").limit(2000);
+        _accPhysioAppts=phA||[];
+      }catch(_){ _accPhysioAppts=[]; }
+      try{
+        const {data:ppo}=await supabase.from("physio_payouts").select("*").order("paid_at",{ascending:false});
+        _accPhysioPayouts=ppo||[];
+      }catch(_){ _accPhysioPayouts=[]; }
       _accRenderAll();
     }
     // ===== Blood test — Thyrocare reconciliation (Accounts tab) =====
@@ -16896,6 +17721,419 @@ export function initApp(root: HTMLElement) {
       _downloadCsv("thyrocare_payouts_"+rows.length+".csv",out);
       toast("Exported "+rows.length+" payout"+(rows.length===1?"":"s"));
     };
+    // ===== Physiotherapy reconciliation (Accounts tab) =====
+    // Same shape as the Thyrocare block above — one row per DAY, cards that total the open days,
+    // a payout queue and a settled history — but the subject is different, and that changes two
+    // things that matter.
+    //
+    // FIRST, there is no partner price list. Blood test settles a LAB COST per record
+    // (blood_test_data.thyrocare_cost), so its margin and payout are both known per record.
+    // physio_pricing carries label / sessions / price only — no cost column — so physio has no
+    // equivalent "what the provider charges us" figure to compute a margin from. Inventing one
+    // would put a fabricated number in an accounts screen, so this tab reports what is real:
+    // what the treatment is BILLED at, what has been COLLECTED, and what is still PENDING.
+    //
+    // SECOND, physio work is measured in SESSIONS, not samples. Where the blood-test row counts
+    // "sample collected", this one carries the course position (done / planned), which is what the
+    // Session / Plan and Progress cards read.
+    let _accPhysioAppts:any[]=[];
+    let _accPhysioPayouts:any[]=[];
+    function _accPhysioRows(){
+      // PHYSIO MONEY ONLY. A combined visit ("Diabetes Counselling + Physiotherapy") hangs several
+      // services' payments off the SAME appointment row, so joining on appointment_id alone would
+      // count the diabetes programme fee as physio revenue — the same trap documented on the
+      // Physiotherapy page's own loader, and the reason the Thyrocare block filters too. Rows
+      // explicitly tagged another service are skipped; untagged legacy rows still count.
+      const payByAppt:Record<string,{paid:number;refund:number}>={};
+      _accPays.forEach((p:any)=>{
+        const k=String(p.appointment_id||""); if(!k) return;
+        const svc=String(p.service||"");
+        if(svc&&!/phys/i.test(svc)) return;
+        const o=(payByAppt[k]=payByAppt[k]||{paid:0,refund:0});
+        if(p.status==="paid") o.paid+=Math.max(0,Number(p.amount)||0);
+        o.refund+=Math.max(0,Number(p.refund_amount)||0);
+      });
+      // appointments.visited_at is TEXT, so older rows hold non-ISO strings ("Thu Jul 30 2026 …").
+      // Parse before grouping or those land in their own junk bucket instead of their real day.
+      const dayKey=(v:any)=>{
+        const s=String(v||""); if(!s) return "";
+        if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+        const d=new Date(s); if(isNaN(d.getTime())) return "";
+        const p2=(n:number)=>String(n).padStart(2,"0");
+        return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate());
+      };
+      const byDay:Record<string,any>={};
+      _accPhysioAppts.forEach((a:any)=>{
+        const pd=a.physio_data||{};
+        // Same date rule the Physiotherapy page uses: the VISIT, falling back to the booked date.
+        const vs=_visitStamp(a);
+        const key=dayKey(vs.key)||dayKey(a.appt_date); if(!key) return;
+        const pay=payByAppt[String(a.id)]||{paid:0,refund:0};
+        // What the treatment is worth. The plan's own price wins because that is what the
+        // physiotherapist agreed with this patient; the pricing master is the fallback for a record
+        // saved before a plan was set, and the collected amount is the last resort so money that
+        // came in is never billed as zero.
+        const planned=Math.max(0,Number(pd.sessions_planned)||0);
+        const done=_phDoneOf(pd);
+        const packPrice=Math.max(0,Number(pd.pack_price)||0);
+        // Billed follows the PAYMENT MODEL, using the same rule as _phTpAutoAmt on the Physiotherapy
+        // page ("Package → the matching pack price; Per Visit → the per-session rate"), so the two
+        // screens cannot report different money for the same course.
+        //   pack      — one agreed price for the whole course, owed from the moment it is agreed.
+        //   per_visit — the patient pays per session ATTENDED, so only sessions actually delivered
+        //               are billable. Billing the planned course here would have reported a 6-session
+        //               plan with 2 sessions done as ₹7,200 outstanding when only ₹2,400 is owed —
+        //               a pending figure nobody could collect against.
+        const perVisit=String(pd.payment_model||"per_visit")==="per_visit";
+        const unit=packPrice||_phpPerSession();
+        // A visited record has had at least its first session, even where the counter was never
+        // bumped (see _phDoneOf for how those two sources drift).
+        const charged=Math.max(done,String(a.status||"")==="visited"?1:0);
+        const billed=perVisit?unit*charged:(packPrice||unit);
+        const d=(byDay[key]=byDay[key]||{key,date:vs.date||_recFmtDate(key),total:0,visited:0,
+          done:0,planned:0,billed:0,collected:0,refund:0});
+        d.total++;
+        if(String(a.status||"")==="visited") d.visited++;
+        d.done+=done; d.planned+=planned;
+        d.billed+=Math.max(billed,pay.paid);   // never bill less than what was actually collected
+        d.collected+=pay.paid; d.refund+=pay.refund;
+      });
+      // Days already sent to payout leave this table — reconciliation is the OPEN list, the work
+      // still to be settled. Their history is not lost: the payout ledger below names every day it
+      // covers, and deleting that payout puts its days straight back here.
+      const done=_accPhysioSettled();
+      return Object.values(byDay).filter((r:any)=>!done.has(String(r.key)))
+        .sort((a:any,b:any)=>String(b.key).localeCompare(String(a.key)));
+    }
+    // Pending is billed minus what has come in, minus nothing else — a refund is money returned to
+    // the patient, not money still owed by them, so it must not be added back here.
+    const _accPhPending=(r:any)=>Math.max(0,Math.round((Number(r.billed)||0)-(Number(r.collected)||0)));
+    function renderAccPhysio(){
+      const el=root.querySelector("#accPhysioBody")as HTMLElement|null; if(!el) return;
+      const rows=_accPhysioRows();
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      // Computed unconditionally (reduce's initial value covers the empty-rows case) so the cards
+      // above the table read ₹0 rather than being left blank when there is nothing to reconcile yet.
+      const sum=(list:any[])=>list.reduce((s:any,r:any)=>({total:s.total+r.total,visited:s.visited+r.visited,
+        done:s.done+r.done,planned:s.planned+r.planned,billed:s.billed+r.billed,
+        collected:s.collected+r.collected,refund:s.refund+r.refund}),
+        {total:0,visited:0,done:0,planned:0,billed:0,collected:0,refund:0});
+      const tot=sum(rows);
+      const totPending=Math.max(0,Math.round(tot.billed-tot.collected));
+      // Progress is sessions delivered against sessions planned across the open days. With nothing
+      // planned yet there is no denominator, so it reports "—" rather than a misleading 0%.
+      const progress=tot.planned>0?Math.round((tot.done/tot.planned)*100):null;
+      const _po=_accPhysioPayouts||[];
+      const _isPaidPo=(p:any)=>String(p.status||"paid")==="paid";
+      const sentTotal=_po.filter(_isPaidPo).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      const raisedPending=_po.filter((p:any)=>!_isPaidPo(p)).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      const cardsEl=root.querySelector("#accPhysioCards")as HTMLElement|null;
+      if(cardsEl){
+        const card=(l:string,v:string,c:string,sub?:string)=>'<div class="metric'+(c?" "+c:"")+'"><div class="ml">'+l+'</div><div class="mv">'+v+'</div>'
+          +(sub?'<div class="mt" style="color:var(--muted)">'+sub+'</div>':'')+'</div>';
+        cardsEl.innerHTML=
+          card("Total amount",money(tot.billed),"",tot.total+" open record"+(tot.total===1?"":"s"))
+          +card("Payment collected",money(tot.collected),tot.collected?"g":"",
+            tot.refund?money(tot.refund)+" refunded":"on open days")
+          +card("Session / plan",tot.planned?(tot.done+" / "+tot.planned):String(tot.done),"",
+            tot.planned?"sessions delivered":"no plan set yet")
+          +card("Progress",progress==null?"—":(progress+"%"),
+            progress==null?"":(progress>=90?"g":(progress>=70?"a":"r")),
+            progress==null?"needs a session plan":"of planned sessions")
+          +card("Pending amount",money(totPending),totPending?"a":"g",
+            totPending?"still to collect":"fully collected")
+          +card("Paid to Physiotherapy",money(sentTotal),sentTotal?"g":"",
+            raisedPending?money(raisedPending)+" awaiting payment":(tot.collected>0?"from settled payouts":"settled"));
+      }
+      // Rendered BEFORE the empty-rows return below, so the payout ledger and its balance still show
+      // on a day with nothing to reconcile — a payout can exist independently of today's records.
+      try{ renderAccPhysioPayouts(tot.collected); }catch(_){}
+      if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px">No physiotherapy records yet.</div>'; return; }
+      // Drop selections for days that no longer exist (a filter change, a re-sync), so a stale key
+      // can never contribute to the selected total.
+      const live=new Set(rows.map((r:any)=>String(r.key)));
+      Array.from(_accPhysioSel).forEach(k=>{ if(!live.has(k)) _accPhysioSel.delete(k); });
+      const settled=_accPhysioSettled();
+      Array.from(_accPhysioSel).forEach(k=>{ if(settled.has(k)) _accPhysioSel.delete(k); });
+      const sel=rows.filter((r:any)=>_accPhysioSel.has(String(r.key)));
+      // The footer follows the selection: pick three days and it totals those three. With nothing
+      // ticked it totals everything.
+      const F=sel.length?sum(sel):tot;
+      const fPending=Math.max(0,Math.round(F.billed-F.collected));
+      const num='class="mono" style="text-align:right;white-space:nowrap"';
+      const openRows=rows;   // _accPhysioRows() already excludes days sent to payout
+      const allOn=openRows.length>0&&sel.length===openRows.length;
+      const prog=(done:number,planned:number)=>planned>0?(Math.round((done/planned)*100)+"%"):"—";
+      let h='<div class="tscroll"><table class="tbl" style="min-width:1180px"><thead><tr>'
+        +'<th scope="col" style="width:32px"><input type="checkbox" id="accPhysioSelAll"'+(allOn?" checked":"")
+        +(openRows.length?"":" disabled")
+        +' onclick="window._accPhysioSelAll(this.checked)" title="Select every unsettled day" style="accent-color:var(--brand)"></th>'
+        +'<th scope="col">Date &amp; time</th><th scope="col" style="text-align:right">Total</th>'
+        +'<th scope="col" style="text-align:right">Visited</th><th scope="col" style="text-align:right">Session / plan</th>'
+        +'<th scope="col" style="text-align:right">Progress</th>'
+        +'<th scope="col" style="text-align:right">Total overall</th><th scope="col" style="text-align:right">Collected amount</th>'
+        +'<th scope="col" style="text-align:right">Refund</th><th scope="col" style="text-align:right">Pending amount</th></tr></thead><tbody>';
+      rows.forEach((r:any)=>{
+        const on=_accPhysioSel.has(String(r.key));
+        const pend=_accPhPending(r);
+        const pc=r.planned>0?Math.round((r.done/r.planned)*100):null;
+        h+='<tr'+(on?' style="background:rgba(15,88,50,.05)"':'')+'>'
+          +'<td><input type="checkbox" class="accPhysioChk" data-k="'+_btE(String(r.key))+'"'+(on?" checked":"")
+          +' onchange="window._accPhysioSelRow(this)" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="white-space:nowrap;font-weight:600">'+_btE(r.date)+'</td>'
+          +'<td '+num+'>'+r.total+'</td><td '+num+'>'+r.visited+'</td>'
+          +'<td '+num+'>'+(r.planned?(r.done+" / "+r.planned):String(r.done))+'</td>'
+          +'<td class="mono" style="text-align:right;white-space:nowrap;font-weight:700;color:'
+            +(pc==null?"var(--faint)":(pc>=90?"var(--ok-ink)":(pc>=70?"var(--warn-ink)":"var(--alert-ink)")))+'">'+prog(r.done,r.planned)+'</td>'
+          +'<td '+num+'>'+money(r.billed)+'</td><td '+num+'>'+money(r.collected)+'</td>'
+          +'<td class="mono" style="text-align:right;white-space:nowrap'+(r.refund>0?";color:var(--alert-ink)":"")+'">'+money(r.refund)+'</td>'
+          +'<td class="mono" style="text-align:right;white-space:nowrap;font-weight:700;color:'+(pend>0?"var(--alert-ink)":"var(--brand-600)")+'">'+money(pend)+'</td></tr>';
+      });
+      h+='</tbody><tfoot><tr style="border-top:2px solid var(--line)">'
+        +'<td></td>'
+        +'<td style="font-weight:700">'+(sel.length?"TOTAL · "+sel.length+" selected":"TOTAL")+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+F.total+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+F.visited+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+(F.planned?(F.done+" / "+F.planned):String(F.done))+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+prog(F.done,F.planned)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.billed)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.collected)+'</td>'
+        +'<td '+num+' style="text-align:right;font-weight:700">'+money(F.refund)+'</td>'
+        +'<td class="mono" style="text-align:right;font-weight:700;color:'+(fPending>0?"var(--alert-ink)":"var(--brand-600)")+'">'+money(fPending)+'</td></tr></tfoot></table></div>';
+      el.innerHTML=h;
+      const info=root.querySelector("#accPhysioSelInfo");
+      if(info) info.textContent=sel.length
+        ?(sel.length+" of "+openRows.length+" open day"+(openRows.length===1?"":"s")+" selected · "+money(F.collected)+" to pay out")
+        :(settled.size?(settled.size+" day"+(settled.size===1?"":"s")+" moved to payout"):"");
+      const clr=root.querySelector("#accPhysioClearSel") as HTMLElement|null;
+      if(clr) clr.style.display=sel.length?"":"none";
+      const prc=root.querySelector("#accPhysioProceed") as HTMLElement|null;
+      if(prc) prc.style.display=sel.length?"":"none";
+    }
+    // Every day already covered by a payout, read from the ledger itself rather than a second status
+    // column — the payout row IS the record that a day was settled, so the two cannot drift.
+    function _accPhysioSettled(){
+      const out=new Set<string>();
+      (_accPhysioPayouts||[]).forEach((p:any)=>String(p.covers_days||"").split(",").forEach(k=>{ const t=k.trim(); if(t) out.add(t); }));
+      return out;
+    }
+    // PROCEED — turn the selected reconciliation days into one payout entry.
+    w._accPhysioProceed=async()=>{
+      const settled=_accPhysioSettled();
+      const rows=_accPhysioRows().filter((r:any)=>_accPhysioSel.has(String(r.key))&&!settled.has(String(r.key)));
+      if(!rows.length){ toast("Select one or more unsettled days first"); return; }
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      // BASIS: the money actually COLLECTED on those days.
+      // Thyrocare pays out a known partner cost per record. Physio has no such figure — physio_pricing
+      // has no cost column — so the only real number available to settle against the provider is what
+      // the clinic actually received for that work. Billed would raise a payout for money not yet in
+      // hand; a percentage share would be a rate nobody has configured. If a share is agreed later,
+      // this is the single line to change.
+      const total=Math.round(rows.reduce((s:number,r:any)=>s+(Number(r.collected)||0),0));
+      if(!(total>0)){ toastErr("Those days have collected nothing yet — nothing to pay out"); return; }
+      const days=rows.map((r:any)=>String(r.key)).sort();
+      const list=rows.map((r:any)=>r.date+" — "+money(r.collected)).join("<br>");
+      csvConfirm("<b>"+rows.length+" day"+(rows.length===1?"":"s")+" → payout</b><br><br>"+list
+        +"<br><br><b>Total "+money(total)+"</b><br><br>Raised on the amount COLLECTED for those days. This records the payout and locks those days so they cannot be sent twice.",
+        async()=>{
+        const createdBy=(_currentUser&&(_currentUser.name||_currentUser.email))||"Accounts";
+        // Raised, not sent: status starts pending so the balance keeps showing the money as owed
+        // until someone confirms it actually reached the provider via Mark as paid.
+        const row:any={amount:total,paid_at:new Date().toISOString().slice(0,10),method:"reconciliation",
+          txn_ref:null,notes:"From reconciliation · "+rows.length+" day"+(rows.length===1?"":"s"),
+          covers_days:days.join(","),status:"pending",created_by:createdBy};
+        const {data,error}=await supabase.from("physio_payouts").insert(row).select().single();
+        if(error){
+          toastErr(/physio_payouts|relation|column|exist/i.test(error.message||"")
+            ? "Restart the server first — the physio payout table is created by the self-applying schema on boot"
+            : "Proceed failed: "+(error.message||"error"));
+          return;
+        }
+        _accPhysioPayouts=[(data||{...row,id:Date.now(),created_at:new Date().toISOString()}),..._accPhysioPayouts];
+        _accPhysioSel.clear();
+        renderAccPhysio();
+        toast(rows.length+" day"+(rows.length===1?"":"s")+" moved to payout · "+money(total));
+      },"Proceed");
+    };
+    // Selection is keyed by DAY (the row's own key), not by index — sorting or a reload must not move
+    // a tick from one date to another.
+    const _accPhysioSel=new Set<string>();
+    w._accPhysioSelRow=(elx:HTMLInputElement)=>{
+      const k=elx.getAttribute("data-k")||"";
+      if(elx.checked) _accPhysioSel.add(k); else _accPhysioSel.delete(k);
+      renderAccPhysio();
+    };
+    w._accPhysioSelAll=(checked:boolean)=>{
+      _accPhysioSel.clear();
+      if(checked){ const done=_accPhysioSettled();
+        _accPhysioRows().forEach((r:any)=>{ if(!done.has(String(r.key))) _accPhysioSel.add(String(r.key)); }); }
+      renderAccPhysio();
+    };
+    w._accPhysioSelClear=()=>{ _accPhysioSel.clear(); renderAccPhysio(); };
+    w._accPhysioDownload=()=>{
+      const all=_accPhysioRows();
+      // Export what is selected; with nothing ticked, export everything.
+      const rows=_accPhysioSel.size?all.filter((r:any)=>_accPhysioSel.has(String(r.key))):all;
+      if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Date","Total","Visited","Sessions done","Sessions planned","Progress %","Total overall","Collected amount","Refund","Pending amount"]];
+      rows.forEach((r:any)=>out.push([r.date,String(r.total),String(r.visited),String(r.done),String(r.planned),
+        r.planned>0?String(Math.round((r.done/r.planned)*100)):"",
+        String(Math.round(r.billed)),String(Math.round(r.collected)),String(Math.round(r.refund)),String(_accPhPending(r))]));
+      _downloadCsv("physiotherapy_"+rows.length+"_days.csv",out);
+      toast("Exported "+rows.length+" day"+(rows.length===1?"":"s"));
+    };
+    // ===== Physiotherapy payout ledger =====
+    // `collected` is tot.collected from the SAME renderAccPhysio() pass — the money received on the
+    // OPEN days, i.e. what is still to be settled with the provider. Comparing it against the rows
+    // here is the whole point: one is "what is due out", the other "what actually went", and neither
+    // is derived from the other.
+    function renderAccPhysioPayouts(collected:number){
+      const body=root.querySelector("#accPhysioPayoutBody")as HTMLElement|null;
+      const bal=root.querySelector("#accPhysioBalance")as HTMLElement|null;
+      const cnt=root.querySelector("#accPhysioPayoutCount")as HTMLElement|null;
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      const rows=_accPhysioPayouts||[];
+      // Only money that has ACTUALLY been sent reduces what we owe. A raised-but-unpaid payout is an
+      // intention, and counting it would report the provider as settled while nothing had left.
+      const isPaid=(p:any)=>String(p.status||"paid")==="paid";
+      const pendingOut=rows.filter((p:any)=>!isPaid(p)).reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      // Open days PLUS any payout already raised but not yet sent. Settled days have left the
+      // reconciliation table with their payout, so subtracting all-time payments here would double
+      // count them and drive the balance negative.
+      const balance=Math.round(collected+pendingOut);
+      if(cnt) cnt.textContent=rows.length
+        ?(rows.length+" payout"+(rows.length===1?"":"s")+(pendingOut?" · "+money(pendingOut)+" awaiting payment":""))
+        :"";
+      if(bal){
+        if(balance>0){ bal.textContent="Owed to Physiotherapy: "+money(balance); bal.style.color="var(--alert-ink)"; }
+        else { bal.textContent="Settled"; bal.style.color="var(--ok-ink)"; }
+      }
+      if(!body) return;
+      // Selections for rows that vanished (deleted, reloaded) must not linger in the total.
+      const liveIds=new Set(rows.map((p:any)=>String(p.id)));
+      Array.from(_accPhysioPayoutSel).forEach(id=>{ if(!liveIds.has(id)) _accPhysioPayoutSel.delete(id); });
+      const selRows=rows.filter((p:any)=>_accPhysioPayoutSel.has(String(p.id))&&!isPaid(p));
+      const openRows=rows.filter((p:any)=>!isPaid(p));
+      const selInfo=root.querySelector("#accPhysioPayoutSelInfo");
+      if(selInfo) selInfo.textContent=selRows.length
+        ?(selRows.length+" selected · "+money(selRows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0)))
+        :"";
+      const mp=root.querySelector("#accPhysioMarkPaid") as HTMLElement|null;
+      if(mp) mp.style.display=selRows.length?"":"none";
+      const sa=root.querySelector("#accPhysioPayoutSelAll") as HTMLInputElement|null;
+      if(sa){ sa.checked=openRows.length>0&&selRows.length===openRows.length; sa.disabled=!openRows.length; }
+      // Settled payouts live in their own history table below. This queue only ever shows what is
+      // still to be sent, so "outstanding" is never mixed with "done".
+      try{ renderAccPhysioHistory(rows.filter(isPaid)); }catch(_){}
+      const queue=openRows;
+      if(!queue.length){ body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">Nothing awaiting payment — select days in the reconciliation table above and press Proceed.</td></tr>'; return; }
+      body.innerHTML=queue.map((p:any)=>{
+        const d=String(p.paid_at||"").slice(0,10);
+        const on=_accPhysioPayoutSel.has(String(p.id));
+        const covTxt=_accPhysioCovers(p);
+        return '<tr'+(on?' style="background:rgba(15,88,50,.05)"':'')+'>'
+          +'<td><input type="checkbox" class="accPhysioPoChk" data-id="'+_btE(String(p.id))+'"'+(on?" checked":"")
+          +' onchange="window._accPhysioPayoutSelRow(this)" style="accent-color:var(--brand)"></td>'
+          +'<td class="mono" style="white-space:nowrap">'+_btE(d?_recFmtDate(d):"—")+'</td>'
+          +'<td class="mono" style="font-weight:700">'+money(p.amount)+'</td>'
+          +'<td style="max-width:300px;white-space:normal">'+_btE(covTxt||p.txn_ref||p.notes||"—")+'</td>'
+          +'<td><span class="chipb warn">Not paid yet</span></td>'
+          +'<td>'+_btE(p.created_by||"—")+'</td>'
+          +'<td><button class="btn bsm" onclick="window._accPhysioPayoutDelete(\''+_btE(String(p.id))+'\')">Delete</button></td></tr>';
+      }).join("");
+    }
+    // Shared by the payout queue and the history table so both name a payout's days identically.
+    const _accPhysioCovers=(p:any)=>{
+      const cov=String(p.covers_days||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      return cov.length?(cov.length+" day"+(cov.length===1?"":"s")+": "+cov.map((k:string)=>_recFmtDate(k)).join(", ")):"";
+    };
+    let _accPhysioHistQ="";
+    w._accPhysioHistSearch=()=>_accTblSearch("accPhysioHistSearch",v=>{ _accPhysioHistQ=v; renderAccPhysio(); });
+    // Settled payouts — money that has actually reached the physio provider/team, newest first.
+    // Delete stays available because deleting a payout is also what releases its days back to
+    // reconciliation; without it a mistaken payout would strand those days forever.
+    function renderAccPhysioHistory(paidRows:any[]){
+      const body=root.querySelector("#accPhysioHistBody")as HTMLElement|null;
+      const cnt=root.querySelector("#accPhysioHistCount");
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      const q=_accPhysioHistQ;
+      const rows=(paidRows||[])
+        .filter((p:any)=>!q||((money(p.amount)+" "+_accPhysioCovers(p)+" "+(p.created_by||"")+" "+(p.method||"")+" "+(p.notes||"")).toLowerCase().indexOf(q)>=0))
+        .sort((a:any,b:any)=>new Date(b.settled_at||b.paid_at||0).getTime()-new Date(a.settled_at||a.paid_at||0).getTime());
+      const total=rows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      if(cnt) cnt.textContent=rows.length?(rows.length+" payment"+(rows.length===1?"":"s")+" · "+money(total)+" sent"):"";
+      if(!body) return;
+      if(!rows.length){ body.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">'
+        +(q?"No payment matches that search.":"No payments sent to Physiotherapy yet.")+'</td></tr>'; return; }
+      body.innerHTML=rows.map((p:any)=>{
+        const when=p.settled_at?fmtIST(p.settled_at):(p.paid_at?_recFmtDate(String(p.paid_at).slice(0,10)):"—");
+        return '<tr><td class="mono" style="white-space:nowrap">'+_btE(when)+'</td>'
+          +'<td class="mono" style="font-weight:700">'+money(p.amount)+'</td>'
+          +'<td style="max-width:300px;white-space:normal">'+_btE(_accPhysioCovers(p)||p.notes||"—")+'</td>'
+          +'<td>'+_btE(p.method||"—")+'</td>'
+          +'<td><span class="chipb ok">Paid</span></td>'
+          +'<td>'+_btE(p.created_by||"—")+'</td>'
+          +'<td><button class="btn bsm" onclick="window._accPhysioPayoutDelete(\''+_btE(String(p.id))+'\')">Delete</button></td></tr>';
+      }).join("");
+    }
+    w._accPhysioHistDownload=()=>{
+      const rows=(_accPhysioPayouts||[]).filter((p:any)=>String(p.status||"paid")==="paid");
+      if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Paid on","Amount","Covers","Method","Status","Recorded by"]];
+      rows.forEach((p:any)=>out.push([p.settled_at?fmtIST(p.settled_at):String(p.paid_at||""),
+        String(Math.round(Number(p.amount)||0)),_accPhysioCovers(p),p.method||"","Paid",p.created_by||""]));
+      _downloadCsv("physiotherapy_payments_history.csv",out);
+      toast("Exported "+rows.length+" payment"+(rows.length===1?"":"s"));
+    };
+    // Payout selection + settlement. There is no manual entry: Proceed on the reconciliation table is
+    // the only way a payout is created, so its amount and the days it covers always come from real
+    // records instead of being typed and hoped to match.
+    const _accPhysioPayoutSel=new Set<string>();
+    w._accPhysioPayoutSelRow=(elx:HTMLInputElement)=>{
+      const id=elx.getAttribute("data-id")||"";
+      if(elx.checked) _accPhysioPayoutSel.add(id); else _accPhysioPayoutSel.delete(id);
+      renderAccPhysio();
+    };
+    w._accPhysioPayoutSelAll=(checked:boolean)=>{
+      _accPhysioPayoutSel.clear();
+      // Only unpaid rows — an already-paid payout has nothing left to settle.
+      if(checked)(_accPhysioPayouts||[]).forEach((p:any)=>{ if(String(p.status||"paid")!=="paid") _accPhysioPayoutSel.add(String(p.id)); });
+      renderAccPhysio();
+    };
+    w._accPhysioMarkPaid=async()=>{
+      const rows=(_accPhysioPayouts||[]).filter((p:any)=>_accPhysioPayoutSel.has(String(p.id))&&String(p.status||"paid")!=="paid");
+      if(!rows.length){ toast("Tick the payouts you have actually sent"); return; }
+      const money=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+      const total=rows.reduce((s:number,p:any)=>s+(Number(p.amount)||0),0);
+      csvConfirm("Mark "+rows.length+" payout"+(rows.length===1?"":"s")+" totalling <b>"+money(total)
+        +"</b> as PAID?<br><br>Do this only once the money has actually reached the physiotherapy provider/team — it is what clears the balance owed.",
+        async()=>{
+        let ok=0;
+        for(const p of rows){
+          if(await _dbOk(supabase.from("physio_payouts").update({status:"paid",settled_at:new Date().toISOString()}).eq("id",p.id),"Mark payout paid")){
+            p.status="paid"; p.settled_at=new Date().toISOString(); ok++;
+          }
+        }
+        _accPhysioPayoutSel.clear();
+        renderAccPhysio();
+        toast(ok+" of "+rows.length+" payout"+(rows.length===1?"":"s")+" marked paid ✓");
+      },"Mark as paid");
+    };
+    w._accPhysioPayoutDelete=async(id:string)=>{
+      if(!window.confirm("Delete this payout record? This cannot be undone.")) return;
+      if(!(await _dbOk(supabase.from("physio_payouts").delete().eq("id",id),"Delete payout"))) return;
+      _accPhysioPayouts=_accPhysioPayouts.filter((p:any)=>String(p.id)!==String(id));
+      toast("Payout deleted");
+      renderAccPhysio();
+    };
+    w._accPhysioPayoutDownload=()=>{
+      const rows=_accPhysioPayouts||[]; if(!rows.length){ toast("Nothing to export"); return; }
+      const out:string[][]=[["Raised on","Amount","Method","Covers","Status","Recorded by"]];
+      rows.forEach((p:any)=>out.push([String(p.paid_at||"").slice(0,10),String(Math.round(Number(p.amount)||0)),
+        p.method||"",_accPhysioCovers(p)||p.txn_ref||p.notes||"",String(p.status||"paid")==="paid"?"Paid":"Not paid yet",p.created_by||""]));
+      _downloadCsv("physiotherapy_payouts_"+rows.length+".csv",out);
+      toast("Exported "+rows.length+" payout"+(rows.length===1?"":"s"));
+    };
     // ---- Top-bar filters + search + pagination; every card and the Transactions table read the SAME
     //      filtered set (kept in sync). Filters apply only on the Apply button; search is live. ----
     let _accApplied:{from:string;to:string;service:string;method:string;status:string}={from:"",to:"",service:"all",method:"all",status:"all"};
@@ -17057,6 +18295,7 @@ export function initApp(root: HTMLElement) {
     regGrid("accHist",()=>_accHistCols,()=>_accRenderAll());
     function _accRenderAll(){
       try{ renderAccThyro(); }catch(_){}   // Blood test — Thyrocare tab
+      try{ renderAccPhysio(); }catch(_){}  // Physiotherapy tab
       const pays=_accFilteredPays(); const e=(s:any)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const todayStr=new Date().toISOString().substring(0,10);
       const collectedToday=pays.filter((p:any)=>p.status==="paid"&&(p.paid_at||p.created_at||"").startsWith(todayStr)).reduce((s:number,p:any)=>s+(p.amount||0),0);
@@ -17582,6 +18821,9 @@ export function initApp(root: HTMLElement) {
       // Disconnect is a selectable call status, but had no column and no _rpcCallKey mapping, so
       // those leads were counted nowhere and silently dropped from Total Calls.
       {key:"disc",label:"Disconnect",group:"CALL STATUS",gcls:"g-call"},
+      // Same reasoning as Disconnect above: without a column and a _rpcCallKey entry an "Invalid"
+      // lead is counted nowhere and vanishes from Total Calls.
+      {key:"invalid",label:"Invalid",group:"CALL STATUS",gcls:"g-call"},
       // Distinct from HEALTH PROFILE's "No Sugar", which reads sugar_poll. This one is a CALL
       // OUTCOME (call_status = "No Sugar"). Two columns carrying the same label had people setting a
       // lead's sugar level and waiting for this column to move, which it never will.
@@ -17740,7 +18982,7 @@ export function initApp(root: HTMLElement) {
       }
       return rows;
     }
-    async function loadMetaLeadsData(){
+    async function loadMetaLeadsData__inner(){
       try{
         const rows=await _pageAll((from,to)=>supabase.from("leads")
           .select("meta_lead_id,name,phone,source,service,campaign,ad_name,form_name,ad_account_id,ad_account_name,lead_date,created_at,is_valid,is_duplicate,is_assigned,assigned_to")
@@ -18127,7 +19369,7 @@ export function initApp(root: HTMLElement) {
       f.forEach((r:any)=>out.push([fmtIST(r.created_at||r.lead_date),r.name||"",r.phone||"",_mlAcctLabel(r),r.campaign||"",r.ad_name||"",r.form_name||"",r.service||"",r.is_valid?"Yes":"No",r.is_duplicate?"Yes":"No",r.is_assigned?"Yes":"No",r.assigned_to||""]));
       _downloadCsv("meta_leads.csv",out); toast("Exported "+f.length+" lead"+(f.length===1?"":"s"));
     };
-    async function loadReportsData(){
+    async function loadReportsData__inner(){
       // Each of the four loads is ISOLATED. They used to share one try/catch, so a single failing
       // query zeroed the entire report — a production leads table missing `confirmed_at` blanked
       // leads, appointments, payments AND revenue at once, which reads as "the clinic did nothing
@@ -18204,6 +19446,7 @@ export function initApp(root: HTMLElement) {
       if(t==="open"||t==="new") return "open";
       if(t.indexOf("not interested")>=0) return "ni";
       if(t.indexOf("disconnect")>=0) return "disc";
+      if(t.indexOf("invalid")>=0) return "invalid";
       if(t.indexOf("no sugar")>=0) return "nosugar";
       return "";   // Visited / Enrolled / Appointment Fixed… are tracked by their own columns
     }

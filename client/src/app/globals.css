@@ -182,7 +182,21 @@ label.lbl{display:block;font-size:11px;font-weight:600;color:var(--muted);margin
 .input::placeholder,.area::placeholder{color:var(--faint)}
 
 /* ---------- Buttons (with soft ripple) ---------- */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:13px;font-weight:600;padding:0 15px;height:39px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);position:relative;overflow:hidden;transition:all .18s var(--ease)}
+/* white-space:nowrap is load-bearing, not cosmetic. A .btn has a FIXED height (39px, 31px for .bsm)
+   and overflow:hidden — the latter is required to clip the ripple in ::after — so a label that wraps
+   loses its second line entirely. In a narrow table column that is exactly what happened: the Blood
+   Test worklist's "Email send" rendered as "Email" with "send" sliced off below the border, and
+   "WhatsApp send" and "Add report" the same. Because the height can never grow to show a wrapped
+   line, wrapping is not a thing a button can usefully do here — keeping the label on one line and
+   letting the column carry the width is the only version that can be read.
+
+   min-width:fit-content is the other half, and it is the deeper cause. A flex or grid item normally
+   refuses to shrink below its own content because min-width:auto resolves to min-content — but the
+   spec switches that automatic minimum OFF for any item whose overflow is not `visible`, and .btn
+   sets overflow:hidden for the ripple. So every button in a flex row was silently shrinkable to
+   nothing: "📞 Call" was measured at 34px wide needing 48px, clipping its own label. Asking for
+   fit-content puts the floor back without giving up the ripple. */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:13px;font-weight:600;padding:0 15px;height:39px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);position:relative;overflow:hidden;white-space:nowrap;min-width:fit-content;transition:all .18s var(--ease)}
 .btn::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at center,rgba(14,124,92,.16) 0%,transparent 65%);opacity:0;transform:scale(.4);transition:opacity .45s var(--ease),transform .45s var(--ease);pointer-events:none}
 .btn:active::after{opacity:1;transform:scale(2.4);transition:0s}
 .btn:hover{background:var(--surface-2);border-color:var(--brand-line);box-shadow:0 3px 10px rgba(17,34,27,.08);transform:translateY(-1px)}
@@ -536,6 +550,57 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .app-loading img{filter:drop-shadow(0 10px 22px rgba(139,47,224,.28));animation:appLoadPulse 1.6s var(--ease) infinite}
 .app-loading .ring{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes appLoadPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+
+/* ---------- Per-page loading overlay ----------
+   The sign-in splash (.app-loading) covers the viewport and runs once. This one covers the CONTENT
+   COLUMN only — it is positioned against .main, so the sidebar stays visible and clickable and a
+   slow page can always be navigated away from. Shown by window._pgLoad().
+
+   The spinner is a conic gradient masked into a ring rather than the usual bordered circle: a border
+   spinner can only be one flat colour with one flat gap, while a masked cone sweeps brand green into
+   mint with a soft tail, which is what makes it read as motion instead of a rotating dash. The logo
+   sits inside it, breathing on a slower cycle than the ring turns, so the two do not beat against
+   each other. */
+/* FIXED, not absolute. .main is a scroll container, and an absolutely-positioned child of one
+   scrolls away with the content — so on a page the user had scrolled down, the overlay sat above the
+   viewport and the screen appeared to hang with nothing on it. Fixed pins it to the viewport; the
+   left inset clears the 222px sidebar so the nav stays visible and clickable throughout. */
+.pgload{position:fixed;inset:0 0 0 222px;z-index:64;display:flex;align-items:center;justify-content:center;
+  padding:24px;opacity:0;pointer-events:none;transition:opacity .28s var(--ease);
+  background:
+    radial-gradient(520px 380px at 78% -6%,rgba(150,60,230,.10),transparent 60%),
+    radial-gradient(560px 420px at 12% 110%,rgba(23,168,123,.10),transparent 60%),
+    rgba(244,245,241,.86);
+  backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+/* .on rather than a display toggle, so the fade actually plays in both directions. */
+.pgload.on{opacity:1;pointer-events:auto}
+/* The sidebar is hidden at this width (see the responsive block), so there is nothing to clear. */
+@media(max-width:640px){ .pgload{left:0} }
+.pgload-card{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;
+  transform:translateY(6px) scale(.98);transition:transform .34s var(--ease-pop)}
+.pgload.on .pgload-card{transform:none}
+.pgload-mark{position:relative;width:104px;height:104px;display:grid;place-items:center;margin-bottom:10px}
+.pgload-mark img{width:58px;height:auto;position:relative;z-index:1;
+  filter:drop-shadow(0 8px 18px rgba(139,47,224,.30));animation:pgBreathe 2.4s var(--ease) infinite}
+.pgload-ring{position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(from 0deg,transparent 0 42%,var(--brand) 68%,var(--mint) 88%,transparent 92% 100%);
+  /* The mask is what turns a filled cone into a ring — 5px of stroke, nothing inside it. */
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 5px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 5px));
+  animation:pgSpin 1.05s linear infinite}
+/* A faint static track behind the cone, so the ring reads as a complete object rather than a comet. */
+.pgload-mark::before{content:"";position:absolute;inset:0;border-radius:50%;
+  border:5px solid var(--line-soft)}
+.pgload-t{font-size:14.5px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.pgload-s{font-size:12px;color:var(--muted)}
+@keyframes pgSpin{to{transform:rotate(1turn)}}
+@keyframes pgBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+/* Reduced motion keeps the overlay and its message — only the movement goes. */
+@media(prefers-reduced-motion:reduce){
+  .pgload-ring{animation:none;background:conic-gradient(from 0deg,var(--brand) 0 25%,var(--line-soft) 25% 100%)}
+  .pgload-mark img{animation:none}
+  .pgload-card{transition:none;transform:none}
+}
 
 /* ---------- Responsive ---------- */
 @media(max-width:980px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.slotgrid{grid-template-columns:repeat(2,1fr)}}
@@ -1618,8 +1683,11 @@ html{scroll-behavior:smooth}
   @container (min-width:340px){ .dov{grid-template-columns:repeat(3,minmax(0,1fr))} }
 
   @container (max-width:339px){ .dpf{grid-template-columns:repeat(2,minmax(0,1fr))} }
-  @container (min-width:340px) and (max-width:469px){ .dpf{grid-template-columns:repeat(3,minmax(0,1fr))} }
-  @container (min-width:470px){ .dpf{grid-template-columns:repeat(5,minmax(0,1fr))} }
+  @container (min-width:340px) and (max-width:509px){ .dpf{grid-template-columns:repeat(3,minmax(0,1fr))} }
+  /* 510px, not 470: at 470 the five cards and four 10px gaps leave 86px each, which is under the
+     width "Appt Fixed - Direct" needs even on two lines. 510 gives ~94px, the reference's card size.
+     Between the two the row steps down to three readable cards rather than five crushed ones. */
+  @container (min-width:510px){ .dpf{grid-template-columns:repeat(5,minmax(0,1fr))} }
 
   @container (max-width:389px){ .dfu{grid-template-columns:repeat(2,minmax(0,1fr))} }
   @container (min-width:390px){ .dfu{grid-template-columns:repeat(4,minmax(0,1fr))} }
@@ -1667,6 +1735,146 @@ html{scroll-behavior:smooth}
 .dtg-empty .dtg-note svg{flex:0 0 auto;margin-top:1px}
 .dtg-empty .dspark{opacity:.55}
 
+/* ---------- Figures: tabular, so a row reads as a table ----------
+   Every number on this screen was rendering with PROPORTIONAL digits (font-variant-numeric computed
+   to `normal`), and Sora's proportional digits are unusually uneven. Measured in this app at the
+   headline size (800 weight, 28px): "111" sets 36.1px wide, "000" sets 64.6px — a 28px swing on
+   three digits. That has two visible costs. Ratios in a row of five cards do not line up on their
+   slash, so "74 / 80" and "156 / 165" sit at different offsets and the row looks hand-placed. And
+   any figure that updates in place — every count here re-renders on SSE pushes — changes width as
+   its digits change, so the card visibly twitches. Under tabular-nums both strings set 56.8px.
+   (Inter is far less affected, 38.9 vs 42.0, but it costs nothing to be consistent.)
+
+   Applied to the FIGURES ONLY. Labels and prose keep proportional digits, which read better in a
+   sentence, so "70% – 89% · close" in the legend is unaffected. */
+.dov-c .v,.dpf-c .p,.dpf-c .r,.dfu-c .rv,.dtg-c .r,.dtg-c .p,
+.ddg-row .dcnt,.ddg-hd .gt,.dovmore .metric .mv{font-variant-numeric:tabular-nums}
+
+/* The ratio line under each performance label is the one place two numbers must align across five
+   cards. Giving the separator its own breathing room stops "156/165" reading as one long number. */
+.dpf-c .r{letter-spacing:.01em}
+
+
+/* ===== Health Advisor — professional status palette =====
+   The screen was carrying the app's full-strength alert red (#D8442B) on every below-target figure,
+   every deviation and the pacing verdict, and a dashboard where a third of the numbers are scarlet
+   reads as an incident report rather than a day's work.
+
+   Rather than chase the colour through a dozen renderers — each of which would have to be edited
+   again next time a card is added — the alert TOKENS are re-pointed for this screen only. Every red
+   here resolves through var(--alert) / var(--alert-ink), so one block moves all of them and no
+   render logic changes at all. Every other screen keeps the original alert palette, which is what
+   Reception and Accounts use for genuine failures.
+
+   The three roles are kept distinct, per the brief:
+     information  -> slate / grey   (a movement, a count — no judgement attached)
+     warning      -> amber          (behind, drifting, needs attention)
+     error        -> MUTED red      (below target, overdue) — still red, no longer alarming
+   Contrast is held above the 4.5:1 AA floor in both directions, measured not estimated:
+   #7C3D2C on white = 8.20:1, #48545F on white = 7.75:1, white on #A8492F = 5.74:1.
+   That last one also fixes a real failure: the pacing verdict pill is white text on the alert fill,
+   and white on the old #D8442B measured 4.39:1 — under the AA floor for the 10.5px bold it uses. */
+#s-advisor{
+  --alert:#A8492F;        /* fills, bars, ring strokes, legend swatches, the pacing pill */
+  /* Below-target TEXT is violet, not red. With the rest of the screen now a single dark slate, a
+     figure that misses its target needs to be TOLD APART from ordinary text, and red was doing that
+     job by alarming rather than by distinguishing. The traffic light still reads cleanly — on target
+     green, close amber, below target violet — and the FILLS below stay muted red, so the bars, ring
+     strokes and the pacing pill keep the warm cue while the numbers stop shouting. */
+  --alert-ink:#4C3FA8;    /* below-target percentages (was #7C3D2C) */
+  --alert-bg:#F7EBE6;     /* tinted card backgrounds */
+  --slate:#48545F;        /* neutral, for information that carries no verdict */
+  --slate-ink:#39434D;
+}
+/* A week-on-week movement is INFORMATION, not a fault, so it must not read as one. It keeps a
+   signal — the direction still matters, and _renderAdvDashSections works out whether that direction
+   is good or bad for the bucket — but "wrong way" is an amber warning, not a red error. Green stays
+   for the right direction; losing it would flatten the one comparison this row exists to make. */
+#s-advisor .dov-c .t.tdn{color:var(--warn-ink)}
+#s-advisor .dov-c .t.tfl{color:var(--slate)}
+/* The trailing "vs last week" is a caption on every card, whichever way the arrow points. */
+#s-advisor .dov-c .t .tw{color:var(--faint);font-weight:600}
+
+/* The Overdue tile goes violet WHOLE — count, arc and icon. The ring renderer hands one colour to
+   all three, so they are recoloured together here rather than left as a two-tone tile where the
+   figure disagrees with the ring above it. Pinned by data-metric, so Total, Done and Due Today keep
+   their own series colours, and the ring's grey track is untouched.
+   Two different overrides because the renderer sets them two different ways: `stroke` on the arc is
+   a presentation ATTRIBUTE, which CSS beats on its own, while the icon carries an inline style,
+   which only !important can reach. */
+#s-advisor .dfu-c[data-metric="fu:overdue"] .rv{ color:#4C3FA8 !important; }
+#s-advisor .dfu-c[data-metric="fu:overdue"] .dring .arc{ stroke:#4C3FA8; }
+#s-advisor .dfu-c[data-metric="fu:overdue"] .dring .ci svg{ stroke:#4C3FA8 !important; }
+
+/* The follow-up reminder popup is appended to the app root rather than inside #s-advisor, so the
+   scope above cannot reach it. Its URGENT badge was the brightest red on the screen. Softened here
+   directly — it stays red because an overdue appointment IS the critical case, just not a siren. */
+.rem-tier.urg{background:#F7EBE6;color:#7C3D2C}
+
+
+/* ===== Health Advisor — card / column labels ==============================
+   The labels that NAME things ("Total Leads", "Appt Fixed – Direct", "Revenue",
+   "PACING RECOMMENDATION") take the brand violet instead of grey, so the eye separates what a
+   figure IS from what it SAYS at a glance. Values, descriptions, legends and source lines stay
+   as they were — colouring those too would leave nothing for the label colour to distinguish.
+
+   One token drives every selector below, so the whole scheme recolours from this single line — it
+   has already been through violet (#4C3FA8) and back, and no selector had to change either time.
+   Contrast measured, not assumed: 9.78:1 on white, 9.34:1 on the header strips, 8.56:1 on the row
+   hover tint — comfortably past the 4.5:1 AA floor, and stronger than both the #4C3FA8 violet
+   (8.13:1) and the mixed greys originally here (--muted managed 5.56:1). */
+#s-advisor{ --label:#3A4550; }   /* dark slate grey */
+
+/* Panel 1 — overview cards + the two overlay tiles */
+#s-advisor .dov-c .k,
+#s-advisor .dovmore .metric .ml,
+/* Panel 2 — the five performance card labels */
+#s-advisor .dpf-c .k,
+/* Panel 3 — ring labels. These were near-black rather than grey, but they are the same kind of
+   label as panel 1's and leaving them dark would split one row of cards across two treatments. */
+#s-advisor .dfu-c .k,
+/* Panel 4 — target card header strips */
+#s-advisor .dtg-hd .k,
+/* Panel 5 — disposition group headings */
+#s-advisor .ddg-hd .gn,
+/* Pacing bar — its "PACING RECOMMENDATION" eyebrow */
+#s-advisor .hapace .pt{ color:var(--label); }
+
+/* ---- ...and the rest of the neutral text on the dashboard ----------------
+   Second pass: with the labels violet, the remaining near-black and grey were what still read as
+   "dark grey" on the screen. Everything that carries NO status meaning now takes the same violet —
+   headline figures, ratios, panel headings, descriptions, legends and the source lines underneath.
+
+   WHAT DELIBERATELY STAYS COLOURED, because the colour IS the information:
+     · the attainment percentages (35% / 290% / 646%) — green, amber or muted red by how they
+       measure against target, which is the entire point of panel 2 and panel 4;
+     · the trend readouts (up / wrong-way / flat) — green, amber, slate by direction and polarity;
+     · the ring counts, arcs, bars, dots and sparklines — each keyed to its own series colour.
+   Turning those violet would delete the traffic-light system the previous pass established, so they
+   are left alone. Their colours are set inline by the renderers, so they win over this block by
+   specificity anyway — the two rules cannot fight. */
+#s-advisor .dpanel-hd h4,            /* PIPELINE OVERVIEW, FOLLOW-UPS, ... */
+#s-advisor .dpanel-hd .sub,          /* (Actual vs Expected) */
+#s-advisor .dsub,                    /* panel subtitles */
+#s-advisor .dov-c .v,                /* 258 / 99 / 10 */
+#s-advisor .dov-c .d,                /* All assigned leads, No progress yet */
+#s-advisor .dovmore .metric .mv,     /* Call Status 258, Priority 6 */
+#s-advisor .dpf-c .r,                /* 27 / 77 */
+#s-advisor .dtg-c .r,                /* Rs16.2L / Rs1L */
+#s-advisor .dtg-empty .dtg-note,     /* Needs session tracking... */
+#s-advisor .dlegend,                 /* >= 90% on target, ... */
+#s-advisor .hakey,                   /* the small legend chips */
+#s-advisor .dsrc,                    /* Expected values from advisor_targets */
+#s-advisor .hapace .pl,              /* the pacing sentence */
+#s-advisor .ddg-row .dl,             /* disposition code names */
+#s-advisor .ddg-row .dcnt,           /* disposition counts */
+#s-advisor .ddg-hd .gt,              /* disposition group totals */
+#s-advisor .dfun-tb td,              /* funnel comparison table */
+#s-advisor .dfun-tb th{ color:var(--label); }
+/* A zero disposition row still recedes — it just recedes in the new hue rather than grey. */
+#s-advisor .ddg-row.zero .dl,
+#s-advisor .ddg-row.zero .dcnt{ color:color-mix(in srgb,var(--label) 45%,transparent); }
+
 /* ---------- Motion ---------- */
 @keyframes dcard-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes dbar-grow{from{width:0}to{width:var(--w)}}
@@ -1708,9 +1916,57 @@ html{scroll-behavior:smooth}
 /* Press feedback: a card that can be clicked should acknowledge the click. */
 .dov-c:active,.dpf-c:active,.dfu-c:active,.dtg-c.clik:active{transform:translateY(0) scale(.985)}
 
+/* ---------- Nano-scale detail ----------
+   Each of these is a few pixels or a few percent, timed under a third of a second. They are meant to
+   be felt rather than watched: the point is that the surface responds, not that something moves. */
+
+/* A light sweeps once across the icon badge as the card lands, so the badge reads as a lit object
+   rather than a flat swatch. overflow:hidden keeps the sweep inside the rounded corners. */
+.dov-c .ic{position:relative;overflow:hidden}
+.dov-c .ic::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:45%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+  transform:skewX(-18deg);animation:dsheen 1.5s var(--ease) .35s 1 backwards}
+@keyframes dsheen{from{left:-60%}to{left:130%}}
+
+/* The performance bar's fill carries the same sweep while it grows, which reads as the bar being
+   filled rather than merely resized. */
+.dpf-bar{position:relative;overflow:hidden}
+.dpf-bar::after{content:"";position:absolute;inset:0;border-radius:5px;pointer-events:none;
+  background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.5),transparent 80%);
+  transform:translateX(-100%);animation:dslide 1.1s var(--ease) .28s 1 backwards}
+@keyframes dslide{to{transform:translateX(100%)}}
+
+/* The ring icon settles a beat after its arc finishes drawing, so the eye follows arc then icon
+   rather than taking both at once. */
+@keyframes dico-in{from{opacity:0;transform:scale(.62)}to{opacity:1;transform:none}}
+.dring .ci{animation:dico-in .42s var(--ease-pop) .34s backwards}
+
+/* Panel number badges get depth rather than sitting flat on the surface. */
+.dnum{box-shadow:0 1px 2px rgba(10,97,71,.28),inset 0 1px 0 rgba(255,255,255,.28)}
+
+/* The whole panel lifts a hair on hover — the container acknowledging the pointer before any card
+   inside it does. Kept to 1px so it never competes with the card lift. */
+@media(hover:hover) and (pointer:fine){
+  .dpanel{transition:box-shadow .28s var(--ease),transform .28s var(--ease),border-color .28s var(--ease)}
+  .dpanel:hover{box-shadow:var(--sh-md);border-color:var(--brand-line);transform:translateY(-1px)}
+  /* The ring's arc thickens very slightly on hover, which makes the proportion easier to judge at
+     the moment the pointer is actually on it. */
+  .dring .arc{transition:stroke-width .22s var(--ease)}
+  .dfu-c:hover .dring .arc{stroke-width:7.2}
+  .dfu-c:hover .ci svg{transform:scale(1.1)}
+  /* Target card header tints toward the brand on hover so the strip reads as part of the card. */
+  .dtg-c.clik{transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease)}
+  .dtg-hd{transition:background .2s var(--ease)}
+  .dtg-c.clik:hover .dtg-hd{background:var(--brand-tint)}
+}
+
+/* Motion is opt-OUT, and opting out has to be total: an entrance the user cannot see is still an
+   entrance that shifts layout under them. Every keyframe above is listed here. */
 @media(prefers-reduced-motion:reduce){
-  .dov-c,.dpf-c,.dfu-c,.dtg-c,.dpf-bar span,.dring .arc,.dspark .ln,.dspark .ar{animation:none}
-  .dov-c:hover .ic,.dfu-c:hover .ci svg,.dpanel:hover .dnum{transform:none}
+  .dov-c,.dpf-c,.dfu-c,.dtg-c,.dpf-bar span,.dring .arc,.dspark .ln,.dspark .ar,
+  .dring .ci,.dov-c .ic::after,.dpf-bar::after{animation:none}
+  .dov-c .ic::after,.dpf-bar::after{display:none}
+  .dov-c:hover .ic,.dfu-c:hover .ci svg,.dpanel:hover .dnum,.dpanel:hover{transform:none}
   .dov-c:active,.dpf-c:active,.dfu-c:active,.dtg-c.clik:active{transform:none}
 }
 
@@ -1719,11 +1975,16 @@ html{scroll-behavior:smooth}
    gain a titled header strip; the pacing bar gains an icon badge and a verdict pill; and call
    disposition becomes five side-by-side group columns instead of one long stacked ribbon. */
 
-/* ---------- Follow-up rings: number inside, share underneath ---------- */
-.dring{width:clamp(66px,5.8vw,78px)}
-.dring .ci .rv{font-family:var(--disp);font-size:clamp(17px,1.7vw,20px);font-weight:800;letter-spacing:-.5px;line-height:1}
-.dfu-c .rs{font-size:11px;font-weight:700;color:var(--muted);margin-top:auto;padding-top:2px}
-.dfu-c .k{min-height:1.4em;font-size:11px;color:var(--ink);font-weight:700}
+/* ---------- Follow-up rings: icon inside, count underneath ----------
+   The ring carries the PROPORTION (its arc) and the CATEGORY (its icon); the count sits below it at
+   full card width in the same colour. Splitting the two means neither is constrained by the other —
+   the arc keeps its full stroke and a four-digit count still fits. */
+.dring{width:clamp(64px,5.6vw,76px);margin:8px auto 9px}
+.dring .ci svg{stroke-width:1.7}
+.dfu-c .rv{font-family:var(--disp);font-size:clamp(19px,1.9vw,23px);font-weight:800;letter-spacing:-.5px;
+  line-height:1.05;margin-top:auto;font-variant-numeric:tabular-nums}
+.dfu-c .k{min-height:2.5em;font-size:11px;color:var(--ink);font-weight:700;line-height:1.25;
+  display:flex;align-items:center;justify-content:center}
 
 /* ---------- Target cards: titled header strip, centred body ---------- */
 .dtg-c{padding:0;overflow:hidden}
@@ -1749,22 +2010,42 @@ html{scroll-behavior:smooth}
   color:#fff;background:var(--pc,var(--brand));padding:6px 13px;border-radius:999px;white-space:nowrap}
 
 /* ---------- Call disposition: five group columns ---------- */
-.hadisp{grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;align-items:start}
-.ddg{border:1px solid var(--line);border-radius:13px;background:var(--surface);overflow:hidden;min-width:0;
-  display:flex;flex-direction:column}
-.ddg-hd{display:flex;align-items:center;gap:7px;padding:8px 10px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.hadisp{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:stretch}
+.ddg{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden;min-width:0;
+  display:flex;flex-direction:column;box-shadow:var(--sh)}
+/* HEADERS SHARE A HEIGHT. "Positive · conversion path" wraps to two lines while "New" takes one, so
+   without a floor the five cards started their first row at five different heights and the panel
+   read as five loose lists rather than one table. min-height is set from the two-line case. */
+.ddg-hd{display:flex;align-items:center;gap:8px;padding:9px 11px;min-height:46px;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
 .ddg-hd i{width:9px;height:9px;border-radius:3px;flex:0 0 auto;font-style:normal}
-.ddg-hd .gn{font-size:10.5px;font-weight:800;color:var(--ink);line-height:1.25;min-width:0}
-.ddg-hd .gt{margin-left:auto;font-size:11px;font-weight:800;color:var(--muted);font-family:var(--mono,ui-monospace,monospace)}
-.ddg-bd{padding:5px 6px 7px}
+.ddg-hd .gn{font-size:11px;font-weight:800;color:var(--ink);line-height:1.3;min-width:0;letter-spacing:.01em}
+/* The group total reads as a count chip rather than loose text, so the eye finds it in the same
+   place on every card. */
+.ddg-hd .gt{margin-left:auto;flex:0 0 auto;font-size:11px;font-weight:800;color:var(--muted);
+  font-variant-numeric:tabular-nums;background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:2px 8px;line-height:1.5}
+.ddg-bd{padding:6px 7px 8px;display:flex;flex-direction:column;gap:1px}
 /* label | count | mini bar — the bar is scaled to the group's largest code, so the codes inside a
-   group are comparable with each other rather than all being slivers of a big total. */
-.ddg-row{display:grid;grid-template-columns:minmax(0,1fr) auto 34px;gap:7px;align-items:center;
-  padding:5px 5px;border-radius:8px;cursor:pointer;transition:background .15s var(--ease)}
-.ddg-row .dl{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ddg-row .dcnt{font-size:11.5px;font-weight:800;color:var(--ink);font-family:var(--mono,ui-monospace,monospace)}
-.ddg-row .habar{height:5px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden;display:block}
-.ddg-row .habar>span{display:block;height:100%;border-radius:4px;transition:width .4s var(--ease)}
+   group are comparable with each other rather than all being slivers of a big total.
+   THE COUNT COLUMN IS FIXED WIDTH. It used to be `auto`, so a column holding 99 and 4 gave those two
+   rows different count widths and started their bars at different x positions — every row in the
+   panel was ragged. A fixed track plus tabular figures lines the counts and the bars up down the
+   whole column. */
+.ddg-row{display:grid;grid-template-columns:minmax(0,1fr) 26px 46px;gap:9px;align-items:center;
+  min-height:32px;padding:6px 7px;border-radius:9px;cursor:pointer;transition:background .15s var(--ease)}
+/* Labels WRAP instead of truncating: "Appointment Fixed – Direct" was cut to "Appointment Fixe…",
+   which is the one thing a disposition row exists to tell you. */
+.ddg-row .dl{font-size:11.5px;color:var(--muted);line-height:1.3;white-space:normal;overflow-wrap:anywhere}
+.ddg-row .dcnt{font-size:12px;font-weight:800;color:var(--ink);text-align:right;
+  font-variant-numeric:tabular-nums;font-family:var(--mono,ui-monospace,monospace)}
+/* A zero still shows its empty track, so the row reads as "measured, none" rather than looking like
+   a rendering gap. */
+.ddg-row .habar{height:6px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden;display:block}
+.ddg-row .habar>span{display:block;height:100%;border-radius:4px;min-width:0;transition:width .4s var(--ease)}
+/* A code with nothing against it recedes — the eye should land on the codes that carry volume. */
+.ddg-row.zero .dl,.ddg-row.zero .dcnt{color:var(--faint)}
+.ddg-row+.ddg-row{border-top:1px solid var(--line-soft)}
 @media(hover:hover) and (pointer:fine){
   .ddg-row:hover{background:var(--brand-tint)}
   .ddg-row:hover .dl{color:var(--ink)}
@@ -1806,8 +2087,14 @@ html{scroll-behavior:smooth}
 .dpanel{display:flex;flex-direction:column}
 #haOverview,#haPipeTargets,#haFollowupCards,#haTargetCards{flex:1 1 auto}
 .dov,.dpf,.dfu,.dtg{align-content:stretch}
-.dfu-c{justify-content:space-between}
-.dfu-c .rs{margin-top:0}
+/* CENTRED AS A GROUP, not spread to the extremes. These cards stretch to whatever height the panel
+   beside them dictates — measured at 213px against 126px of actual content — and space-between spent
+   all 87px of that slack on two gaps, so the label sat hard against the top border and the count
+   hard against the bottom with the ring adrift between them. Centring keeps label / ring / count
+   reading as one object at any card height; the slack goes to the outside where it is just margin. */
+.dfu-c{justify-content:center;gap:9px}
+.dfu-c .rv{margin-top:0}
+.dfu-c .k,.dfu-c .dring{margin-top:0;margin-bottom:0}
 .dpanel>.dsrc,.dpanel>.dlegend{flex:0 0 auto}
 /* The pacing bar is now a full-width row of its own, under both panels. */
 #haPacing{margin-top:14px}
@@ -1962,3 +2249,24 @@ html{scroll-behavior:smooth}
   animation:dpt-in .3s var(--ease) backwards;animation-delay:calc(.28s + var(--i) * .035s)}
 @media(hover:hover) and (pointer:fine){ .dtg-c:hover .dspark .pt{r:3.1} }
 @media(prefers-reduced-motion:reduce){ .dspark .pt{animation:none} }
+/* ===== Advisor dashboard: inner cards reflow on THEIR OWN width =====
+   The concern this block used to address was real: card rows must reflow against the width of the
+   PANEL they sit in, not the window, or a five-across row gets squeezed to ~90px a card inside a
+   half-width panel. But the container-query ladder further up already does exactly that (.dpanel is
+   the container), so the auto-fit rules that used to live here were not adding the behaviour — they
+   were overriding a working ladder with a worse one.
+
+   auto-fit cannot express "five or nothing". With five performance cards it fills the first row and
+   drops the remainder onto a second, where 1fr stretches the last two to double width — the ragged
+   3 + 2 the comment at the top of the ladder warns about, and not what the reference shows. The
+   ladder steps 5 -> 3 -> 2 -> 1 instead, so every row stays rectangular at every width. */
+
+/* Fluid type for the ring figure, which sits inside a fixed-diameter ring and so has the least room
+   to give. (The old rules here targeted .dpf-c .v and .dfu-c .v — neither element exists in the
+   current markup; the performance card uses .p/.r and the ring uses .rv.) */
+.dfu-c .rv{font-size:clamp(17px,1.8vw,21px)}
+
+/* Nothing in a panel may force the page wider than the screen - a single overflowing table is all it
+   takes to make the whole layout scroll sideways and look broken. */
+.dpanel{overflow-x:clip}
+.dpanel .tscroll{max-width:100%;overflow-x:auto}

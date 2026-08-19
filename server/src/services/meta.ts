@@ -793,7 +793,22 @@ export async function syncMetaLeadsToSupabase(adAccountIds: string[], _pageIds: 
       upserted += chunk.length;
     }
 
+    // AUTO-ASSIGN the leads this crawl just landed. Here rather than on a timer because this is the
+    // moment new leads actually appear — the brief's "leads arrive throughout the day, keep
+    // assigning" is satisfied by running wherever leads enter, and every sync is one of those
+    // moments. Best-effort: a failure here must never fail the sync that already saved the leads.
+    let autoAssigned = 0;
+    try {
+      const { runAutoAssign } = await import('./autoassign');
+      const r = await runAutoAssign({ by: 'auto-assign (meta sync)' });
+      autoAssigned = r.assigned;
+      if (r.assigned) console.log('[wellness-api] auto-assign: placed ' + r.assigned + ' lead(s)');
+    } catch (e: any) {
+      console.log('[wellness-api] auto-assign skipped: ' + (e?.message || e));
+    }
+
     const stats = {
+      autoAssigned,
       leadsSynced: upserted,
       formsScanned: formCrawl.formsScanned,
       attributedToAccounts: adCrawl.leads.length,

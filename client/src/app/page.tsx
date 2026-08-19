@@ -60,6 +60,10 @@ export default function Home() {
           <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
           <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
           <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+          {/* Follow-up panel rings. i-clip is a PAPERCLIP (attachments); the follow-up workload
+              needs a clipboard, so it gets its own symbol rather than reusing the wrong metaphor. */}
+          <symbol id="i-board" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1z"/><path d="M8.5 11h7M8.5 15.5h4.5"/></symbol>
+          <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.6 2.7 19.3a1.5 1.5 0 0 0 1.3 2.2h16a1.5 1.5 0 0 0 1.3-2.2z"/><path d="M12 9.5v4.4M12 17.6h.01"/></symbol>
         </defs>
       </svg>
 
@@ -146,6 +150,22 @@ export default function Home() {
         <div className="ring" aria-hidden="true"></div>
         <div style={{fontSize:"14px",fontWeight:700,color:"var(--ink)"}}>Loading Dashboard…</div>
         <div style={{fontSize:"12px",color:"var(--muted)"}}>Please wait while we prepare your data</div>
+      </div>
+
+      {/* PER-PAGE loading overlay. #appLoading above is the sign-in splash and fires exactly once
+          (_appShownOnce); this is its reusable sibling, shown whenever a screen is fetching. It
+          covers the CONTENT area rather than the whole viewport so the sidebar stays usable and the
+          user is never trapped mid-load. Driven by window._pgLoad() in app.ts. */}
+      <div className="pgload" id="pageLoading" role="status" aria-live="polite" aria-hidden="true">
+        <div className="pgload-card">
+          <div className="pgload-mark">
+            <span className="pgload-ring" aria-hidden="true"></span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/mhs-logo.png" alt="" aria-hidden="true"/>
+          </div>
+          <div className="pgload-t" id="pgLoadTitle">Loading…</div>
+          <div className="pgload-s" id="pgLoadSub">Please wait while we prepare your data</div>
+        </div>
       </div>
 
       <div className="toast" id="toast" role="status" aria-live="polite"><svg className="icon" aria-hidden="true"><use href="#i-check"/></svg><span id="toastMsg">Saved</span></div>

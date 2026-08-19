@@ -63,7 +63,7 @@ export function getMainContent(): string {
                as one sequence rather than four designed panels followed by loose sections. -->
           <div id="haLowerSections">
           <div class="dpanel" style="margin-top:14px">
-            <div class="dpanel-hd"><span class="dnum">5</span><h4>Call disposition</h4><span class="sub">(20 codes)</span></div>
+            <div class="dpanel-hd"><span class="dnum">5</span><h4>Call disposition</h4><span class="sub">(21 codes)</span></div>
             <div class="dsub">Colour shows the <b>group</b>, not performance — a disposition has no target. Click any row to open those leads.</div>
             <div id="haDispo" class="hadisp"></div>
           </div>
@@ -93,8 +93,6 @@ export function getMainContent(): string {
             <div class="dpanel-hd"><span class="dnum">9</span><h4>Call performance</h4></div>
             <div class="dsub" id="haCallHint"></div>
             <div class="metrics" id="haCallPerf" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin:11px 0 0"></div>
-            <!-- Call Touch Time: advisor x hour dialer performance, filled by _advRenderCallHourly. -->
-            <div id="haCallHourly" style="margin:16px 0 0"></div>
           </div>
           </div>
         </div>
@@ -255,7 +253,7 @@ export function getMainContent(): string {
           <div class="g2">
             <div class="fld"><label class="lbl" for="callStatus">Call status — drives the flow</label>
               <select  class="select" id="callStatus" onchange="callStatusChange(this.value)">
-                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option><option value="ni">Not Interested</option><option value="disc">Disconnect</option>
+                <option value="new">New (Default)</option><option value="dnd">DND</option><option value="rnr">RNR</option><option value="busy">Line Busy</option><option value="cb">Call Back</option><option value="paid">Already Paid</option><option value="fu">Follow Up</option><option value="so">Switched Off</option><option value="nreg">Not Registered</option><option value="nosugar">No Sugar</option><option value="oos">Out of Service</option><option value="wn">Wrong Number</option><option value="afd">Appointment Fixed – Direct</option><option value="afz">Appointment Fixed – Zoom</option><option value="vis">Visited</option><option value="enr">Enrolled</option><option value="nr">Not Reachable</option><option value="ni">Not Interested</option><option value="disc">Disconnect</option><option value="invalid">Invalid</option>
               </select></div>
             <div class="fld"><label class="lbl" for="nextFollowUp">Next follow-up date &amp; time</label><input  class="input" id="nextFollowUp" type="datetime-local" data-future="1"></div>
           </div>
@@ -303,7 +301,7 @@ export function getMainContent(): string {
         <div class="sec-bd">
           <div class="g4">
             <div class="fld"><label class="lbl" for="slotDate">Date</label><input  class="input" type="date" id="slotDate" data-future="1" onchange="renderSlots()"></div>
-            <div class="fld"><label class="lbl" for="apptHc">HC <span class="ab">FROM ASSIGNMENT</span></label><select  class="select" id="apptHc" disabled title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"><option value="">— Select —</option></select></div>
+            <div class="fld"><label class="lbl" for="apptHc">HC <span class="ab" id="apptHcSrc">FROM ASSIGNMENT</span></label><select  class="select" id="apptHc" disabled title="Set automatically from “HC assigned” in Assignment & pipeline — cannot be changed here"><option value="">— Select —</option></select></div>
             <div class="fld"><label class="lbl" for="apptCapRule">Capacity rule</label><input  class="input mono" id="apptCapRule" value="Select an HC first" readonly></div>
             <div class="fld"><label class="lbl" for="apptReq">Appt request <span class="ab">AUTO</span></label><input  class="input mono" id="apptReq" readonly placeholder="—"></div>
           </div>
@@ -495,7 +493,7 @@ export function getMainContent(): string {
           <div class="g4">
             <div class="fld"><label class="lbl" for="haAttendedBy">Attended by (HC)</label><input  class="input" id="haAttendedBy" readonly></div>
             <div class="fld"><label class="lbl" for="haConsultDate">Consultation date</label><input  class="input" type="date" id="haConsultDate"></div>
-            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="date" id="haReviewDate" data-future="1"></div>
+            <div class="fld" id="reviewDateFld" style="display:none"><label class="lbl" for="haReviewDate">Review date <span class="ab">for join / this-week / month plans</span></label><input  class="input" type="datetime-local" id="haReviewDate" data-future="1"></div>
             <!-- Recording status hidden on request — NOT deleted: the coach profile saves pill states
                  positionally across the whole panel, so removing these three pills would shift every
                  later pill (consultation status, payment status) on previously saved profiles. The
@@ -519,7 +517,7 @@ export function getMainContent(): string {
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
             <div class="g4" style="gap:10px">
-              <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="date" id="fuCommitDate" data-future="1" onchange="window._fuCommitSync()" oninput="window._fuCommitSync()"></div>
+              <div><label class="lbl" style="color:var(--vio-ink)" for="fuCommitDate">Commitment date *</label><input  class="input" style="height:36px" type="datetime-local" id="fuCommitDate" data-future="1" onchange="window._fuCommitSync()" oninput="window._fuCommitSync()"></div>
               <div><label class="lbl" style="color:var(--vio-ink)" for="fuOwner">Owner</label><select  class="select" style="height:36px" id="fuOwner"><option selected>-- Select --</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Blocker</label><select aria-label="Blocker" class="select" style="height:36px"><option>Budget / salary date</option><option>Family discussion</option><option>Travel</option><option>Comparing options</option></select></div>
               <div><label class="lbl" style="color:var(--vio-ink)">Hold offer till</label><input aria-label="Hold offer till" class="input" style="height:36px" type="date" data-future="1"></div>
@@ -766,16 +764,27 @@ export function getMainContent(): string {
         <span id="mlSyncInfo" style="font-size:11.5px;color:var(--muted)"></span>
       </div>
     </div></div>
-    <div class="metrics" id="mlMetrics" style="margin:10px 0"></div>
+    <!-- Loading placeholders ship in the MARKUP, not from JS. These containers are filled by
+         _mlRender() after the feed returns, so an empty container is exactly what the page looked
+         like for the whole first load: three blank cards and a blank table, indistinguishable from
+         "Meta returned nothing". The skeleton says "working" and, because it is inside the same
+         element the renderer overwrites, it cannot outlive the load — _mlRender() is called
+         unconditionally, including on the failure path where _mlAll is reset to []. -->
+    <div class="metrics" id="mlMetrics" style="margin:10px 0">
+      <div class="metric"><div class="ml skel w55">&nbsp;</div><div class="mv skel w30" style="height:22px;margin-top:8px">&nbsp;</div></div>
+      <div class="metric"><div class="ml skel w55">&nbsp;</div><div class="mv skel w30" style="height:22px;margin-top:8px">&nbsp;</div></div>
+      <div class="metric"><div class="ml skel w55">&nbsp;</div><div class="mv skel w30" style="height:22px;margin-top:8px">&nbsp;</div></div>
+      <div class="metric"><div class="ml skel w55">&nbsp;</div><div class="mv skel w30" style="height:22px;margin-top:8px">&nbsp;</div></div>
+    </div>
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-target"></use></svg> Leads <span class="chipb info" style="margin-left:6px" id="mlCount">0</span></div>
-      <div class="sec-bd"><div id="mlTableWrap"></div>
+      <div class="sec-bd"><div id="mlTableWrap"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading Meta leads…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div>
         <div style="display:flex;gap:10px;margin-top:10px;align-items:center;justify-content:center;flex-wrap:wrap">
           <button class="btn bsm" onclick="window._mlPage('first')">« First</button><button class="btn bsm" onclick="window._mlPage('prev')">← Prev</button>
           <span id="mlPageInfo" style="font-size:12px;color:var(--muted)"></span>
           <button class="btn bsm" onclick="window._mlPage('next')">Next →</button><button class="btn bsm" onclick="window._mlPage('last')">Last »</button>
         </div></div></div>
     <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Breakdown by campaign</div>
-      <div class="sec-bd" id="mlBreakdown"></div></div>
+      <div class="sec-bd" id="mlBreakdown"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Building the campaign breakdown…</span><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
   </div></section>
 
   <section class="screen" id="s-import"><div class="wrap">
@@ -1417,10 +1426,6 @@ export function getMainContent(): string {
       <input type="date" class="input" id="phFrom" style="display:none;height:30px;font-size:12px;width:130px">
       <input type="date" class="input" id="phTo" style="display:none;height:30px;font-size:12px;width:130px">
       <button class="btn bsm bp" id="phApplyBtn" style="display:none;height:30px" onclick="window._phApplyDate()">Apply</button>
-      <!-- Same billed-vs-collected split the report and Accounts use, so the three agree. -->
-      <span style="font-size:10px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase">Collected</span>
-      <span style="font-family:var(--disp);font-weight:700;font-size:18px;color:var(--brand-600)" id="phRevenue">₹0</span>
-      <span style="font-size:11px;color:var(--muted);font-weight:600" id="phBilled"></span>
       <button class="btn" style="margin-left:auto" data-exp onclick="window._phExport()"><svg class="icon"><use href="#i-dl"></use></svg> Export</button>
     </div>
     <div class="metrics" style="margin:10px 0" id="phMetrics"></div>
@@ -1468,6 +1473,25 @@ export function getMainContent(): string {
              restores exactly what was entered. -->
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-doc"></use></svg> Patient assessment — <span id="phSoapTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
+            <!-- Consultation recording bar. Same controls and the same ids-per-role pattern as the
+                 Health Coach's office-visit bar, but on its OWN handlers (_phRec*) so nothing here
+                 can disturb a coach recording running in another tab. -->
+            <div class="mic" style="flex-wrap:wrap;gap:8px"><button class="micb" id="phMicBtn" onclick="window._phRecToggle()"><svg aria-hidden="true" focusable="false" class="icon" style="width:19px;height:19px"><use href="#i-mic"></use></svg></button>
+              <div style="flex:1;min-width:180px"><b style="font-size:13px" id="phMicTxt">Start consultation recording</b><div style="font-size:11.5px;color:var(--muted)"><span id="phRecStatus">In-clinic audio — auto-saved to this patient's record</span> <span id="phRecTimer" class="mono" style="margin-left:6px;color:var(--alert);font-weight:700"></span></div></div>
+              <span class="chipb info" id="phRecProgress" style="white-space:nowrap">—</span>
+              <button class="btn bsm bp" id="phRecStartBtn" onclick="window._phRecToggle()">● Start Recording</button></div>
+            <div id="phRecList" style="margin-top:8px"></div>
+
+            <!-- Assessment gate: the fields below stay hidden until Start Recording is pressed in the
+                 #phGateModal popup, so a physiotherapy consultation is always captured alongside the
+                 record it produces. Mirrors the Health Coach's haLockNote / .ha-gated pair. -->
+            <div id="phLockNote" class="aud" style="background:#fff;text-align:center;padding:22px 14px">
+              <div style="font-size:34px;line-height:1">🎙️</div>
+              <div class="ahd" style="margin-top:6px">Patient assessment is locked</div>
+              <div style="font-size:12.5px;color:var(--muted);margin-top:4px">Start the Physiotherapy consultation recording to open the assessment.</div>
+              <button class="btn bp" style="margin-top:12px" onclick="window._phGateOpen()">● Start Recording</button>
+            </div>
+            <div class="ph-gated">
             <div class="nwGrpHd">Lifestyle information</div>
             <div class="g4">
               <div class="fld"><label class="lbl" for="phaActivity">Physical activity</label><select class="select" id="phaActivity"><option value="">— Select —</option><option>Sedentary</option><option>Light</option><option>Moderate</option><option>Active</option></select></div>
@@ -1496,11 +1520,22 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="phCondition">Health condition</label><input class="input" id="phCondition" placeholder="Shown in the Sessions table"></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="window._phSaveNotes()"><svg class="icon"><use href="#i-check"></use></svg> Save notes</button><button class="btn bp" onclick="window._phSaveSoap()"><svg class="icon"><use href="#i-check"></use></svg> Complete consultation</button><button class="btn" onclick="window._phPrintNotes()">🖨 Print notes</button></div>
-            <p style="font-size:11px;color:var(--faint);margin-top:6px">Completing the consultation sends this patient to Reception &rarr; Collect payment. The payment status then shows on both pages.</p>
+            <p style="font-size:11px;color:var(--faint);margin-top:6px">Completing the consultation sends this patient to Reception &rarr; Collect payment. The payment status then shows on both pages. The recording stops and saves automatically when you press <b>Complete consultation</b>.</p>
+            </div>
           </div></div>
 
         <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg class="icon"><use href="#i-heart"></use></svg> Physiotherapy Session Details — <span id="phPlanTitle">Patient</span> <span class="arr">▾</span></div>
           <div class="sec-bd">
+            <!-- Locked by the same gate as the assessment above: the session plan, its price and the
+                 visit log are the record the consultation produces, so they open only once that
+                 consultation is being captured. -->
+            <div id="phPlanLockNote" class="aud" style="background:#fff;text-align:center;padding:18px 14px">
+              <div style="font-size:28px;line-height:1">🎙️</div>
+              <div class="ahd" style="margin-top:6px">Session details are locked</div>
+              <div style="font-size:12.5px;color:var(--muted);margin-top:4px">Start the Physiotherapy consultation recording to open the session plan.</div>
+              <button class="btn bp" style="margin-top:12px" onclick="window._phGateOpen()">● Start Recording</button>
+            </div>
+            <div class="ph-gated">
             <div class="g4">
               <div class="fld"><label class="lbl" for="phTpTherapist">Physiotherapist name</label><select class="select" id="phTpTherapist"><option value="">— Select —</option><option>Karuna</option><option>Swathi</option></select></div>
               <div class="fld"><label class="lbl" for="phTpPlan">Session / treatment plan</label><select class="select" id="phTpPlan" onchange="window._phTpPlanChange()"><option value="">— Select —</option></select></div>
@@ -1521,6 +1556,7 @@ export function getMainContent(): string {
             <div class="fld fw"><label class="lbl">Visit history</label>
               <div id="phVisitHistory"><div style="text-align:center;color:var(--faint);padding:8px;font-size:12px">Open a patient to see visit history.</div></div></div>
             <div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" onclick="window._phSavePlan()"><svg class="icon"><use href="#i-check"></use></svg> Save session details</button><!-- "Collect payment" removed on request: collection happens at Reception (the completed consultation surfaces the amount in its Collect queue) — window._phCollectPay stays defined for any stale markup. --></div>
+            </div>
           </div></div>
         </div>
       </div>
@@ -1549,7 +1585,7 @@ export function getMainContent(): string {
          filters as the cards above; the list comes from the service master. -->
     <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:10px 2px 6px">Revenue by service <span style="font-weight:600;text-transform:none;letter-spacing:0">— collected, with billed below · by payment date</span></div>
     <div class="metrics" id="accSvcMetrics"></div>
-    <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button><button data-t="thyro">Blood test — Thyrocare</button></div>
+    <div class="tabs" id="accTabs"><button class="on" data-t="tx">Transactions</button><button data-t="ver">Verify proofs <span id="accVerCount"></span></button><button data-t="out">Outstanding <span id="accOutCount"></span></button><button data-t="ref">Refunds <span id="accRefCount"></span></button><button data-t="thyro">Blood test — Thyrocare</button><button data-t="physio">Physiotherapy</button></div>
     <div class="acc-p" data-p="tx">
       <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
         <span><svg class="icon"><use href="#i-wallet"></use></svg> Transactions</span>
@@ -1643,7 +1679,53 @@ export function getMainContent(): string {
         <div class="sec-bd">
           <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col">Paid on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accThyroHistBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
         </div></div>
-  </div></section>
+  </div>
+    <!-- Physiotherapy: day-by-day reconciliation with the physio provider/team. Deliberately the same
+         shape as the Thyrocare tab above (cards → reconciliation → payout queue → settled history) so
+         Accounts works one screen, not two. What differs is the subject: blood test settles a LAB
+         COST per record, physio settles SESSION WORK, so "Sample collected" becomes session progress
+         and the money is the treatment plan's own price rather than a partner's price list. -->
+    <div class="acc-p" data-p="physio" style="display:none">
+      <div class="metrics" id="accPhysioCards" style="margin-bottom:12px"></div>
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-heart"></use></svg> Physiotherapy reconciliation <span style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px">one row per day · by visit date</span></span>
+        <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <span id="accPhysioSelInfo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="btn bsm bp" id="accPhysioProceed" style="display:none" onclick="window._accPhysioProceed()">→ Proceed to payout</button>
+          <button class="btn bsm" id="accPhysioClearSel" style="display:none" onclick="window._accPhysioSelClear()">Clear</button>
+          <button class="btn bsm" data-exp onclick="window._accPhysioDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd" id="accPhysioBody"><div class="ldwrap" role="status" aria-live="polite"><span class="ldcap">Loading…</span><div class="skel w30"></div><div class="skel w90"></div><div class="skel w75"></div><div class="skel w90"></div><div class="skel w55"></div></div></div></div>
+
+      <!-- Payout ledger — real money SENT to the physio provider/team. The reconciliation table above
+           only recognises what the work is WORTH; this is the record of an actual transfer, and the
+           balance line reconciles the two live so they cannot drift. -->
+      <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-coin"></use></svg> Payout — money sent to Physiotherapy <span id="accPhysioPayoutCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
+        <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <span id="accPhysioPayoutSelInfo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="btn bsm bp" id="accPhysioMarkPaid" style="display:none" onclick="window._accPhysioMarkPaid()">✓ Mark as paid</button>
+          <span id="accPhysioBalance" style="font-size:12.5px;font-weight:700;white-space:nowrap"></span></span></div>
+        <div class="sec-bd">
+          <!-- No manual entry form, for the same reason as Thyrocare: a payout is only ever created by
+               Proceed on the reconciliation table, so its amount and the days it covers always come
+               from real records rather than being typed in and having to agree with them by hand. -->
+          <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col" style="width:32px"><input type="checkbox" id="accPhysioPayoutSelAll" onclick="window._accPhysioPayoutSelAll(this.checked)" style="accent-color:var(--brand)"></th><th scope="col">Raised on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accPhysioPayoutBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn bsm" data-exp onclick="window._accPhysioPayoutDownload()">⬇ Download</button></div>
+        </div></div>
+
+      <!-- PHYSIOTHERAPY PAYMENTS HISTORY — the settled ledger. A payout only reaches this table once
+           Mark as paid confirms the money actually left, so everything here reads "Paid". Kept
+           separate from the queue above so "still to send" and "already sent" are never one list. -->
+      <div class="sec" style="margin-top:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-doc"></use></svg> Physiotherapy payments history <span id="accPhysioHistCount" style="font-size:11px;font-weight:400;color:var(--faint);margin-left:6px"></span></span>
+        <span style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+          <input class="input" id="accPhysioHistSearch" placeholder="Search amount / day / person…" style="height:30px;max-width:220px;font-size:12px;font-weight:400" oninput="window._accPhysioHistSearch()">
+          <button class="btn bsm" data-exp onclick="window._accPhysioHistDownload()">⬇ Download</button></span></div>
+        <div class="sec-bd">
+          <div class="tscroll"><table class="tbl" style="min-width:820px"><thead><tr><th scope="col">Paid on</th><th scope="col">Amount</th><th scope="col">Covers</th><th scope="col">Method</th><th scope="col">Status</th><th scope="col">Recorded by</th><th scope="col">Actions</th></tr></thead><tbody id="accPhysioHistBody"><tr><td colspan="7" style="text-align:center;color:var(--faint);padding:14px">Loading…</td></tr></tbody></table></div>
+        </div></div>
+    </div>
+  </section>
 
   <!-- REPORTS (Admin Report redesign — all styling scoped under .rpc) -->
   <section class="screen" id="s-reports"><div class="wrap" style="max-width:1600px">
@@ -1822,13 +1904,30 @@ export function getMainContent(): string {
       <input class="ctk-search" id="ctkSearch" placeholder="Search campaign / adset / ad…" oninput="window._ctkSearch()">
     </div>
 
-    <div class="ctk-kpis" id="ctkKpis"></div>
+    <!-- Same reasoning as the Meta page: these ship empty and are filled by _ctkRender(), so the
+         first paint was a blank strip where the KPIs belong. The skeleton cards carry the real
+         card's shape, which is what stops the layout jumping when the numbers land. _ctkRender()
+         runs from _ctkLoad's finally block, so this is replaced on the error path too. -->
+    <div class="ctk-kpis" id="ctkKpis">
+      <div class="ctk-k"><div class="kl skel w55">&nbsp;</div><div class="kv skel w75" style="height:22px;margin-top:7px">&nbsp;</div><div class="ks skel w30" style="margin-top:6px">&nbsp;</div><div class="kbar"></div></div>
+      <div class="ctk-k"><div class="kl skel w55">&nbsp;</div><div class="kv skel w75" style="height:22px;margin-top:7px">&nbsp;</div><div class="ks skel w30" style="margin-top:6px">&nbsp;</div><div class="kbar"></div></div>
+      <div class="ctk-k"><div class="kl skel w55">&nbsp;</div><div class="kv skel w75" style="height:22px;margin-top:7px">&nbsp;</div><div class="ks skel w30" style="margin-top:6px">&nbsp;</div><div class="kbar"></div></div>
+      <div class="ctk-k"><div class="kl skel w55">&nbsp;</div><div class="kv skel w75" style="height:22px;margin-top:7px">&nbsp;</div><div class="ks skel w30" style="margin-top:6px">&nbsp;</div><div class="kbar"></div></div>
+      <div class="ctk-k"><div class="kl skel w55">&nbsp;</div><div class="kv skel w75" style="height:22px;margin-top:7px">&nbsp;</div><div class="ks skel w30" style="margin-top:6px">&nbsp;</div><div class="kbar"></div></div>
+    </div>
 
     <!-- Funnel: one card per stage. Each card's meter is its conversion FROM THE PREVIOUS STAGE,
          not a share of the total — clicks outnumber enrolments by four orders of magnitude, so on
          one shared scale every stage after the first is an unreadable sliver. -->
     <div class="ctk-panel">
-      <div class="ctk-funnel" id="ctkFunnel"></div>
+      <div class="ctk-funnel" id="ctkFunnel">
+        <div class="ctk-fc"><div class="fl skel w55">&nbsp;</div><div class="fv skel w75" style="height:24px;margin-top:6px">&nbsp;</div><div class="fm"></div></div>
+        <div class="ctk-fc"><div class="fl skel w55">&nbsp;</div><div class="fv skel w75" style="height:24px;margin-top:6px">&nbsp;</div><div class="fm"></div></div>
+        <div class="ctk-fc"><div class="fl skel w55">&nbsp;</div><div class="fv skel w75" style="height:24px;margin-top:6px">&nbsp;</div><div class="fm"></div></div>
+        <div class="ctk-fc"><div class="fl skel w55">&nbsp;</div><div class="fv skel w75" style="height:24px;margin-top:6px">&nbsp;</div><div class="fm"></div></div>
+        <div class="ctk-fc"><div class="fl skel w55">&nbsp;</div><div class="fv skel w75" style="height:24px;margin-top:6px">&nbsp;</div><div class="fm"></div></div>
+        <div class="ctk-fc"><div class="fl skel w55">&nbsp;</div><div class="fv skel w75" style="height:24px;margin-top:6px">&nbsp;</div><div class="fm"></div></div>
+      </div>
     </div>
 
     <!-- Drill-down — the individual records behind whichever funnel card was clicked. Hidden until
@@ -1849,7 +1948,7 @@ export function getMainContent(): string {
          (spend, delivery, funnel, conversion, cost-per); the cards above are only its summary. -->
     <div class="ctk-panel">
       <div class="ctk-ph"><span class="ctk-ph-t">Performance</span><span class="ctk-ph-s" id="ctkRowInfo"></span></div>
-      <div class="ctk-tw"><table class="ctk-tbl"><thead id="ctkHead"></thead><tbody id="ctkBody"></tbody><tfoot id="ctkFoot"></tfoot></table></div>
+      <div class="ctk-tw"><table class="ctk-tbl"><thead id="ctkHead"></thead><tbody id="ctkBody"><tr><td colspan="24" class="ctk-none">Loading campaign performance…</td></tr></tbody><tfoot id="ctkFoot"></tfoot></table></div>
     </div>
 
     <!-- Date-range picker. Built to the Meta Ads Manager pattern: preset rail on the left, two
@@ -2119,6 +2218,30 @@ export function getMainContent(): string {
          nothing on that screen is hardcoded any more, so changing a number here moves the dashboard
          with no code change or redeploy. -->
     <div class="st-p" data-p="st-tgt" style="display:none">
+      <!-- ADVISOR LEADS COUNT SETTING — the daily auto-assignment allocation. Sits ABOVE the targets
+           master because it is the thing an admin touches daily, where targets are set once a month.
+           Rows come from the live assignees master, so a new advisor appears here the moment they are
+           added. A blank or 0 target means "not in the rotation": listing somebody is never enough to
+           send them leads, which is what makes it safe to list every lead-working role. -->
+      <div class="sec" style="margin-bottom:12px"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-split"></use></svg> Advisor Leads Count Setting — daily auto-assignment</span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="alcInfo" style="font-size:11.5px;color:var(--muted)"></span>
+          <button class="btn bsm" onclick="window._alcPreview()">Preview split</button>
+          <button class="btn bsm bp" onclick="window._alcRunNow()">⚡ Assign pooled leads now</button>
+          <button class="btn bsm bp" onclick="window._alcSave()">Save allocation</button></span></div>
+        <div class="sec-bd">
+          <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px">Set how many leads each advisor should receive <b>per day</b>. As leads arrive through the day the system tops each advisor up to their number — it does not wait for the whole day's leads to exist. Leave a target at <b>0</b> to keep an advisor out of auto-assignment. The count resets every day on its own. <b>Admin manual assignment is unaffected</b> — you can still assign any lead by hand from Assign &amp; approve, and anything you assign by hand counts towards that advisor's day.</p>
+          <div class="tscroll"><table class="tbl" style="min-width:720px"><thead><tr><th scope="col">Advisor</th><th scope="col">Role</th><th scope="col" style="text-align:right">Daily lead target</th><th scope="col" style="text-align:right">Assigned today</th><th scope="col" style="text-align:right">Remaining today</th></tr></thead>
+            <tbody id="alcBody"><tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">Loading advisors…</td></tr></tbody>
+            <tfoot id="alcFoot"></tfoot></table></div>
+          <!-- AUTO-ASSIGNMENT SWITCH — Super Admin only. Hidden for everyone else, and the server
+               enforces the same rule on the write, so hiding it is presentation rather than the
+               actual control. Per-DAY, so "off today" and "on tomorrow" are separate decisions. -->
+          <div id="alcSwitch" style="display:none;margin-top:12px"></div>
+          <div id="alcPlan" style="margin-top:10px"></div>
+        </div></div>
+
       <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Advisor Targets Master — drives the Health Advisor dashboard</div>
         <div class="sec-bd">
           <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px">One row per advisor per month. The Health Advisor dashboard reads these live — Revenue, Enrollment and CRM usage fill the <b>Targets &amp; performance</b> cards; the five expected counts fill <b>Pipeline performance</b>. Leave an expected value blank to have it derived from that advisor's own book size instead of a fixed number.</p>
@@ -2190,7 +2313,7 @@ export function getMainContent(): string {
         <div class="sec-bd"><div class="g3">
           <div class="fld"><label class="lbl">Eligibility exclusions</label><textarea class="area">Cancer, Brain Tumor, Recent Heart Surgery, Organ Transplant, Pregnancy, Age Above 75, Already Paid, Other Language, Others</textarea></div>
           <div class="fld"><label class="lbl">Occupations</label><textarea class="area">Private Job, Govt Job, Business, Self-employed, Homemaker, Retired, Student, Daily Wage, Others</textarea></div>
-          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Home, Visited, Enrolled, Not Reachable, Not Interested, Disconnect</textarea></div>
+          <div class="fld"><label class="lbl">Call statuses</label><textarea class="area">New, DND, RNR, Line Busy, Call Back, Already Paid, Follow Up, Switched Off, Not Registered, No Sugar, Out of Service, Wrong Number, Appointment Fixed – Direct, Appointment Fixed – Home, Visited, Enrolled, Not Reachable, Not Interested, Disconnect, Invalid</textarea></div>
           <div class="fld"><label class="lbl">Languages</label><textarea class="area">Tamil, Telugu, Kannada, Malayalam, Hindi, Marathi, Bengali, Gujarati, Punjabi, Urdu</textarea></div>
           <div class="fld"><label class="lbl">Locations</label><textarea class="area">Poonamalle, Porur, Maduravoyal, Ambattur, Avadi, Tambaram, Nagapattinam</textarea></div>
           <div class="fld"><label class="lbl">Physio conditions</label><textarea class="area">Frozen shoulder, Knee rehab, Lower back pain, Cervical spondylosis, Sports injury, Post-surgical, Sciatica, Others</textarea></div>
@@ -2269,6 +2392,32 @@ export function getMainContent(): string {
           The recording stops and saves automatically when you click <b>Save health record</b>.
         </p>
         <button class="btn bp" id="haGateStartBtn" style="height:44px;padding:0 26px;margin-top:18px" onclick="window._haGateStart()">● Start Recording</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Physiotherapy consultation gate. Same .umodal styling and the same shape as the Health Coach's
+       gate above, with the one addition the physio workflow needs: the patient's position in their
+       course, because a physio consultation is session N of a plan rather than a one-off visit. -->
+  <div class="umodal" id="phGateModal" role="dialog" aria-modal="true" aria-labelledby="phGateTitle">
+    <div class="umodal-card" style="width:min(460px,100%)">
+      <div class="umodal-hd">
+        <h2 id="phGateTitle">Physiotherapy consultation</h2>
+        <button class="umodal-x" aria-label="Close" onclick="window._phGateClose()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="umodal-bd" style="text-align:center;padding:26px 22px">
+        <div style="font-size:44px;line-height:1">🎙️</div>
+        <div style="font-family:var(--disp);font-size:16px;margin-top:10px">Start the Physiotherapy Consultation Recording Session</div>
+        <div id="phGateWho" style="font-size:13px;font-weight:700;color:var(--ink);margin-top:8px"></div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <span class="chipb info" id="phGateProgress" style="font-size:12px">Session —</span>
+          <span class="chipb neu" id="phGateTherapist" style="font-size:12px"></span>
+        </div>
+        <p style="font-size:12.5px;color:var(--muted);margin:10px 0 0;line-height:1.55">
+          The patient assessment opens once recording begins.<br>
+          The recording stops and saves automatically when you click <b>Complete consultation</b>.
+        </p>
+        <button class="btn bp" id="phGateStartBtn" style="height:44px;padding:0 26px;margin-top:18px" onclick="window._phGateStart()">● Start Recording</button>
       </div>
     </div>
   </div>

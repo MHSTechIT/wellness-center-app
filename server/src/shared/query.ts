@@ -31,6 +31,23 @@ const TABLES = new Set([
   // Thyrocare payout ledger (db/migration-thyrocare-payouts.sql) — Accounts & finance → Blood test
   // — Thyrocare tab. Records of real money transfers to the lab partner; no credentials.
   'thyrocare_payouts',
+  // Physiotherapy payout ledger (self-applying schema) — Accounts & finance → Physiotherapy tab.
+  // Records of real money sent to the physio provider/team; no credentials.
+  'physio_payouts',
+  // Per-advisor monthly targets (self-applying schema) — Settings → Advisor targets, read live by
+  // the Health Advisor dashboard for its Targets & performance and Pipeline performance cards.
+  // The table was added to the schema without being added HERE, so it was created on every boot and
+  // then refused by this gate on every read and write: "Save failed: unknown table: advisor_targets",
+  // with the dashboard quietly falling back to its built-in defaults because a failed read looks the
+  // same as no row. A new table needs BOTH entries. Targets only, no credentials and no money.
+  'advisor_targets',
+  // Per-advisor daily lead allocation (self-applying schema) — Settings → Advisor targets. Read by
+  // the settings table and by the auto-assigner; holds counts only, no credentials.
+  'advisor_lead_targets',
+  // Auto-assignment on/off per day (self-applying schema). READ by every client so the settings
+  // screen can show the state; WRITES go through /api/meta/autoassign/control, which is Super-Admin
+  // gated. Listing it here is not a way around that gate — see the route.
+  'auto_assign_control',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 // A caller with no limit at all (or an absurdly large one) could pull an entire table in one
