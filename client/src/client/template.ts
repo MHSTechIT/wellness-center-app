@@ -1811,10 +1811,10 @@ export function getMainContent(): string {
           <div class="sec-title" id="rpcSecTitle">Daily Report — Period View</div>
           <div class="sec-sub" id="rpcSecSub">Live data · Click column header to filter</div>
         </div>
-        <button type="button" class="rpc-tgl" id="rpcBasisTgl" onclick="window._rpcToggleBasis()" aria-pressed="false"
-          title="Off: count each lead on the day it was created. On: count it on the day its latest process was completed.">
+        <button type="button" class="rpc-tgl" id="rpcBasisTgl" onclick="window._rpcToggleBasis()" aria-pressed="true"
+          title="On: count each lead on the day its latest process happened (call status, appointment, follow-up, enrolment). Off: count it on the day the lead was created.">
           <span class="sw"><span class="kn"></span></span>
-          <span class="tx" id="rpcBasisTxt">Date: Created</span>
+          <span class="tx" id="rpcBasisTxt">Date: Activity</span>
         </button>
         <select class="filter-sel" id="rpcSort" onchange="window._rpcRenderBody()">
           <option value="leads">Sort: Leads</option>
@@ -2019,6 +2019,34 @@ export function getMainContent(): string {
         </div>
       </div>
     </div>
+    <!-- DIRECT UPLOAD IN DP — safe, update-only bulk lead editing. Sits directly under the BDM hero.
+         The workflow is fixed and cannot be short-cut: download template → upload → preview →
+         confirm. The Confirm button does not exist until a preview has been produced. -->
+    <div class="sec" style="margin-bottom:14px" id="dupSec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+      <span><svg class="icon"><use href="#i-dl"></use></svg> Direct Upload in DP <span class="chipb neu" style="margin-left:6px">Update existing leads only</span></span>
+      <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn bsm" onclick="window._dupTemplate()">⬇ Download template</button>
+        <button class="btn bsm" onclick="window._dupHistory()">🕘 Upload history</button></span></div>
+      <div class="sec-bd">
+        <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px;line-height:1.6">
+          Update existing leads from a CSV. <b>A blank cell keeps whatever the database already holds</b> — it never clears a value; type <code>#CLEAR</code> to blank a field deliberately.
+          Leads are matched on <b>Lead ID</b>, falling back to <b>Phone</b>; a phone shared by more than one lead is sent to review rather than guessed.
+          A lead that cannot be matched is <b>skipped, never created</b>. Only the leads in your file are touched.
+        </p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+          <div class="fld" style="margin:0"><label class="lbl" for="dupFile">CSV file</label>
+            <input class="input" type="file" id="dupFile" accept=".csv,text/csv" onchange="window._dupPick()" style="height:36px;padding:6px 8px;max-width:320px"></div>
+          <div class="fld" style="margin:0"><label class="lbl">Lead Date handling</label>
+            <div class="pills" id="dupDateMode">
+              <button type="button" class="pill on" onclick="window._dupDateMode('keep',this)">Keep existing Lead Date</button>
+              <button type="button" class="pill" onclick="window._dupDateMode('update',this)">Update Lead Date from CSV</button>
+            </div></div>
+          <button class="btn bp" onclick="window._dupPreview()" style="height:36px">Validate &amp; preview</button>
+          <button class="btn bp" id="dupConfirmBtn" style="height:36px;display:none" onclick="window._dupConfirm()">✓ Confirm update</button>
+        </div>
+        <div id="dupOut" style="margin-top:14px"></div>
+      </div></div>
+
     <div id="bdmReqList"></div>
   </div></section>
 

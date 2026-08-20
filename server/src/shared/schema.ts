@@ -117,6 +117,45 @@ const STEPS: Step[] = [
     sql: `CREATE INDEX IF NOT EXISTS idx_physio_payouts_paid_at ON physio_payouts(paid_at)`,
   },
   {
+    // DIRECT UPLOAD IN DP — the audit trail for every bulk lead update. One row per uploaded file.
+    // Kept because a bulk update is the one operation that can change hundreds of records at once:
+    // without a record of who ran what, an unexpected value weeks later is unanswerable.
+    name: 'lead_import_batches',
+    sql: `CREATE TABLE IF NOT EXISTS lead_import_batches (
+      id             BIGSERIAL PRIMARY KEY,
+      file_name      TEXT,
+      uploaded_by    TEXT,
+      uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      lead_date_mode TEXT,
+      total_rows     INT DEFAULT 0,
+      matched        INT DEFAULT 0,
+      updated_rows   INT DEFAULT 0,
+      not_found      INT DEFAULT 0,
+      ambiguous      INT DEFAULT 0,
+      duplicate_rows INT DEFAULT 0,
+      invalid_rows   INT DEFAULT 0,
+      summary        JSONB
+    )`,
+  },
+  {
+    // Field-level old -> new for each batch. The preview shows this before anything is written; this
+    // table is the same information kept afterwards, so a change can always be traced to its upload.
+    name: 'lead_import_changes',
+    sql: `CREATE TABLE IF NOT EXISTS lead_import_changes (
+      id        BIGSERIAL PRIMARY KEY,
+      batch_id  BIGINT,
+      lead_id   TEXT,
+      lead_name TEXT,
+      field     TEXT,
+      old_value TEXT,
+      new_value TEXT
+    )`,
+  },
+  {
+    name: 'lead_import_changes.batch index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_lead_import_changes_batch ON lead_import_changes(batch_id)`,
+  },
+  {
     // AUTO-ASSIGNMENT ON/OFF, per DAY. One row per calendar day (IST) rather than a single flag,
     // because the requirement is date-based: a Super Admin stops it for today, or arms it for
     // tomorrow, and those two decisions must not overwrite each other.

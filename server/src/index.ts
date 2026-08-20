@@ -19,6 +19,7 @@ import { registerDataRoutes } from './routes/data';
 import { registerEventRoutes } from './routes/events';
 import { registerAuthRoutes } from './routes/auth';
 import { registerStorageRoutes } from './routes/storage';
+import { registerLeadImportRoutes } from './routes/leadimport';
 
 const app = express();
 
@@ -90,6 +91,7 @@ app.get('/version', (_req, res) => {
 });
 
 registerMetaRoutes(app);
+registerLeadImportRoutes(app);
 registerCallRoutes(app);
 registerDataRoutes(app);   // Postgres data gateway (replaces Supabase PostgREST)
 registerAuthRoutes(app);   // login / set-password against app_users

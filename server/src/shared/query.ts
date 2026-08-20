@@ -48,6 +48,9 @@ const TABLES = new Set([
   // screen can show the state; WRITES go through /api/meta/autoassign/control, which is Super-Admin
   // gated. Listing it here is not a way around that gate — see the route.
   'auto_assign_control',
+  // Direct Upload audit (self-applying schema). Read-only from the client — every WRITE goes through
+  // /api/leadimport/*, which validates, previews and applies inside one transaction.
+  'lead_import_batches', 'lead_import_changes',
 ]);
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 // A caller with no limit at all (or an absurdly large one) could pull an entire table in one

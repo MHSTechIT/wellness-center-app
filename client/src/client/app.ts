@@ -3534,6 +3534,254 @@ export function initApp(root: HTMLElement) {
       },"Assign now");
     };
 
+    // ===== Direct Upload in DP — safe, update-only bulk lead editing =====
+    // The browser only ever COLLECTS the file and RENDERS what the server says. Every rule that
+    // matters — blank keeps the existing value, match on lead_id then phone, refuse ambiguity,
+    // never create — is enforced in server/src/services/leadimport.ts, so none of it can be
+    // bypassed by editing the page. The Confirm button posts the same file again rather than the
+    // preview, and the server re-analyses it, so a stale preview can never become a different write.
+    let _dupCsv = "";           // the raw text of the chosen file
+    let _dupFileName = "";
+    let _dupMode: "keep" | "update" = "keep";
+    let _dupPreviewed = false;  // Confirm stays hidden until a preview has actually been produced
+
+    w._dupDateMode = (m: string, btn: HTMLElement) => {
+      _dupMode = m === "update" ? "update" : "keep";
+      const box = root.querySelector("#dupDateMode");
+      if (box) box.querySelectorAll(".pill").forEach((b: any) => b.classList.toggle("on", b === btn));
+      // Changing the setting invalidates the preview — it was computed under the other rule.
+      _dupPreviewed = false; _dupShowConfirm(false);
+      const out = root.querySelector("#dupOut");
+      if (out && out.innerHTML) out.innerHTML = '<div class="banner warn">Lead Date handling changed — run <b>Validate &amp; preview</b> again before confirming.</div>';
+    };
+    function _dupShowConfirm(on: boolean) {
+      const b = root.querySelector("#dupConfirmBtn") as HTMLElement | null;
+      if (b) b.style.display = on ? "" : "none";
+    }
+    w._dupTemplate = async () => {
+      try {
+        const r = await fetch(_api("/api/leadimport/template"), { headers: authHeaders() });
+        if (!r.ok) { toastErr("Could not fetch the template"); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "direct-upload-template.csv";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast("Template downloaded — fill it in and upload the same file");
+      } catch (e: any) { toastErr("Download failed: " + (e.message || "network error")); }
+    };
+    w._dupPick = () => {
+      const el = root.querySelector("#dupFile") as HTMLInputElement | null;
+      const f = el && el.files && el.files[0];
+      _dupCsv = ""; _dupFileName = ""; _dupPreviewed = false; _dupShowConfirm(false);
+      const out = root.querySelector("#dupOut"); if (out) out.innerHTML = "";
+      if (!f) return;
+      _dupFileName = f.name;
+      const rd = new FileReader();
+      rd.onload = () => { _dupCsv = String(rd.result || ""); toast(f.name + " loaded — press Validate & preview"); };
+      rd.onerror = () => toastErr("Could not read that file");
+      rd.readAsText(f);
+    };
+    async function _dupCall(path: string) {
+      const r = await fetch(_api("/api/leadimport/" + path), {
+        method: "POST",
+        headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+        body: JSON.stringify({ csv: _dupCsv, leadDateMode: _dupMode, fileName: _dupFileName }),
+      });
+      if (r.status === 403) return { ok: false, error: "You do not have permission to run a bulk update." };
+      return await r.json();
+    }
+    w._dupPreview = async () => {
+      if (!_dupCsv) { toastErr("Choose a CSV file first"); return; }
+      const out = root.querySelector("#dupOut") as HTMLElement | null;
+      if (out) out.innerHTML = '<div class="ldwrap"><span class="ldcap">Validating…</span><div class="skel w75"></div><div class="skel w90"></div></div>';
+      try {
+        const j = await _dupCall("preview");
+        _dupRender(j, false);
+        _dupPreviewed = !!(j && j.ok && j.counts && j.counts.toUpdate > 0);
+        _dupShowConfirm(_dupPreviewed);
+      } catch (e: any) { if (out) out.innerHTML = '<div class="banner warn">Preview failed: ' + _orgEsc(e.message || "network error") + "</div>"; }
+    };
+    w._dupConfirm = async () => {
+      if (!_dupPreviewed) { toastErr("Run Validate & preview first"); return; }
+      const n = Number((root.querySelector("#dupOut") as any)?.dataset?.toUpdate || 0);
+      csvConfirm(
+        "Update <b>" + n + "</b> lead" + (n === 1 ? "" : "s") + " from <b>" + _orgEsc(_dupFileName) + "</b>?" +
+        "<br><br>Lead Date: <b>" + (_dupMode === "update" ? "updated from the CSV" : "kept as it is") + "</b>." +
+        "<br>Blank cells keep their existing values. No new leads are created, and no lead outside this file is touched.",
+        async () => {
+          const out = root.querySelector("#dupOut") as HTMLElement | null;
+          if (out) out.innerHTML = '<div class="ldwrap"><span class="ldcap">Updating…</span><div class="skel w75"></div></div>';
+          try {
+            const j = await _dupCall("apply");
+            _dupRender(j && j.preview ? Object.assign({}, j.preview, { _applied: j.updated, _batch: j.batchId, ok: j.ok, error: j.error }) : j, true);
+            _dupPreviewed = false; _dupShowConfirm(false);
+            if (j && j.ok) {
+              // Report BOTH outcomes: "Updated 1" after a file that also created nine would read as
+              // nine rows silently lost.
+              const _cr = Number(j.created || 0), _up = Number(j.updated || 0);
+              const _parts: string[] = [];
+              if (_up) _parts.push("updated " + _up + " lead" + (_up === 1 ? "" : "s"));
+              if (_cr) _parts.push("created " + _cr + " new lead" + (_cr === 1 ? "" : "s"));
+              toast(_parts.length ? (_parts.join(" · ").replace(/^./, (m) => m.toUpperCase())) : "Nothing to apply");
+              // The same refresh a manual assignment runs, so every open screen reflects the change.
+              try { _metaFetchRetries = 0; _metaFetchInFlight = false; await fetchMetaLiveFeed(); } catch (_) { }
+              try { await _afterAssign(); } catch (_) { }
+            } else toastErr("Update failed: " + ((j && j.error) || "error"));
+          } catch (e: any) { toastErr("Update failed: " + (e.message || "network error")); }
+        }, "Confirm update");
+    };
+    // ---- Upload history: every confirmed batch, then the field-level old → new for one batch.
+    // Opening it replaces whatever preview is on screen, so the Confirm button is withdrawn — a
+    // confirm must always follow a fresh preview, never sit next to unrelated content.
+    w._dupHistory = async () => {
+      const out = root.querySelector("#dupOut") as HTMLElement | null; if (!out) return;
+      _dupPreviewed = false; _dupShowConfirm(false);
+      out.innerHTML = '<div class="ldwrap"><span class="ldcap">Loading history…</span><div class="skel w75"></div><div class="skel w90"></div></div>';
+      try {
+        const r = await fetch(_api("/api/leadimport/batches"), { headers: authHeaders() });
+        const j = await r.json();
+        const rows = (j && j.batches) || [];
+        const e = (v: any) => _orgEsc(String(v == null ? "" : v));
+        if (!rows.length) {
+          out.innerHTML = '<div class="aud" style="background:#fff;padding:12px 14px;font-size:12.5px;color:var(--muted)">No uploads yet — history appears here after the first confirmed update.</div>';
+          return;
+        }
+        out.innerHTML = '<div class="sec"><div class="sec-hd" style="cursor:default">🕘 Upload history — ' + rows.length + ' batch' + (rows.length === 1 ? "" : "es") + ', newest first</div><div class="sec-bd">'
+          + '<div class="tscroll"><table class="tbl"><thead><tr><th>Batch</th><th>When (IST)</th><th>File</th><th>Uploaded by</th><th>Lead Date</th><th>Rows</th><th>Updated</th><th>Not found</th><th>Needs review</th><th></th></tr></thead><tbody>'
+          + rows.map((b: any) => {
+            const review = Number(b.ambiguous || 0) + Number(b.duplicate_rows || 0) + Number(b.invalid_rows || 0);
+            return '<tr><td class="mono">#' + e(b.id) + '</td><td class="mono" style="white-space:nowrap">' + e(b.uploaded_at) + '</td><td>' + e(b.file_name) + '</td><td>' + e(b.uploaded_by) + '</td>'
+              + '<td>' + (b.lead_date_mode === "update" ? "updated from CSV" : "kept") + '</td><td class="mono">' + e(b.total_rows) + '</td>'
+              + '<td class="mono" style="font-weight:700;color:var(--brand-600)">' + e(b.updated_rows) + '</td>'
+              + '<td class="mono">' + e(b.not_found) + '</td><td class="mono">' + (review || "—") + '</td>'
+              + '<td><button class="btn bsm" onclick="window._dupBatch(' + Number(b.id) + ')">View changes</button></td></tr>';
+          }).join("")
+          + '</tbody></table></div></div></div>';
+      } catch (err: any) { out.innerHTML = '<div class="banner warn">Could not load the history: ' + _orgEsc(err.message || "network error") + '</div>'; }
+    };
+    w._dupBatch = async (id: number) => {
+      const out = root.querySelector("#dupOut") as HTMLElement | null; if (!out) return;
+      out.innerHTML = '<div class="ldwrap"><span class="ldcap">Loading batch #' + Number(id) + '…</span><div class="skel w75"></div></div>';
+      try {
+        const r = await fetch(_api("/api/leadimport/batch/" + Number(id)), { headers: authHeaders() });
+        const j = await r.json();
+        const ch = (j && j.changes) || [];
+        const e = (v: any) => _orgEsc(String(v == null ? "" : v));
+        out.innerHTML = '<div class="sec"><div class="sec-hd" style="cursor:default;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+          + '<span>Batch #' + Number(id) + ' — ' + ch.length + ' field change' + (ch.length === 1 ? "" : "s") + ' (old → new)</span>'
+          + '<button class="btn bsm" onclick="window._dupHistory()">← Back to history</button></div><div class="sec-bd">'
+          + (ch.length
+            ? '<div class="tscroll" style="max-height:420px"><table class="tbl"><thead><tr><th>Lead</th><th>Lead ID</th><th>Field</th><th>Old value</th><th>New value</th></tr></thead><tbody>'
+              + ch.map((c: any) => '<tr><td>' + e(c.lead_name || "—") + '</td><td class="mono" style="font-size:11px">' + e(c.lead_id) + '</td><td>' + e(c.field) + '</td>'
+                + '<td style="color:var(--muted)">' + e(c.old_value || "—") + '</td><td style="font-weight:700">' + e(c.new_value || "—") + '</td></tr>').join("")
+              + '</tbody></table></div>'
+            : '<div style="font-size:12.5px;color:var(--muted)">No recorded field changes for this batch.</div>')
+          + '</div></div>';
+      } catch (err: any) { out.innerHTML = '<div class="banner warn">Could not load the batch: ' + _orgEsc(err.message || "network error") + '</div>'; }
+    };
+    // One renderer for both the preview and the applied summary — the two show the same information,
+    // so rendering them from one function is what guarantees the "after" matches what was promised.
+    function _dupRender(j: any, applied: boolean) {
+      const out = root.querySelector("#dupOut") as HTMLElement | null; if (!out) return;
+      const e = (v: any) => _orgEsc(String(v == null ? "" : v));
+      if (!j || j.ok === false) { out.innerHTML = '<div class="banner warn">' + e((j && j.error) || "Validation failed") + "</div>"; return; }
+      const c = j.counts || {};
+      out.dataset.toUpdate = String(c.toUpdate || 0);
+      const cell = (l: string, v: any, cls?: string) =>
+        '<div class="metric' + (cls ? " " + cls : "") + '" style="padding:9px 11px"><div class="ml">' + l + '</div><div class="mv" style="font-size:19px">' + v + "</div></div>";
+      let h = "";
+      if (applied) h += '<div class="banner good" style="margin-bottom:10px">✓ Updated <b>' + (j._applied || 0) + "</b> lead" + ((j._applied === 1) ? "" : "s") + (j._batch ? " · audit batch #" + e(j._batch) : "") + "</div>";
+      h += '<div class="metrics" style="margin:0 0 12px">'
+        + cell("Total rows", c.totalRows || 0)
+        + cell("Existing leads", c.matched || 0)
+        + cell(applied ? "Updated" : "To update", c.toUpdate || 0, (c.toUpdate ? "g" : ""))
+        + cell("No change", c.noChange || 0)
+        + cell(applied ? "Created" : "To create", c.toCreate || 0, (c.toCreate ? "g" : ""))
+        + cell("Duplicate rows", c.duplicateInFile || 0, (c.duplicateInFile ? "a" : ""))
+        + cell("Ambiguous", c.ambiguous || 0, (c.ambiguous ? "a" : ""))
+        + cell("Invalid", c.invalid || 0, (c.invalid ? "r" : ""))
+        + cell("Skipped cells", c.skippedCells || 0, (c.skippedCells ? "a" : ""))
+        + cell("Date changes", c.dateChanges || 0)
+        + cell("Advisor changes", c.advisorChanges || 0)
+        + cell("Status changes", c.statusChanges || 0)
+        + "</div>";
+      // The empty-handed preview is where uploaders get lost ("I clicked and nothing happened") —
+      // say explicitly WHY there is no Confirm button and what to do next.
+      if (!applied && !(c.toUpdate > 0) && !(c.toCreate > 0)) {
+        const bits: string[] = [];
+        if (c.toCreate) bits.push("<b>" + c.toCreate + "</b> row" + (c.toCreate === 1 ? "" : "s") + " will be created as new leads");
+        if (c.noChange) bits.push("<b>" + c.noChange + "</b> matched lead" + (c.noChange === 1 ? " already holds" : "s already hold") + " exactly these values");
+        if (c.duplicateInFile) bits.push("<b>" + c.duplicateInFile + "</b> duplicated in the file");
+        if (c.ambiguous) bits.push("<b>" + c.ambiguous + "</b> ambiguous (shared phone)");
+        if (c.invalid) bits.push("<b>" + c.invalid + "</b> invalid");
+        h += '<div class="banner warn" style="margin-bottom:10px"><b>Nothing to update, so there is no Confirm button</b> — it appears only when at least one lead has a change to apply. '
+          + (bits.length ? "In this file: " + bits.join("; ") + ". " : "")
+          + 'Fix the rows below and press <b>Validate &amp; preview</b> again.</div>';
+      }
+      // A cell whose value cannot be read for its column is left alone rather than sinking the whole
+      // row — but silently dropping it would be worse than the old rejection, so name every one.
+      if (!applied && c.skippedCells) {
+        const sk: string[] = [];
+        (j.rows || []).forEach((r: any) => (r.changes || []).forEach((ch: any) => {
+          if (ch.skip) sk.push("row " + r.rowNo + " · <b>" + e(ch.field) + "</b> = " + e(String(ch.to).replace(/^⚠ unreadable: /, "").replace(/, skipped$/, "")));
+        }));
+        h += '<div class="banner warn" style="margin-bottom:10px"><b>' + c.skippedCells + ' cell' + (c.skippedCells === 1 ? "" : "s")
+          + ' could not be read and will be left unchanged</b> — everything else in those rows is still imported.'
+          + '<div style="margin-top:6px;font-size:12px;line-height:1.7">' + sk.slice(0, 12).join("<br>")
+          + (sk.length > 12 ? "<br>… and " + (sk.length - 12) + " more" : "") + "</div>"
+          + '<div style="margin-top:6px;font-size:12px">Put the right kind of value in those columns (a date in a date column, a name in <b>assigned_to</b>) and upload again to fill them in.</div></div>';
+      }
+      if (j.unknownColumns && j.unknownColumns.length)
+        h += '<div class="banner warn" style="margin-bottom:10px">Ignored unknown column' + (j.unknownColumns.length === 1 ? "" : "s") + ": <b>" + j.unknownColumns.map(e).join(", ") + "</b> — nothing was written from these.</div>";
+
+      // Rows needing a human decision come FIRST: they are the ones that will not be updated, and
+      // burying them under a long change list is how they get missed.
+      // "create" rows are NOT problems — they are applied, and listing them under "will NOT be
+      // updated" told the uploader the opposite of what happens on confirm.
+      const problems = (j.rows || []).filter((r: any) => r.status !== "ok" && r.status !== "no_change" && r.status !== "create");
+      if (problems.length) {
+        h += '<div class="sec" style="margin-bottom:10px"><div class="sec-hd" style="cursor:default">⚠ Needs review — ' + problems.length + " row" + (problems.length === 1 ? "" : "s") + " will NOT be updated</div><div class=\"sec-bd\">"
+          + '<div class="tscroll"><table class="tbl"><thead><tr><th>Row</th><th>Lead</th><th>Phone</th><th>Reason</th></tr></thead><tbody>'
+          + problems.slice(0, 200).map((r: any) =>
+            "<tr><td class=\"mono\">" + r.rowNo + "</td><td>" + e(r.name || "—") + '</td><td class="mono">' + e(r.phone || "—") + "</td><td>"
+            + '<span class="chipb ' + (r.status === "not_found" ? "warn" : r.status === "invalid" ? "al" : "neu") + '">' + e(r.status.replace(/_/g, " ")) + "</span> "
+            + e(r.message || "") + "</td></tr>").join("")
+          + "</tbody></table></div></div></div>";
+      }
+      // The new leads, listed BEFORE the edits: confirming creates clients that did not exist a
+      // moment ago, and that deserves to be read rather than inferred from a count.
+      const news = (j.rows || []).filter((r: any) => r.status === "create");
+      if (news.length) {
+        const pick = (r: any, f: string) => { const ch = (r.changes || []).find((c: any) => c.field === f && !c.skip); return ch ? String(ch.to) : ""; };
+        h += '<div class="sec" style="margin-bottom:10px"><div class="sec-hd" style="cursor:default">'
+          + (applied ? "Created" : "Will be created") + " — " + news.length + " new lead" + (news.length === 1 ? "" : "s") + '</div><div class="sec-bd">'
+          + '<div class="tscroll" style="max-height:320px"><table class="tbl"><thead><tr><th>Row</th><th>Name</th><th>Phone</th><th>Assigned to</th><th>Call status</th><th>Service</th></tr></thead><tbody>'
+          + news.slice(0, 300).map((r: any) =>
+            '<tr><td class="mono">' + r.rowNo + "</td><td>" + e(r.name || pick(r, "name") || "—") + '</td><td class="mono">' + e(r.phone || "—") + "</td><td>"
+            + e(pick(r, "assigned_to") || "—") + "</td><td>" + e(pick(r, "call_status") || "—") + "</td><td>" + e(pick(r, "service") || "—") + "</td></tr>").join("")
+          + "</tbody></table></div>"
+          + (news.length > 300 ? '<div style="font-size:11.5px;color:var(--faint);margin-top:6px">Showing the first 300. All of them are created on confirm.</div>' : "")
+          + "</div></div>";
+      }
+      const changed = (j.rows || []).filter((r: any) => r.status === "ok" && r.changes && r.changes.length);
+      if (changed.length) {
+        const flat: string[] = [];
+        changed.slice(0, 300).forEach((r: any) => r.changes.forEach((ch: any) =>
+          flat.push("<tr><td>" + e(r.name || r.leadId) + '</td><td class="mono" style="font-size:11px">' + e(r.leadId) + "</td><td>" + e(ch.label) + "</td>"
+            + '<td style="color:var(--muted)">' + e(ch.from) + '</td><td style="font-weight:700">' + e(ch.to) + "</td></tr>")));
+        h += '<div class="sec"><div class="sec-hd" style="cursor:default">' + (applied ? "Applied" : "Will change") + " — " + flat.length + " field" + (flat.length === 1 ? "" : "s") + " across " + changed.length + " lead" + (changed.length === 1 ? "" : "s") + '</div><div class="sec-bd">'
+          + '<div class="tscroll" style="max-height:420px"><table class="tbl"><thead><tr><th>Lead</th><th>Lead ID</th><th>Field</th><th>Existing value</th><th>New value</th></tr></thead><tbody>'
+          + flat.join("") + "</tbody></table></div>"
+          + (changed.length > 300 ? '<div style="font-size:11.5px;color:var(--faint);margin-top:6px">Showing the first 300 leads. All matched rows are still updated on confirm.</div>' : "")
+          + "</div></div>";
+      } else if (!applied && !news.length) {
+        h += '<div class="aud" style="background:#fff;padding:12px 14px;font-size:12.5px;color:var(--muted)">Nothing to update — every matched lead already holds these values.</div>';
+      }
+      out.innerHTML = h;
+    }
+
     async function loadAssignees(){
       try{
         const {data,error}=await supabase.from("assignees").select("*").order("name");
@@ -5506,7 +5754,26 @@ export function initApp(root: HTMLElement) {
         const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds,initiated_by_email,created_at,direction").limit(5000);
         _advCallRows=data||[];
       }catch(_){ _advCallRows=[]; }
+      // Event facts for the activity-dated cards (loaded together so one flag gates all of it):
+      // appointment BOOKINGS (when "Appointment Fixed" actually happened — immune to the status
+      // moving on to Visited/Enrolled later) and the latest call-status CHANGE per lead (the only
+      // dated record of a disposition being set — leads.call_status itself has no timestamp).
+      try{
+        const {data}=await supabase.from("appointments").select("lead_id,meeting_type,status,created_at").limit(5000);
+        _haApptRows=data||[];
+      }catch(_){ _haApptRows=[]; }
+      try{
+        const res:any=await supabase.from("lead_activity").select("lead_id,created_at").eq("field","Call status").order("created_at",{ascending:false}).limit(5000);
+        _haStatusActs={};
+        ((res&&res.data)||[]).forEach((a:any)=>{
+          const id=String(a.lead_id||""); const t=new Date(a.created_at||0).getTime();
+          if(!id||isNaN(t)||!t) return;
+          if(!_haStatusActs[id]||t>_haStatusActs[id]) _haStatusActs[id]=t;
+        });
+      }catch(_){ _haStatusActs={}; }
     }
+    let _haApptRows:any[]=[];                       // appointment bookings (lead_id, meeting_type, created_at)
+    let _haStatusActs:Record<string,number>={};     // lead id -> latest Call-status change (ms)
     // The SINGLE person whose calls the KPIs show. A locked Advisor role is always themself; a
     // full-access viewer is themself too UNLESS the top "Advisor" filter names someone — that is a
     // deliberate inspection of that advisor's activity. "" = the logged-in user.
@@ -5699,13 +5966,16 @@ export function initApp(root: HTMLElement) {
     // haCommonFilter reads this committed state, so staging a selection in the controls
     // does NOT touch the data until _topFilterApply() copies the controls into it.
     let _asnApplied:{src:string;svc:string;from:string;to:string;advisor:string}={src:"all",svc:"all",from:"",to:"",advisor:"all"};
-    function haCommonFilter(list:any[]){
+    // ignoreDate: the ACTIVITY-dated cards ask for the book WITHOUT the created/assigned-date window
+    // — for them the date range selects when the ACTION happened (see _haEventSets), so applying it
+    // to the lead's own date too would hide every old lead that was worked today.
+    function haCommonFilter(list:any[],ignoreDate?:boolean){
       const scope=_advisorScope();   // Advisor role → always locked to their own leads (ignores the top filter)
       const svcScope=_serviceScope(); // Service line → locked to their own line (ignores the top filter)
       const src=_asnApplied.src, svc=_asnApplied.svc, from=_asnApplied.from, to=_asnApplied.to;
       const adv=scope||_asnApplied.advisor;
-      const fromT=from?new Date(from+"T00:00:00").getTime():0;
-      const toT=to?new Date(to+"T23:59:59").getTime():0;
+      const fromT=(!ignoreDate&&from)?new Date(from+"T00:00:00").getTime():0;
+      const toT=(!ignoreDate&&to)?new Date(to+"T23:59:59").getTime():0;
       if(!scope&&!svcScope&&src==="all"&&svc==="all"&&!fromT&&!toT&&(!adv||adv==="all")) return list;
       return list.filter((l:any)=>{
         if(!_serviceAllows(l,svcScope)) return false;
@@ -6116,19 +6386,87 @@ export function initApp(root: HTMLElement) {
       if(code==="New") return !st||st==="new"||st==="open";
       return st===code.toLowerCase();
     }
+    // ---- Activity-date logic (requested 20-Aug-2026) ----
+    // Total Leads stays a CREATED/ASSIGNED-date cohort; every activity card counts the ACTION on the
+    // day it happened, whatever the lead's age. The top date range therefore means two things at
+    // once: "leads that arrived in this window" for Total Leads, and "actions performed in this
+    // window" for the activity cards — which is exactly how a daily report is read.
+    function _haWinT(){
+      const from=_asnApplied.from,to=_asnApplied.to;
+      return {fromT:from?new Date(from+"T00:00:00").getTime():0,toT:to?new Date(to+"T23:59:59").getTime():0};
+    }
+    function _haInWin(v:any,w:{fromT:number,toT:number}){
+      if(v==null||v==="") return false;
+      const t=typeof v==="number"?v:new Date(v).getTime();
+      if(isNaN(t)||!t) return false;
+      if(w.fromT&&t<w.fromT) return false;
+      if(w.toT&&t>w.toT) return false;
+      return true;   // no window set → any dated event counts (lifetime view)
+    }
+    // The event-dated sets every activity card and its drill-down share — computed from the book
+    // WITHOUT the date window (an old lead worked today must be found), then filtered by each
+    // event's OWN date. One function feeds both the counts and the click-through lists, so the
+    // number on a card and the table behind it can never disagree.
+    function _haEventSets(){
+      const w=_haWinT();
+      const nb=haCommonFilter(haBook(),true);
+      const apptBy:Record<string,any[]>={};
+      _haApptRows.forEach((a:any)=>{ const id=String(a.lead_id||""); if(!id) return; (apptBy[id]=apptBy[id]||[]).push(a); });
+      // meeting_type is 'zoom' for Zoom bookings; 'direct' or NULL (pre-column rows) is Direct.
+      // Cancelled appointments don't count — cancelling withdraws the "fixed".
+      const hasAppt=(l:any,zoom:boolean)=>(apptBy[String(l.id)]||[]).some((a:any)=>
+        String(a.status||"").toLowerCase()!=="cancelled"
+        &&((String(a.meeting_type||"").toLowerCase()==="zoom")===zoom)
+        &&_haInWin(a.created_at,w));
+      return {
+        win:w, book:nb, windowed:!!(w.fromT||w.toT),
+        apptDirect:nb.filter((l:any)=>hasAppt(l,false)),
+        apptZoom:nb.filter((l:any)=>hasAppt(l,true)),
+        confirmed:nb.filter((l:any)=>_haInWin(l.confirmedAt,w)),
+        visited:nb.filter((l:any)=>_haInWin(l.visitedAt,w)),
+        enrolled:nb.filter((l:any)=>_haInWin(l.enrolledAt,w)),
+        statusChanged:nb.filter((l:any)=>_haInWin(_haStatusActs[String(l.id)],w)),
+      };
+    }
+    // With a date window applied, follow-ups are selected by their PLANNED date falling in the
+    // window (an old lead due today belongs to today); without one, the cohort book stands.
+    function _haFuScope(book:any[]){
+      const w=_haWinT(); if(!w.fromT&&!w.toT) return book;
+      return haCommonFilter(haBook(),true).filter((l:any)=>{ const nf=_haFuNext(l); return nf&&_haInWin(nf,w); });
+    }
+    // Dispositions with a window: leads whose latest status CHANGE fell in the window — the change
+    // is the activity, so a June lead dispositioned today counts today. Grouping stays by the
+    // current status (what it was changed TO).
+    function _haDispoScope(book:any[]){
+      const w=_haWinT(); if(!w.fromT&&!w.toT) return book;
+      return haCommonFilter(haBook(),true).filter((l:any)=>_haInWin(_haStatusActs[String(l.id)],w));
+    }
     // Resolve one of the enhancement sections' drill-down keys to a lead set + a title. Returns null
     // for anything it doesn't own, so renderHaResults falls through to the original card logic
     // untouched — the new sections extend the drill-down, they don't replace it.
     function _haCustomList(key:string,book:any[],fullBook:any[]):{list:any[];label:string}|null{
       if(!key||key.indexOf(":")<0) return null;
       const [ns,arg]=[key.slice(0,key.indexOf(":")),key.slice(key.indexOf(":")+1)];
+      if(ns==="ev"){
+        // The activity-dated pipeline cards. Deliberately computed from _haEventSets, NOT the passed
+        // book — these cards read the date range as "actions in this window", so an old lead worked
+        // today belongs in the list.
+        const s=_haEventSets();
+        const m:any={apptDirect:["Appt Fixed – Direct · in the selected dates",s.apptDirect],
+          apptZoom:["Appt Fixed – Zoom · in the selected dates",s.apptZoom],
+          confirmed:["Confirmed · in the selected dates",s.confirmed],
+          visited:["Visited · in the selected dates",s.visited],
+          enrolled:["Enrolled · in the selected dates",s.enrolled],
+          status:["Call status updated · in the selected dates",s.statusChanged]};
+        const hit=m[arg]; return hit?{label:hit[0],list:hit[1]}:null;
+      }
       if(ns==="fu"){
-        const b=_haFuBuckets(book,_haCallFacts());
+        const b=_haFuBuckets(_haFuScope(book),_haCallFacts());
         const m:any={total:["Follow-ups · all planned",b.total],done:["Follow-ups · done",b.done],
           today:["Follow-ups · due today",b.today],overdue:["Follow-ups · overdue",b.overdue]};
         const hit=m[arg]; return hit?{label:hit[0],list:hit[1]}:null;
       }
-      if(ns==="dispo") return {label:"Call disposition · "+arg,list:book.filter((l:any)=>_haDispoMatch(l,arg))};
+      if(ns==="dispo") return {label:"Call disposition · "+arg,list:_haDispoScope(book).filter((l:any)=>_haDispoMatch(l,arg))};
       if(ns==="vs"){
         if(arg==="visited") return {label:"Visited status · Visited",list:book.filter((l:any)=>!!l.visitedAt||/visited/i.test(haEffStatus(l)))};
         if(arg==="confirm") return {label:"Visited status · Confirm",list:book.filter((l:any)=>!l.visitedAt&&_advIsConfirmed(l))};
@@ -6166,6 +6504,13 @@ export function initApp(root: HTMLElement) {
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>_haPassesFilter(l,filter));
+      // ACTIVITY-DATED sets (20-Aug-2026): each activity card counts the ACTION inside the applied
+      // date range — appointment fixed on its booking date, Confirmed/Visited/Enrolled on their own
+      // stamps, dispositions on their change date — over the book WITHOUT the created-date window,
+      // so an old lead worked today counts today. A later Visited never removes an Appt-Fixed from
+      // the day it was fixed (bookings are counted, not the current status). Only Total Leads and
+      // the stage cards stay on the created/assigned-date cohort.
+      const ev=_haEventSets();
       const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       // "Confirmed" mirrors the Visited-status pill exactly — see _advIsConfirmed. It counts the
@@ -6211,7 +6556,11 @@ export function initApp(root: HTMLElement) {
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
           +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number. (Confirmed is a milestone that overlaps them, so it is not part of the sum.)"':'')
           +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+((_btView&&c.key==="apptZoom")?"Appointment Fixed – Home":c.label)+'</div>'+mv(counts[c.key])+'</div>'));
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\'callstatus\')"><div class="ml">'+(filter==="all"?"Call Status":_haFilterLabel(filter))+'</div>'+mv(book.length)+'</div>');
+        // With a date window the Call Status card counts status UPDATES performed in the window
+        // (activity date), and its drill-down opens that same set. Without one it stays the
+        // filter-cohort size it always was.
+        if(!_btView){ const _csWin=!!(_haWinT().fromT||_haWinT().toT);
+          cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\''+(_csWin?'ev:status':'callstatus')+'\')"><div class="ml">'+(filter==="all"?(_csWin?"Call Status Updated":"Call Status"):_haFilterLabel(filter))+'</div>'+mv(_csWin?ev.statusChanged.length:book.length)+'</div>'); }
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
@@ -6298,6 +6647,9 @@ export function initApp(root: HTMLElement) {
     // stays readable, and so a failure in one section can never blank the cards above it.
     function _renderAdvDashSections(fullBook:any[],book:any[]){
       const host=root.querySelector("#advDashSections")as HTMLElement|null; if(!host) return;
+      // Activity-dated sets for the pipeline/status cards — see _haEventSets. Computed once per
+      // render; the drill-downs recompute the same sets, so counts and lists always agree.
+      const ev=_haEventSets();
       // A blood test has no enrolment, no conversion funnel and no revenue target. Panels 2–4 and the
       // detail sections are hidden for that layout rather than filled with structurally-zero cards;
       // panel 1 stays because it hosts the Blood-Test card grid (#haKpis).
@@ -6400,11 +6752,11 @@ export function initApp(root: HTMLElement) {
         return Math.max(1,Math.round(book.length*(HA_EXPECTED_SHARE[key]||0)));
       };
       const pipeRows:any[]=[
-        {key:"apptDirect",label:"Appt Fixed – Direct",col:"expected_appt_direct",actual:book.filter((l:any)=>haBucketOf(haEffStatus(l))==="apptDirect").length,dm:"apptDirect"},
-        {key:"apptZoom",label:"Appt Fixed – Zoom",col:"expected_appt_zoom",actual:book.filter((l:any)=>haBucketOf(haEffStatus(l))==="apptZoom").length,dm:"apptZoom"},
-        {key:"confirmed",label:"Confirmed",col:"expected_confirmed",actual:book.filter((l:any)=>_advIsConfirmed(l)).length,dm:"confirmed"},
-        {key:"health",label:"Visited",col:"expected_visited",actual:fSets.visits.length,dm:"visitedEver"},
-        {key:"enrolled",label:"Enrolled",col:"expected_enrolled",actual:fSets.enrolled.length,dm:"enrolled"},
+        {key:"apptDirect",label:"Appt Fixed – Direct",col:"expected_appt_direct",actual:ev.apptDirect.length,dm:"ev:apptDirect"},
+        {key:"apptZoom",label:"Appt Fixed – Zoom",col:"expected_appt_zoom",actual:ev.apptZoom.length,dm:"ev:apptZoom"},
+        {key:"confirmed",label:"Confirmed",col:"expected_confirmed",actual:ev.confirmed.length,dm:"ev:confirmed"},
+        {key:"health",label:"Visited",col:"expected_visited",actual:ev.visited.length,dm:"ev:visited"},
+        {key:"enrolled",label:"Enrolled",col:"expected_enrolled",actual:ev.enrolled.length,dm:"ev:enrolled"},
       ];
       const CVAR:any={g:"var(--ok)",a:"var(--warn)",r:"var(--alert)"};
       const CINK:any={g:"var(--ok-ink)",a:"var(--warn-ink)",r:"var(--alert-ink)"};
@@ -6430,7 +6782,7 @@ export function initApp(root: HTMLElement) {
       // Each ring is that bucket's SHARE of all planned follow-ups, so the four rings read as one
       // picture of the same workload rather than four unrelated gauges. Total is therefore always a
       // full ring — it is the denominator.
-      const fu=_haFuBuckets(book,facts);
+      const fu=_haFuBuckets(_haFuScope(book),facts);
       const fuTot=fu.total.length;
       // The COUNT sits inside the ring and its share of all planned follow-ups reads underneath, so
       // each tile answers "how many" and "how much of the workload" without needing the other three.
@@ -6569,8 +6921,11 @@ export function initApp(root: HTMLElement) {
       // FIVE COLUMNS, one per group. Stacking the groups vertically made the section a long ribbon
       // you had to scroll to compare, when the whole point is reading the five outcome families
       // against each other at a glance.
+      // With a date window: only leads whose status CHANGE happened in the window — a June lead
+      // dispositioned today is today's work. _haDispoScope shares this rule with the drill-down.
+      const dispoBook=_haDispoScope(book);
       const dispo=HA_DISPO_GROUPS.map((grp:any)=>{
-        const rows=grp.codes.map((c:string)=>({code:c,n:book.filter((l:any)=>_haDispoMatch(l,c)).length}));
+        const rows=grp.codes.map((c:string)=>({code:c,n:dispoBook.filter((l:any)=>_haDispoMatch(l,c)).length}));
         const gTot=rows.reduce((a:number,r:any)=>a+r.n,0);
         // Bars are scaled against the group's LARGEST code, not its total: with eight codes sharing a
         // group, a share-of-total bar is a sliver for every one of them and compares nothing.
@@ -19397,10 +19752,12 @@ export function initApp(root: HTMLElement) {
         only("appointments",()=>_pageAll((a,b)=>supabase.from("appointments").select("id,lead_id,client_name,service,hc_pt,status,stage,appt_date,visited_at,created_at,meeting_type,source").order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b)),true),
         only("payments",()=>_pageAll((a,b)=>supabase.from("payments").select("id,appointment_id,lead_id,amount,status,method,paid_at,due_date,service,created_at,payment_type,installment_number,program").order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b)),true),
         only("recordings",()=>_pageAll((a,b)=>supabase.from("office_recordings").select("lead_id,created_at").order("created_at",{ascending:false}).range(a,b)),true),
-        // The ONLY place a call-status change is dated. Without it the activity toggle cannot move a
+        // The ONLY place a call-status change is dated. Without it the activity basis cannot move a
         // lead whose only action that day was being dispositioned — the exact case in the spec
-        // ("created 5 Aug, call status changed 12 Aug").
-        only("activity",()=>supabase.from("lead_activity").select("lead_id,action,field,created_at").order("created_at",{ascending:false}).limit(5000),false)
+        // ("created 5 Aug, call status changed 12 Aug"). PAGED like every other table: production
+        // passed 5,000 rows in Aug-2026, and a flat .limit() was silently dropping the oldest
+        // actions — id is the tiebreaker so OFFSET pages can't reorder, duplicate or drop rows.
+        only("activity",()=>_pageAll((a,b)=>supabase.from("lead_activity").select("lead_id,action,field,created_at").order("created_at",{ascending:false}).order("id",{ascending:false}).range(a,b)),false)
       ]);
       _rpcLeads=lr; _rpcAppts=ar; _rpcPays=pr; _rpcRecs=rr;
       // Latest logged action per lead, resolved once. A row dated in the FUTURE would drag a lead
@@ -19580,8 +19937,8 @@ export function initApp(root: HTMLElement) {
     // the client arrived. A person/client row passes just that person's leads with the full window,
     // so the bounds stop mattering and the row is about them. Lead-acquisition counts keep reading
     // `L` (leads created inside the bucket) because "leads received on 4 Aug" has no payment date.
-    function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>, scope:{leads:any[],from:number,to:number}){
-      const r:any={period:label,leads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,disc:0,nosugar:0,callTot:0,
+    function _rpcAgg(label:string, L:any[], apptsBy:Record<string,any[]>, paysBy:Record<string,any[]>, recsBy:Record<string,any[]>, scope:{leads:any[],from:number,to:number,createdLeads?:number}){
+      const r:any={period:label,leads:scope.createdLeads!=null?scope.createdLeads:L.length,svc:"",src:"",loc:"",fu:0,cb:0,lb:0,rnr:0,dnd:0,so:0,oos:0,wn:0,open:0,blank:0,ni:0,disc:0,nosugar:0,callTot:0,
         apptD:0,apptZ:0,apptTot:0,conf:0,vis:0,sugarHi:0,sugarMid:0,sugarNo:0,hafDone:0,consWJ:0,consTW:0,consNW:0,consTM:0,consQD:0,recDone:0,
         progL1:0,progL2:0,progBoth:0,doi:"—",enr:0,enrL1:0,enrL2:0,fp:0,pp:0,inst:0,emi:0,alrPaid:0,payCol:0,rev:0,revCol:0,revOut:0,revL1:0,revL2:0,avgTicket:0,
         l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,fuSched:0,chen:0,oth:0};
@@ -19733,7 +20090,10 @@ export function initApp(root: HTMLElement) {
     //
     // A lead lands in exactly ONE bucket either way: this picks a single timestamp per lead rather
     // than counting it once per activity, so toggling can never duplicate anyone.
-    let _rpcByActivity=false;
+    // Activity is the DEFAULT basis (requested 20-Aug-2026): a lead worked today — call status,
+    // appointment, follow-up, enrolment — counts under today, however old the lead is. "Date:
+    // Created" remains available on the toggle for the arrival-cohort view.
+    let _rpcByActivity=true;
     let _rpcMovedCount=0;   // leads whose row changes when the basis is flipped
     let _rpcActBy:Record<string,number>={};   // lead id -> latest logged action time
     // Which timestamp puts an EVENT (appointment, payment, enrolment, screening) in a bucket.
@@ -19784,11 +20144,14 @@ export function initApp(root: HTMLElement) {
       let rows:any[]=[];
       if(_rpcRowView==="period"){
         // Money and visits are selected by the bucket's DATES over every filtered lead, so a payment
-        // taken on 4 Aug counts on 4 Aug even when the client arrived in July. Only the lead-count
-        // side of the row is the created-date cohort.
+        // taken on 4 Aug counts on 4 Aug even when the client arrived in July.
+        // The LEADS COLUMN is pinned to the created-date cohort in every basis (20-Aug-2026 spec:
+        // "Total Leads = Created Date; activity cards = action date") — flipping the basis moves the
+        // status/process columns, never the intake count.
         rows=win.buckets.map(b=>_rpcAgg(b.label,
           inWin.filter((l:any)=>{ const t=_at(l); return t>=b.from&&t<=b.to; }),
-          apptsBy,paysBy,recsBy,{leads,from:b.from,to:b.to}));
+          apptsBy,paysBy,recsBy,{leads,from:b.from,to:b.to,
+            createdLeads:leads.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=b.from&&t<=b.to; }).length}));
       } else if(_rpcRowView==="person"){
         // Advisors from lead assignment + HC/PTs from the appointments they hosted.
         const byAdv:Record<string,any[]>={};
@@ -19829,8 +20192,10 @@ export function initApp(root: HTMLElement) {
     // so the header has to say that — leaving "by lead created date" there would be a lie.
     const _RPC_BASIS=(g:string)=>{ const raw=_RPC_BASIS_MAP[g];
       // OFF puts the whole row on one basis, so every group says "lead created date". ON lets each
-      // group keep its own event date, and the lead-cohort groups read "activity date".
-      const b=_rpcByActivity?(raw==="lead created date"?"activity date":raw):"lead created date";
+      // group keep its own event date, and the lead-cohort groups read "activity date" — EXCEPT the
+      // Leads count (INFO group), which is pinned to created date in every basis per the 20-Aug-2026
+      // spec: intake is when the lead arrived, activity is when it was worked.
+      const b=_rpcByActivity?(raw==="lead created date"?(g==="INFO"?"lead created date":"activity date"):raw):"lead created date";
       return b?'<span style="font-weight:500;opacity:.72;text-transform:none;letter-spacing:0"> — by '+b+'</span>':''; };
     function _rpcHeader(){
       const vis=_rpcVisCols(); const gc:Record<string,number>={}; const seen:Record<string,boolean>={};
