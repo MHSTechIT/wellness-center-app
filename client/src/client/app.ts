@@ -3599,17 +3599,23 @@ export function initApp(root: HTMLElement) {
       try {
         const j = await _dupCall("preview");
         _dupRender(j, false);
-        _dupPreviewed = !!(j && j.ok && j.counts && j.counts.toUpdate > 0);
+        // Creates count as work: a file of nothing but NEW leads left this false, so the Confirm
+        // button never appeared and a valid upload looked like it had silently done nothing.
+        const _c = (j && j.counts) || {};
+        _dupPreviewed = !!(j && j.ok && ((_c.toUpdate > 0) || (_c.toCreate > 0)));
         _dupShowConfirm(_dupPreviewed);
       } catch (e: any) { if (out) out.innerHTML = '<div class="banner warn">Preview failed: ' + _orgEsc(e.message || "network error") + "</div>"; }
     };
     w._dupConfirm = async () => {
       if (!_dupPreviewed) { toastErr("Run Validate & preview first"); return; }
-      const n = Number((root.querySelector("#dupOut") as any)?.dataset?.toUpdate || 0);
+      const _ds = (root.querySelector("#dupOut") as any)?.dataset || {};
+      const nUp = Number(_ds.toUpdate || 0), nNew = Number(_ds.toCreate || 0);
+      const _say = (k: number, w: string) => "<b>" + k + "</b> " + w + (k === 1 ? "" : "s");
+      const _what = [nUp ? _say(nUp, "existing lead") + " updated" : "", nNew ? _say(nNew, "new lead") + " created" : ""].filter(Boolean).join(" and ");
       csvConfirm(
-        "Update <b>" + n + "</b> lead" + (n === 1 ? "" : "s") + " from <b>" + _orgEsc(_dupFileName) + "</b>?" +
+        _what.replace(/^./, (m) => m.toUpperCase()) + " from <b>" + _orgEsc(_dupFileName) + "</b>?" +
         "<br><br>Lead Date: <b>" + (_dupMode === "update" ? "updated from the CSV" : "kept as it is") + "</b>." +
-        "<br>Blank cells keep their existing values. No new leads are created, and no lead outside this file is touched.",
+        "<br>Blank cells keep their existing values. No lead outside this file is touched.",
         async () => {
           const out = root.querySelector("#dupOut") as HTMLElement | null;
           if (out) out.innerHTML = '<div class="ldwrap"><span class="ldcap">Updating…</span><div class="skel w75"></div></div>';
@@ -3689,6 +3695,7 @@ export function initApp(root: HTMLElement) {
       if (!j || j.ok === false) { out.innerHTML = '<div class="banner warn">' + e((j && j.error) || "Validation failed") + "</div>"; return; }
       const c = j.counts || {};
       out.dataset.toUpdate = String(c.toUpdate || 0);
+      out.dataset.toCreate = String(c.toCreate || 0);
       const cell = (l: string, v: any, cls?: string) =>
         '<div class="metric' + (cls ? " " + cls : "") + '" style="padding:9px 11px"><div class="ml">' + l + '</div><div class="mv" style="font-size:19px">' + v + "</div></div>";
       let h = "";
