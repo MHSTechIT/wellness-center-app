@@ -2270,3 +2270,10 @@ html{scroll-behavior:smooth}
    takes to make the whole layout scroll sideways and look broken. */
 .dpanel{overflow-x:clip}
 .dpanel .tscroll{max-width:100%;overflow-x:auto}
+
+/* Boot gate (see layout.tsx): a stored session stamps data-boot="sess" on <html> before first
+   paint, so a signed-in refresh shows the loading splash — never a flash of the sign-in form.
+   !important is required to beat the elements' inline style defaults; showApp()/showLogin()
+   remove the attribute as soon as JS takes over, returning control to those inline styles. */
+html[data-boot="sess"] #loginOverlay{display:none!important}
+html[data-boot="sess"] #appLoading{display:flex!important}

@@ -461,6 +461,11 @@ export function initApp(root: HTMLElement) {
     function showLogin(errMsg?:string){
       const overlay=root.querySelector("#loginOverlay") as HTMLElement;
       const appShell=root.querySelector("#appShell") as HTMLElement;
+      // Release the pre-paint boot gate (layout.tsx): a stored-but-invalid session showed the
+      // splash until checkAuth resolved here — clear both so the login form is actually visible.
+      try{ document.documentElement.removeAttribute("data-boot"); }catch(_){}
+      const _bootSplash=root.querySelector("#appLoading")as HTMLElement|null;
+      if(_bootSplash) _bootSplash.style.display="none";
       if(overlay) overlay.style.display="";
       if(appShell) appShell.style.display="none";
       const errEl=root.querySelector("#loginErr") as HTMLElement;
@@ -572,6 +577,10 @@ export function initApp(root: HTMLElement) {
       const appShell=root.querySelector("#appShell") as HTMLElement;
       if(overlay) overlay.style.display="none";
       if(appShell) appShell.style.display="";
+      // Release the pre-paint boot gate (layout.tsx) — its CSS carries !important, so leaving the
+      // attribute on would pin the splash visible forever. The inline styles set in this function
+      // (and by the splash-hide below) take over from here.
+      try{ document.documentElement.removeAttribute("data-boot"); }catch(_){}
       const sfUser=root.querySelector("#sfootUser") as HTMLElement;
       if(sfUser&&_currentUser) sfUser.textContent=(_currentUser.name||_currentUser.email.split("@")[0])+" · "+_currentUser.role;
       if(!_appShownOnce){
