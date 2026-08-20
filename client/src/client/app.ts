@@ -2510,7 +2510,7 @@ export function initApp(root: HTMLElement) {
     async function loadOtherSourceLeads(){
       try{
         const {data}=await supabase.from("leads")
-          .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,assigned_at,call_status")
+          .select("meta_lead_id,name,phone,email,source,language,service,city,sugar_poll,street,campaign,lead_date,created_at,is_valid,is_duplicate,is_assigned,in_pool,assigned_to,assigned_at,call_status,hc_assigned")
           .neq("source","Meta Ads");
         const rows=data||[];
         // KPI dataset (_otherLeads): the "Bulk CSV import" cohort comes EXCLUSIVELY from the wizard's
@@ -2546,7 +2546,8 @@ export function initApp(root: HTMLElement) {
             sugar:r.sugar_poll||"",city:r.city||"",street:r.street||"",
             service:r.service||"Diabetes",lang:r.language||"Tamil",received,createdAt,
             isValid:!!r.is_valid,isDuplicate:!!r.is_duplicate,isAssigned:!!r.is_assigned,
-            inPool:!!r.in_pool,assignedTo:r.assigned_to||"",assignedAt:r.assigned_at||null,callStatus:r.call_status||""};
+            inPool:!!r.in_pool,assignedTo:r.assigned_to||"",assignedAt:r.assigned_at||null,callStatus:r.call_status||"",
+            hcAssigned:r.hc_assigned||""};   // the coach a Direct Upload recorded - fills "HC assigned" when there is no booking
         });
       }catch(_){ _otherLeads=[]; _otherFeedLeads=[]; }
     }
@@ -4452,13 +4453,29 @@ export function initApp(root: HTMLElement) {
     // lead that has not been booked yet showed "- Select -" however plainly the CSV named a coach.
     // The appointment still wins: this only writes into a control the sync left empty.
     function _advSetHcAssigned(l:any){
-      const hc=String((l&&l.hcAssigned)||""); if(!hc) return;
-      ["#hcSel","#apptHc"].forEach((sel)=>{
-        const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el||el.value) return;
-        if(!Array.from(el.options).some((o:any)=>o.value===hc||o.text===hc)) el.add(new Option(hc,hc));
-        el.value=hc;
-        el.title="Recorded on the lead by a Direct Upload. Booking a slot replaces this with the appointment's coach.";
-      });
+      if(!l) return;
+      const put=(hc:string)=>{
+        if(!hc) return;
+        ["#hcSel","#apptHc"].forEach((sel)=>{
+          const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el||el.value) return;
+          if(!Array.from(el.options).some((o:any)=>o.value===hc||o.text===hc)) el.add(new Option(hc,hc));
+          el.value=hc;
+          el.title="Recorded on the lead by a Direct Upload. Booking a slot replaces this with the appointment's coach.";
+        });
+      };
+      if(l.hcAssigned){ put(String(l.hcAssigned)); return; }
+      // The panel resolves leads from _openLeads/_metaLeads/_otherFeedLeads, and not every one of
+      // those queries selects hc_assigned. Rather than thread the column through each feed (and
+      // miss the next one added), read it for this single lead - guarded on _advLeadId so a slow
+      // reply cannot land on whichever lead the user opened next.
+      if(l.hcAssigned==="") return;                 // present and genuinely empty: nothing to fetch
+      const id=String(l.id||"");  if(!id) return;
+      (async()=>{ try{
+        const {data}=await supabase.from("leads").select("hc_assigned").eq("meta_lead_id",id).limit(1);
+        const hc=(data&&data[0]&&data[0].hc_assigned)||"";
+        l.hcAssigned=hc;
+        if(hc&&String(_advLeadId)===id) put(hc);
+      }catch(_){} })();
     }
     function _advSyncApptCoach(){
       if(!_advApptLive()) return;
@@ -5080,6 +5097,11 @@ export function initApp(root: HTMLElement) {
       if(prof && String(_advLeadId)===String(l.id)) applyAdvisorProfile(prof);
       // Runs AFTER the restore so a saved Salesperson always wins; only fills a blank one.
       if(String(_advLeadId)===String(l.id)) _advDefaultSalesperson(l);
+      // Same unconditional placement, and for the same reason: the call inside applyAdvisorProfile
+      // above is SKIPPED when a lead has no saved profile (line: `if(prof && ...)`), which is every
+      // freshly imported lead - so "HC assigned" stayed on "- Select -" for exactly the leads whose
+      // coach came from a CSV. Still only fills a control the appointment sync left empty.
+      if(String(_advLeadId)===String(l.id)) _advSetHcAssigned(l);
       // Enrolled status/date come from the SAME in-memory lead (callStatus + enrolledAt) the
       // Advisor dashboard counts. Apply it AFTER the profile restore (which would otherwise
       // reset the pills to the saved Open state) and BEFORE the gated DB read below, so the
@@ -12071,8 +12093,14 @@ export function initApp(root: HTMLElement) {
       // Sole source of truth for the chip = the SELECTED program's status. No fallback to a different
       // program's level (that caused L2 status to show while L1 was selected).
       const detailed=_coachEnrolledLabel();
-      if(chip){ if(detailed){ (chip as HTMLElement).className="chipb ok"; chip.textContent=detailed; } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } }
-      const ati=at as HTMLInputElement|null; if(ati){ ati.value=(detailed&&enrAt)?fmtIST(enrAt):""; }
+      // ...but a client can be enrolled with NO payment row and no "Enrolled - Lx" consStatus: a
+      // Direct Upload states enrolled_at directly, and enrolled_at is what the whole app counts
+      // enrolment from. Without this the panel read "Not enrolled" with a blank Enrolled date on a
+      // client every dashboard already counts as enrolled. Only used when nothing above produced a
+      // label, so a real payment or an explicit coach status still decides what is shown.
+      const lbl=detailed||((cc&&cc.enrolledAt)?("Enrolled – "+((cc&&cc.enrolledLevel)||"L1")):"");
+      if(chip){ if(lbl){ (chip as HTMLElement).className="chipb ok"; chip.textContent=lbl; } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } }
+      const ati=at as HTMLInputElement|null; if(ati){ ati.value=(lbl&&enrAt)?fmtIST(enrAt):""; }
     }
     w._refreshPayEnrollChip=_refreshPayEnrollChip;
     w._payStSel=(sel:any)=>{
@@ -12945,6 +12973,10 @@ export function initApp(root: HTMLElement) {
       };
       put("haDuration",im.dur); put("haProgram",im.prog); put("payMethod",im.method);
       put("haL1Price",im.l1); put("haL2Price",im.l2);
+      // The enrolled chip is scoped to the SELECTED program (_curProgram), and haProgram was just
+      // set from the CSV - so the chip drawn on open, before this ran, judged against the form's
+      // default. Re-draw it now that the right program is showing.
+      try{ _refreshPayEnrollChip(); }catch(_){}
     }
     // Pull blood-report attachments + recap fields the advisor saved (advisor_profile).
     async function _coachSyncAdvisorReports(lead:any){
@@ -13535,6 +13567,13 @@ export function initApp(root: HTMLElement) {
       ["coupon","emiCoupon"].forEach(cid=>{ const el=root.querySelector("#"+cid)as HTMLInputElement|null; if(el) el.value=""; });
       ["couponRes","emiCouponRes"].forEach(cid=>{ const el=root.querySelector("#"+cid); if(el) el.innerHTML=""; });
       _coachConsStatus="Open";   // reset; a restored profile re-sets it via consAct
+      // ...and when there is no saved profile to re-set it, the LEAD does. _coachEnrolledLabel reads
+      // THIS variable, not the client object - so fixing the list's consStatus left the panel still
+      // reading "Not enrolled" with a blank Enrolled date for a client the lead row says is enrolled
+      // (an imported client has no coach profile and no payment rows for it to derive from).
+      // A coach's own saved consStatus always wins: this only runs when there is none.
+      if(!(lead.coachProfile&&lead.coachProfile.consStatus)&&/enrol/i.test(String(lead.consStatus||"")))
+        _coachConsStatus=String(lead.consStatus);
       _fuDates={}; _fuActiveKey="";   // clear per-status follow-up dates so a new client starts fresh
       const crS=root.querySelector("#crSugar")as HTMLInputElement|null; if(crS&&lead.sugar) crS.value=lead.sugar;
       setV("haConsultDate",new Date().toISOString().slice(0,10));
@@ -13667,6 +13706,13 @@ export function initApp(root: HTMLElement) {
           // said nothing of their own, the lead speaks; a real consStatus always wins.
           const _leadEnr=!!r.enrolled_at||/^enrolled$/i.test(String(r.call_status||""));
           const _cons=(cp&&cp.consStatus)||(_leadEnr?("Enrolled – "+(r.program_suggested||"L1")):"Open");
+          // LEVEL is a separate question from WHETHER. A coach profile can say "Will Join
+          // Immediately" on a lead the CSV enrolled with a date - not a contradiction, just a coach
+          // status that predates the enrolment. enrolled_at is canonical for enrolled; consStatus and
+          // paid programs name the level, and when neither does, the CSV's Program suggested is the
+          // only statement of level there is.
+          let _lvl=_enrLevelFor(r.meta_lead_id,_cons);
+          if(!_lvl&&_leadEnr) _lvl=_levelUnion("Enrolled – "+(r.program_suggested||"L1"),[]);
           let stage="screening";
           if(_leadEnr) stage="enrolled";
           if(cp&&cp._stage) stage=cp._stage;
@@ -13675,7 +13721,7 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:_cons,callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,_cons)};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:_cons,callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_lvl};
         });
         // Health Coach queue = Diabetes only: drop leads whose service is a non-diabetes modality
         // (Blood Test / Physiotherapy / etc.) so they no longer clutter the queue. Applied at the
