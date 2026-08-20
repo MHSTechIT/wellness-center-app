@@ -245,6 +245,45 @@ const STEPS: Step[] = [
     name: 'advisor_targets.advisor index',
     sql: `CREATE INDEX IF NOT EXISTS idx_advisor_targets_advisor ON advisor_targets(advisor, period)`,
   },
+
+  // ---- Direct Upload in DP: the six template columns that had no home ----
+  // The template asks for HC assigned, Duration of diabetes, Program suggested, Payment method and
+  // the two prices. Every one of them lived ONLY inside a positional JSONB profile (coach_profile.f
+  // restored by array index from the live DOM order) — a shape the server cannot write into without
+  // hardcoding an index that the next form change silently shifts. So each gets a real column: the
+  // database stays the single source of truth, the importer writes plain SQL, and the panels read
+  // the column when their profile has nothing to say. Additive and nullable — every existing row and
+  // every existing save path is unaffected.
+  {
+    name: 'leads.hc_assigned',
+    // The Health Coach as STATED for the lead. appointments.hc_pt remains the live, per-visit coach
+    // and still wins wherever a booking exists; this is what an imported lead carries before one does.
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS hc_assigned TEXT`,
+  },
+  {
+    name: 'leads.diabetes_duration',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS diabetes_duration TEXT`,
+  },
+  {
+    name: 'leads.program_suggested',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS program_suggested TEXT`,
+  },
+  {
+    // TEXT, not numeric: the form's own options are labels ("Special Offer", "3,999 (Standard)"),
+    // and coercing them to a number would throw away the half that is not a price.
+    name: 'leads.l1_price',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS l1_price TEXT`,
+  },
+  {
+    name: 'leads.l2_price',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS l2_price TEXT`,
+  },
+  {
+    // The INTENDED method. Money actually collected still lives in payments.method — nothing here
+    // creates a payment row, so no import can ever manufacture revenue.
+    name: 'leads.payment_method',
+    sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS payment_method TEXT`,
+  },
 ];
 
 // ---------------------------------------------------------------------------

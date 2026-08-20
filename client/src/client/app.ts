@@ -12898,6 +12898,31 @@ export function initApp(root: HTMLElement) {
         lead.coachProfile=prof;
       }
       if(lead.coachProfile && String(_coachLeadId)===String(lead.id)) applyCoachProfile(lead.coachProfile);
+      // AFTER the restore, never before: applyCoachProfile writes the saved profile back over every
+      // control positionally, so a prefill done first is immediately overwritten (the same trap that
+      // kept the advisor's Lead-source dropdown blank). Only fills a control the profile left EMPTY,
+      // so a coach's own answer always beats what a spreadsheet said.
+      if(String(_coachLeadId)===String(lead.id)) _coachApplyImported(lead);
+    }
+    // Values a Direct Upload put on the lead row. They live in real columns rather than inside the
+    // positional coach_profile array, so the importer can write them without knowing the form's DOM
+    // order - and they show here until the coach saves an answer of their own.
+    function _coachApplyImported(lead:any){
+      const im=lead&&lead._imp; if(!im) return;
+      const put=(id:string,v:string)=>{
+        if(!v) return;
+        const el=root.querySelector("#"+id)as HTMLInputElement|HTMLSelectElement|null; if(!el) return;
+        if(el.tagName==="SELECT"){
+          const sel=el as HTMLSelectElement;
+          const first=sel.options[0]?sel.options[0].value:"";
+          if(sel.value&&sel.value!==first) return;                        // the coach (or a save) already chose
+          const norm=(x:string)=>x.toLowerCase().replace(/[^a-z0-9]+/g,"");
+          const hit=Array.from(sel.options).find(o=>o.value===v||o.text===v||norm(o.text)===norm(v));
+          if(hit) sel.value=hit.value; else { sel.add(new Option(v,v)); sel.value=v; }
+        } else { if((el as HTMLInputElement).value) return; (el as HTMLInputElement).value=v; }
+      };
+      put("haDuration",im.dur); put("haProgram",im.prog); put("payMethod",im.method);
+      put("haL1Price",im.l1); put("haL2Price",im.l2);
     }
     // Pull blood-report attachments + recap fields the advisor saved (advisor_profile).
     async function _coachSyncAdvisorReports(lead:any){
@@ -13590,9 +13615,9 @@ export function initApp(root: HTMLElement) {
     }
     async function loadCoachClients__inner(){
       try{
-        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status,enrolled_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status,enrolled_at,hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
         if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
-          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
+          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at,hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
         }
         if(res.error) throw res.error;
         const data=res.data;
@@ -13620,7 +13645,7 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||"",consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,(cp&&cp.consStatus)||"")};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,(cp&&cp.consStatus)||"")};
         });
         // Health Coach queue = Diabetes only: drop leads whose service is a non-diabetes modality
         // (Blood Test / Physiotherapy / etc.) so they no longer clutter the queue. Applied at the

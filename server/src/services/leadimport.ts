@@ -1,4 +1,5 @@
 import { pool } from '../shared/db';
+import { broadcastChange } from '../routes/events';
 
 // ============================================================
 // DIRECT UPLOAD IN DP — safe, update-only bulk lead editing
@@ -22,37 +23,50 @@ import { pool } from '../shared/db';
 export const CLEAR_TOKEN = '#CLEAR';
 
 type FieldKind = 'text' | 'date' | 'ts' | 'bool';
-type FieldDef = { col: string; kind: FieldKind; label: string; group: string };
+type FieldDef = { col: string; kind: FieldKind; label: string; group: string; header?: string };
 
-// The CSV contract. Header names are what the user sees in the template; `col` is the database
-// column. Only columns listed here can ever be written — an unknown header is reported and ignored,
-// so a stray column in someone's spreadsheet can never reach the database.
+// The CSV contract, in the order the template prints. Header names are what the user sees; `col` is
+// the database column. Only columns listed here can ever be written — an unknown header is reported
+// and ignored, so a stray column in someone's spreadsheet can never reach the database.
+//
+// `header` is set only where the template's column name is not already the key. Headers are matched
+// case- and space-insensitively ("HC assigned", "hc_assigned" and "HC ASSIGNED" are one column), so
+// a file that has been through Excel still lines up.
 export const FIELDS: Record<string, FieldDef> = {
-  // -- identity (used to match; never written) is handled separately, not here --
-  name:            { col: 'name',           kind: 'text', label: 'Lead Name',            group: 'Lead Details' },
-  email:           { col: 'email',          kind: 'text', label: 'Email',                group: 'Lead Details' },
-  city:            { col: 'city',           kind: 'text', label: 'City',                 group: 'Lead Details' },
-  street:          { col: 'street',         kind: 'text', label: 'Street',               group: 'Lead Details' },
-  language:        { col: 'language',       kind: 'text', label: 'Language',             group: 'Lead Details' },
-  sugar_poll:      { col: 'sugar_poll',     kind: 'text', label: 'Sugar Level',          group: 'Lead Details' },
-  source:          { col: 'source',         kind: 'text', label: 'Lead Source',          group: 'Lead Source' },
-  campaign:        { col: 'campaign',       kind: 'text', label: 'Campaign',             group: 'Lead Source' },
-  ad_name:         { col: 'ad_name',        kind: 'text', label: 'Ad Name',              group: 'Lead Source' },
-  form_name:       { col: 'form_name',      kind: 'text', label: 'Form Name',            group: 'Lead Source' },
-  service:         { col: 'service',        kind: 'text', label: 'Service',              group: 'Program Details' },
-  assigned_to:     { col: 'assigned_to',    kind: 'text', label: 'Advisor',              group: 'Advisor' },
-  call_status:     { col: 'call_status',    kind: 'text', label: 'Call Status',          group: 'Call Status' },
-  next_followup:   { col: 'next_followup',  kind: 'ts',   label: 'Follow-up Date',       group: 'Follow-up' },
-  lead_date:       { col: 'lead_date',      kind: 'date', label: 'Lead Date',            group: 'Lead Dates' },
-  assigned_at:     { col: 'assigned_at',    kind: 'ts',   label: 'Assigned Date',        group: 'Activity Dates' },
-  visited_at:      { col: 'visited_at',     kind: 'ts',   label: 'Visited Date',         group: 'Appointment Dates' },
-  confirmed_at:    { col: 'confirmed_at',   kind: 'ts',   label: 'Confirmed Date',       group: 'Appointment Dates' },
-  enrolled_at:     { col: 'enrolled_at',    kind: 'ts',   label: 'Enrolled Date',        group: 'Enrolled Status' },
+  // -- identity (phone / lead_id, used to match) is handled separately, not here --
+  name:                 { col: 'name',              kind: 'text', label: 'Lead Name',            group: 'Lead Details' },
+  email:                { col: 'email',             kind: 'text', label: 'Email',                group: 'Lead Details' },
+  city:                 { col: 'city',              kind: 'text', label: 'City',                 group: 'Lead Details' },
+  street:               { col: 'street',            kind: 'text', label: 'Street',               group: 'Lead Details' },
+  language:             { col: 'language',          kind: 'text', label: 'Language',             group: 'Lead Details' },
+  sugar_poll:           { col: 'sugar_poll',        kind: 'text', label: 'Sugar Level',          group: 'Lead Details' },
+  source:               { col: 'source',            kind: 'text', label: 'Lead Source',          group: 'Lead Source' },
+  campaign:             { col: 'campaign',          kind: 'text', label: 'Campaign',             group: 'Lead Source' },
+  ad_name:              { col: 'ad_name',           kind: 'text', label: 'Ad Name',              group: 'Lead Source' },
+  form_name:            { col: 'form_name',         kind: 'text', label: 'Form Name',            group: 'Lead Source' },
+  service:              { col: 'service',           kind: 'text', label: 'Service',              group: 'Program Details' },
+  assigned_to:          { col: 'assigned_to',       kind: 'text', label: 'Advisor',              group: 'Advisor' },
+  call_status:          { col: 'call_status',       kind: 'text', label: 'Call Status',          group: 'Call Status' },
+  hc_assigned:          { col: 'hc_assigned',       kind: 'text', label: 'Health Coach',         group: 'Advisor',            header: 'HC assigned' },
+  next_followup:        { col: 'next_followup',     kind: 'ts',   label: 'Follow-up Date',       group: 'Follow-up' },
+  lead_date:            { col: 'lead_date',         kind: 'date', label: 'Lead Date',            group: 'Lead Dates' },
+  assigned_at:          { col: 'assigned_at',       kind: 'ts',   label: 'Assigned Date',        group: 'Activity Dates' },
+  visited_at:           { col: 'visited_at',        kind: 'ts',   label: 'Visited Date',         group: 'Appointment Dates' },
+  duration_of_diabetes: { col: 'diabetes_duration', kind: 'text', label: 'Duration of diabetes', group: 'Health Assessment',  header: 'Duration of diabetes' },
+  program_suggested:    { col: 'program_suggested', kind: 'text', label: 'Program suggested',    group: 'Program Details',    header: 'Program suggested' },
+  payment_method:       { col: 'payment_method',    kind: 'text', label: 'Payment method',       group: 'Program Details',    header: 'Payment method' },
+  l1_price:             { col: 'l1_price',          kind: 'text', label: 'L1 price',             group: 'Program Details',    header: 'L1 price' },
+  l2_price:             { col: 'l2_price',          kind: 'text', label: 'L2 price',             group: 'Program Details',    header: 'L2 price' },
+  confirmed_at:         { col: 'confirmed_at',      kind: 'ts',   label: 'Confirmed Date',       group: 'Appointment Dates' },
+  enrolled_at:          { col: 'enrolled_at',       kind: 'ts',   label: 'Enrolled Date',        group: 'Enrolled Status' },
 };
 
-// Header order in the downloadable template. Identity first so the file reads left-to-right the way
-// somebody fills it in.
-export const TEMPLATE_HEADERS = ['lead_id', 'phone', ...Object.keys(FIELDS)];
+/** The header text printed in the template for a field (defaults to the key). */
+export const headerOf = (k: string) => FIELDS[k].header || k;
+
+// Header order in the downloadable template. phone leads: it is what a row is matched on now that
+// lead_id is no longer part of the template.
+export const TEMPLATE_HEADERS = ['phone', ...Object.keys(FIELDS).map(headerOf)];
 
 export type RowIssue = 'ok' | 'create' | 'not_found' | 'ambiguous' | 'duplicate_in_file' | 'invalid' | 'no_change';
 export type Change = { field: string; label: string; from: string; to: string; value?: string; skip?: true };
@@ -252,6 +266,66 @@ function unreadableMsg(changes: Change[]): string {
 // when the destination is EMPTY in the file. If the CSV already states an advisor, a second name in
 // the wrong column is a contradiction the uploader must settle — silently overwriting "sugashini"
 // with "Pavithra" would be a guess about who owns the lead, and that is not ours to make.
+// Every staff name the app knows, lowercased -> canonical spelling. Both lists are read: an advisor
+// can exist as a user without an assignee mirror, and vice versa. Used to correct the casing of
+// assigned_to / HC assigned, and by the misplaced-value rescue below.
+async function loadStaffNames(): Promise<Map<string, string>> {
+  const staff = new Map<string, string>();
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT name FROM (
+         SELECT name FROM assignees WHERE COALESCE(is_active, true)
+         UNION ALL SELECT name FROM app_users WHERE COALESCE(active, true)
+       ) s WHERE COALESCE(name, '') <> ''`);
+    // Two ACTIVE staff records can differ only in case — this database really does carry both
+    // "Deepak" and "deepak". Rewriting to either one would be a guess about which record the
+    // uploader meant, and (worse) an arbitrary one: whichever row the query happened to return
+    // last would win, so the same file could import differently twice. A colliding name is
+    // therefore dropped from the map and passes through exactly as typed.
+    const clash = new Set<string>();
+    for (const r of rows) {
+      const nm = String(r.name).trim(); if (!nm) continue;
+      const k = nm.toLowerCase();
+      if (staff.has(k) && staff.get(k) !== nm) clash.add(k); else staff.set(k, nm);
+    }
+    for (const k of clash) staff.delete(k);
+  } catch { /* no staff list = names pass through verbatim, which is what happened before */ }
+  return staff;
+}
+
+// ---- Canonical values ---------------------------------------------------------------------------
+// A CSV is typed by a person, so "rnr", "Call back" and "APPOINTMENT FIXED - ZOOM" all mean a real
+// status the app already has — but stored verbatim they are three statuses the app has never heard
+// of, and every bucket, card and filter that switches on call_status silently drops the lead.
+// Matching is done on letters and digits alone, so case, spacing, and the hyphen-vs-en-dash in
+// "Appointment Fixed – Direct" (an en-dash in the app, a hyphen on every keyboard) all collapse.
+const CALL_STATUSES = [
+  'New', 'Open', 'DND', 'RNR', 'Line Busy', 'Call Back', 'Callback Requested', 'Already Paid',
+  'Follow Up', 'Switched Off', 'Not Registered', 'No Sugar', 'Not Interested', 'Out of Service',
+  'Wrong Number', 'Appointment Fixed – Direct', 'Appointment Fixed – Home',
+  'Appointment Fixed – Zoom', 'Appointment Confirmed', 'Visited', 'Enrolled', 'Payment Pending',
+  'Payment Completed', 'Payment Done', 'Interested', 'Not Reachable', 'Disconnect', 'Invalid',
+];
+const squash = (v: string) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+const STATUS_BY_KEY = new Map<string, string>(CALL_STATUSES.map((s) => [squash(s), s]));
+// Spellings that are not just punctuation away from the canonical label.
+[['followup', 'Follow Up'], ['cb', 'Call Back'], ['callback', 'Call Back'], ['notreachable', 'Not Reachable'],
+ ['switchoff', 'Switched Off'], ['switchedoff', 'Switched Off'], ['nr', 'Not Reachable'],
+ ['apptfixeddirect', 'Appointment Fixed – Direct'], ['apptfixedzoom', 'Appointment Fixed – Zoom'],
+ ['appointmentfixed', 'Appointment Fixed – Direct'], ['enroled', 'Enrolled'], ['paid', 'Already Paid'],
+].forEach(([k, v]) => STATUS_BY_KEY.set(k, v));
+
+/** Canonicalise a CSV value for the fields whose spelling the app depends on. Unrecognised values
+ *  are returned UNCHANGED — this corrects typing, it does not reject vocabulary the app may have
+ *  grown since. */
+function canonValue(field: string, raw: string, staff: Map<string, string>): string {
+  const t = String(raw || '').trim();
+  if (!t) return t;
+  if (field === 'assigned_to' || field === 'hc_assigned') return staff.get(t.toLowerCase()) || t;
+  if (field === 'call_status') return STATUS_BY_KEY.get(squash(t)) || t;
+  return t;
+}
+
 type Rescue = { field: string; value: string; note: string };
 function rescueValue(raw: string, staff: Map<string, string>): Rescue | null {
   const t = String(raw || '').trim();
@@ -298,15 +372,7 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
          OR right(regexp_replace(coalesce(phone,''), '\\D', '', 'g'), 10) = ANY($2)`,
     [Array.from(idsWanted), Array.from(phonesWanted)]
   );
-  // Staff names the rescue can resolve against: both lists, because an advisor may exist as a
-  // user without an assignee mirror (and vice versa).
-  const staff = new Map<string, string>();
-  try {
-    const { rows: st } = await pool.query(
-      `SELECT name FROM assignees WHERE COALESCE(is_active, true)
-        UNION SELECT name FROM app_users WHERE COALESCE(active, true)`);
-    for (const r of st) { const nm = String(r.name || '').trim(); if (nm) staff.set(nm.toLowerCase(), nm); }
-  } catch { /* no staff list = no rescue; the row still reports the unreadable value */ }
+  const staff = await loadStaffNames();
   const byId = new Map<string, any>();
   const byPhone = new Map<string, any[]>();
   for (const d of dbRows) {
@@ -373,7 +439,7 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
         if (def.kind === 'date') next = parseDate(raw);
         else if (def.kind === 'ts') next = parseTs(raw);
         else if (def.kind === 'bool') next = parseBool(raw);
-        else next = raw;
+        else next = canonValue(header, raw, staff);
         if (next === null) {
           const rx = rescueValue(raw, staff);
           // Only when the destination column is empty in this file - see rescueValue.
@@ -419,7 +485,7 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
       else if (def.kind === 'date') next = parseDate(raw);
       else if (def.kind === 'ts') next = parseTs(raw);
       else if (def.kind === 'bool') next = parseBool(raw);
-      else next = raw;
+      else next = canonValue(header, raw, staff);
 
       if (next === null && raw.toUpperCase() !== CLEAR_TOKEN) {
         const rx = rescueValue(raw, staff);
@@ -487,6 +553,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
 
   // Re-derive the typed values from the file for the rows we are about to write. The preview holds
   // DISPLAY strings ("06 Aug 2026, 09:00"), which must never be what reaches the database.
+  const staff = await loadStaffNames();
   const grid = parseCsv(csvText);
   const headers = grid[0].map((h) => String(h || '').trim().toLowerCase().replace(/\s+/g, '_'));
   const leadDateMode = opts.leadDateMode === 'update' ? 'update' : 'keep';
@@ -495,6 +562,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
 
   const client = await pool.connect();
   let updated = 0, created = 0, batchId: string | undefined;
+  const hcSet: [string, string][] = [];
   try {
     await client.query('BEGIN');
     const b = await client.query(
@@ -525,7 +593,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
         else if (def.kind === 'date') v = parseDate(cellVal);
         else if (def.kind === 'ts') v = parseTs(cellVal);
         else if (def.kind === 'bool') v = parseBool(cellVal);
-        else v = cellVal;
+        else v = canonValue(c.field, cellVal, staff);
         vals.push(v);
         sets.push(`"${def.col}" = $${vals.length}`);
         if (c.field === 'assigned_to') advSet = v ? 'on' : 'off';
@@ -543,6 +611,8 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
       // is what makes a blank cell a no-op rather than a deletion.
       await client.query(`UPDATE leads SET ${sets.join(', ')} WHERE meta_lead_id = $${vals.length}`, vals);
       updated++;
+      const hc = rr.changes.find((c) => c.field === 'hc_assigned' && !c.skip);
+      if (hc) hcSet.push([rr.leadId as string, canonValue('hc_assigned', hc.value ?? cell('hc_assigned'), staff)]);
 
       for (const c of rr.changes) {
         await client.query(
@@ -577,7 +647,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
         if (def.kind === 'date') v = parseDate(cv);
         else if (def.kind === 'ts') v = parseTs(cv);
         else if (def.kind === 'bool') v = parseBool(cv);
-        else v = cv;
+        else v = canonValue(c.field, cv, staff);
         if (v === null) continue;
         put(def.col, v);
         if (c.field === 'assigned_to' && v) advOn = true;
@@ -592,12 +662,25 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
         `INSERT INTO leads (${cols.map((c) => '"' + c + '"').join(', ')}) VALUES (${ph})
          ON CONFLICT (meta_lead_id) DO NOTHING`, vals);
       created++;
+      const hcNew = rr.changes.find((c) => c.field === 'hc_assigned' && !c.skip);
+      if (hcNew) hcSet.push([String(vals[0]), canonValue('hc_assigned', hcNew.value ?? cell('hc_assigned'), staff)]);
       for (const c of rr.changes) {
         await client.query(
           `INSERT INTO lead_import_changes (batch_id, lead_id, lead_name, field, old_value, new_value)
            VALUES ($1,$2,$3,$4,$5,$6)`,
           [batchId, String(vals[0]), rr.name || '', c.label, 'new lead', c.to]);
       }
+    }
+    // The Health Coach is read from appointments.hc_pt on the Coach and Reception pages, so a CSV
+    // that reassigns the coach has to reach the booking too or those two pages keep showing the old
+    // one. Existing rows only: inventing an appointment for a lead that has none would put a
+    // phantom booking on the slot board, and leads.hc_assigned already records the coach for a lead
+    // that has not been booked yet (the panels fall back to it).
+    for (const [leadId, coach] of hcSet) {
+      if (!leadId || !coach) continue;
+      await client.query(
+        `UPDATE appointments SET hc_pt = $1 WHERE lead_id = $2 AND COALESCE(hc_pt, '') <> $1`,
+        [coach, leadId]);
     }
     await client.query('UPDATE lead_import_batches SET updated_rows = $1 WHERE id = $2', [updated + created, batchId]);
     await client.query('COMMIT');
@@ -607,6 +690,14 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
   } finally {
     client.release();
   }
+
+  // EVERY other write in the app goes through the /db/query gateway, which broadcasts the changed
+  // table so open pages re-read (see routes/events.ts). This importer writes through its own pool
+  // connection, so it has to say so itself — without this the Advisor, Coach, Reception, Reports and
+  // dashboard screens all keep rendering pre-import data until somebody reloads the browser.
+  // AFTER the commit, never before: a broadcast on a transaction that then rolls back would send the
+  // whole fleet to re-read data that never existed.
+  try { broadcastChange('leads'); if (hcSet.length) broadcastChange('appointments'); } catch { /* never let a notification break a completed import */ }
 
   return { ok: true, batchId, updated, created, preview };
 }
@@ -625,25 +716,32 @@ const CRLF = String.fromCharCode(13) + String.fromCharCode(10);
 export const SAMPLE_MARK = 'SAMPLE ROW';
 export function templateCsv(): string {
   const esc = (v: string) => '"' + String(v).replace(/"/g, '""') + '"';
+  // Keyed by FIELD KEY, printed under the template's header text — so renaming a column's header
+  // never silently empties its sample cell.
   const samples: Record<string, string>[] = [
     {
-      lead_id: '', phone: '9876543210', name: SAMPLE_MARK + ' 1 - delete before uploading',
+      phone: '9876543210', name: SAMPLE_MARK + ' 1 - delete before uploading',
       email: 'client@example.com', city: 'Chennai', street: 'T Nagar', language: 'Tamil',
       sugar_poll: '150-250', source: 'Meta Ads', campaign: 'DW - Winner Ad', ad_name: 'LLW OGA 1',
-      form_name: 'NSI - Direct Walkin', service: 'Diabetes Counselling', assigned_to: 'sugashini',
-      call_status: 'Follow Up', next_followup: '13-Aug-26 11:00', lead_date: '05-Aug-26',
-      assigned_at: '06-Aug-26 09:30', visited_at: '', confirmed_at: '', enrolled_at: '',
+      form_name: 'NSI - Direct Walkin', service: 'Diabetes Counselling', assigned_to: 'Gayathri',
+      call_status: 'Follow Up', hc_assigned: 'Pavithra', next_followup: '13-Aug-26 11:00',
+      lead_date: '05-Aug-26', assigned_at: '06-Aug-26 09:30', visited_at: '',
+      duration_of_diabetes: '1-3 yrs', program_suggested: 'L1', payment_method: 'UPI',
+      l1_price: '3,999 (Standard)', l2_price: '', confirmed_at: '', enrolled_at: '',
     },
     {
-      lead_id: '1629105685312206', phone: '9840100420', name: SAMPLE_MARK + ' 2 - delete before uploading',
+      phone: '9840100420', name: SAMPLE_MARK + ' 2 - delete before uploading',
       email: '', city: 'Chennai', street: '', language: 'English', sugar_poll: 'Above 250',
       source: 'Walk-in / Referral / Telecalling', campaign: '', ad_name: '', form_name: '',
-      service: 'Physiotherapy', assigned_to: 'Gayathri', call_status: 'Visited',
-      next_followup: '', lead_date: '02-Apr-26', assigned_at: '02-Apr-26 10:15',
-      visited_at: '10-Aug-26 17:00', confirmed_at: '09-Aug-26 12:00', enrolled_at: '11-Aug-26 18:30',
+      service: 'Diabetes Counselling', assigned_to: 'Deepak', call_status: 'Visited',
+      hc_assigned: 'Gomathi', next_followup: '', lead_date: '02-Apr-26', assigned_at: '02-Apr-26 10:15',
+      visited_at: '10-Aug-26 17:00', duration_of_diabetes: '5-10 yrs', program_suggested: 'L1 + L2',
+      payment_method: 'Cash', l1_price: '3,999 (Standard)', l2_price: '29999',
+      confirmed_at: '09-Aug-26 12:00', enrolled_at: '11-Aug-26 18:30',
     },
   ];
+  const keys = ['phone', ...Object.keys(FIELDS)];
   const rows = [TEMPLATE_HEADERS.map(esc).join(',')];
-  for (const row of samples) rows.push(TEMPLATE_HEADERS.map((h) => esc(row[h] ?? '')).join(','));
+  for (const row of samples) rows.push(keys.map((k) => esc(row[k] ?? '')).join(','));
   return rows.join(CRLF);
 }
