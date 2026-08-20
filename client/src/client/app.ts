@@ -3603,7 +3603,7 @@ export function initApp(root: HTMLElement) {
         // Creates count as work: a file of nothing but NEW leads left this false, so the Confirm
         // button never appeared and a valid upload looked like it had silently done nothing.
         const _c = (j && j.counts) || {};
-        _dupPreviewed = !!(j && j.ok && ((_c.toUpdate > 0) || (_c.toCreate > 0)));
+        _dupPreviewed = !!(j && j.ok && ((_c.toUpdate > 0) || (_c.toCreate > 0) || (_c.paymentsToCreate > 0)));
         _dupShowConfirm(_dupPreviewed);
       } catch (e: any) { if (out) out.innerHTML = '<div class="banner warn">Preview failed: ' + _orgEsc(e.message || "network error") + "</div>"; }
     };
@@ -3612,7 +3612,9 @@ export function initApp(root: HTMLElement) {
       const _ds = (root.querySelector("#dupOut") as any)?.dataset || {};
       const nUp = Number(_ds.toUpdate || 0), nNew = Number(_ds.toCreate || 0);
       const _say = (k: number, w: string) => "<b>" + k + "</b> " + w + (k === 1 ? "" : "s");
-      const _what = [nUp ? _say(nUp, "existing lead") + " updated" : "", nNew ? _say(nNew, "new lead") + " created" : ""].filter(Boolean).join(" and ");
+      const nPay = Number(_ds.pays || 0), payTot = Number(_ds.payTotal || 0);
+      const _what = [nUp ? _say(nUp, "existing lead") + " updated" : "", nNew ? _say(nNew, "new lead") + " created" : "",
+                     nPay ? _say(nPay, "payment") + " recorded as collected (₹" + payTot.toLocaleString("en-IN") + ")" : ""].filter(Boolean).join(", ");
       csvConfirm(
         _what.replace(/^./, (m) => m.toUpperCase()) + " from <b>" + _orgEsc(_dupFileName) + "</b>?" +
         "<br><br>Lead Date: <b>" + (_dupMode === "update" ? "updated from the CSV" : "kept as it is") + "</b>." +
@@ -3697,6 +3699,8 @@ export function initApp(root: HTMLElement) {
       const c = j.counts || {};
       out.dataset.toUpdate = String(c.toUpdate || 0);
       out.dataset.toCreate = String(c.toCreate || 0);
+      out.dataset.pays = String(c.paymentsToCreate || 0);
+      out.dataset.payTotal = String(c.paymentTotal || 0);
       const cell = (l: string, v: any, cls?: string) =>
         '<div class="metric' + (cls ? " " + cls : "") + '" style="padding:9px 11px"><div class="ml">' + l + '</div><div class="mv" style="font-size:19px">' + v + "</div></div>";
       let h = "";
@@ -3711,6 +3715,7 @@ export function initApp(root: HTMLElement) {
         + cell("Ambiguous", c.ambiguous || 0, (c.ambiguous ? "a" : ""))
         + cell("Invalid", c.invalid || 0, (c.invalid ? "r" : ""))
         + cell("Skipped cells", c.skippedCells || 0, (c.skippedCells ? "a" : ""))
+        + cell(applied ? "Payments recorded" : "Payments to record", c.paymentsToCreate || 0, (c.paymentsToCreate ? "g" : ""))
         + cell("Date changes", c.dateChanges || 0)
         + cell("Advisor changes", c.advisorChanges || 0)
         + cell("Status changes", c.statusChanges || 0)
@@ -3730,6 +3735,21 @@ export function initApp(root: HTMLElement) {
       }
       // A cell whose value cannot be read for its column is left alone rather than sinking the whole
       // row — but silently dropping it would be worse than the old rejection, so name every one.
+      // Money gets its own block, above everything else. An upload that records payments is the one
+      // thing here that shows up as revenue, so it is never a number in a grid the eye slides past.
+      if (c.paymentsToCreate) {
+        const rowsP = (j.rows || []).filter((r: any) => (r.newPayments || []).length);
+        h += '<div class="banner ' + (applied ? "good" : "warn") + '" style="margin-bottom:10px"><b>'
+          + (applied ? "Recorded " : "Will record ") + c.paymentsToCreate + " payment" + (c.paymentsToCreate === 1 ? "" : "s")
+          + " totalling ₹" + Number(c.paymentTotal || 0).toLocaleString("en-IN") + "</b> as <b>collected</b>"
+          + (applied ? "." : " — these count as revenue in Accounts and Reports.")
+          + '<div style="margin-top:6px;font-size:12px;line-height:1.8">'
+          + rowsP.slice(0, 12).map((r: any) => e(r.name || r.phone) + " — "
+              + (r.newPayments || []).map((x: any) => "<b>" + e(x.label) + "</b>").join(", ")).join("<br>")
+          + (rowsP.length > 12 ? "<br>… and " + (rowsP.length - 12) + " more" : "") + "</div>"
+          + (applied ? "" : '<div style="margin-top:6px;font-size:12px">A payment already recorded for the same lead, program and installment is never added twice, so re-uploading this file cannot collect the same money again.</div>')
+          + "</div>";
+      }
       if (!applied && c.skippedCells) {
         const sk: string[] = [];
         (j.rows || []).forEach((r: any) => (r.changes || []).forEach((ch: any) => {
@@ -14577,7 +14597,11 @@ export function initApp(root: HTMLElement) {
           // Submitting a payment = an amount was entered, or the status says money was collected.
           if(amt>0||collected){
             const _missP:string[]=[]; let _firstP:HTMLElement|null=null;
-            if(amt<=0){ _missP.push("Amount received"); if(amtEl){ amtEl.classList.add("err"); _firstP=_firstP||amtEl; } }
+            // EMI: the down payment is OPTIONAL (removed as mandatory on request, 20-Aug-2026) —
+            // the client can pay the financier directly with no down payment, so a collected EMI
+            // with a blank Down payment must not block the save. Full/2×/advance keep requiring
+            // their amount.
+            if(amt<=0&&pm!=="emi"){ _missP.push("Amount received"); if(amtEl){ amtEl.classList.add("err"); _firstP=_firstP||amtEl; } }
             if(pcfg.mode){ const modeEl=root.querySelector(pcfg.mode)as HTMLSelectElement|null;
               if(!((modeEl&&modeEl.value)||"").trim()){ _missP.push("Mode"); if(modeEl){ modeEl.classList.add("err"); _firstP=_firstP||modeEl; } } }
             if(!status){ _missP.push("Status"); if(stEl){ stEl.classList.add("err"); _firstP=_firstP||stEl; } }

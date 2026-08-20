@@ -69,6 +69,8 @@ export const headerOf = (k: string) => FIELDS[k].header || k;
 export const TEMPLATE_HEADERS = ['phone', ...Object.keys(FIELDS).map(headerOf)];
 
 export type RowIssue = 'ok' | 'create' | 'not_found' | 'ambiguous' | 'duplicate_in_file' | 'invalid' | 'no_change';
+/** A payment this row will record. Money is never created without appearing here first. */
+export type NewPayment = { label: string; amount: number };
 export type Change = { field: string; label: string; from: string; to: string; value?: string; skip?: true };
 export type RowResult = {
   rowNo: number;
@@ -79,6 +81,7 @@ export type RowResult = {
   matchedBy: 'lead_id' | 'phone' | null;
   changes: Change[];
   message?: string;
+  newPayments?: NewPayment[];   // money this row will record - shown in the preview before confirming
 };
 export type PreviewResult = {
   ok: boolean;
@@ -87,6 +90,7 @@ export type PreviewResult = {
   counts: {
     totalRows: number; matched: number; toUpdate: number; toCreate: number; noChange: number;
     notFound: number; ambiguous: number; duplicateInFile: number; invalid: number; skippedCells: number;
+    paymentsToCreate: number; paymentTotal: number;
     dateChanges: number; advisorChanges: number; statusChanges: number;
   };
   rows: RowResult[];
@@ -341,7 +345,8 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
   const leadDateMode = opts.leadDateMode === 'update' ? 'update' : 'keep';
   const empty: PreviewResult['counts'] = {
     totalRows: 0, matched: 0, toUpdate: 0, toCreate: 0, noChange: 0, notFound: 0, ambiguous: 0,
-    duplicateInFile: 0, invalid: 0, skippedCells: 0, dateChanges: 0, advisorChanges: 0, statusChanges: 0,
+    duplicateInFile: 0, invalid: 0, skippedCells: 0, paymentsToCreate: 0, paymentTotal: 0,
+    dateChanges: 0, advisorChanges: 0, statusChanges: 0,
   };
 
   const grid = parseCsv(csvText);
@@ -373,6 +378,15 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
     [Array.from(idsWanted), Array.from(phonesWanted)]
   );
   const staff = await loadStaffNames();
+  // Payments this database already holds, keyed lead|program|installment. A price in the file only
+  // becomes money when there is no matching row - so a re-upload can never collect twice, and the
+  // preview can say honestly which payments are NEW.
+  const paidKeys = new Set<string>();
+  try {
+    const { rows: pk } = await pool.query(
+      `SELECT lead_id, COALESCE(program, '') prog, COALESCE(installment_number, 0) inst FROM payments`);
+    for (const r of pk) paidKeys.add(r.lead_id + '|' + r.prog + '|' + r.inst);
+  } catch { /* no payments table = every price reads as new, and apply re-checks anyway */ }
   const byId = new Map<string, any>();
   const byPhone = new Map<string, any[]>();
   for (const d of dbRows) {
@@ -467,7 +481,10 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
         return;
       }
       counts.toCreate++;
-      results.push({ ...base, status: 'create', changes: creates,
+      // A new lead has no payments yet, so every price in the row is money to record.
+      const npsNew = newPaymentsOf('', cell, new Set());
+      npsNew.forEach((x) => { counts.paymentsToCreate++; counts.paymentTotal += x.amount; });
+      results.push({ ...base, status: 'create', changes: creates, newPayments: npsNew,
                      message: badNew ? 'New lead — ' + unreadableMsg(creates) : 'New lead — will be created' });
       return;
     }
@@ -513,13 +530,17 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
       changes.push({ field: header, label: def.label, from: show(lead[def.col], def.kind), to: show(next, def.kind) });
     }
 
+    // Money is decided per ROW, not per change: a file whose columns all already match still records
+    // a payment the database is missing - which is exactly the re-upload people do to fix this.
+    const nps = newPaymentsOf(String(lead.meta_lead_id), cell, paidKeys);
+    nps.forEach((x) => { counts.paymentsToCreate++; counts.paymentTotal += x.amount; });
     const bad = changes.some((c) => c.skip);
     counts.skippedCells += changes.filter((c) => c.skip).length;
     const applying = changes.filter((c) => !c.skip);
     if (!applying.length) {
       // Nothing survives: either the row said nothing new, or all it said was unreadable.
       if (bad) { counts.invalid++; results.push({ ...base, leadId: String(lead.meta_lead_id), name: lead.name || base.name, status: 'invalid', matchedBy, changes, message: unreadableMsg(changes) }); return; }
-      counts.noChange++; results.push({ ...base, leadId: String(lead.meta_lead_id), name: lead.name || base.name, status: 'no_change', matchedBy, changes: [] }); return;
+      counts.noChange++; results.push({ ...base, leadId: String(lead.meta_lead_id), name: lead.name || base.name, status: 'no_change', matchedBy, changes: [], newPayments: nps }); return;
     }
 
     counts.toUpdate++;
@@ -530,7 +551,7 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
       if (c.field === 'call_status' || c.field === 'enrolled_at') counts.statusChanges++;
     }
     results.push({ ...base, leadId: String(lead.meta_lead_id), name: lead.name || base.name, status: 'ok', matchedBy, changes,
-                   message: bad ? unreadableMsg(changes) : undefined });
+                   newPayments: nps, message: bad ? unreadableMsg(changes) : undefined });
   });
 
   return { ok: true, unknownColumns, counts, rows: results };
@@ -557,6 +578,61 @@ function apptFactOf(leadId: string, rr: RowResult, cell: (h: string) => string, 
   };
 }
 
+// ---- Money stated by the file --------------------------------------------------------------------
+// The L1/L2 price columns record what was COLLECTED (confirmed with the user). Reception's Amount
+// column and every revenue figure read the payments table, so a price sitting on the lead was
+// invisible there — the row read "Due · —" for a client who had paid.
+//
+// This is the only place an upload can create money, so it is deliberately narrow:
+//   · one row per price column actually filled, tagged with THAT column's program (L1 / L2) —
+//     never program_suggested, which would claim L1 was paid when only an L2 price was given;
+//   · "installment 1" in Payment method makes it installment 1 of 2, NOT a full payment. Recording
+//     it as full would read as Fully Paid, and "Fully Paid" in this app means BOTH installments;
+//   · service is stamped from the lead, so a Physio/Blood-Test fee can never be counted as Diabetes;
+//   · a price with no number in it ("Special Offer") creates nothing.
+type PayFact = { leadId: string; service: string; program: 'L1' | 'L2'; amount: number;
+                 method: string | null; type: 'full' | 'installment'; inst: number | null; paidAt: string | null };
+
+/** First number in a price cell: "3,999 (Standard)" -> 3999, "Special Offer" -> 0. */
+function money(v: string): number {
+  const m = String(v || '').replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+  return m ? Math.round(Number(m[0])) : 0;
+}
+
+/** Payments in this row that the database does not already hold. `paidKeys` is lead|program|inst. */
+function newPaymentsOf(leadId: string, cell: (h: string) => string, paidKeys: Set<string>): NewPayment[] {
+  return payFactsOf(leadId, { changes: [] } as any, cell)
+    .filter((p) => !paidKeys.has(leadId + '|' + p.program + '|' + (p.inst || 0)))
+    .map((p) => ({
+      amount: p.amount,
+      label: '₹' + p.amount.toLocaleString('en-IN') + ' · ' + p.program
+        + (p.type === 'installment' ? ' · installment ' + p.inst + ' of 2' : ' · full payment')
+        + (p.method ? ' · ' + p.method : ''),
+    }));
+}
+
+function payFactsOf(leadId: string, rr: RowResult, cell: (h: string) => string): PayFact[] {
+  const of = (f: string) => {
+    const c = (rr.changes || []).find((x) => x.field === f && !x.skip);
+    return String((c ? (c.value ?? cell(f)) : cell(f)) || '').trim();
+  };
+  const rawMethod = of('payment_method');
+  const im = rawMethod.match(/instal?lment\s*(\d+)?/i);
+  const type: 'full' | 'installment' = im ? 'installment' : 'full';
+  const inst = im ? Math.max(1, Math.min(2, Number(im[1] || 1))) : null;
+  // An installment marker is not a payment METHOD — leaving it in that column would put
+  // "installment 1" where Accounts expects Cash/UPI/Card.
+  const method = im ? null : (rawMethod || null);
+  const paidAt = parseTs(of('enrolled_at')) || parseTs(of('visited_at'));
+  const service = of('service');
+  const out: PayFact[] = [];
+  ([['l1_price', 'L1'], ['l2_price', 'L2']] as const).forEach(([f, program]) => {
+    const amount = money(of(f));
+    if (amount > 0) out.push({ leadId, service, program, amount, method, type, inst, paidAt });
+  });
+  return out;
+}
+
 export type ApplyResult = { ok: boolean; error?: string; batchId?: string; updated: number; created?: number; preview: PreviewResult };
 
 /**
@@ -570,7 +646,10 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
 
   const doRows = preview.rows.filter((r) => r.status === 'ok' && r.changes.length && r.leadId);
   const newRows = preview.rows.filter((r) => r.status === 'create');
-  if (!doRows.length && !newRows.length) return { ok: true, updated: 0, preview };
+  // Rows that change no COLUMN can still owe a payment the database is missing - the preview says so,
+  // and skipping them here is why re-uploading a sheet to record its amounts appeared to do nothing.
+  const payOnly = preview.rows.filter((r) => r.leadId && r.status === 'no_change' && (r.newPayments || []).length);
+  if (!doRows.length && !newRows.length && !payOnly.length) return { ok: true, updated: 0, preview };
 
   // Re-derive the typed values from the file for the rows we are about to write. The preview holds
   // DISPLAY strings ("06 Aug 2026, 09:00"), which must never be what reaches the database.
@@ -582,13 +661,14 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
   grid.slice(1).forEach((r, i) => byRowNo.set(i + 2, r));
 
   const client = await pool.connect();
-  let updated = 0, created = 0, apptRows = 0, batchId: string | undefined;
+  let updated = 0, created = 0, apptRows = 0, payRows = 0, batchId: string | undefined;
   // What each written row said about its appointment. Reception's board and the Coach page read
   // the appointments table, not leads — so a CSV that states a visit, a confirmation or a coach has
   // to reach a row there or those two pages show nothing for a lead that plainly has a visit date.
   type ApptFact = { leadId: string; name: string; phone: string; service: string; language: string;
                     coach: string; visitedAt: string | null; confirmedAt: string | null };
   const appts: ApptFact[] = [];
+  const pays: PayFact[] = [];
   try {
     await client.query('BEGIN');
     const b = await client.query(
@@ -638,6 +718,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
       await client.query(`UPDATE leads SET ${sets.join(', ')} WHERE meta_lead_id = $${vals.length}`, vals);
       updated++;
       appts.push(apptFactOf(String(rr.leadId), rr, cell, staff));
+      pays.push(...payFactsOf(String(rr.leadId), rr, cell));
 
       for (const c of rr.changes) {
         await client.query(
@@ -688,6 +769,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
          ON CONFLICT (meta_lead_id) DO NOTHING`, vals);
       created++;
       appts.push(apptFactOf(String(vals[0]), rr, cell, staff));
+      pays.push(...payFactsOf(String(vals[0]), rr, cell));
       for (const c of rr.changes) {
         await client.query(
           `INSERT INTO lead_import_changes (batch_id, lead_id, lead_name, field, old_value, new_value)
@@ -736,6 +818,36 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
          'Created from a Direct Upload in DP']);
       apptRows++;
     }
+    for (const rr of payOnly) {
+      const raw = byRowNo.get(rr.rowNo); if (!raw) continue;
+      const cell = (h: string) => { const ix = headers.indexOf(h); return ix >= 0 ? String(raw[ix] ?? '').trim() : ''; };
+      pays.push(...payFactsOf(String(rr.leadId), rr, cell));
+    }
+    for (const p of pays) {
+      if (!p.leadId || !(p.amount > 0)) continue;
+      // Idempotent on the natural business key: one payment per lead, per program, per installment.
+      // Re-uploading the same file must never collect the same money twice - duplicated payment rows
+      // are how a client reads as Fully Paid on half the money.
+      const { rows: had } = await client.query(
+        `SELECT id FROM payments WHERE lead_id = $1 AND COALESCE(program, '') = $2
+           AND COALESCE(installment_number, 0) = $3 LIMIT 1`,
+        [p.leadId, p.program, p.inst || 0]);
+      if (had.length) continue;
+      await client.query(
+        `INSERT INTO payments (lead_id, amount, status, method, program, service, payment_type,
+                               installment_number, total_installments, paid_at, collected_by, txn_ref)
+         VALUES ($1,$2,'paid',$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [p.leadId, p.amount, p.method, p.program, p.service || null, p.type,
+         p.inst, p.inst ? 2 : null, p.paidAt || new Date().toISOString(),
+         opts.by || 'Direct Upload in DP', 'dp-import']);
+      payRows++;
+      // Every path that records money enrols the lead - the one invariant the Advisor dashboard
+      // trusts (it reads enrolled_at alone, while Coach/Reception derive enrolment from payments,
+      // which is exactly how the two used to disagree). COALESCE so a real enrolment date wins.
+      await client.query(
+        `UPDATE leads SET enrolled_at = COALESCE(enrolled_at, $2) WHERE meta_lead_id = $1`,
+        [p.leadId, p.paidAt || new Date().toISOString()]);
+    }
     await client.query('UPDATE lead_import_batches SET updated_rows = $1 WHERE id = $2', [updated + created, batchId]);
     await client.query('COMMIT');
   } catch (e: any) {
@@ -751,7 +863,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
   // dashboard screens all keep rendering pre-import data until somebody reloads the browser.
   // AFTER the commit, never before: a broadcast on a transaction that then rolls back would send the
   // whole fleet to re-read data that never existed.
-  try { broadcastChange('leads'); if (appts.length) broadcastChange('appointments'); } catch { /* never let a notification break a completed import */ }
+  try { broadcastChange('leads'); if (appts.length) broadcastChange('appointments'); if (payRows) broadcastChange('payments'); } catch { /* never let a notification break a completed import */ }
 
   return { ok: true, batchId, updated, created, preview };
 }

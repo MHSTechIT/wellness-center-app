@@ -611,7 +611,7 @@ export function getMainContent(): string {
                 <div style="display:flex;gap:7px"><input aria-label="EMI coupon code" class="input mono" id="emiCoupon" placeholder="e.g. FEST2000"><button class="btn" style="height:39px;flex:none" onclick="applyCouponEmi()">Apply</button></div>
                 <div id="emiCouponRes" style="font-size:11.5px;font-weight:600;margin-top:6px;display:flex;gap:7px;flex-wrap:wrap;align-items:center"></div></div>
               <div class="fld"><label class="lbl" for="emiCost">Program cost <span class="ab">AUTO</span></label><input  class="input mono" id="emiCost" readonly></div>
-              <div class="fld"><label class="lbl" for="emiDown">Down payment (₹) — drives calculator <span class="req">*</span></label><input  class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
+              <div class="fld"><label class="lbl" for="emiDown">Down payment (₹) — drives calculator</label><input  class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
               <div class="fld"><label class="lbl" for="emiRemain">Financed balance <span class="ab">AUTO</span></label><input  class="input mono" id="emiRemain" readonly></div>
               <div class="fld"><label class="lbl" for="emiTenure">Tenure (months) — drives calculator</label><select  class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
               <div class="fld"><label class="lbl" for="emiPer">EMI / month <span class="ab">AUTO calculated</span></label><input  class="input mono" id="emiPer" readonly></div>
