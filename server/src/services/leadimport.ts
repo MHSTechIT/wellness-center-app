@@ -536,6 +536,27 @@ export async function analyze(csvText: string, opts: ImportOpts = {}): Promise<P
   return { ok: true, unknownColumns, counts, rows: results };
 }
 
+// Pull an appointment's worth of fact out of one written row. Reads the CHANGES (already parsed,
+// rescued and canonicalised) and falls back to the raw cell, so a value the preview corrected is the
+// value the appointment gets.
+function apptFactOf(leadId: string, rr: RowResult, cell: (h: string) => string, staff: Map<string, string>) {
+  const of = (f: string) => {
+    const c = (rr.changes || []).find((x) => x.field === f && !x.skip);
+    return c ? (c.value ?? cell(f)) : cell(f);
+  };
+  const ts = (f: string) => parseTs(of(f));   // already an ISO string carrying +05:30
+  return {
+    leadId,
+    name: of('name') || rr.name || '',
+    phone: rr.phone || '',
+    service: of('service'),
+    language: of('language'),
+    coach: canonValue('hc_assigned', of('hc_assigned'), staff),
+    visitedAt: ts('visited_at'),
+    confirmedAt: ts('confirmed_at'),
+  };
+}
+
 export type ApplyResult = { ok: boolean; error?: string; batchId?: string; updated: number; created?: number; preview: PreviewResult };
 
 /**
@@ -561,8 +582,13 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
   grid.slice(1).forEach((r, i) => byRowNo.set(i + 2, r));
 
   const client = await pool.connect();
-  let updated = 0, created = 0, batchId: string | undefined;
-  const hcSet: [string, string][] = [];
+  let updated = 0, created = 0, apptRows = 0, batchId: string | undefined;
+  // What each written row said about its appointment. Reception's board and the Coach page read
+  // the appointments table, not leads — so a CSV that states a visit, a confirmation or a coach has
+  // to reach a row there or those two pages show nothing for a lead that plainly has a visit date.
+  type ApptFact = { leadId: string; name: string; phone: string; service: string; language: string;
+                    coach: string; visitedAt: string | null; confirmedAt: string | null };
+  const appts: ApptFact[] = [];
   try {
     await client.query('BEGIN');
     const b = await client.query(
@@ -611,8 +637,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
       // is what makes a blank cell a no-op rather than a deletion.
       await client.query(`UPDATE leads SET ${sets.join(', ')} WHERE meta_lead_id = $${vals.length}`, vals);
       updated++;
-      const hc = rr.changes.find((c) => c.field === 'hc_assigned' && !c.skip);
-      if (hc) hcSet.push([rr.leadId as string, canonValue('hc_assigned', hc.value ?? cell('hc_assigned'), staff)]);
+      appts.push(apptFactOf(String(rr.leadId), rr, cell, staff));
 
       for (const c of rr.changes) {
         await client.query(
@@ -662,8 +687,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
         `INSERT INTO leads (${cols.map((c) => '"' + c + '"').join(', ')}) VALUES (${ph})
          ON CONFLICT (meta_lead_id) DO NOTHING`, vals);
       created++;
-      const hcNew = rr.changes.find((c) => c.field === 'hc_assigned' && !c.skip);
-      if (hcNew) hcSet.push([String(vals[0]), canonValue('hc_assigned', hcNew.value ?? cell('hc_assigned'), staff)]);
+      appts.push(apptFactOf(String(vals[0]), rr, cell, staff));
       for (const c of rr.changes) {
         await client.query(
           `INSERT INTO lead_import_changes (batch_id, lead_id, lead_name, field, old_value, new_value)
@@ -671,16 +695,46 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
           [batchId, String(vals[0]), rr.name || '', c.label, 'new lead', c.to]);
       }
     }
-    // The Health Coach is read from appointments.hc_pt on the Coach and Reception pages, so a CSV
-    // that reassigns the coach has to reach the booking too or those two pages keep showing the old
-    // one. Existing rows only: inventing an appointment for a lead that has none would put a
-    // phantom booking on the slot board, and leads.hc_assigned already records the coach for a lead
-    // that has not been booked yet (the panels fall back to it).
-    for (const [leadId, coach] of hcSet) {
-      if (!leadId || !coach) continue;
+    for (const f of appts) {
+      if (!f.leadId) continue;
+      const when = f.visitedAt || f.confirmedAt;
+      if (!f.coach && !when) continue;                 // the row said nothing about an appointment
+      const { rows: have } = await client.query(
+        `SELECT id, hc_pt, visited_at, status FROM appointments WHERE lead_id = $1
+          ORDER BY appt_date DESC NULLS LAST, id DESC LIMIT 1`, [f.leadId]);
+      if (have.length) {
+        // Refresh the booking this lead already has rather than adding a second one — a duplicate
+        // would put the same client on the slot board twice.
+        const sets: string[] = [], vs: any[] = [];
+        if (f.coach && String(have[0].hc_pt || '') !== f.coach) { vs.push(f.coach); sets.push(`hc_pt = $${vs.length}`); }
+        if (f.visitedAt && !have[0].visited_at) {
+          vs.push(f.visitedAt); sets.push(`visited_at = $${vs.length}`);
+          vs.push('visited'); sets.push(`status = $${vs.length}`);
+        }
+        if (!sets.length) continue;
+        vs.push(have[0].id);
+        await client.query(`UPDATE appointments SET ${sets.join(', ')} WHERE id = $${vs.length}`, vs);
+        continue;
+      }
+      // No booking yet. One is created ONLY when the file gives a date to put it on — a coach name
+      // alone is an assignment, not an appointment, and inventing a date for it would drop a
+      // phantom slot onto Reception's board.
+      if (!when) continue;
+      const d = new Date(when);
+      if (isNaN(d.getTime())) continue;
+      // IST, because appt_date is a DATE column read as a Chennai day everywhere in the app.
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+      const time = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
       await client.query(
-        `UPDATE appointments SET hc_pt = $1 WHERE lead_id = $2 AND COALESCE(hc_pt, '') <> $1`,
-        [coach, leadId]);
+        `INSERT INTO appointments (lead_id, client_name, phone, service, hc_pt, appt_date, appt_time,
+                                   status, visited_at, stage, source, language, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [f.leadId, f.name || '', f.phone || '', f.service || 'Diabetes Counselling', f.coach || null,
+         day, time === '00:00' ? '' : time,
+         f.visitedAt ? 'visited' : 'expected', f.visitedAt || null,
+         f.visitedAt ? 'screening' : null, 'Direct Upload in DP', f.language || null,
+         'Created from a Direct Upload in DP']);
+      apptRows++;
     }
     await client.query('UPDATE lead_import_batches SET updated_rows = $1 WHERE id = $2', [updated + created, batchId]);
     await client.query('COMMIT');
@@ -697,7 +751,7 @@ export async function apply(csvText: string, opts: ImportOpts = {}): Promise<App
   // dashboard screens all keep rendering pre-import data until somebody reloads the browser.
   // AFTER the commit, never before: a broadcast on a transaction that then rolls back would send the
   // whole fleet to re-read data that never existed.
-  try { broadcastChange('leads'); if (hcSet.length) broadcastChange('appointments'); } catch { /* never let a notification break a completed import */ }
+  try { broadcastChange('leads'); if (appts.length) broadcastChange('appointments'); } catch { /* never let a notification break a completed import */ }
 
   return { ok: true, batchId, updated, created, preview };
 }

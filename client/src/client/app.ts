@@ -2998,11 +2998,11 @@ export function initApp(root: HTMLElement) {
       try{
         const [pr,ar]=await Promise.all([
           supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,pool_added_at,created_at").eq("in_pool",true).eq("is_assigned",false).neq("source","Meta Ads"),
-          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at,visited_at,confirmed_at,next_followup").eq("is_assigned",true).neq("source","Meta Ads")
+          supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,campaign,assigned_to,call_status,assigned_at,pool_added_at,created_at,enrolled_at,visited_at,confirmed_at,next_followup,hc_assigned,program_suggested").eq("is_assigned",true).neq("source","Meta Ads")
         ]);
         _poolExtras=(pr.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,src:r.source==="Manual"?"Manual":((r.source||"CSV")+" · "+(r.language||"Tamil")),sugar:'<span class="chipb neu">—</span>',waiting:"now",assignedTo:"",campaign:r.campaign,lang:r.language,source:r.source,service:r.service||"",poolAddedAt:r.pool_added_at,createdAt:r.created_at}));
         // Carry call_status so Manual/CSV assigned leads land in the right Kanban status column (not defaulted to Open).
-        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null,confirmedAt:r.confirmed_at||null,nextFollowup:r.next_followup||null}));
+        _assignedExtras=(ar.data||[]).map((r:any)=>({id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source||"CSV",lang:r.language||"Tamil",service:r.service||"",campaign:r.campaign||"—",isAssigned:true,assignedTo:r.assigned_to||"",callStatus:r.call_status||"",assignedAt:r.assigned_at,poolAddedAt:r.pool_added_at,createdAt:r.created_at,enrolledAt:r.enrolled_at||null,visitedAt:r.visited_at||null,confirmedAt:r.confirmed_at||null,nextFollowup:r.next_followup||null,hcAssigned:r.hc_assigned||"",programSuggested:r.program_suggested||""}));
       }catch(_){ /* columns/table may be absent — ignore */ }
       // Terminal either way (loaded or unavailable) — the book is as complete as it will get, so the
       // dashboard may now show real numbers instead of the loading placeholder.
@@ -4447,6 +4447,19 @@ export function initApp(root: HTMLElement) {
     // is what makes it stick: loadAndApplyProfile repaints the whole panel from the DB copy AFTER
     // its own await, and that await races the appointment read. Whichever landed last used to win,
     // so the coach could revert to the saved one on a slow connection and look intermittent.
+    // The coach a Direct Upload recorded on the LEAD (leads.hc_assigned). _advSyncApptCoach fills
+    // "HC assigned" from the live appointment and returns early when there is none - so an imported
+    // lead that has not been booked yet showed "- Select -" however plainly the CSV named a coach.
+    // The appointment still wins: this only writes into a control the sync left empty.
+    function _advSetHcAssigned(l:any){
+      const hc=String((l&&l.hcAssigned)||""); if(!hc) return;
+      ["#hcSel","#apptHc"].forEach((sel)=>{
+        const el=root.querySelector(sel)as HTMLSelectElement|null; if(!el||el.value) return;
+        if(!Array.from(el.options).some((o:any)=>o.value===hc||o.text===hc)) el.add(new Option(hc,hc));
+        el.value=hc;
+        el.title="Recorded on the lead by a Direct Upload. Booking a slot replaces this with the appointment's coach.";
+      });
+    }
     function _advSyncApptCoach(){
       if(!_advApptLive()) return;
       const hc=String((_advApptRow&&_advApptRow.hc)||""); if(!hc) return;
@@ -4647,6 +4660,8 @@ export function initApp(root: HTMLElement) {
         // ...and the coach, which a saved profile holds as it was when the advisor last saved. If
         // Reception has reassigned since, the appointment is the newer fact and must win the repaint.
         try{ _advSyncApptCoach(); }catch(_){}
+        // ...then the lead's own recorded coach, for a lead with no appointment to take one from.
+        try{ const _l=_advFindLead(String(_advLeadId)); if(_l) _advSetHcAssigned(_l); }catch(_){}
       } finally { _advApplying=false; }
     }
     // ---- Blood-report attachments + follow-up notes renderers ----
@@ -13645,14 +13660,22 @@ export function initApp(root: HTMLElement) {
         const _enrLevelFor=(id:any,cons:string):string=>{ const set=_paidProg[String(id)]; return _levelUnion(cons, set?[...set]:[]); };   // UNION of consStatus level + paid programs
         _coachClients=(data||[]).map((r:any)=>{
           const cp=r.coach_profile; const sv=r.screening_vitals||null; const apptStage=apptStages[r.meta_lead_id]||"";
+          // The LEAD is the record of enrolment (enrolled_at is canonical, not the mutable
+          // call_status) - but the coach side derived its status only from coach_profile.consStatus
+          // and PAID payment rows. An imported client therefore arrived with an enrolment date the
+          // Coach page could not see, showing as Screening and not enrolled. Where the coach has
+          // said nothing of their own, the lead speaks; a real consStatus always wins.
+          const _leadEnr=!!r.enrolled_at||/^enrolled$/i.test(String(r.call_status||""));
+          const _cons=(cp&&cp.consStatus)||(_leadEnr?("Enrolled – "+(r.program_suggested||"L1")):"Open");
           let stage="screening";
+          if(_leadEnr) stage="enrolled";
           if(cp&&cp._stage) stage=cp._stage;
           else if(apptStage==="enrolled") stage="enrolled";
           else if(apptStage==="payment") stage="payment";
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:(cp&&cp.consStatus)||"Open",callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,(cp&&cp.consStatus)||"")};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:_cons,callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_enrLevelFor(r.meta_lead_id,_cons)};
         });
         // Health Coach queue = Diabetes only: drop leads whose service is a non-diabetes modality
         // (Blood Test / Physiotherapy / etc.) so they no longer clutter the queue. Applied at the
@@ -13661,7 +13684,10 @@ export function initApp(root: HTMLElement) {
         // Reconcile historical enrollments: a client marked Enrolled on the coach side whose
         // lead.call_status hasn't caught up → sync it (DB + memory) so the Advisor dashboard,
         // Enrolled card and Enrolled-clients table reflect it without needing a re-save.
-        _coachClients.filter((c:any)=>/enrol/i.test(c.consStatus||"")&&c.callStatus!=="Enrolled").forEach((c:any)=>{
+        // The COACH'S OWN consStatus only. c.consStatus may now be derived from the lead itself
+        // (see _cons above), and reconciling that against the lead would be the lead arguing with
+        // itself - overwriting a deliberate call_status like "Payment Pending" with "Enrolled".
+        _coachClients.filter((c:any)=>/enrol/i.test((c.coachProfile&&c.coachProfile.consStatus)||"")&&c.callStatus!=="Enrolled").forEach((c:any)=>{
           const cid=String(c.id); c.callStatus="Enrolled";
           const enrIso=c.enrolledAt||c.visitedAt||new Date().toISOString();   // best-effort enrollment time for historical rows
           if(!c.enrolledAt) c.enrolledAt=enrIso;
