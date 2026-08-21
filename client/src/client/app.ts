@@ -13195,6 +13195,10 @@ export function initApp(root: HTMLElement) {
       // kept the advisor's Lead-source dropdown blank). Only fills a control the profile left EMPTY,
       // so a coach's own answer always beats what a spreadsheet said.
       if(String(_coachLeadId)===String(lead.id)) _coachApplyImported(lead);
+      // ...and re-assert the coach's name. applyCoachProfile restores the positional array, which
+      // carries whatever the OLD assigned_to fill stored in these readonly inputs - so without this
+      // the restore would put the wrong name back after _coachSyncScreeningVitals had corrected it.
+      if(String(_coachLeadId)===String(lead.id)) _coachSetAttendedBy(lead);
     }
     // Values a Direct Upload put on the lead row. They live in real columns rather than inside the
     // positional coach_profile array, so the importer can write them without knowing the form's DOM
@@ -13971,6 +13975,27 @@ export function initApp(root: HTMLElement) {
       // flashes "Not enrolled" on open. The async restore re-runs this with any live consStatus.
       try{ _refreshPayEnrollChip(); }catch(_){}
     }
+    // "Attended by (HC)" and the two AUTO "Attended by" mirrors name the HEALTH COACH handling this
+    // client. They were filled from leads.assigned_to — the ASSIGNEE (salesperson/advisor) field,
+    // a different person entirely. Whenever the two differed the panel confidently printed the wrong
+    // name under an "(HC)" label, while the Visited-clients HEALTH COACH column beside it read the
+    // coach correctly: two stores for one fact, disagreeing.
+    //
+    // Source of truth is the same one that column uses: the live appointment's hc_pt, falling back
+    // to leads.hc_assigned (lead.hc is already that union). assigned_to is NOT a fallback — showing
+    // the salesperson under "(HC)" is the bug, not a lesser version of the right answer.
+    //
+    // Set unconditionally, not only-when-empty: all three inputs are readonly, so nothing a human
+    // typed can be lost, and a value stored by the old behaviour is a wrong name that must be
+    // corrected rather than preserved.
+    function _coachSetAttendedBy(lead:any){
+      const hc=String((lead&&lead.hc)||"").trim();
+      ["haAttendedBy","haAttendedBy2","haAttendedBy3"].forEach((id)=>{
+        const el=root.querySelector("#"+id)as HTMLInputElement|null; if(!el) return;
+        el.value=hc;
+        el.title=hc?("Health Coach on this client's appointment"):"No Health Coach assigned yet";
+      });
+    }
     async function _coachSyncScreeningVitals(lead:any){
       let sv:any=null;
       try{ const {data}=await supabase.from("leads").select("screening_vitals,assigned_to").eq("meta_lead_id",lead.id).limit(1); sv=data&&data[0]; }catch(_){}
@@ -13993,9 +14018,7 @@ export function initApp(root: HTMLElement) {
         const haP=root.querySelector("#haPulse")as HTMLInputElement; if(haP&&!haP.value&&vitals.pulse) haP.value=vitals.pulse;
         const haT=root.querySelector("#haTemp")as HTMLInputElement; if(haT&&!haT.value&&vitals.temp) haT.value=vitals.temp;
       }
-      const assignedTo=(sv&&sv.assigned_to)||"Health Coach";
-      const setAtt=(id:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement;if(el&&!el.value) el.value=assignedTo;};
-      setAtt("haAttendedBy"); setAtt("haAttendedBy2"); setAtt("haAttendedBy3");
+      _coachSetAttendedBy(lead);
     }
     async function _coachPopulateReadOnly(lead:any){
       let adv:any=null;
@@ -14026,7 +14049,7 @@ export function initApp(root: HTMLElement) {
         // Call status = the lead's live status (the profile stores a raw code); Appointment = the
         // lead's appointment date/time (was hardcoded "--"); Last note = the "Call notes" field
         // (the old "Last note" key never matched the form label).
-        const cs=(lead.callStatus)||(named&&named["Call status"])||"--"; const hc=adv.assigned_to||lead.hc||"--";
+        const cs=(lead.callStatus)||(named&&named["Call status"])||"--"; const hc=lead.hc||"--";   // the HEALTH COACH, not assigned_to (the salesperson) - same mix-up as Attended by
         const apptTxt=appt?(fmtISTDate(appt.appt_date)+(appt.appt_time?(", "+appt.appt_time):"")):"--";
         const note=(named&&(named["Call notes"]||named["Last note"]||named["Call notes / objections"]))||"--";
         rc.innerHTML='<tr><td style="color:var(--muted)">Call status</td><td>'+esc(cs)+'</td><td style="color:var(--muted)">Appointment</td><td class="mono">'+esc(apptTxt)+'</td><td style="color:var(--muted)">HC</td><td style="font-weight:600">'+esc(hc)+'</td></tr>'
