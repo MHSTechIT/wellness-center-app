@@ -10893,7 +10893,7 @@ export function initApp(root: HTMLElement) {
     function _cpDiscountFor(gross:number):number{ if(!_cpCoupon) return 0; const raw=_cpCoupon.discount_type==="percent"?Math.round(gross*(Number(_cpCoupon.discount_value)||0)/100):(Number(_cpCoupon.discount_value)||0); return Math.min(Math.max(0,raw),gross); }
     function _cpTotalAmt():number{ const s=_cpServiceAmt(); return Math.max(0,s-_cpDiscountFor(s)); }   // NET payable (after coupon)
     // Recompute the whole breakdown — runs on every panel tick and coupon apply, so the numbers are
-    // always live: Panels · Thyrocare cost · Service amount · Discount · Total, and prefills Amount received.
+    // always live: Panels · Total amount · Discount · Final payable, and prefills Amount received.
     // Ticking an individual panel drops any packaged plan — the two are alternatives.
     w._cpTestTick=()=>{
       if(_cpPlan){ _cpPlan=""; try{ _cpPlanRender(); }catch(_){} }
@@ -10904,7 +10904,11 @@ export function initApp(root: HTMLElement) {
       const disc=_cpDiscountFor(service); const total=Math.max(0,service-disc);
       const money=(n:number)=>"₹"+n.toLocaleString("en-IN"); const setV=(id:string,v:string)=>{const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v;};
       setV("cpPanels", sel.length?sel.map(t=>t.name).join(", "):"");
-      setV("cpThyro",money(thyro)); setV("cpService",money(service)); setV("cpMargin",money(Math.max(0,total-thyro)));
+      // Thyrocare cost + margin are still computed (thyro above) and still stored with the order
+      // for Accounts reconciliation and payouts — they are just no longer SHOWN at the desk
+      // (removed 21-Aug-2026). Reception sees the customer conversation only:
+      //   Total amount (selling) − Discount = Final payable amount.
+      setV("cpGross",money(service));
       setV("cpDiscount",disc?("−"+money(disc)):"₹0"); setV("cpTotal",money(total));
       const amt=root.querySelector("#cpAmt")as HTMLInputElement|null; if(amt) amt.value=total?String(total):"";
     };
@@ -14971,6 +14975,11 @@ export function initApp(root: HTMLElement) {
           }
         }
         try{ renderCoachOpenList(); }catch(_){}   // reflect new consultation status in dashboard/table
+        // Re-apply the assessment lock NOW. _haSavedAt was stamped above, which makes the record
+        // read-only again (any BDM approval is now older than this save) — but without re-running
+        // the gate the fields stayed enabled until a hard refresh (reported 21-Aug-2026: an
+        // approved edit could be edited repeatedly after saving).
+        try{ _haGateApply(); }catch(_){}
         toast("Health record saved");
         logActivity(id,[{action:"Updated",field:"Health Coach record",new:"saved"}]);
       }catch(e:any){ toastErr("Save failed: "+(e.message||"network error")); }
@@ -17878,7 +17887,10 @@ export function initApp(root: HTMLElement) {
       if(_bdmKind(r)==="assessment_edit"){
         const a=s.assessment||{};
         return '<div class="bdm-sec">Reason for the edit</div>'
-          +'<div class="bdm-grid">'+F("Coach’s reason",s.reason)+F("Assessment saved",s.saved_at?fmtIST(s.saved_at):"—")+'</div>'
+          +'<div class="bdm-grid">'+F("Coach’s reason",s.reason)
+          // Legacy profiles carry the epoch as their saved-at sentinel ("never stamped") — showing
+          // it read as "01 Jan 1970" in the request detail. Anything before 2000 means "—".
+          +F("Assessment saved",(s.saved_at&&new Date(s.saved_at).getFullYear()>2000)?fmtIST(s.saved_at):"—")+'</div>'
           +'<div class="bdm-sec">Assessment as saved</div>'
           +'<div class="bdm-grid">'
           +F("Chief complaint",a.chief)+F("Duration of diabetes",a.duration)

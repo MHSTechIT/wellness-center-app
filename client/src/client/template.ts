@@ -1239,19 +1239,20 @@ export function getMainContent(): string {
     <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-coin"></use></svg> Payment</div>
       <div class="sec-bd">
         <div class="fld" style="margin-bottom:8px"><label class="lbl">Selected blood test panel(s)</label><input  class="input" style="height:38px" id="cpPanels" readonly placeholder="Tick a test / panel above"></div>
+        <!-- Thyrocare cost / selling price / margin were removed from the desk view (21-Aug-2026):
+             they still flow into the order + Accounts reconciliation, but Reception sees only the
+             customer conversation — Total amount → Discount → Final payable. -->
         <div class="g3" style="gap:10px 14px;margin-bottom:8px">
-          <div class="fld"><label class="lbl" for="cpThyro">Thyrocare cost</label><input  class="input mono" style="height:38px" id="cpThyro" value="₹0" readonly></div>
-          <div class="fld"><label class="lbl" for="cpService">Service amount (selling price)</label><input  class="input mono" style="height:38px" id="cpService" value="₹0" readonly></div>
-          <div class="fld"><label class="lbl">Margin <span class="ab">auto</span></label><input  class="input mono" style="height:38px" id="cpMargin" value="₹0" readonly></div>
-        </div>
-        <div class="g3" style="gap:10px 14px;margin-bottom:8px">
+          <div class="fld"><label class="lbl" for="cpGross">Total amount <span class="ab">auto</span></label><input  class="input mono" style="height:38px" id="cpGross" value="₹0" readonly></div>
           <div class="fld"><label class="lbl" for="cpCoupon">Coupon code</label><div style="display:flex;gap:6px"><input  class="input mono" style="height:38px;flex:1" id="cpCoupon" placeholder="Enter code" maxlength="24"><button class="btn bsm bp" style="height:38px" onclick="window._cpApplyCoupon()">Apply</button></div><div id="cpCouponMsg" style="font-size:11px;margin-top:3px"></div></div>
           <div class="fld"><label class="lbl" for="cpDiscount">Discount</label><input  class="input mono" style="height:38px" id="cpDiscount" value="₹0" readonly></div>
-          <div class="fld"><label class="lbl" for="cpTotal">Total amount</label><input  class="input mono" style="height:38px;font-weight:700" id="cpTotal" value="₹0" readonly></div>
         </div>
-        <div class="g3" style="gap:10px 14px">
+        <div class="g3" style="gap:10px 14px;margin-bottom:8px">
+          <div class="fld"><label class="lbl" for="cpTotal">Final payable amount</label><input  class="input mono" style="height:38px;font-weight:700" id="cpTotal" value="₹0" readonly></div>
           <div class="fld"><label class="lbl" for="cpAmt">Amount received *</label><input  class="input mono" style="height:38px" id="cpAmt" type="text" inputmode="decimal" maxlength="12" placeholder="0"></div>
           <div class="fld"><label class="lbl" for="cpMode">Mode *</label><select  class="select" style="height:38px" id="cpMode"><option>UPI</option><option>Cash</option><option>Card</option><option>Net Banking</option></select></div>
+        </div>
+        <div class="g3" style="gap:10px 14px">
           <div class="fld"><label class="lbl" for="cpTxn">Txn ref *</label><input  class="input mono" style="height:38px" id="cpTxn" maxlength="40"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px"><button class="btn bp" id="cpCollectBtn" onclick="window._cpCollect()">Collect payment → Accounts</button><button class="btn" onclick="window._cpBack()">Cancel</button></div>
