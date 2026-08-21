@@ -29,6 +29,23 @@ export function initApp(root: HTMLElement) {
       if(/^https?:\/\//i.test(s)) return s;
       return "#";
     }
+    // Re-sign a STORED file URL with the CURRENT viewer's session before rendering it as a link.
+    // Every uploaded file's URL is minted as /storage/files/<bucket>/<path>?token=<uploader's
+    // session> — that token dies within 12 hours, so a proof the coach attached yesterday 401'd
+    // for the BDM today (reported 21-Aug-2026; same failure the office recordings had, fixed there
+    // as _ovrUrl). This extracts bucket + path from the stored URL and asks getPublicUrl to sign it
+    // for whoever is LOOKING, so a stored link works for any signed-in viewer forever. Non-storage
+    // URLs (external links) pass through untouched.
+    function _fileHref(u:any):string{
+      const s=String(u==null?"":u).trim(); if(!s) return "";
+      const m=s.match(/\/storage\/files\/([^?#]+)/); if(!m) return s;
+      const parts=m[1].split("/"); const bucket=parts.shift()||"";
+      if(!bucket||!parts.length) return s;
+      try{
+        const {data}=supabase.storage.from(bucket).getPublicUrl(parts.map(decodeURIComponent).join("/"));
+        return (data&&data.publicUrl)||s;
+      }catch(_){ return s; }
+    }
 
     // Live numeric-only input guard (digits + one optional decimal). Wire via
     // oninput="window._numOnly(this)" on money/number fields so letters and
@@ -4815,7 +4832,7 @@ export function initApp(root: HTMLElement) {
     function renderAdvAtts(){
       const ba=root.querySelector("#bloodAtts"); if(!ba) return;
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      ba.innerHTML=_advAttachments.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(a.url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
+      ba.innerHTML=_advAttachments.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(_fileHref(a.url)))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
         +'<span class="att add" onclick="window._advAddBlood()"><svg class="icon"><use href="#i-clip"/></svg> Add report</span>';
     }
     function renderAdvFuNotes(){
@@ -5032,7 +5049,7 @@ export function initApp(root: HTMLElement) {
     function _advpRenderAtts(){
       const box=root.querySelector("#advpAtts"); if(!box) return;
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      box.innerHTML=_advpAtts.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(a.url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advpRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
+      box.innerHTML=_advpAtts.map((a:any,i:number)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(_fileHref(a.url)))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+'</a> <span onclick="window._advpRemoveAtt('+i+')" title="Remove" style="cursor:pointer;color:var(--alert-ink);font-weight:700;margin-left:4px">&times;</span></span>').join("")
         +'<span class="att add" onclick="window._advpAddReport()"><svg class="icon"><use href="#i-clip"/></svg> Upload report</span>';
     }
     w._advpAddReport=()=>{
@@ -5781,7 +5798,7 @@ export function initApp(root: HTMLElement) {
           const dur=r.duration_seconds?((r.duration_seconds/60|0)+":"+String(r.duration_seconds%60).padStart(2,"0")):"—";
           const st=r.call_status||"—"; const stc=/complet|answer|connect/i.test(st)?"ok":/miss|fail|no.?answer|busy|reject|cancel/i.test(st)?"al":"warn";
           const rec=r.recording_url
-            ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px"><audio controls preload="none" style="height:34px;max-width:260px"><source src="'+e(_safeHref(r.recording_url))+'"></audio><a class="btn bsm" href="'+e(_safeHref(r.recording_url))+'" download target="_blank" rel="noopener">⬇ Download</a></div>'
+            ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px"><audio controls preload="none" style="height:34px;max-width:260px"><source src="'+e(_safeHref(_fileHref(r.recording_url)))+'"></audio><a class="btn bsm" href="'+e(_safeHref(_fileHref(r.recording_url)))+'" download target="_blank" rel="noopener">⬇ Download</a></div>'
             : '<div style="margin-top:6px;font-size:11px;color:var(--faint)">'+(/(initiat|ring)/i.test(st)?"Recording will appear once the call completes.":"No recording available.")+'</div>';
           return '<div style="border-bottom:1px solid var(--line);padding:11px 0">'
             +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
@@ -11221,10 +11238,18 @@ export function initApp(root: HTMLElement) {
     // Writes leads.call_status='Enrolled' + enrolled_at + appointment stage, then propagates to
     // the in-memory Advisor + Health Coach records and refreshes every dependent view. Returns
     // the enrolled timestamp (or null on failure). Callers refresh Reception/Accounts as needed.
-    async function _enrollLeadShared(leadId:string, srcLabel:string, level:string="L1"):Promise<string|null>{
+    async function _enrollLeadShared(leadId:string, srcLabel:string, level?:string):Promise<string|null>{
       if(!leadId){ toastErr("No linked lead to enroll"); return null; }
       // level may be "L1", "L2" or "L1 + L2"; consLabel keeps the full string, lvl picks the pill.
-      const norm=/l1\s*\+\s*l2/i.test(level)?"L1 + L2":(level==="L2"?"L2":"L1");
+      // `explicit` = the caller actually NAMED the program (BDM approval, payment save). Only then
+      // is it persisted to leads.program_suggested — the durable level record. Without this, an EMI
+      // enrolment (no payment rows) left the level recorded NOWHERE: the coach's consStatus still
+      // said "Will Join Immediately", so every reader fell back to "L1" — reported 21-Aug-2026 as
+      // Gopinath G J showing "Enrolled – L1" after a ₹32,000 L1 + L2 approval. Callers that pass no
+      // level (legacy Reception default) change nothing here.
+      const explicit=!!(level&&String(level).trim());
+      const lv=level||"L1";
+      const norm=/l1\s*\+\s*l2/i.test(lv)?"L1 + L2":(lv==="L2"?"L2":"L1");
       const lvl=/L2/.test(norm)?"L2":"L1"; const consLabel="Enrolled – "+norm;
       // The enrolled date/time is STABLE: read the DB's current enrolled_at (the source of truth)
       // and preserve it if already set — only stamp 'now' the very first time. This stops it being
@@ -11235,7 +11260,9 @@ export function initApp(root: HTMLElement) {
       const already=!!existingEnr;
       const enrIso=existingEnr||new Date().toISOString();
       try{
-        const {error}=await supabase.from("leads").update({call_status:"Enrolled",enrolled_at:enrIso}).eq("meta_lead_id",leadId);
+        const _upd:any={call_status:"Enrolled",enrolled_at:enrIso};
+        if(explicit) _upd.program_suggested=norm;   // durable level — what the coach page derives "Enrolled – Lx" from when no payment rows exist (EMI)
+        const {error}=await supabase.from("leads").update(_upd).eq("meta_lead_id",leadId);
         if(error) throw error;
         // Stamp the "enrolled" stage ONLY on this lead's Diabetes appointments — never on Blood Test
         // or Physiotherapy rows (standalone services keep their own service stage). Filter in JS so a
@@ -11251,7 +11278,7 @@ export function initApp(root: HTMLElement) {
       // Health Coach in-memory client → consultation status Enrolled – L1/L2 (drives coach
       // dashboard/table + is what the profile restores to when opened).
       const cc=_coachClients.find((x:any)=>String(x.id)===String(leadId));
-      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; cc.enrolledAt=enrIso; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
+      if(cc){ cc.callStatus="Enrolled"; cc.consStatus=consLabel; cc.enrolledAt=enrIso; if(explicit) cc.enrolledLevel=norm; if(cc.coachProfile) cc.coachProfile.consStatus=consLabel; }
       if(!already) logActivity(leadId,[{action:"Enrolled",field:"Enrolled at ("+srcLabel+")",new:fmtIST(enrIso)}]);
       try{ renderHealthDashboard(); renderAssignedLeads(); renderAsnHist(); }catch(_){}
       try{ renderCoachOpenList(); }catch(_){}
@@ -12425,6 +12452,12 @@ export function initApp(root: HTMLElement) {
     // Uploaded payment-proof files, keyed by their container id — included in the payments
     // row on save (proof_url/proof_name) so proofs persist and are visible to Accounts.
     const _payProofs:Record<string,{url:string,name:string}>={};
+    // EVERY proof attached per container, in order. _payProofs keeps only the LAST file per
+    // container (fine for the single-slot installment proofs), but the EMI container takes THREE
+    // attachments through one id — down-payment + approval + credit — and only the last survived
+    // into the BDM snapshot. This list is also what persists EMI proofs into the coach profile so
+    // they come back after a refresh (they used to live only in this tab's memory).
+    const _payProofsAll:Record<string,{url:string,name:string}[]>={};
     function _payAttach(containerId:string){
       const fi=document.createElement("input");
       fi.type="file";fi.accept="image/*,.pdf";
@@ -12447,8 +12480,9 @@ export function initApp(root: HTMLElement) {
           const {data}=supabase.storage.from("payment-proofs").getPublicUrl(path);
           const url=(data&&data.publicUrl)||"";
           _payProofs[containerId]={url,name:file.name};
+          (_payProofsAll[containerId]=_payProofsAll[containerId]||[]).push({url,name:file.name});
           try{ (root.querySelector("#"+containerId)as HTMLElement|null)?.classList.remove("err"); }catch(_){}   // required-proof error clears on attach
-          tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(file.name)+'</a>';
+          tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(_fileHref(url)))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(file.name)+'</a>';
           toast("Proof uploaded: "+file.name);
         }catch(err:any){ tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> '+e(file.name)+' · upload failed'; toastErr("Proof upload failed: "+(err&&err.message||"error")); }
       };
@@ -13063,7 +13097,11 @@ export function initApp(root: HTMLElement) {
       const f=Array.from(p.querySelectorAll("input,select,textarea")).filter((el:any)=>!el.hasAttribute("data-nocap")).map((el:any)=>(el.type==="checkbox"||el.type==="radio")?{c:!!el.checked}:{v:el.value});
       const pills=Array.from(p.querySelectorAll(".pill")).map((b:any)=>b.classList.contains("on"));
       const chips=Array.from(p.querySelectorAll(".chip-o")).map((b:any)=>b.classList.contains("on"));
-      return {v:2,f,pills,chips,attachments:_coachAttachments.slice(),consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
+      return {v:2,f,pills,chips,attachments:_coachAttachments.slice(),
+        // EMI payment proofs {name,url} — a NAMED key (not positional), so old profiles are
+        // unaffected. Without this they lived only in the tab's memory and were gone on reopen.
+        emiProofs:(_payProofsAll["emiProofs"]||[]).slice(),
+        consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
     }
     function applyCoachProfile(obj:any){
       const p=_coachPanelEl(); if(!p||!obj) return;
@@ -13082,6 +13120,20 @@ export function initApp(root: HTMLElement) {
         const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
         const chipEls=Array.from(p.querySelectorAll(".chip-o")); (obj.chips||[]).forEach((on:boolean,i:number)=>{ if(chipEls[i]) (chipEls[i]as HTMLElement).classList.toggle("on",!!on); });
         _coachAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderCoachAtts();
+        // Restore saved EMI proofs into the container (and the per-container list, so a re-save or
+        // a BDM request keeps carrying them). Links are re-signed for the current viewer.
+        try{
+          const saved=Array.isArray((obj as any).emiProofs)?(obj as any).emiProofs:[];
+          _payProofsAll["emiProofs"]=saved.slice();
+          const box=root.querySelector("#emiProofs"); if(box){
+            box.querySelectorAll(".att:not(.add)").forEach((t:any)=>t.remove());
+            const eesc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+            const first=box.querySelector(".att.add");
+            saved.forEach((p:any)=>{ const tag=document.createElement("span"); tag.className="att";
+              tag.innerHTML='<svg class="icon"><use href="#i-clip"/></svg> <a href="'+eesc(_safeHref(_fileHref(p.url)))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+eesc(p.name||"proof")+'</a>';
+              if(first) box.insertBefore(tag,first); else box.appendChild(tag); });
+          }
+        }catch(_){}
         // Restores the saved-assessment lock for this client (absent on profiles saved before this
         // feature — those stay editable, which is the safe direction: nothing is retro-locked).
         _haSavedAt=String((obj as any).haSavedAt||"1970-01-01T00:00:00.000Z");
@@ -13124,7 +13176,7 @@ export function initApp(root: HTMLElement) {
     function renderCoachAtts(){
       const ba=root.querySelector("#coachAtts"); if(!ba) return;
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-      ba.innerHTML=_coachAttachments.length?_coachAttachments.map((a:any)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(a.url))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+(a.src==="advisor"?" · advisor":"")+'</a></span>').join(""):'<span style="font-size:12px;color:var(--faint)">No reports synced from the advisor yet.</span>';
+      ba.innerHTML=_coachAttachments.length?_coachAttachments.map((a:any)=>'<span class="att"><svg class="icon"><use href="#i-clip"/></svg> <a href="'+e(_safeHref(_fileHref(a.url)))+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+e(a.name||"file")+(a.src==="advisor"?" · advisor":"")+'</a></span>').join(""):'<span style="font-size:12px;color:var(--faint)">No reports synced from the advisor yet.</span>';
     }
     const _coachpKey=(id:any)=>"wos_coachp_"+id;
     function readCoachLocal(id:any){ try{ const s=localStorage.getItem(_coachpKey(id)); return s?JSON.parse(s):null; }catch(_){ return null; } }
@@ -13877,6 +13929,10 @@ export function initApp(root: HTMLElement) {
       }
       _coachAttachments=[]; renderCoachAtts();
       Object.keys(_payProofs).forEach(k=>delete _payProofs[k]);   // clear per-client payment proofs
+      Object.keys(_payProofsAll).forEach(k=>delete _payProofsAll[k]);
+      // Reset the EMI proof container to its three Attach buttons — restored files (if any) are
+      // re-rendered by applyCoachProfile from the saved profile.
+      try{ root.querySelectorAll("#emiProofs .att:not(.add)").forEach((t:any)=>t.remove()); }catch(_){}
       // A coupon belongs to ONE enrolment — never let it leak onto the next client opened.
       _coachCoupon=null;
       ["coupon","emiCoupon"].forEach(cid=>{ const el=root.querySelector("#"+cid)as HTMLInputElement|null; if(el) el.value=""; });
@@ -16067,7 +16123,7 @@ export function initApp(root: HTMLElement) {
             +' onclick="window._btRowWa(\''+rid+'\')">🟢 WhatsApp send</button></td>'
           +'<td><div style="display:flex;gap:6px;align-items:center">'
             +'<button class="btn bsm" onclick="window._btRowUpload(\''+rid+'\')">'+(fileName?"Replace":"⬆ Add report")+'</button>'
-            +(fileName?'<a href="'+_btE(_safeHref(bt.report_url))+'" target="_blank" rel="noopener noreferrer" class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+_btE(fileName)+'">'+_btE(fileName)+'</a>':'<span style="font-size:11px;color:var(--faint)">No file</span>')
+            +(fileName?'<a href="'+_btE(_safeHref(_fileHref(bt.report_url)))+'" target="_blank" rel="noopener noreferrer" class="mono" style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+_btE(fileName)+'">'+_btE(fileName)+'</a>':'<span style="font-size:11px;color:var(--faint)">No file</span>')
             +'</div></td></tr>';
       });
       wl+='</tbody></table>';
@@ -17798,8 +17854,14 @@ export function initApp(root: HTMLElement) {
         documentation_date:byLabel("Documentation date"),
         disbursement_eta:byLabel("Disbursement ETA"),
         net_after_subvention:_bdmV("#emiNet"),
-        // Proofs travel as names only — the files themselves live in storage already.
-        proofs:[...root.querySelectorAll("#emiProofs .att:not(.add)")].map((a:any)=>String(a.textContent||"").trim()).filter(Boolean),
+        // Proofs travel as {name,url} so the BDM can actually OPEN them — names alone rendered as
+        // dead text on the request (reported 21-Aug-2026). URLs are re-signed per viewer at render.
+        proofs:(_payProofsAll["emiProofs"]&&_payProofsAll["emiProofs"].length)
+          ?_payProofsAll["emiProofs"].map((p:any)=>({name:p.name,url:p.url}))
+          :[...root.querySelectorAll("#emiProofs .att:not(.add)")].map((a:any)=>{
+             const link=a.querySelector&&a.querySelector("a");
+             return {name:String(a.textContent||"").trim(),url:link?String(link.getAttribute("href")||""):""};
+           }).filter((p:any)=>p.name),
       };
     }
     // The open client's requests, newest first (there may be a returned one before an approved one).
@@ -17916,7 +17978,17 @@ export function initApp(root: HTMLElement) {
         +F("Disbursement ETA",s.disbursement_eta,true)+F("Net after subvention",s.net_after_subvention?money(s.net_after_subvention):"—",true)
         +'</div>'
         +'<div class="bdm-sec">Proof</div>'
-        +'<div class="bdm-grid">'+F("Attachments",(s.proofs&&s.proofs.length)?s.proofs.join(" · "):"none attached")+'</div>'
+        // Each proof is a real, viewer-signed LINK (F escapes its value, so this field is built
+        // raw). Old requests stored bare name strings — those render as plain text, because their
+        // file reference was never saved and there is nothing to open.
+        +'<div class="bdm-grid"><div class="bdm-f"><div class="k">Attachments</div><div class="v">'
+          +((s.proofs&&s.proofs.length)
+            ?s.proofs.map((p:any)=>{
+               if(p&&typeof p==="object"&&p.url) return '<a href="'+e(_safeHref(_fileHref(p.url)))+'" target="_blank" rel="noopener" style="color:var(--brand-600);font-weight:600">'+e(p.name||"proof")+'</a>';
+               return e(typeof p==="object"?String((p&&p.name)||"proof"):String(p))+' <span style="color:var(--faint);font-size:11px">(no link saved)</span>';
+             }).join(" · ")
+            :"none attached")
+        +'</div></div></div>'
         +ret+act;
     }
 
@@ -19206,7 +19278,7 @@ export function initApp(root: HTMLElement) {
       else _verF.forEach((p:any)=>{
         vH+='<tr><td><input type="checkbox" class="accVerChk" data-id="'+p.id+'"'+(_accVerSel.has(String(p.id))?" checked":"")+' onchange="window._accVerRowSel(this)" style="accent-color:var(--brand)"></td>'
           +'<td style="font-weight:600">'+e(p.clientName)+'</td><td class="mono">'+e(p.clientPhone||"—")+'</td><td class="mono">₹'+(p.amount||0).toLocaleString("en-IN")+'</td><td>'+e(p.method||"—")+'</td><td class="mono">'+e(p.txn_ref||"—")+'</td>'
-          +'<td>'+(p.proof_url?'<a href="'+e(_safeHref(p.proof_url))+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
+          +'<td>'+(p.proof_url?'<a href="'+e(_safeHref(_fileHref(p.proof_url)))+'" target="_blank" class="btn bsm">View</a>':'—')+'</td>'
           +'<td><button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button></td></tr>';
       });
       vH+='</tbody></table>';
