@@ -141,6 +141,17 @@ function storageBucket(bucket: string) {
       const q = t && t !== "local" ? ("?token=" + encodeURIComponent(t)) : "";
       return { data: { publicUrl: api("/storage/files/" + bucket + "/" + path) + q } };
     },
+    // Files actually present under a folder. Used to recover a file whose URL was never stored -
+    // a proof saved as a bare filename can still be found, because the upload path is
+    // <bucket>/<leadId>/<timestamp>_<sanitised name>.
+    async list(prefix: string) {
+      try {
+        const r = await fetch(api("/storage/list/" + bucket + "/" + prefix), { headers: authHeaders() });
+        if (!r.ok) return { data: [], error: { message: "list failed" } };
+        const j = await r.json();
+        return { data: (j && j.files) || [], error: null };
+      } catch (e: any) { return { data: [], error: { message: e?.message || "list error" } }; }
+    },
     async remove(_paths: string[]) { return { data: null, error: null }; },
   };
 }

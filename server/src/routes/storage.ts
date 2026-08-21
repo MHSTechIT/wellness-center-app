@@ -36,6 +36,24 @@ export function registerStorageRoutes(app: Express) {
   // session token via ?token= too (see session.ts) since a plain <img src>/download link can't
   // carry a header.
   app.post('/storage/upload', express.json({ limit: '64mb' }), requireAuth, upload);
+  // List what is actually stored under a prefix. Needed to RECOVER a file whose URL was never
+  // recorded: proofs used to be saved as a bare filename, so the BDM saw dead text ("no link
+  // saved") for a PDF sitting on disk the whole time. The upload path is <bucket>/<leadId>/
+  // <timestamp>_<sanitised name>, so listing the lead's folder is enough to find it again.
+  // Names only - no contents, and the same requireAuth as every other storage route.
+  app.get('/storage/list/*', requireAuth, (req: Request, res: Response) => {
+    const rel = safeRel(req.params[0] || '');
+    const full = path.join(UPLOAD_DIR, rel);
+    if (!full.startsWith(UPLOAD_DIR) || !fs.existsSync(full) || !fs.statSync(full).isDirectory()) {
+      res.json({ files: [] }); return;
+    }
+    try {
+      const files = fs.readdirSync(full, { withFileTypes: true })
+        .filter((d) => d.isFile())
+        .map((d) => ({ name: d.name, path: rel.replace(/^[^/]+\//, '') + '/' + d.name }));
+      res.json({ files });
+    } catch { res.json({ files: [] }); }
+  });
   app.get('/storage/files/*', requireAuth, (req: Request, res: Response) => {
     const rel = safeRel(req.params[0] || '');
     const full = path.join(UPLOAD_DIR, rel);

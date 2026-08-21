@@ -628,6 +628,7 @@ export function initApp(root: HTMLElement) {
       seed();
       loadReceptionData();
       try{ _advLocLoad(); }catch(_){}   // advisor Location dropdown: merge the shared added-locations list
+      try{ _slotRangeLoad(); }catch(_){}   // slot-board date window: one setting, both boards
       try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
       try{ loadTgtMaster(); }catch(_){}  // Advisor targets master (Settings CRUD + the Advisor dashboard's targets)
       try{ loadPhysioPricing(); }catch(_){}   // Physio pricing master (Settings CRUD + Physio page card + payment defaults)
@@ -4587,6 +4588,90 @@ export function initApp(root: HTMLElement) {
     // SAVED as the lead's location (observed in stored profiles).
     // NOTE for the positional capture below: this adds OPTIONS to an existing select — the control
     // list itself never changes, so saved profiles' indexes are unaffected.
+
+    // ===== Appointment slot date range (centralised) =====
+    // ONE app_settings row drives the date picker on BOTH slot boards - the advisor's
+    // "Appointment - slot board" (#slotDate) and Reception's "Service & booking" (#nwDate) - so the
+    // clinic changes how far ahead bookings may be made in one place, with no redeploy. Bounds are
+    // applied as the input's own min/max, which is what greys the out-of-range days out inside the
+    // native calendar rather than only rejecting them after a click.
+    //
+    // future = how many dates are offered STARTING WITH TODAY (4 -> today + 3 more).
+    // past   = how many days BEFORE today stay reachable (3 -> the 3 previous days).
+    // Defaults hold until the row exists, so the feature is inert on a database that has never
+    // saved it - which is also what every existing install starts as.
+    const _SLOT_RANGE_KEY="slot_date_range";
+    const SLOT_RANGE_DEF={future:7,past:0};
+    let _slotRange={...SLOT_RANGE_DEF};
+    const _slotDayShift=(days:number)=>{ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()+days);
+      return d.getFullYear()+"-"+_pad2(d.getMonth()+1)+"-"+_pad2(d.getDate()); };
+    const _slotFloor=()=>_slotDayShift(-Math.max(0,Number(_slotRange.past)||0));
+    const _slotCeil =()=>_slotDayShift(Math.max(1,Number(_slotRange.future)||1)-1);
+    // Every date input that books a slot. Kept as one list so a new board cannot be forgotten.
+    const SLOT_DATE_INPUTS=["#slotDate","#nwDate"];
+    function _applySlotDateBounds(){
+      const lo=_slotFloor(), hi=_slotCeil();
+      SLOT_DATE_INPUTS.forEach((sel)=>{
+        const el=root.querySelector(sel)as HTMLInputElement|null; if(!el) return;
+        el.min=lo; el.max=hi;
+        el.title="Bookable "+lo+" to "+hi+" (set in Settings → Appointment slot date range)";
+        // A value already outside the new window would silently book out of range on the next save.
+        if(el.value&&(el.value<lo||el.value>hi)) el.value=(_todayLocal()<lo||_todayLocal()>hi)?lo:_todayLocal();
+      });
+    }
+    async function _slotRangeLoad(){
+      try{
+        const res:any=await supabase.from("app_settings").select("value").eq("key",_SLOT_RANGE_KEY).limit(1);
+        const v=res&&res.data&&res.data[0]&&res.data[0].value;
+        if(v&&typeof v==="object"){
+          _slotRange={ future:Math.max(1,Number(v.future)||SLOT_RANGE_DEF.future),
+                       past:Math.max(0,Number(v.past)||0) };
+        }
+      }catch(_){/* defaults stand */}
+      try{ _applySlotDateBounds(); _slotRangeRenderForm(); }catch(_){}
+    }
+
+    // WHO may change WHAT. Future range: Admin (Super Admin) + Manager. Past range: Super Admin
+    // ONLY - reaching backwards re-opens finished days for editing, which is a different kind of
+    // permission from deciding how far ahead the diary runs.
+    const _slotCanFuture=()=>_rolesOf(_currentUser).some((r:string)=>r==="Super Admin"||r==="Manager");
+    const _slotCanPast=()=>_rolesOf(_currentUser).some((r:string)=>r==="Super Admin");
+    function _slotRangeRenderForm(){
+      const card=root.querySelector("#slotRangeCard")as HTMLElement|null; if(!card) return;
+      // Nobody who cannot change either number needs to see the card at all.
+      card.style.display=(_slotCanFuture()||_slotCanPast())?"":"none";
+      const f=root.querySelector("#slotRangeFuture")as HTMLInputElement|null;
+      const pI=root.querySelector("#slotRangePast")as HTMLInputElement|null;
+      if(f){ f.value=String(_slotRange.future); f.disabled=!_slotCanFuture(); }
+      // Shown but locked rather than hidden, so a Manager can SEE the window they are working in
+      // and knows who to ask - a field that simply is not there reads as a missing feature.
+      if(pI){ pI.value=String(_slotRange.past); pI.disabled=!_slotCanPast();
+              pI.title=_slotCanPast()?"":"Super Admin only"; }
+      const note=root.querySelector("#slotRangeNote")as HTMLElement|null;
+      if(note) note.textContent="Bookable dates: "+_slotFloor()+" to "+_slotCeil()
+        +(_slotCanPast()?"":" · previous days are Super Admin only");
+    }
+    w._slotRangeSave=async()=>{
+      if(!_slotCanFuture()&&!_slotCanPast()){ toastErr("You do not have permission to change this"); return; }
+      const f=root.querySelector("#slotRangeFuture")as HTMLInputElement|null;
+      const pI=root.querySelector("#slotRangePast")as HTMLInputElement|null;
+      // Read each number ONLY from someone allowed to set it; otherwise keep what is stored. A
+      // disabled input still posts its value, so trusting the form would let a Manager write the
+      // past range simply by having the field on screen.
+      const next={
+        future:_slotCanFuture()?Math.max(1,Math.min(365,Number(f&&f.value)||SLOT_RANGE_DEF.future)):_slotRange.future,
+        past:_slotCanPast()?Math.max(0,Math.min(365,Number(pI&&pI.value)||0)):_slotRange.past,
+      };
+      // _dbOk takes the PROMISE and reports the failure itself - the /db gateway resolves {error}
+      // rather than throwing, so a bare await would look like success on a rejected write.
+      const ok=await _dbOk(supabase.from("app_settings").upsert(
+        {key:_SLOT_RANGE_KEY,value:next,updated_at:new Date().toISOString()},{onConflict:"key"}),
+        "Saving the slot date range");
+      if(!ok) return;
+      _slotRange=next; _applySlotDateBounds(); _slotRangeRenderForm();
+      toast("Slot date range saved — "+next.future+" day"+(next.future===1?"":"s")+" ahead, "
+        +next.past+" back");
+    };
     const _ADV_LOC_KEY="advisor_locations";
     const _ADV_LOC_ADD="+ Add new location";
     let _advLocPrev="";
@@ -5696,6 +5781,9 @@ export function initApp(root: HTMLElement) {
         if(r&&r.error) toastErr("Activity log not saved: "+(r.error.message||"database error"));
       }catch(e:any){ toastErr("Activity log not saved: "+(e?.message||"network error")); }
       if(String(_advLeadId)===String(leadId)) renderActivityLog(leadId);
+      // The Coach screen keeps its own copy of the same history, so a coach watches their own
+      // save land instead of having to open the lead on the Advisor page to see it.
+      if(String(_coachLeadId)===String(leadId)) renderCoachActivityLog(leadId);
     }
     // ---- Assignment history (immutable audit trail behind "Assigned Leads History") ----
     // The `leads` row keeps only current state; every assign/unassign also writes one
@@ -5723,8 +5811,14 @@ export function initApp(root: HTMLElement) {
         assigned_by:_asnActor(),status:status||"assigned",created_at:new Date().toISOString()};
       try{ await supabase.from("lead_assignments").insert(row); _asnHist.unshift(row); try{ populateAsnHistFilters(); renderAsnHist(); }catch(_){} }catch(_){/* table not migrated yet */}
     }
-    async function renderActivityLog(leadId:any){
-      const els=Array.from(root.querySelectorAll(".js-actlog")); if(!els.length) return;
+    // Health Coach copy of the lead history. Same data, same renderer, its own container and its
+    // own open-lead guard.
+    function renderCoachActivityLog(leadId:any){ return renderActivityLog(leadId,".js-actlog-coach",()=>String(_coachLeadId)); }
+    // sel/cur mirror renderCallLogs: the Advisor and Coach panels both live in the DOM at once, so
+    // a single ".js-actlog" sweep would repaint the advisor's log with whichever lead the COACH just
+    // opened. Each screen names its own container and its own "which lead is open here" guard.
+    async function renderActivityLog(leadId:any, sel:string=".js-actlog", cur:()=>string=()=>String(_advLeadId)){
+      const els=Array.from(root.querySelectorAll(sel)); if(!els.length) return;
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Render into the SAME shared grid the Live Incoming Feed uses (.tscroll + .tbl): sticky
       // header, internal scroll (the page stays put), identical borders/hover/spacing/responsive.
@@ -5740,7 +5834,7 @@ export function initApp(root: HTMLElement) {
       const seen=new Set(rows.map((r:any)=>[r.created_at,r.action,r.field,r.new_value].join("|")));
       readActLocal(leadId).forEach((r:any)=>{ const k=[r.created_at,r.action,r.field,r.new_value].join("|"); if(!seen.has(k)){ seen.add(k); rows.push(r); } });
       rows.sort((a:any,b:any)=>new Date(b.created_at||0).getTime()-new Date(a.created_at||0).getTime());
-      if(String(_advLeadId)!==String(leadId)) return;   // user switched away during the fetch
+      if(cur()!==String(leadId)) return;   // user switched away during the fetch
       const body=rows.length
         ? rows.map((r:any)=>{
             // "Call status: — → Already Paid" reads as noise; with no previous value, show only the
@@ -8221,6 +8315,9 @@ export function initApp(root: HTMLElement) {
       if(scr==="bloodtest"&&(table==="appointments"||table==="payments"||table==="bt_orders"||table==="bt_tests")){ try{ loadBloodTestData(); }catch(_){} }
       // Pricing-master edits propagate to every device (card + payment defaults), whatever screen is up.
       if(table==="physio_pricing"){ try{ loadPhysioPricing(); }catch(_){} }
+      // Slot date range is one shared setting — a change made by an admin has to reach the boards
+      // other people already have open, or two devices book against different windows.
+      if(table==="app_settings"){ try{ _slotRangeLoad(); }catch(_){} }
       // Screening / Accounts / Lead import / Reports were the remaining screens with NO live refresh —
       // a save made anywhere (check-in, payment, verification, CSV promotion) only appeared after a
       // manual reload ("data shows only after refresh"). Same active-screen pattern as the rest:
@@ -10346,6 +10443,7 @@ export function initApp(root: HTMLElement) {
       // from a restored draft) leak through: it would date the appointment in the past and hide it
       // from the Today-filtered Appointments table. Reset it to today so the record shows immediately.
       { const _d=root.querySelector("#nwDate")as HTMLInputElement|null; if(_d && (!_d.value || _d.value<_todayLocal())) _d.value=_todayLocal(); }
+      try{ _applySlotDateBounds(); }catch(_){}   // same window Reception's board must obey
       { const _pv=root.querySelector("#nwProv")as HTMLSelectElement|null; if(_pv) delete _pv.dataset.manual; }   // fresh form → provider auto-fills from service
       _nwFillProviders();   // live Health Coaches / Physiotherapists from the staff master
       _nwUpdateProvVis();
@@ -11793,9 +11891,22 @@ export function initApp(root: HTMLElement) {
     function _nowLocalDT(){const d=new Date();return d.getFullYear()+"-"+_pad2(d.getMonth()+1)+"-"+_pad2(d.getDate())+"T"+_pad2(d.getHours())+":"+_pad2(d.getMinutes());}
     function _todayLocal(){const d=new Date();return d.getFullYear()+"-"+_pad2(d.getMonth()+1)+"-"+_pad2(d.getDate());}
     // Set the picker floor so past dates/times can't be chosen. datetime-local → now; date → today.
-    function _setFutureMin(el:HTMLInputElement){ if(!el)return; el.min=(el.type==="datetime-local")?_nowLocalDT():_todayLocal(); }
+    // #slotDate carries data-future, so this would re-floor it to TODAY on every focus and undo a
+    // Super-Admin-configured previous-days window. Slot inputs take their floor AND ceiling from
+    // that setting instead; every other scheduling field keeps the plain today/now floor.
+    // A `function` declaration, NOT a const arrow. _wireFutureFields() runs from initApp long
+    // before this point in the file, and a const would still be in its temporal dead zone there -
+    // which is exactly what it did: "Cannot access '_isSlotDateInput' before initialization",
+    // thrown out of _setFutureMin on boot. Function declarations hoist; consts do not.
+    function _isSlotDateInput(el:HTMLInputElement){ return !!el&&SLOT_DATE_INPUTS.some((s)=>s==="#"+el.id); }
+    function _setFutureMin(el:HTMLInputElement){ if(!el)return;
+      if(_isSlotDateInput(el)){ el.min=_slotFloor(); el.max=_slotCeil(); return; }
+      el.min=(el.type==="datetime-local")?_nowLocalDT():_todayLocal(); }
     // Is the entered value in the past? (empty/unparseable = allowed). 60s grace on datetime for "now".
-    function _isPastVal(el:HTMLInputElement){ const v=el.value; if(!v)return false; if(el.type==="datetime-local"){ const t=new Date(v).getTime(); return !isNaN(t)&&t<Date.now()-60000; } return v<_todayLocal(); }
+    function _isPastVal(el:HTMLInputElement){ const v=el.value; if(!v)return false;
+      // "past" for a slot board is the configured floor, not today.
+      if(_isSlotDateInput(el)) return v<_slotFloor();
+      if(el.type==="datetime-local"){ const t=new Date(v).getTime(); return !isNaN(t)&&t<Date.now()-60000; } return v<_todayLocal(); }
     w._futureMin=(el:HTMLInputElement)=>_setFutureMin(el);   // refresh min on focus (clock moves on)
     // Wire every [data-future] scheduling input once the template is mounted: floor the picker
     // and reject a manually-typed past value on change.
@@ -11881,6 +11992,9 @@ export function initApp(root: HTMLElement) {
     }
     function seed(){ TIMES.forEach(t=>{ if(!slots[t]) slots[t]=[]; }); }   // no demo data — just ensure keys exist
     async function renderSlots() {
+      // Re-assert the window every draw: the setting can change on another device mid-session,
+      // and the board is the last thing between a picked date and a booking.
+      try{ _applySlotDateBounds(); }catch(_){}
       const g=root.querySelector("#slotGrid"); if(!g) return;
       const esc=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const hc=_apptHcVal();
@@ -12315,7 +12429,13 @@ export function initApp(root: HTMLElement) {
       // enrolment from. Without this the panel read "Not enrolled" with a blank Enrolled date on a
       // client every dashboard already counts as enrolled. Only used when nothing above produced a
       // label, so a real payment or an explicit coach status still decides what is shown.
-      const lbl=detailed||((cc&&cc.enrolledAt)?("Enrolled – "+((cc&&cc.enrolledLevel)||"L1")):"");
+      // With no payment evidence at all (EMI pays the financier, not us) the level has no other
+      // source, so the coach's CURRENT Program suggested is the best statement of it - better than
+      // the stored level, which may predate them changing the dropdown, and far better than "L1",
+      // which is a guess dressed as a fact. `detailed` is non-empty whenever a payment or an
+      // explicit "Enrolled - Lx" exists, so real money always decides instead of this.
+      const _fbLvl=_curProgram()||(cc&&cc.enrolledLevel)||"L1";
+      const lbl=detailed||((cc&&cc.enrolledAt)?("Enrolled – "+_fbLvl):"");
       if(chip){ if(lbl){ (chip as HTMLElement).className="chipb ok"; chip.textContent=lbl; } else { (chip as HTMLElement).className="chipb neu"; chip.textContent="Not enrolled"; } }
       const ati=at as HTMLInputElement|null; if(ati){ ati.value=(lbl&&enrAt)?fmtIST(enrAt):""; }
     }
@@ -13573,6 +13693,9 @@ export function initApp(root: HTMLElement) {
         const {data}=supabase.storage.from("office-recordings").getPublicUrl(path);
         const url=String((data&&data.publicUrl)||"").split("?")[0];
         await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_recBy(),created_at:new Date().toISOString()});
+        // A consultation recording is evidence attached to a client - who captured it and when
+        // belongs in the audit trail alongside the assessment it supports.
+        logActivity(id,[{action:"Updated",field:"Consultation recording",new:"Saved · "+Math.round(Number(dur)||0)+"s"}]);
         toast("✓ Recording saved to profile");
         // Uploaded for real → the crash-insurance copy has done its job.
         if(sid) _rdbDelete(sid);
@@ -13624,6 +13747,7 @@ export function initApp(root: HTMLElement) {
           file_name:"Office visit (recovered) "+fmtIST(new Date(s.startedAt).toISOString()),
           duration_seconds:dur,recorded_by:s.by||_recBy(),created_at:new Date().toISOString()});
         await _rdbDelete(sid);
+        logActivity(id,[{action:"Updated",field:"Consultation recording",new:"Recovered after a crash · "+Math.round(Number(dur)||0)+"s"}]);
         toast("✓ Recovered recording saved to profile");
         if(String(_coachLeadId)===id){ _recStatusApply("done"); _ovrRenderList(id); }
       }catch(e:any){ toastErr("Recovery failed: "+(e.message||"upload error")+" — the audio stays kept; try again later."); }
@@ -13966,6 +14090,7 @@ export function initApp(root: HTMLElement) {
       _coachSyncScreeningVitals(lead);
       _coachRenderRecordings(_coachLeadId);
       renderCallLogs(lead,"#coachCallLog",()=>String(_coachLeadId));   // Call History tab: logs + recordings (same as Advisor)
+      renderCoachActivityLog(lead.id);   // this client's full audit history, newest first
       _ovrRenderList(_coachLeadId);
       _renderCoachPayHistory(_coachLeadId);
       _coachPopulateReadOnly(lead);
@@ -15012,7 +15137,20 @@ export function initApp(root: HTMLElement) {
       const c=_coachClients.find((x:any)=>String(x.id)===id); if(c)c.coachProfile=obj;
       _coachSaveBusy=true;
       try{
-        const {error}=await supabase.from("leads").update({coach_profile:obj}).eq("meta_lead_id",id);
+        // Program suggested goes to its own COLUMN as well as into coach_profile. Inside the profile
+        // it is one slot of a positional array - unreadable to anything but this form, so the level
+        // had exactly one writer (_enrollLeadShared, and only when a caller happened to name it).
+        // An EMI enrolment has NO payment rows to derive a level from, so with the column empty every
+        // reader fell back to the literal "L1": the coach picked L1 + L2 and the chip said
+        // "Enrolled - L1" (reported for Mohammed Mohamed). Saving the record is the moment that
+        // choice becomes a fact, so that is where it is recorded.
+        const _progSel=_curProgram();
+        const {error}=await supabase.from("leads").update(
+          _progSel?{coach_profile:obj,program_suggested:_progSel}:{coach_profile:obj}).eq("meta_lead_id",id);
+        // Keep the in-memory client in step so the chip re-renders correctly without a reload.
+        if(!error&&_progSel){ const _cc=_coachClients.find((x:any)=>String(x.id)===id);
+          if(_cc){ _cc._imp=Object.assign({},_cc._imp||{},{prog:_progSel});
+                   if(!_cc.enrolledLevel||_cc.enrolledLevel==="L1") _cc.enrolledLevel=_progSel; } }
         if(!error) logAction(id,"Updated","Health assessment (Coach)",_coachConsOf({coachProfile:obj})||"saved");
         if(error){
           if(/coach_profile|column|schema|exist/i.test(error.message||"")) toast("Saved locally — run supabase-migration-coach-screening.sql for DB sync");
@@ -17961,6 +18099,37 @@ export function initApp(root: HTMLElement) {
     w._bdmToggleRow=(id:string)=>{ _bdmOpen=String(_bdmOpen)===String(id)?"":String(id); _bdmRender(); };
 
     // The full report — only built for the row the BDM opened.
+    // Recover a proof that was saved as a bare FILENAME, before requests carried the file URL.
+    // Nothing was lost: the PDF was uploaded to payment-proofs/<leadId>/<timestamp>_<name> and is
+    // still there - only its address went unrecorded, so the BDM saw dead text on a file that
+    // existed the whole time. Listing the lead's own folder and matching the tail of the stored
+    // name finds it, and getPublicUrl signs it for whoever is looking.
+    //
+    // Runs AFTER the table is painted, per open row, and only when there is something to recover -
+    // a request whose proofs already carry URLs never touches the network.
+    async function _bdmRecoverProofs(){
+      const box=root.querySelector("#bdmProofs")as HTMLElement|null; if(!box) return;
+      const missing=Array.from(box.querySelectorAll(".bdm-proof-x")) as HTMLElement[];
+      if(!missing.length) return;
+      const lead=String(box.getAttribute("data-lead")||"").trim();
+      const done=(el:HTMLElement,msg:string)=>{ el.innerHTML=el.innerHTML.replace(/\(locating file…\)/,msg); };
+      if(!lead){ missing.forEach(el=>done(el,"(no link saved)")); return; }
+      // Same sanitising the upload applied, so a name with spaces or brackets still matches.
+      const folder=lead.replace(/[^a-zA-Z0-9._-]/g,"_");
+      let files:any[]=[];
+      try{ const {data}=await (supabase.storage.from("payment-proofs") as any).list(folder); files=data||[]; }catch(_){ files=[]; }
+      missing.forEach((el)=>{
+        const nm=String(el.getAttribute("data-name")||"");
+        const want=nm.replace(/[^a-zA-Z0-9._-]/g,"_");
+        const hit=files.find((f:any)=>String(f.name||"").endsWith("_"+want)||String(f.name||"")===want);
+        if(!hit){ done(el,'<span style="color:var(--faint);font-size:11px">(file not found)</span>'); return; }
+        const {data}=supabase.storage.from("payment-proofs").getPublicUrl(folder+"/"+hit.name);
+        const url=(data&&data.publicUrl)||"";
+        if(!url){ done(el,"(no link saved)"); return; }
+        const esc=(x:string)=>x.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+        el.outerHTML='<a href="'+esc(_safeHref(url))+'" target="_blank" rel="noopener" style="color:var(--brand-600);font-weight:600">'+esc(nm)+'</a>';
+      });
+    }
     function _bdmDetail(r:any){
       const s=r.snapshot||{}, st=String(r.status), e=_bdmE, F=_bdmF, money=_bdmMoney;
       const act=st==="pending"
@@ -18002,13 +18171,15 @@ export function initApp(root: HTMLElement) {
         +'</div>'
         +'<div class="bdm-sec">Proof</div>'
         // Each proof is a real, viewer-signed LINK (F escapes its value, so this field is built
-        // raw). Old requests stored bare name strings — those render as plain text, because their
-        // file reference was never saved and there is nothing to open.
-        +'<div class="bdm-grid"><div class="bdm-f"><div class="k">Attachments</div><div class="v">'
+        // raw). Requests written before proofs carried a URL stored a bare filename - the file was
+        // uploaded and is still on disk, only its address was never recorded. Those render with a
+        // placeholder that _bdmRecoverProofs replaces once it has found the file (see below).
+        +'<div class="bdm-grid"><div class="bdm-f"><div class="k">Attachments</div><div class="v" id="bdmProofs" data-lead="'+e(String(s._leadId||r.lead_id||""))+'">'
           +((s.proofs&&s.proofs.length)
             ?s.proofs.map((p:any)=>{
-               if(p&&typeof p==="object"&&p.url) return '<a href="'+e(_safeHref(_fileHref(p.url)))+'" target="_blank" rel="noopener" style="color:var(--brand-600);font-weight:600">'+e(p.name||"proof")+'</a>';
-               return e(typeof p==="object"?String((p&&p.name)||"proof"):String(p))+' <span style="color:var(--faint);font-size:11px">(no link saved)</span>';
+               const nm=typeof p==="object"?String((p&&p.name)||"proof"):String(p);
+               if(p&&typeof p==="object"&&p.url) return '<a href="'+e(_safeHref(_fileHref(p.url)))+'" target="_blank" rel="noopener" style="color:var(--brand-600);font-weight:600">'+e(nm)+'</a>';
+               return '<span class="bdm-proof-x" data-name="'+e(nm)+'">'+e(nm)+' <span style="color:var(--faint);font-size:11px">(locating file…)</span></span>';
              }).join(" · ")
             :"none attached")
         +'</div></div></div>'
@@ -18107,6 +18278,8 @@ export function initApp(root: HTMLElement) {
         // Only under the PENDING queue: on the Decided tab the main table already IS the decided
         // list, and repeating it below would show every row twice.
         +(tab==="pending"?_bdmDecidedHistory():"");
+      // The open request's proofs may include filenames stored before URLs were saved. Find them.
+      try{ _bdmRecoverProofs(); }catch(_){}
     }
     // Requester's role, read from the assignees list the app already holds — the request row stores
     // only a name. Falls back to a neutral label rather than guessing.

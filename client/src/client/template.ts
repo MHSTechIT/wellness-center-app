@@ -676,6 +676,14 @@ export function getMainContent(): string {
             <div class="pills"><button class="pill p-ok" onclick="toast('Kit issued · logged')">Given</button><button class="pill p-warn">Need to Ship</button><button class="pill p-vio on">Not Required</button></div></div>
         </div></div></div>
 
+      <!-- ACTIVITY LOG (Health Coach) — placed exactly where the Advisor has it: the last section of
+           the record, immediately above the Save button, so it is read in the same place on both
+           screens rather than hidden behind a tab. Rendered by renderActivityLog into this screen's
+           OWN container class: both panels are in the DOM at once, and a shared class would let one
+           screen repaint the other's log with the wrong lead. -->
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"></use></svg> Activity log <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="tscroll js-actlog-coach" id="coachActLog" style="margin-top:12px;max-height:420px"><table class="tbl" style="min-width:640px"><tbody><tr><td style="text-align:center;color:var(--faint);padding:24px">Loading activity…</td></tr></tbody></table></div></div></div>
+
       <div style="display:flex;gap:10px;margin-top:18px"><button class="btn bp" style="height:45px;padding:0 22px" onclick="window._coachSaveRecord()">Save health record</button><button class="btn" style="height:45px" onclick="window._coachPrint()">📋 Print prescription</button></div>
     </div>
     <div class="c-p" data-p="recep2" style="display:none"><div class="banner plan" style="margin-top:16px"><svg aria-hidden="true" focusable="false" class="icon" style="width:15px;height:15px"><use href="#i-doc"></use></svg> <span><b>View only.</b> Reception record — same as advisor view.</span></div><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-door"></use></svg> Reception record <span class="chipb neu" style="margin-left:auto">🔒 Read-only</span></div><div class="sec-bd"><table class="tbl"><tbody id="coachRecepBody"><tr><td style="color:var(--muted)">Visited</td><td class="mono">—</td><td style="color:var(--muted)">Registered</td><td class="mono">—</td><td style="color:var(--muted)">Consent</td><td>—</td></tr></tbody></table></div></div></div>
@@ -700,7 +708,8 @@ export function getMainContent(): string {
     <div class="c-p" data-p="pay2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-wallet"></use></svg> Payment history</div><div class="sec-bd"><div id="coachPayHist"><div class="stub">No payment records for this client yet.</div></div></div></div></div>
     <div class="c-p" data-p="notes2" style="display:none"><div class="stub">Internal notes.</div></div>
     <div class="c-p" data-p="extra2" style="display:none"><div class="stub">Extra info.</div></div>
-    <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div></div>
+    <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div>
+</div></div>
   </div></section>
 
   <!-- LEAD IMPORT -->
@@ -2249,6 +2258,29 @@ export function getMainContent(): string {
          nothing on that screen is hardcoded any more, so changing a number here moves the dashboard
          with no code change or redeploy. -->
     <div class="st-p" data-p="st-tgt" style="display:none">
+      <!-- APPOINTMENT SLOT DATE RANGE — one setting, both slot boards (Health Advisor's
+           "Appointment - slot board" and Reception's "Service & booking"). Applied as the date
+           input's own min/max, so out-of-range days are greyed out inside the calendar itself
+           rather than refused after the click. Hidden entirely from roles that can change neither
+           number; the Previous-days box is shown but LOCKED for a Manager, so they can see the
+           window they are working in and know it is a Super Admin decision. -->
+      <div class="sec" id="slotRangeCard" style="margin-bottom:12px;display:none">
+        <div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-cal"></use></svg> Appointment slot date range</div>
+        <div class="sec-bd">
+          <p style="font-size:12px;color:var(--muted);margin:2px 2px 12px;line-height:1.6">
+            Controls which dates can be picked on the appointment slot boards, on <b>both</b> the Health Advisor and Reception pages.
+            <b>Upcoming days</b> counts from today (4 = today plus the next 3). <b>Previous days</b> is how far back a finished day stays reachable.
+          </p>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fld" style="margin:0"><label class="lbl" for="slotRangeFuture">Upcoming days <span class="ab">Admin / Manager</span></label>
+              <input class="input mono" type="number" min="1" max="365" id="slotRangeFuture" style="height:36px;max-width:120px"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="slotRangePast">Previous days <span class="ab">Super Admin</span></label>
+              <input class="input mono" type="number" min="0" max="365" id="slotRangePast" style="height:36px;max-width:120px"></div>
+            <button class="btn bsm bp" style="height:36px" onclick="window._slotRangeSave()">Save date range</button>
+            <span id="slotRangeNote" style="font-size:11.5px;color:var(--muted)"></span>
+          </div>
+        </div>
+      </div>
       <!-- ADVISOR LEADS COUNT SETTING — the daily auto-assignment allocation. Sits ABOVE the targets
            master because it is the thing an admin touches daily, where targets are set once a month.
            Rows come from the live assignees master, so a new advisor appears here the moment they are
