@@ -5818,32 +5818,39 @@ export function initApp(root: HTMLElement) {
     // below), closes both doors with one source of truth.
     let _advCallRows:any[]=[]; let _advCallLoaded=false;
     async function _loadAdvCallStats(){
-      try{
-        // initiated_by_email = who was actually LOGGED IN when Call was clicked (captured
-        // server-side from the authenticated session — see /api/calls/initiate). Always fetched:
-        // even a full-access viewer needs it the moment they filter the dashboard to one advisor.
-        // created_at + direction feed the Call Performance section (PRD §5.8): speed-to-contact needs
-        // WHEN the first call happened, and incoming/missed need to tell inbound from outbound.
-        const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds,initiated_by_email,created_at,direction").limit(5000);
-        _advCallRows=data||[];
-      }catch(_){ _advCallRows=[]; }
-      // Event facts for the activity-dated cards (loaded together so one flag gates all of it):
-      // appointment BOOKINGS (when "Appointment Fixed" actually happened — immune to the status
-      // moving on to Visited/Enrolled later) and the latest call-status CHANGE per lead (the only
-      // dated record of a disposition being set — leads.call_status itself has no timestamp).
-      try{
-        const {data}=await supabase.from("appointments").select("lead_id,meeting_type,status,created_at").limit(5000);
-        _haApptRows=data||[];
-      }catch(_){ _haApptRows=[]; }
-      try{
-        const res:any=await supabase.from("lead_activity").select("lead_id,created_at").eq("field","Call status").order("created_at",{ascending:false}).limit(5000);
-        _haStatusActs={};
-        ((res&&res.data)||[]).forEach((a:any)=>{
-          const id=String(a.lead_id||""); const t=new Date(a.created_at||0).getTime();
-          if(!id||isNaN(t)||!t) return;
-          if(!_haStatusActs[id]||t>_haStatusActs[id]) _haStatusActs[id]=t;
-        });
-      }catch(_){ _haStatusActs={}; }
+      // All three stat fetches run IN PARALLEL — they were awaited one after another, so the boot
+      // splash paid three network round-trips in a row (each crossing to the remote database).
+      // Each keeps its own catch: one failing must not empty the others.
+      await Promise.all([
+        (async()=>{ try{
+          // initiated_by_email = who was actually LOGGED IN when Call was clicked (captured
+          // server-side from the authenticated session — see /api/calls/initiate). Always fetched:
+          // even a full-access viewer needs it the moment they filter the dashboard to one advisor.
+          // created_at + direction feed the Call Performance section (PRD §5.8): speed-to-contact
+          // needs WHEN the first call happened, and incoming/missed need inbound vs outbound.
+          const {data}=await supabase.from("call_recordings").select("contact_id,call_status,duration_seconds,initiated_by_email,created_at,direction").limit(5000);
+          _advCallRows=data||[];
+        }catch(_){ _advCallRows=[]; } })(),
+        // Event facts for the activity-dated cards: appointment BOOKINGS (when "Appointment Fixed"
+        // actually happened — immune to the status moving on to Visited/Enrolled later) and the
+        // latest call-status CHANGE per lead (the only dated record of a disposition being set —
+        // leads.call_status itself has no timestamp).
+        (async()=>{ try{
+          // hc_pt: which Health Coach owns each client — the follow-up reminder scoping for a
+          // Health Coach login reads it (see _fuHcByLead), same source the coach page trusts.
+          const {data}=await supabase.from("appointments").select("lead_id,meeting_type,status,created_at,hc_pt").limit(5000);
+          _haApptRows=data||[];
+        }catch(_){ _haApptRows=[]; } })(),
+        (async()=>{ try{
+          const res:any=await supabase.from("lead_activity").select("lead_id,created_at").eq("field","Call status").order("created_at",{ascending:false}).limit(5000);
+          _haStatusActs={};
+          ((res&&res.data)||[]).forEach((a:any)=>{
+            const id=String(a.lead_id||""); const t=new Date(a.created_at||0).getTime();
+            if(!id||isNaN(t)||!t) return;
+            if(!_haStatusActs[id]||t>_haStatusActs[id]) _haStatusActs[id]=t;
+          });
+        }catch(_){ _haStatusActs={}; } })(),
+      ]);
     }
     let _haApptRows:any[]=[];                       // appointment bookings (lead_id, meeting_type, created_at)
     let _haStatusActs:Record<string,number>={};     // lead id -> latest Call-status change (ms)
@@ -6105,15 +6112,50 @@ export function initApp(root: HTMLElement) {
     // advisor's clock badge counted every advisor's follow-ups (reported: badge 15 vs 2 of their own).
     // Only the ownership locks are applied, NOT the dashboard's top filters — a follow-up due today
     // must not disappear because someone narrowed the dashboard by date, source or service.
+    // The Health Coach who owns each client, from the latest non-cancelled appointment's hc_pt —
+    // the same source the coach page's own lock trusts (_coachFiltered's c.hc).
+    function _fuHcByLead():Record<string,string>{
+      const m:Record<string,{t:number,hc:string}>={};
+      _haApptRows.forEach((a:any)=>{
+        const id=String(a.lead_id||""); const hc=String(a.hc_pt||"").trim();
+        if(!id||!hc) return;
+        if(String(a.status||"").toLowerCase()==="cancelled") return;
+        const t=new Date(a.created_at||0).getTime()||0;
+        if(!m[id]||t>=m[id].t) m[id]={t,hc};
+      });
+      const out:Record<string,string>={}; Object.keys(m).forEach(k=>{ out[k]=m[k].hc; });
+      return out;
+    }
     function _fuScopedBook(){
       let book:any[]=[]; try{ book=haBook(); }catch(_){ return []; }
       const svcScope=_serviceScope();
-      // Advisor role → locked to self. Full-view roles → follow the dashboard's advisor picker, so
-      // an admin looking at "Deepak" is reminded about Deepak's follow-ups, not the whole clinic's.
-      const scope=_advisorScope()||(_asnApplied.advisor&&_asnApplied.advisor!=="all"?_asnApplied.advisor:"");
-      if(!scope&&!svcScope) return book;
+      // Role-scoped (audit 21-Aug-2026 — the rail rides every screen, so IT must enforce who may
+      // be reminded about whom):
+      //  — Full-view roles (Super Admin / Manager / Branch Manager): the dashboard's advisor
+      //    picker, else the whole clinic — an admin looking at "Deepak" is reminded about Deepak's
+      //    follow-ups. Unchanged.
+      //  — Everyone else sees ONLY their own clients: leads ASSIGNED to them (Advisor / Senior
+      //    Advisor / Telecaller), plus — for a Health Coach — clients whose appointment coach is
+      //    them. A coach who also advises keeps the union of both. Before this, _advisorScope()
+      //    covered only the literal "Advisor" role, so a Health Coach or Receptionist login was
+      //    reminded about EVERY client in the clinic.
+      //  — A role with neither assignment nor coached clients (Reception…) gets no advisor
+      //    follow-up reminders at all; their own surfaces (e.g. Reception's appointment reminders)
+      //    are separate. An account that resolves to no name matches nothing — fail closed.
+      let allow:(l:any)=>boolean;
+      if(_holdsFullViewRole()){
+        const pick=_asnApplied.advisor&&_asnApplied.advisor!=="all"?_asnApplied.advisor:"";
+        allow=pick?((l:any)=>(l.assignedTo||"")===pick):(()=>true);
+      } else {
+        const self=_advisorName();
+        if(!self) allow=()=>false;
+        else {
+          const hcBy=_isCoachRole()?_fuHcByLead():null;
+          allow=(l:any)=>((l.assignedTo||"")===self)||(!!hcBy&&hcBy[String(l.id)]===self);
+        }
+      }
       return book.filter((l:any)=>{
-        if(scope&&(l.assignedTo||"")!==scope) return false;
+        if(!allow(l)) return false;
         if(!_serviceAllows(l,svcScope)) return false;
         return true;
       });
@@ -6129,9 +6171,17 @@ export function initApp(root: HTMLElement) {
     function _fuDueToday(){
       const book=_fuScopedBook(); if(!book.length) return [];
       const seen=new Set<string>();
+      // The same facts the Follow-ups panel's Done bucket reads, so the bubble's number and the
+      // Due-Today ring can never disagree (audit 21-Aug-2026: the bubble skipped ALL of this and
+      // kept counting leads that were already called, dispositioned, or enrolled — a false count
+      // is worse than none, because it buries the leads that genuinely need dialing).
+      const facts=_haCallFacts();
       return book.filter((l:any)=>{
         const nf=_haFuNext(l); if(!_fuIsToday(nf)) return false;
         const id=String(l.id); if(seen.has(id)) return false; seen.add(id);   // duplicate phone rows
+        if(l.enrolledAt) return false;                        // journey complete — not a dial target
+        const t=new Date(nf).getTime();
+        if(!isNaN(t)&&_fuActioned(l,t,facts)) return false;   // handled since the planned moment — on ANY device
         const ack=_fuAckMap[id];
         return !(ack&&(ack==="*"||ack===String(nf)));
       }).sort((a:any,b:any)=>{
@@ -6402,6 +6452,18 @@ export function initApp(root: HTMLElement) {
     // planned to: a follow-up note written since, or a call placed since. Both already load for this
     // screen, so this needs no migration and — unlike the existing reminder-acknowledgement map, which
     // lives in localStorage — it reads the same on every device.
+    // Has this planned follow-up demonstrably been DEALT WITH since the planned moment? Three
+    // database-backed facts, so the answer is the same on every device (unlike the per-browser
+    // ack): a follow-up note written after it, a call placed after it, or the call status CHANGED
+    // after it (an advisor who dispositions a lead without a logged call has still worked it —
+    // before this, those kept ringing as "pending" and inflated the notification bubble).
+    function _fuActioned(l:any,plannedMs:number,facts:Record<string,any>):boolean{
+      const det=_advLeadsDet[String(l.id)]||{};
+      const lastNote=det.last_fu?new Date(det.last_fu).getTime():0;
+      const lastCall=(facts[String(l.id)]||{}).last||0;
+      const statusAt=_haStatusActs[String(l.id)]||0;
+      return !!((lastNote&&lastNote>plannedMs)||(lastCall&&lastCall>plannedMs)||(statusAt&&statusAt>plannedMs));
+    }
     function _haFuBuckets(book:any[],facts:Record<string,any>){
       const now=Date.now(), today=_haDayKey(now);
       const out:any={total:[],done:[],today:[],overdue:[]};
@@ -6409,13 +6471,12 @@ export function initApp(root: HTMLElement) {
         const nf=_haFuNext(l); if(!nf) return;               // §9.7 — no plan, no follow-up
         const t=new Date(nf).getTime(); if(isNaN(t)) return;
         out.total.push(l);
-        const det=_advLeadsDet[String(l.id)]||{};
-        const lastNote=det.last_fu?new Date(det.last_fu).getTime():0;
-        const lastCall=(facts[String(l.id)]||{}).last||0;
-        const actioned=(lastNote&&lastNote>t)||(lastCall&&lastCall>t);
-        if(actioned){ out.done.push(l); return; }
+        if(_fuActioned(l,t,facts)){ out.done.push(l); return; }
         const day=_haDayKey(t);
-        if(day===today){ out.today.push(l); return; }
+        // An enrolled lead is not a dial target on ANY day — its journey is complete. Excluded
+        // from Due Today for the same reason it was always excluded from Overdue, so the panel's
+        // ring and the notification bubble count the same set.
+        if(day===today){ if(!l.enrolledAt) out.today.push(l); return; }
         // "Date has passed, lead still open" — a lead that already enrolled is not an overdue chase.
         if(t<now && day<today && !l.enrolledAt) out.overdue.push(l);
       });
@@ -13705,10 +13766,18 @@ export function initApp(root: HTMLElement) {
     }
     async function loadCoachClients__inner(){
       try{
-        let res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,screening_vitals,visited_at,call_status,enrolled_at,hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
-        if(res.error&&/column|screening_vitals/i.test(res.error.message||"")){
-          res=await supabase.from("leads").select("meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at,hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price").not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100) as any;
-        }
+        // Progressive column fallback. The full select names columns the self-applying schema only
+        // creates on server boot (hc_assigned … l2_price, screening_vitals) — run this bundle
+        // against a database whose server hasn't restarted yet and Postgres rejects the WHOLE
+        // query, which blanked the entire Health Coach page to zeros in production (20-Aug-2026).
+        // Each retry drops one generation of columns, so the page degrades to "those fields read
+        // blank" instead of "there are no clients".
+        const _coachSel=(cols:string)=>supabase.from("leads").select(cols).not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        const CORE="meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at";
+        const IMPORT_COLS=",hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price";
+        let res=await _coachSel(CORE+",screening_vitals"+IMPORT_COLS);
+        if(res.error&&/column/i.test(res.error.message||"")) res=await _coachSel(CORE+",screening_vitals") as any;
+        if(res.error&&/column/i.test(res.error.message||"")) res=await _coachSel(CORE) as any;
         if(res.error) throw res.error;
         const data=res.data;
         const apptStages:Record<string,string>={}; const apptHc:Record<string,string>={};

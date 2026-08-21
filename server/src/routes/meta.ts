@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { supabase } from '../shared/supabase';
+import { pool } from '../shared/db';
 import { requireAuth, requireRole } from '../shared/session';
 import {
   syncMetaLeadsToSupabase,
@@ -22,15 +23,20 @@ import {
 async function getLeads(_req: Request, res: Response) {
   try {
     const pageSize = 1000;
-    let from = 0;
-    const all: any[] = [];
+    // ONLY the columns the mapping below reads. `select('*')` dragged every column — including the
+    // advisor_profile / coach_profile / screening_vitals JSONB blobs — through the DB connection for
+    // ~5,700 leads on EVERY dashboard boot. Measured on the real (remote) database: a 1,000-row
+    // page took 4.0s with * and 1.8s slim — and this endpoint is what the startup splash waits for.
+    const SLIM = 'meta_lead_id,name,phone,email,campaign,ad_name,sugar_poll,city,street,service,'
+      + 'language,created_at,lead_date,ad_account_name,is_valid,is_duplicate,is_assigned,in_pool,'
+      + 'pool_added_at,assigned_to,assigned_at,call_status,next_followup,enrolled_at,visited_at,confirmed_at';
     async function fetchPage(start: number): Promise<any[]> {
       let lastErr: any = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const { data, error } = await supabase
             .from('leads')
-            .select('*')
+            .select(SLIM)
             .eq('source', 'Meta Ads')
             .order('created_at', { ascending: false })
             .range(start, start + pageSize - 1);
@@ -43,14 +49,15 @@ async function getLeads(_req: Request, res: Response) {
       }
       throw lastErr || new Error('fetch failed');
     }
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const data = await fetchPage(from);
-      if (!data || data.length === 0) break;
-      all.push(...data);
-      if (data.length < pageSize) break;
-      from += pageSize;
-    }
+    // Count first, then fetch every page IN PARALLEL. The old loop paged sequentially — six
+    // round-trips one after another — so total time was pages × latency; the whole boot splash
+    // sat on it. The count is one cheap query, and the offset race it introduces (a lead arriving
+    // between count and fetch) is the same race sequential paging already had.
+    const { rows: cntRows } = await pool.query(`SELECT count(*)::int AS n FROM leads WHERE source = 'Meta Ads'`);
+    const totalLeads = Number(cntRows[0]?.n || 0);
+    const pageCount = Math.max(1, Math.ceil(totalLeads / pageSize));
+    const pages = await Promise.all(Array.from({ length: pageCount }, (_, i) => fetchPage(i * pageSize)));
+    const all: any[] = pages.flat();
 
     const now = Date.now();
     const leads = all.map((r) => {
