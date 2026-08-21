@@ -610,6 +610,7 @@ export function initApp(root: HTMLElement) {
       renderAll();
       seed();
       loadReceptionData();
+      try{ _advLocLoad(); }catch(_){}   // advisor Location dropdown: merge the shared added-locations list
       try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
       try{ loadTgtMaster(); }catch(_){}  // Advisor targets master (Settings CRUD + the Advisor dashboard's targets)
       try{ loadPhysioPricing(); }catch(_){}   // Physio pricing master (Settings CRUD + Physio page card + payment defaults)
@@ -4562,6 +4563,87 @@ export function initApp(root: HTMLElement) {
     // field it captured. Distinguished from "no baseline tracked" (a different lead) by _advBaseId.
     function _advSetBase(id:any,obj:any){ _advBaseId=String(id||""); _advBase=_advClone(obj); }
     function _advBaseOf(id:any){ return _advBaseId===String(id)?_advBase:undefined; }
+    // ---- Location master (Basic info → Location). The base options live in the template; every
+    // location an advisor ADDS is stored in app_settings('advisor_locations') so it appears for
+    // every advisor on every device and survives reloads. Before this, "+ Add new location" was a
+    // dead <option> with no handler — selecting it did nothing, and the literal text could even be
+    // SAVED as the lead's location (observed in stored profiles).
+    // NOTE for the positional capture below: this adds OPTIONS to an existing select — the control
+    // list itself never changes, so saved profiles' indexes are unaffected.
+    const _ADV_LOC_KEY="advisor_locations";
+    const _ADV_LOC_ADD="+ Add new location";
+    let _advLocPrev="";
+    function _advLocMerge(names:any[]){
+      const sel=root.querySelector("#advfLoc")as HTMLSelectElement|null; if(!sel) return;
+      const addOpt=Array.from(sel.options).find(o=>o.value===_ADV_LOC_ADD)||null;
+      const have=new Set(Array.from(sel.options).map(o=>o.value.trim().toLowerCase()));
+      (names||[]).forEach((n:any)=>{
+        const v=String(n||"").trim(); if(!v||have.has(v.toLowerCase())) return;
+        const o=document.createElement("option"); o.textContent=v;
+        if(addOpt) sel.insertBefore(o,addOpt); else sel.appendChild(o);
+        have.add(v.toLowerCase());
+      });
+    }
+    async function _advLocLoad(){
+      try{
+        const res:any=await supabase.from("app_settings").select("value").eq("key",_ADV_LOC_KEY).limit(1);
+        const list=res&&res.data&&res.data[0]&&res.data[0].value;
+        if(Array.isArray(list)) _advLocMerge(list);
+      }catch(_){/* the base template list still works */}
+    }
+    // "✎ Type location manually" — a per-lead free-text entry (requested 21-Aug-2026). It opens the
+    // inline box below the dropdown; the typed value becomes a selected option, which is what the
+    // positional profile capture reads — the text box itself is data-nocap so the form's field
+    // positions never shift. The manual value is NOT pushed to the shared list ("+ Add new
+    // location" remains the way to add for everyone).
+    const _ADV_LOC_MANUAL="✎ Type location manually";
+    function _advLocManualBox(show:boolean){
+      const inp=root.querySelector("#advfLocManual")as HTMLInputElement|null; if(!inp) return;
+      inp.style.display=show?"":"none";
+      if(show){ inp.value=""; try{ inp.focus(); }catch(_){} }
+    }
+    w._advLocManualCommit=()=>{
+      const inp=root.querySelector("#advfLocManual")as HTMLInputElement|null;
+      const sel=root.querySelector("#advfLoc")as HTMLSelectElement|null;
+      if(!inp||!sel||inp.style.display==="none") return;
+      const name=inp.value.trim();
+      _advLocManualBox(false);
+      if(!name) return;   // typed nothing → the dropdown is already back on the previous value
+      const existing=Array.from(sel.options).find(o=>o.value!==_ADV_LOC_ADD&&o.value!==_ADV_LOC_MANUAL&&o.value.trim().toLowerCase()===name.toLowerCase());
+      if(existing){ sel.value=existing.value; }
+      else { _advLocMerge([name]); sel.value=name; }
+      _advLocPrev=sel.value;
+      toast('Location set to "'+sel.value+'" — Save the lead to keep it');
+    };
+    w._advLocManualKey=(ev:KeyboardEvent)=>{
+      if(ev.key==="Enter"){ ev.preventDefault(); w._advLocManualCommit(); }
+      else if(ev.key==="Escape"){ const inp=root.querySelector("#advfLocManual")as HTMLInputElement|null; if(inp) inp.value=""; _advLocManualBox(false); }
+    };
+    w._advLocChange=async(sel:HTMLSelectElement)=>{
+      if(!sel) return;
+      if(sel.value===_ADV_LOC_MANUAL){
+        // Never leave the sentinel selected — revert the dropdown at once, then let them type.
+        sel.value=_advLocPrev||"Poonamalle";
+        _advLocManualBox(true);
+        return;
+      }
+      if(sel.value!==_ADV_LOC_ADD){ _advLocPrev=sel.value; return; }
+      const name=(window.prompt("New location name:")||"").trim();
+      if(!name){ sel.value=_advLocPrev||"Poonamalle"; return; }   // cancelled → never leave the sentinel selected
+      const existing=Array.from(sel.options).find(o=>o.value!==_ADV_LOC_ADD&&o.value.trim().toLowerCase()===name.toLowerCase());
+      if(existing){ sel.value=existing.value; _advLocPrev=sel.value; toast('"'+existing.value+'" is already in the list — selected'); return; }
+      _advLocMerge([name]);
+      sel.value=name; _advLocPrev=name;
+      try{
+        const res:any=await supabase.from("app_settings").select("value").eq("key",_ADV_LOC_KEY).limit(1);
+        const cur=res&&res.data&&res.data[0]&&res.data[0].value;
+        const list=Array.isArray(cur)?cur.slice():[];
+        if(!list.some((x:any)=>String(x).trim().toLowerCase()===name.toLowerCase())) list.push(name);
+        const up:any=await supabase.from("app_settings").upsert({key:_ADV_LOC_KEY,value:list,updated_at:new Date().toISOString()},{onConflict:"key"});
+        if(up&&up.error) throw up.error;
+        toast('Location "'+name+'" added for every advisor');
+      }catch(_){ toast('Location "'+name+'" added on this screen only — saving it for everyone failed'); }
+    };
     function _advPanelEl(){ return root.querySelector('#s-advisor .a-p[data-p="sales"]')as HTMLElement|null; }
     // [data-nocap] controls (the Physiotherapy-specific panel) are EXCLUDED from the positional
     // capture so adding them never shifts the index-based save/restore of every existing profile.
@@ -4684,7 +4766,18 @@ export function initApp(root: HTMLElement) {
             f=g;
           }
         }
-        f.forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else el.value=rec.v==null?"":rec.v; });
+        f.forEach((rec:any,i:number)=>{ const el:any=els[i]; if(!el) return; if("c" in rec) el.checked=!!rec.c; else {
+          const v=rec.v==null?"":rec.v; el.value=v;
+          // Freeform selects (Location): a manually typed value — saved on another device, or before
+          // the shared list loaded — has no <option> here yet, so the assignment above silently
+          // snaps to the default. Append the saved value as a real option and set it again.
+          if(v&&el.tagName==="SELECT"&&el.getAttribute("data-freeform")==="1"&&el.value!==v){
+            const o=document.createElement("option"); o.textContent=v;
+            const anchor=Array.from(el.options).find((x:any)=>/^✎|^\+ /.test(String(x.value)))as any;
+            if(anchor) el.insertBefore(o,anchor); else el.appendChild(o);
+            el.value=v;
+          }
+        } });
         const setStates=(sel:string,arr:any[])=>{ if(!arr) return; const list=Array.from(p.querySelectorAll(sel)).filter((b:any)=>!b.hasAttribute("data-nocap")); arr.forEach((on:boolean,i:number)=>{ if(list[i]) (list[i]as HTMLElement).classList.toggle("on",!!on); }); };
         setStates(".chip-o",obj.chips); setStates("#stars .star",obj.stars); setStates(".pill",obj.pills); setStates("#bdm button",obj.score);
         _advApplyPhysio(obj.physio);
@@ -13133,6 +13226,56 @@ export function initApp(root: HTMLElement) {
     }
     // ===== Office-visit audio recording (MediaRecorder → /storage → office_recordings) =====
     let _ovrRec:any=null; let _ovrChunks:any[]=[]; let _ovrStartMs=0; let _ovrTimer:any=null; let _ovrLeadId="";
+    let _ovrSid=""; let _ovrSeq=0; let _ovrLeadName="";
+    // ---- Crash-proof chunk store (requested 21-Aug-2026) ------------------------------------
+    // The recorder hands over a chunk every 3 seconds and each one is mirrored straight into
+    // IndexedDB. A closed tab, a killed browser or a power cut therefore costs AT MOST the last
+    // 3 seconds: everything already handed over survives on disk and is offered for recovery the
+    // next time this client's assessment is opened. The store is emptied only after the upload
+    // has actually succeeded. Every call is defensive — where IndexedDB is unavailable (private
+    // mode), recording still works exactly as before, just without the crash insurance.
+    const _RDB="wos_ovr";
+    function _rdbOpen():Promise<IDBDatabase|null>{
+      return new Promise((res)=>{
+        try{
+          const rq=indexedDB.open(_RDB,1);
+          rq.onupgradeneeded=()=>{ const db=rq.result;
+            if(!db.objectStoreNames.contains("sessions")) db.createObjectStore("sessions",{keyPath:"sid"});
+            if(!db.objectStoreNames.contains("chunks")){ const s=db.createObjectStore("chunks",{keyPath:["sid","seq"]}); s.createIndex("bySid","sid"); } };
+          rq.onsuccess=()=>res(rq.result); rq.onerror=()=>res(null);
+        }catch(_){ res(null); }
+      });
+    }
+    async function _rdbPutSession(meta:any){ const db=await _rdbOpen(); if(!db) return; try{ db.transaction("sessions","readwrite").objectStore("sessions").put(meta); }catch(_){} }
+    async function _rdbAddChunk(sid:string,seq:number,blob:Blob){ const db=await _rdbOpen(); if(!db) return; try{ db.transaction("chunks","readwrite").objectStore("chunks").put({sid,seq,blob}); }catch(_){} }
+    async function _rdbSessions():Promise<any[]>{ const db=await _rdbOpen(); if(!db) return [];
+      return new Promise((res)=>{ try{ const rq=db.transaction("sessions").objectStore("sessions").getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); }catch(_){ res([]); } }); }
+    async function _rdbChunks(sid:string):Promise<Blob[]>{ const db=await _rdbOpen(); if(!db) return [];
+      return new Promise((res)=>{ try{ const rq=db.transaction("chunks").objectStore("chunks").index("bySid").getAll(sid);
+        rq.onsuccess=()=>res((rq.result||[]).sort((a:any,b:any)=>a.seq-b.seq).map((r:any)=>r.blob).filter(Boolean)); rq.onerror=()=>res([]); }catch(_){ res([]); } }); }
+    async function _rdbDelete(sid:string){ const db=await _rdbOpen(); if(!db) return;
+      try{ db.transaction("sessions","readwrite").objectStore("sessions").delete(sid); }catch(_){}
+      try{ const tx=db.transaction("chunks","readwrite"); const ix=tx.objectStore("chunks").index("bySid");
+        const rq=ix.getAllKeys(sid); rq.onsuccess=()=>{ (rq.result||[]).forEach((k:any)=>{ try{ tx.objectStore("chunks").delete(k); }catch(_){} }); };
+      }catch(_){}
+    }
+    // ---- Floating REC pill: the recording rides EVERY screen. Navigating the app must never
+    // stop it (only the explicit Stop button does), so while it runs this pill shows on every
+    // page with the elapsed time and its own Stop — otherwise leaving the coach screen would
+    // leave an invisible live microphone.
+    function _ovrPill(show:boolean){
+      let p=document.getElementById("ovrPill");
+      if(!show){ if(p) p.remove(); return; }
+      if(!p){
+        p=document.createElement("div"); p.id="ovrPill";
+        p.style.cssText="position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9999;background:#20242B;color:#fff;border-radius:999px;padding:9px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:13px;font-weight:600";
+        p.innerHTML='<span style="width:9px;height:9px;border-radius:50%;background:#FF5A48;animation:pulse 1.2s infinite"></span>'
+          +'<span id="ovrPillTxt">Recording…</span>'
+          +'<button onclick="window._ovrStop()" style="background:#D8442B;color:#fff;border:none;border-radius:999px;padding:5px 12px;font-weight:700;cursor:pointer">■ Stop</button>';
+        document.body.appendChild(p);
+      }
+    }
+    const _ovrBeforeUnload=(e:any)=>{ e.preventDefault(); e.returnValue="Recording in progress — captured audio is kept for recovery, but stop it properly if you can."; return e.returnValue; };
     // Recording-status pills (Open / Done / Not Done). Kept in sync with the actual recording
     // state: stopping a recording flips it to "Done" instantly, and on profile open it is derived
     // from the office_recordings backend rows so it always reflects the latest saved state.
@@ -13327,19 +13470,34 @@ export function initApp(root: HTMLElement) {
       const MR=(window as any).MediaRecorder;
       const mime=MR.isTypeSupported&&MR.isTypeSupported("audio/webm")?"audio/webm":"";
       _ovrRec=new MR(stream,mime?{mimeType:mime}:undefined);
-      _ovrRec.ondataavailable=(ev:any)=>{ if(ev.data&&ev.data.size) _ovrChunks.push(ev.data); };
-      _ovrRec.onstop=()=>{ try{ stream.getTracks().forEach((t:any)=>t.stop()); }catch(_){} _ovrFinalize(); };
-      _ovrRec.start();
-      _ovrStartMs=Date.now();
+      _ovrSid="ovr_"+Date.now()+"_"+Math.random().toString(36).slice(2,8);
+      _ovrSeq=0;
       _ovrLeadId=String(_coachLeadId);
+      _ovrLeadName=(()=>{ try{ const c=_coachClients.find((x:any)=>String(x.id)===_ovrLeadId); return (c&&c.name)||""; }catch(_){ return ""; } })();
+      _ovrStartMs=Date.now();
+      // Session meta first, then a chunk every 3s — each mirrored to IndexedDB the moment the
+      // recorder hands it over, so a crash costs at most the final 3 seconds.
+      _rdbPutSession({sid:_ovrSid,leadId:_ovrLeadId,leadName:_ovrLeadName,by:_recBy(),startedAt:_ovrStartMs,lastAt:_ovrStartMs,mime:mime||"audio/webm"});
+      _ovrRec.ondataavailable=(ev:any)=>{ if(ev.data&&ev.data.size){ _ovrChunks.push(ev.data);
+        const seq=_ovrSeq++; const sid=_ovrSid;
+        _rdbAddChunk(sid,seq,ev.data);
+        _rdbPutSession({sid,leadId:_ovrLeadId,leadName:_ovrLeadName,by:_recBy(),startedAt:_ovrStartMs,lastAt:Date.now(),mime:mime||"audio/webm"});
+      } };
+      _ovrRec.onstop=()=>{ try{ stream.getTracks().forEach((t:any)=>t.stop()); }catch(_){} _ovrFinalize(); };
+      _ovrRec.start(3000);   // timeslice: hand chunks over continuously instead of only at stop
       _ovrSetUi(true);
+      _ovrPill(true);
+      try{ window.addEventListener("beforeunload",_ovrBeforeUnload); }catch(_){}
       const tEl=root.querySelector("#ovrTimer");
-      _ovrTimer=setInterval(()=>{ const s=Math.floor((Date.now()-_ovrStartMs)/1000); const mm=String(Math.floor(s/60)).padStart(2,"0"); const ss=String(s%60).padStart(2,"0"); if(tEl)tEl.textContent="● "+mm+":"+ss; },1000);
-      toast("Recording started");
+      _ovrTimer=setInterval(()=>{ const s=Math.floor((Date.now()-_ovrStartMs)/1000); const mm=String(Math.floor(s/60)).padStart(2,"0"); const ss=String(s%60).padStart(2,"0");
+        if(tEl)tEl.textContent="● "+mm+":"+ss;
+        const pt=document.getElementById("ovrPillTxt"); if(pt) pt.textContent="Recording "+mm+":"+ss+(_ovrLeadName?(" — "+_ovrLeadName):"")+" · kept safe every 3s"; },1000);
+      toast("Recording started — it keeps running if you move to another page; stop it with ■ Stop");
     };
-    w._ovrStop=()=>{ if(_ovrRec&&_ovrRec.state!=="inactive"){ try{ _ovrRec.stop(); }catch(_){} } if(_ovrTimer){clearInterval(_ovrTimer);_ovrTimer=null;} _ovrSetUi(false); };
+    w._ovrStop=()=>{ if(_ovrRec&&_ovrRec.state!=="inactive"){ try{ _ovrRec.stop(); }catch(_){} } if(_ovrTimer){clearInterval(_ovrTimer);_ovrTimer=null;} _ovrSetUi(false); _ovrPill(false); try{ window.removeEventListener("beforeunload",_ovrBeforeUnload); }catch(_){} };
     async function _ovrFinalize(){
-      const id=String(_ovrLeadId||_coachLeadId||""); if(!id||!_ovrChunks.length) return;
+      const id=String(_ovrLeadId||_coachLeadId||""); const sid=_ovrSid; _ovrSid="";
+      if(!id||!_ovrChunks.length) return;
       const dur=Math.round((Date.now()-_ovrStartMs)/1000);
       const blob=new Blob(_ovrChunks,{type:(_ovrChunks[0]&&_ovrChunks[0].type)||"audio/webm"});
       _ovrChunks=[];
@@ -13356,11 +13514,68 @@ export function initApp(root: HTMLElement) {
         const url=String((data&&data.publicUrl)||"").split("?")[0];
         await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,file_name:"Office visit "+fmtIST(new Date().toISOString()),duration_seconds:dur,recorded_by:_recBy(),created_at:new Date().toISOString()});
         toast("✓ Recording saved to profile");
+        // Uploaded for real → the crash-insurance copy has done its job.
+        if(sid) _rdbDelete(sid);
         // Recording is now persisted in office_recordings (backend) → flip the status to "Done"
         // immediately, no refresh or manual click needed. Runs only if this lead is still open.
         if(String(_coachLeadId)===id){ _recStatusApply("done"); _ovrRenderList(id); }
-      }catch(e:any){ toastErr("Recording save failed: "+(e.message||"upload error")); }
+      }catch(e:any){
+        // Upload failed (offline / server down): the chunks STAY in IndexedDB, so the recording is
+        // not lost — reopening this client offers Recover & save.
+        toastErr("Recording save failed: "+(e.message||"upload error")+" — the audio is kept safely; reopen this client to recover it.");
+      }
     }
+    // ---- Recovery: unsaved sessions for this client (crash, closed browser, failed upload).
+    // Rendered above the recordings list; Recover assembles the stored chunks into one file and
+    // saves it through the exact same upload path a live recording uses.
+    async function _ovrRecoveryHtml(id:string):Promise<string>{
+      try{
+        const all=await _rdbSessions();
+        const mine=all.filter((s:any)=>String(s.leadId)===String(id)&&s.sid!==_ovrSid);
+        if(!mine.length) return "";
+        const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+        return mine.map((s:any)=>{
+          const secs=Math.max(1,Math.round(((s.lastAt||s.startedAt)-s.startedAt)/1000));
+          return '<div class="banner warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+            +'<span>⚠ <b>Unsaved recording</b> from '+e(fmtIST(new Date(s.startedAt).toISOString()))+' · ~'+secs+'s captured'+(s.by?(' · '+e(s.by)):'')+' — recovered from this device.</span>'
+            +'<button class="btn bsm bp" onclick="window._ovrRecover(\''+e(s.sid)+'\')">Recover &amp; save</button>'
+            +'<button class="btn bsm" onclick="window._ovrDiscard(\''+e(s.sid)+'\')">Discard</button>'
+            +'</div>';
+        }).join("");
+      }catch(_){ return ""; }
+    }
+    w._ovrRecover=async(sid:string)=>{
+      const all=await _rdbSessions(); const s=all.find((x:any)=>x.sid===sid);
+      if(!s){ toastErr("Nothing left to recover"); return; }
+      const chunks=await _rdbChunks(sid);
+      if(!chunks.length){ toastErr("The stored audio is empty — discarding"); await _rdbDelete(sid); _ovrRenderList(String(s.leadId)); return; }
+      const id=String(s.leadId);
+      const blob=new Blob(chunks,{type:s.mime||"audio/webm"});
+      const dur=Math.max(1,Math.round(((s.lastAt||s.startedAt)-s.startedAt)/1000));
+      const safe=id.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=safe+"/"+Date.now()+"_office-visit-recovered.webm";
+      toast("Recovering recording…");
+      try{
+        const up=await supabase.storage.from("office-recordings").upload(path,blob as any,{upsert:false});
+        if(up.error) throw up.error;
+        const {data}=supabase.storage.from("office-recordings").getPublicUrl(path);
+        const url=String((data&&data.publicUrl)||"").split("?")[0];
+        await supabase.from("office_recordings").insert({lead_id:id,file_url:url,file_path:path,
+          file_name:"Office visit (recovered) "+fmtIST(new Date(s.startedAt).toISOString()),
+          duration_seconds:dur,recorded_by:s.by||_recBy(),created_at:new Date().toISOString()});
+        await _rdbDelete(sid);
+        toast("✓ Recovered recording saved to profile");
+        if(String(_coachLeadId)===id){ _recStatusApply("done"); _ovrRenderList(id); }
+      }catch(e:any){ toastErr("Recovery failed: "+(e.message||"upload error")+" — the audio stays kept; try again later."); }
+    };
+    w._ovrDiscard=async(sid:string)=>{
+      const all=await _rdbSessions(); const s=all.find((x:any)=>x.sid===sid);
+      csvConfirm("Discard this unsaved recording permanently? It cannot be recovered afterwards.",async()=>{
+        await _rdbDelete(sid);
+        toast("Unsaved recording discarded");
+        if(s&&String(_coachLeadId)===String(s.leadId)) _ovrRenderList(String(s.leadId));
+      },"Discard");
+    };
     // Playback/download URL for a recording, built from file_path with the CURRENT viewer's session.
     // The stored file_url has the UPLOADER's token baked in from save time (getPublicUrl signs with
     // whoever is logged in), so anyone else's recording stopped playing the moment that token
@@ -13377,13 +13592,16 @@ export function initApp(root: HTMLElement) {
       const el=root.querySelector("#ovrList"); if(!el) return;
       let rows:any[]=[];
       try{ const {data}=await supabase.from("office_recordings").select("*").eq("lead_id",id).order("created_at",{ascending:false}).limit(50); rows=data||[]; }catch(_){ rows=[]; }
+      // Crash-recovery first: any chunks this device kept for the client surface ABOVE the saved
+      // list, so an interrupted recording is the first thing the coach sees on return.
+      const recovery=await _ovrRecoveryHtml(id);
       if(String(_coachLeadId)!==String(id)) return;
       // Derive the recording status from the backend on every (re)load: a saved recording means
       // "Done". Only auto-promote — never downgrade a manual "Not Done" when a recording exists.
       if(rows.length && _recStatusCurrent()!=="notdone") _recStatusApply("done");
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const dur=(s:number)=>{ s=s||0; const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
-      el.innerHTML=rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
+      el.innerHTML=recovery+(rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
         '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">'
         +'<span style="font-size:12px;font-weight:600">🎙 '+e(fmtIST(r.created_at))+'</span>'
         +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
@@ -13391,7 +13609,7 @@ export function initApp(root: HTMLElement) {
         +'<audio controls preload="none" src="'+e(_safeHref(_ovrUrl(r)))+'" style="height:32px;flex:1;min-width:180px"></audio>'
         +'<a class="btn bsm" href="'+e(_safeHref(_ovrUrl(r)))+'" download style="text-decoration:none">⬇ Download</a>'
         +'</div>'
-      ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>';
+      ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>');
     }
     // ===== Recordings screen: cross-client Office-visit audio + Zoom meeting tables =====
     // Both reuse the shared Excel-style filter grid engine (regGrid/gridHead/gridApply),

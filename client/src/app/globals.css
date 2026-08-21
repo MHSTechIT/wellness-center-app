@@ -2277,3 +2277,6 @@ html{scroll-behavior:smooth}
    remove the attribute as soon as JS takes over, returning control to those inline styles. */
 html[data-boot="sess"] #loginOverlay{display:none!important}
 html[data-boot="sess"] #appLoading{display:flex!important}
+
+/* Recording pill (office-visit recorder, #ovrPill): the red dot pulses while live. */
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}

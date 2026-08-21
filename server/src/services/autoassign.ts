@@ -27,8 +27,67 @@ export type AssignResult = {
   poolSeen: number;
   poolLeft: number;
   rows: AssignPlanRow[];
+  rotation?: { order: string[]; chunks: number[]; lastServed: string | null; nextStart: string | null };
   reason?: string;
 };
+
+// ---------- Round-robin batch distribution (requested 21-Aug-2026) ----------
+// Leads are dealt in TURNS around the ring of advisors with a target, not by filling one advisor's
+// whole day first. Each advisor's turn size scales with their target — the day split into roughly
+// four waves — so the worked example (targets 8 / 7 / 5) deals 2 / 2 / 1 per lap:
+export function turnSizeOf(target: number): number { return Math.max(1, Math.round(target / 4)); }
+
+/**
+ * Deal `queue` around `plan` starting AFTER `lastServed` (the persistent rotation pointer), so the
+ * same advisor does not receive the first leads of every run. Each stop takes up to their turn
+ * size, capped by their remaining headroom; a full lap in which nobody can take anything ends the
+ * deal (targets full → the rest stays pooled). Pure function so the tests can drive it directly.
+ */
+export function distributeRoundRobin(
+  plan: AssignPlanRow[], queue: string[], lastServed: string
+): { writes: { advisor: string; ids: string[] }[]; assigned: number; served: string; nextStart: string | null } {
+  const byAdv = new Map<string, string[]>();
+  let qi = 0;
+  let served = lastServed;
+  if (plan.length) {
+    const li = plan.findIndex((p) => p.advisor === lastServed);
+    let idx = li >= 0 ? li + 1 : 0;                       // continue from the NEXT advisor in the ring
+    let dry = plan.length;                                // consecutive stops that took nothing
+    while (qi < queue.length && dry > 0) {
+      const p = plan[idx % plan.length]; idx++;
+      const take = Math.min(turnSizeOf(p.target), p.headroom - p.assigned, queue.length - qi);
+      if (take <= 0) { dry--; continue; }
+      dry = plan.length;
+      const ids = queue.slice(qi, qi + take); qi += take;
+      p.assigned += take;
+      served = p.advisor;
+      const arr = byAdv.get(p.advisor) || []; arr.push(...ids); byAdv.set(p.advisor, arr);
+    }
+  }
+  const si = plan.findIndex((p) => p.advisor === served);
+  const nextStart = plan.length ? plan[((si >= 0 ? si : -1) + 1) % plan.length].advisor : null;
+  return { writes: [...byAdv.entries()].map(([advisor, ids]) => ({ advisor, ids })), assigned: qi, served, nextStart };
+}
+
+// The rotation pointer lives in app_settings so it survives server restarts and is shared by every
+// path that assigns (sync trigger, the settings screen's button). Reading it must never break a
+// run; a missing row simply starts the ring from the top.
+const ROTATION_KEY = 'auto_assign_rotation';
+async function getRotationPointer(): Promise<string> {
+  try {
+    const { rows } = await pool.query(`SELECT value->>'last_served' AS v FROM app_settings WHERE key = $1`, [ROTATION_KEY]);
+    return rows.length ? String(rows[0].v || '') : '';
+  } catch { return ''; }
+}
+async function setRotationPointer(name: string): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, jsonb_build_object('last_served', $2::text), now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [ROTATION_KEY, name]
+    );
+  } catch { /* the pointer is fairness, not correctness — a failed save must not fail the run */ }
+}
 
 // Who counts as an advisor for lead assignment — the SAME three gates the client's _assignTargets
 // applies, expressed in SQL:
@@ -197,24 +256,24 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
     return { ok: true, assigned: 0, poolSeen: 0, poolLeft: 0, rows: plan, reason: "no unassigned leads from today — older leads are left alone by design" };
   }
 
-  // 4 — SEQUENTIAL FILL, per the spec: advisor A is topped up to their target before B receives
-  //     anything. (The alternative, round-robin, would spread the morning's leads across everyone —
-  //     the brief's own worked example, "3 leads arrive and all 3 go to Advisor A", rules that out.)
+  // 4 — ROUND-ROBIN BATCH DEAL (changed from sequential fill on request, 21-Aug-2026): leads go
+  //     around the ring in target-scaled turns (see turnSizeOf) so every advisor with headroom gets
+  //     a share as leads arrive, and the persistent pointer makes the NEXT run continue from the
+  //     next advisor — the same person never keeps receiving the first leads of the day. Targets
+  //     stay hard caps: a full advisor is skipped, and when everyone is full the rest stays pooled.
   const queue = leadRows.map((r: any) => String(r.meta_lead_id));
-  let i = 0;
-  const writes: { advisor: string; ids: string[] }[] = [];
-  for (const p of plan) {
-    if (i >= queue.length) break;
-    const take = Math.min(p.headroom, queue.length - i);
-    if (take <= 0) continue;
-    writes.push({ advisor: p.advisor, ids: queue.slice(i, i + take) });
-    p.assigned = take;
-    i += take;
-  }
-  const assigned = i;
+  const lastServed = await getRotationPointer();
+  const { writes, assigned, served, nextStart } = distributeRoundRobin(plan, queue, lastServed);
+  const rotation = {
+    order: plan.map((p) => p.advisor),
+    chunks: plan.map((p) => turnSizeOf(p.target)),
+    lastServed: lastServed || null,
+    nextStart,
+  };
 
   if (dryRun) {
-    return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan };
+    // Preview shows the identical deal — and does NOT move the pointer; only real assignments do.
+    return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan, rotation };
   }
 
   // 5 — write. One statement per advisor, each re-checking that the lead is still unassigned, so a
@@ -259,11 +318,14 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
   // this an assignment made by the sync was invisible to an already-open app until someone reloaded.
   // Emitting 'leads' is what makes an Advisor's book fill in front of them.
   if (assigned > 0) {
+    // Advance the rotation pointer only after the writes committed — a failed run must not skip
+    // anyone's turn.
+    await setRotationPointer(served);
     try {
       const { broadcastChange } = await import('../routes/events');
       broadcastChange('leads');
     } catch { /* a missed notification must never fail the assignment */ }
   }
 
-  return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan };
+  return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan, rotation };
 }
