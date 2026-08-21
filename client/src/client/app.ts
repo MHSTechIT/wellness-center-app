@@ -3507,11 +3507,19 @@ export function initApp(root: HTMLElement) {
           +'Nothing to assign — '+e(j.reason||"no eligible leads in the pool")+'.</div>';
         return;
       }
+      // The rotation line makes the round-robin visible: ring order with each advisor's turn size,
+      // and where the next turn starts — so "why did X get the first leads" is answered on screen.
+      const rot=j.rotation;
+      const rotLine=rot&&rot.order&&rot.order.length
+        ?'<br>Rotation: '+rot.order.map((n:string,i:number)=>e(n)+' ('+(rot.chunks&&rot.chunks[i]||1)+'/turn)').join(' → ')
+          +(rot.nextStart?(' · next turn starts at <b>'+e(rot.nextStart)+'</b>'):'')
+        :'';
       host.innerHTML='<div class="aud" style="background:#fff;padding:10px 12px">'
         +'<div class="ahd">'+(dry?"Preview — this is what would be assigned":"Assigned")+'</div>'
         +'<div style="font-size:12.5px;color:var(--muted);margin-top:4px">'
         +rows.map((r:any)=>e(r.advisor)+" → <b>"+r.assigned+"</b>").join(" · ")
         +'<br>'+j.assigned+' of '+j.poolSeen+' eligible lead(s)'+(j.poolLeft?(' · '+j.poolLeft+' left in the pool for manual assignment'):'')
+        +rotLine
         +'</div></div>';
     }
     w._alcPreview=async()=>{
@@ -5643,17 +5651,14 @@ export function initApp(root: HTMLElement) {
     // first. Each call shows date/time, direction, duration, status, agent + a recording Play/Download.
     // Shared by the Advisor + Coach pages. targetSel = the panel to fill; curId = which lead is
     // currently open on that page (so a mid-fetch switch aborts cleanly).
-    // Whether the call panel is expanded past the 2 most recent. Held per lead: _callHistLead
-    // resets it when a different client is opened, so the panel always starts collapsed.
-    let _callHistAll=false, _callHistLead="";
-    let _callHistRedraw:(()=>void)|null=null;
-    w._callHistToggle=()=>{ _callHistAll=!_callHistAll; if(_callHistRedraw) _callHistRedraw(); };
+    // The panel used to show 2 calls behind a "Show all N · M hidden" toggle. The toggle called
+    // renderCallLogs again - and that function BEGINS with await _callSync(), a round trip to the
+    // telephony provider's CDR API, followed by two more queries. Expanding a list therefore cost
+    // 10-18 seconds of network for a change that needed none of it. Every call is now rendered once,
+    // into a fixed-height scroller, so opening the history is instant and there is nothing to toggle.
     async function renderCallLogs(lead:any, targetSel:string="#advCallLog", curId:()=>string=()=>String(_advLeadId)){
       const el=root.querySelector(targetSel); if(!el||!lead) return;
       const leadId=String(lead.id); const ph=(lead.phone||"").replace(/\D/g,"");
-      // A different client → start collapsed, and let the toggle redraw THIS panel.
-      if(_callHistLead!==leadId){ _callHistLead=leadId; _callHistAll=false; }
-      _callHistRedraw=()=>{ try{ renderCallLogs(lead,targetSel,curId); }catch(_){} };
       // Pull the latest call status + recordings from the provider CDR first (resolves calls stuck
       // at "initiated" and surfaces recordings the push webhook never delivered), then read the DB.
       try{ await _callSync(leadId); }catch(_){}
@@ -5670,13 +5675,13 @@ export function initApp(root: HTMLElement) {
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const recCount=rows.filter((r:any)=>r.recording_url).length;
       if(!rows.length){ el.innerHTML='<div style="text-align:center;color:var(--faint);padding:22px;font-size:13px">No call records for this lead yet.</div>'; return; }
-      // Keep the panel clean: show only the 2 MOST RECENT calls (rows are already sorted latest-first).
-      // The chips below still report the true totals, and any older calls are noted — a "View All"
-      // can surface the full history later without cluttering the default view.
-      // Default to the 2 most recent, but let the rest be opened — the chips report the true totals
-      // (5 calls / 4 recordings), so a collapsed list read as a mismatch against what was on screen.
-      const shown=_callHistAll?rows:rows.slice(0,2);
+      // Every call, latest first, inside a bounded scroller. The chips report the same totals the
+      // list contains, so there is no longer a count on screen that disagrees with what is under it.
+      const shown=rows;   // all of them; the scroller below bounds the height instead
       el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span></div>'
+        // maxHeight, not a row limit: the panel keeps its size however long the history gets, and
+        // scrolling costs nothing - where expanding cost a telephony round trip.
+        +'<div style="max-height:320px;overflow-y:auto;overscroll-behavior:contain">'
         +shown.map((r:any)=>{
           const out=/out/i.test(r.direction||"outbound");
           const dir=out?'<span class="chipb vio">Outgoing</span>':'<span class="chipb info">Incoming</span>';
@@ -5694,9 +5699,7 @@ export function initApp(root: HTMLElement) {
             +'<span style="font-size:11.5px;color:var(--muted)">→ '+e(r.to_number||"—")+'</span></div>'
             +rec+'</div>';
         }).join("")
-        +(rows.length>shown.length
-          ?'<div style="text-align:center;padding:9px 0 2px"><button type="button" class="btn bsm" onclick="window._callHistToggle()">Show all '+rows.length+' calls · '+(rows.length-shown.length)+' hidden</button></div>'
-          :(rows.length>2?'<div style="text-align:center;padding:9px 0 2px"><button type="button" class="btn bsm" onclick="window._callHistToggle()">Show fewer</button></div>':""));
+        +'</div>';
     }
     w.addFuNoteA=()=>{
       if(!_advLeadId){ toast("Open a lead first (from Assigned leads)"); return; }
