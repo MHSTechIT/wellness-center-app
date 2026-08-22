@@ -143,7 +143,7 @@ export function getMainContent(): string {
     <div class="chead">
       <span class="cav" id="advAv"></span>
       <div class="cmeta">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 id="advName" style="margin:0">No lead selected</h1><span id="advNotElig" class="chipb al" style="display:none;font-weight:700">⛔ Not Eligible</span></div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 id="advName" style="margin:0">No lead selected</h1><span id="advNotElig" class="chipb al" style="display:none;font-weight:700">⛔ Not Eligible</span><span id="advClosedTop" class="chipb al" style="display:none;font-weight:800;letter-spacing:.02em">NOT REGISTERED · CLOSED</span></div>
         <div class="sub" id="advSub"><span style="color:var(--faint)">Open a lead from Assigned leads to begin</span></div>
         <div class="cbadges" id="advBadges"></div>
       </div>
@@ -2142,7 +2142,7 @@ export function getMainContent(): string {
   <!-- SETTINGS -->
   <section class="screen" id="s-admin"><div class="wrap" style="max-width:1280px;padding:16px 20px 60px">
     <div class="ph"><div><h1>Settings &amp; masters</h1><p>Control plane — configure every screen's fields, pricing, roles, integrations.</p></div></div>
-    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-cpn">Coupon codes</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-tgt">Advisor targets</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
+    <div class="tabs" id="settTabs"><button class="on" data-t="st-svc">Service pricing</button><button data-t="st-btm">Blood Test pricing</button><button data-t="st-php">Physiotherapy pricing</button><button data-t="st-cpn">Coupon codes</button><button data-t="st-usr">Users &amp; Assignees</button><button data-t="st-tgt">Advisor targets</button><button data-t="st-org">Services &amp; Roles</button><button data-t="st-rbac">Roles &amp; RBAC</button><button data-t="st-act" id="stActTab" style="display:none">Login Activity</button><button data-t="st-fld">Screen fields</button><button data-t="st-drop">Dropdown masters</button><button data-t="st-int">Integrations</button><button data-t="st-msg">Auto-messages</button></div>
 
 
     <div class="st-p" data-p="st-svc">
@@ -2364,6 +2364,64 @@ export function getMainContent(): string {
           <p style="font-size:11.5px;color:var(--faint);margin:0 0 14px">“Start from” copies that role’s screen access to the new one — a role created with no screens would sign in to an empty app. Adjust afterwards in Roles &amp; RBAC.</p>
           <div class="tscroll stick1"><table class="tbl" style="min-width:900px"><thead><tr><th>Role</th><th>Services</th><th>Receives leads</th><th>Screens</th><th>People</th><th>Status</th><th>Actions</th></tr></thead><tbody id="roleBody"></tbody></table></div>
         </div></div>
+    </div>
+
+    <!-- USER LOGIN & ACTIVITY (PRD) — Settings → Login Activity, per §19. app_users stays the
+         single source of truth for people and roles; this only visualises their sessions. The tab
+         itself is hidden for roles that may not see it (§2/§20) and the API refuses them too, so
+         hiding is convenience, not the control. -->
+    <div class="st-p" data-p="st-act" style="display:none">
+      <div class="act-hd">
+        <div>
+          <h2 class="act-t">User Activity &amp; Login Monitor <span class="act-live" id="actLive" title="Refreshing automatically">Live</span></h2>
+          <p class="act-sub">Monitor user login sessions, active users and daily access activity.</p>
+        </div>
+        <div class="act-ctl">
+          <div class="pills" id="actRange">
+            <button class="pill on" onclick="window._actRange('today')">Today</button>
+            <button class="pill" onclick="window._actRange('yday')">Yesterday</button>
+            <button class="pill" onclick="window._actRange('week')">This Week</button>
+            <button class="pill" onclick="window._actRange('month')">This Month</button>
+            <button class="pill" onclick="window._actRange('custom')">Custom</button>
+          </div>
+          <span id="actCustom" style="display:none;gap:6px;align-items:center">
+            <input class="input" type="date" id="actFrom" style="height:32px;font-size:12px;width:145px" onchange="window._actLoad()">
+            <span style="color:var(--faint)">&rarr;</span>
+            <input class="input" type="date" id="actTo" style="height:32px;font-size:12px;width:145px" onchange="window._actLoad()">
+          </span>
+          <button class="btn bsm" onclick="window._actLoad()" title="Refresh now">&#8635; Refresh</button>
+          <button class="btn bsm" data-exp onclick="window._actExport()" title="Export the rows below, exactly as filtered">&#8615; Export</button>
+        </div>
+      </div>
+      <div class="act-updated" id="actUpdated"></div>
+
+      <div class="act-kpis" id="actKpis"></div>
+
+      <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default">
+        <svg class="icon"><use href="#i-user"></use></svg> Currently Online <span class="chipb ok" id="actOnlineCount" style="margin-left:6px">0</span></div>
+        <div class="sec-bd"><div class="act-online" id="actOnline"></div></div></div>
+
+      <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default;display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-clock"></use></svg> Login Activity</span>
+        <span class="act-filters">
+          <input class="input" id="actSearch" placeholder="Search name, email or role…" oninput="window._actSearch(this.value)" style="height:30px;max-width:230px;font-size:12px">
+          <select class="select" id="actFRole" onchange="window._actRender()" style="height:30px;font-size:12px"></select>
+          <select class="select" id="actFUser" onchange="window._actRender()" style="height:30px;font-size:12px"></select>
+          <select class="select" id="actFStatus" onchange="window._actRender()" style="height:30px;font-size:12px">
+            <option value="all">All statuses</option><option value="online">Online</option>
+            <option value="out">Logged Out</option><option value="expired">Session Expired</option>
+            <option value="never">Never Logged In</option><option value="inactive">Inactive</option>
+          </select>
+        </span></div>
+        <div class="sec-bd" id="actTable"></div></div>
+
+      <div class="sec" style="margin-bottom:14px"><div class="sec-hd" onclick="togSec(this)">
+        <svg class="icon"><use href="#i-cal"></use></svg> Login Activity Calendar <span class="arr">&#9662;</span></div>
+        <div class="sec-bd" id="actCal"></div></div>
+
+      <div class="sec"><div class="sec-hd" onclick="togSec(this)">
+        <svg class="icon"><use href="#i-chart"></use></svg> Login Analytics <span class="arr">&#9662;</span></div>
+        <div class="sec-bd" id="actCharts"></div></div>
     </div>
 
     <div class="st-p" data-p="st-rbac" style="display:none">

@@ -99,7 +99,9 @@ const auth = {
       const r = await fetch(api("/auth/login"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const j = await r.json();
       if (j.error) return { data: { session: null }, error: { message: j.error } };
-      const session = { user: { email: j.email }, access_token: j.token };
+      // sessionId ties this browser to the user_sessions row the login just opened, so the
+      // heartbeat and the sign-out below update THAT session rather than guessing at one.
+      const session = { user: { email: j.email }, access_token: j.token, sessionId: j.sessionId || "" };
       saveSession(session);
       return { data: { session }, error: null };
     } catch (e: any) { return { data: { session: null }, error: { message: e?.message || "network error" } }; }
@@ -111,11 +113,25 @@ const auth = {
       if (j.error) return { data: {}, error: { message: j.error } };
       // /auth/signup also returns a session token (the same shape as login) so the new user is
       // signed in immediately instead of needing to log in again right after setting a password.
-      if (j.token) saveSession({ user: { email: j.email }, access_token: j.token });
+      if (j.token) saveSession({ user: { email: j.email }, access_token: j.token, sessionId: j.sessionId || "" });
       return { data: { user: { email: j.email } }, error: null };
     } catch (e: any) { return { data: {}, error: { message: e?.message || "network error" } }; }
   },
-  async signOut() { clearSession(); return { error: null }; },
+  async signOut() {
+    // Close the activity session BEFORE dropping the token — afterwards there is nothing left to
+    // authenticate the call with, and the session would sit "online" until it timed out (§17).
+    // Best-effort and awaited only briefly: signing out must never hang on monitoring.
+    try {
+      const s = readSession();
+      if (s?.access_token && s.access_token !== "local") {
+        await fetch(api("/auth/logout"), {
+          method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ sessionId: s.sessionId || "" }), keepalive: true,
+        });
+      }
+    } catch { /* a failed close is swept up by the staleness rule server-side */ }
+    clearSession(); return { error: null };
+  },
   onAuthStateChange(_cb: any) { return { data: { subscription: { unsubscribe() { /* no-op */ } } } }; },
 };
 

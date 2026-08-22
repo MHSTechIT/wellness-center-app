@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from '../shared/db';
 import { signSession } from '../shared/session';
+import { openSession } from './activity';
 
 // Password hashing with Node's built-in scrypt (no external deps).
 // Stored format: scrypt$<saltHex>$<hashHex>
@@ -30,7 +31,11 @@ async function login(req: Request, res: Response) {
       return;
     }
     const token = signSession(u.email, u.role || 'Advisor', u.name || null);
-    res.json({ email: u.email, name: u.name, role: u.role, token });
+    // Open the activity session HERE, at the one place a real sign-in happens — there is no
+    // endpoint that can mint one, so the record cannot be faked. A failure returns null and is
+    // ignored: monitoring must never be the reason somebody cannot log in.
+    const sessionId = await openSession(u, req);
+    res.json({ email: u.email, name: u.name, role: u.role, token, sessionId });
   } catch (e: any) {
     res.json({ error: e?.message || 'login error' });
   }
@@ -56,7 +61,8 @@ async function signup(req: Request, res: Response) {
     if (u.password_hash) { res.json({ error: 'This account already has a password. Use Sign in — if you forgot it, ask your admin to reset your access.' }); return; }
     await pool.query('UPDATE app_users SET password_hash=$1 WHERE lower(email)=lower($2)', [hashPassword(password), email]);
     const token = signSession(u.email, u.role || 'Advisor', u.name || null);
-    res.json({ email: u.email, name: u.name, role: u.role, token });
+    const sessionId = await openSession(u, req);   // first-time password set signs you in too
+    res.json({ email: u.email, name: u.name, role: u.role, token, sessionId });
   } catch (e: any) {
     res.json({ error: e?.message || 'signup error' });
   }

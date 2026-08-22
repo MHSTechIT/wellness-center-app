@@ -19,6 +19,7 @@ import { registerDataRoutes } from './routes/data';
 import { registerEventRoutes } from './routes/events';
 import { registerAuthRoutes } from './routes/auth';
 import { registerStorageRoutes } from './routes/storage';
+import { registerActivityRoutes } from './routes/activity';
 import { registerLeadImportRoutes } from './routes/leadimport';
 
 const app = express();
@@ -96,6 +97,7 @@ registerCallRoutes(app);
 registerDataRoutes(app);   // Postgres data gateway (replaces Supabase PostgREST)
 registerAuthRoutes(app);   // login / set-password against app_users
 registerStorageRoutes(app); // file uploads (replaces Supabase Storage)
+registerActivityRoutes(app); // login/logout session tracking + the activity dashboard's data
 registerEventRoutes(app);   // /events — SSE push so every role/page updates without a refresh
 
 // ---- Serve the built frontend (static export) on the SAME origin as the API ----

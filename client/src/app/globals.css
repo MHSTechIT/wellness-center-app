@@ -2280,3 +2280,85 @@ html[data-boot="sess"] #appLoading{display:flex!important}
 
 /* Recording pill (office-visit recorder, #ovrPill): the red dot pulses while live. */
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+
+/* ============================================================
+   USER LOGIN & ACTIVITY  (Settings → Login Activity)
+   White ground, existing tokens only, no new palette. Green carries status and action; red is
+   reserved for the one thing that is actually wrong — an expired session. Micro-interactions are
+   limited to the hover/lift the rest of the app already uses.
+   ============================================================ */
+.act-hd{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin:2px 2px 10px}
+.act-t{font-size:19px;font-weight:800;letter-spacing:-.01em;margin:0;display:flex;align-items:center;gap:9px}
+.act-sub{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.act-ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.act-live{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ok-ink,#10794A);background:var(--ok-bg,#E9F6EF);border:1px solid var(--line);
+  border-radius:999px;padding:3px 9px 3px 18px;position:relative}
+.act-live::before{content:"";position:absolute;left:8px;top:50%;width:6px;height:6px;margin-top:-3px;
+  border-radius:50%;background:var(--ok-ink,#10794A);animation:actPulse 2.4s ease-in-out infinite}
+@keyframes actPulse{0%,100%{opacity:1}50%{opacity:.35}}
+.act-updated{font-size:11.5px;color:var(--faint);margin:0 2px 12px}
+
+.act-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}
+@media(max-width:1180px){.act-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:720px){.act-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.act-k{background:var(--surface,#fff);border:1px solid var(--line);border-radius:14px;padding:13px 15px}
+.act-kl{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;gap:6px}
+.act-kv{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.act-ks{font-size:11.5px;color:var(--faint);line-height:1.45}
+.act-dot{width:7px;height:7px;border-radius:50%;background:var(--ok-ink,#10794A);display:inline-block;
+  animation:actPulse 2.4s ease-in-out infinite}
+
+.act-online{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:10px}
+.act-card{display:flex;flex-direction:column;gap:2px;text-align:left;background:var(--surface,#fff);
+  border:1px solid var(--line);border-left:3px solid var(--ok-ink,#10794A);border-radius:12px;
+  padding:11px 13px;cursor:pointer;font:inherit;transition:box-shadow .16s ease,transform .16s ease}
+.act-card:hover{box-shadow:0 6px 18px rgba(17,34,27,.09);transform:translateY(-1px)}
+.act-av{width:30px;height:30px;border-radius:50%;background:var(--ok-bg,#E9F6EF);color:var(--ok-ink,#10794A);
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;margin-bottom:5px}
+.act-cn{font-weight:700;font-size:13px}
+.act-cr{font-size:11.5px;color:var(--muted)}
+.act-cw{font-size:11px;color:var(--faint);font-family:var(--mono,ui-monospace,Consolas,monospace);margin-top:3px}
+.act-empty{text-align:center;color:var(--faint);font-size:12.5px;padding:26px 14px}
+.act-filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.act-tbl thead th{position:sticky;top:0;background:var(--surface,#fff);z-index:2}
+.act-tbl tbody tr:hover{background:var(--wash,#F7F9F8)}
+.act-sub2{font-size:11px;color:var(--faint)}
+.act-cur{color:var(--ok-ink,#10794A);font-weight:700}
+
+.act-charts{display:grid;grid-template-columns:1.15fr 1fr;gap:18px}
+@media(max-width:860px){.act-charts{grid-template-columns:1fr}}
+.act-ct{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.act-bars{display:flex;align-items:flex-end;gap:6px;height:132px;padding-top:6px}
+.act-bar{flex:1;min-width:14px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+.act-barv{width:100%;background:var(--ok-ink,#10794A);border-radius:5px 5px 0 0;opacity:.82;min-height:3px;
+  transition:opacity .16s ease}
+.act-bar:hover .act-barv{opacity:1}
+.act-barl{font-size:9.5px;color:var(--faint);margin-top:5px;font-family:var(--mono,ui-monospace,Consolas,monospace)}
+.act-dist{display:flex;flex-direction:column;gap:9px}
+.act-drow{display:flex;align-items:center;gap:10px}
+.act-dl{font-size:12px;color:var(--muted);width:118px;flex:none}
+.act-dtrack{flex:1;height:8px;background:var(--wash,#F1F4F3);border-radius:999px;overflow:hidden}
+.act-dfill{display:block;height:100%;border-radius:999px;background:var(--muted)}
+.act-dfill.ok{background:var(--ok-ink,#10794A)}
+.act-dfill.al{background:var(--alert-ink,#D8442B)}
+.act-dn{font-size:12px;font-weight:700;width:30px;text-align:right;font-variant-numeric:tabular-nums}
+
+.act-drawer{position:fixed;right:0;top:0;height:100vh;width:min(430px,96vw);z-index:900;
+  background:var(--surface,#fff);border-left:1px solid var(--line);box-shadow:-16px 0 44px rgba(17,34,27,.15);
+  padding:16px 18px 26px;overflow-y:auto;transform:translateX(101%);transition:transform .22s ease}
+.act-drawer.open{transform:translateX(0)}
+.act-dhd{display:flex;gap:10px;align-items:flex-start;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.act-dnm{font-size:16px;font-weight:800}
+.act-dstats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:13px 0 4px}
+.act-dstats>div{background:var(--wash,#F7F9F8);border:1px solid var(--line);border-radius:10px;padding:8px 11px}
+.act-dstats span{display:block;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:700}
+.act-dstats b{font-size:14px;font-weight:800}
+.act-dsec{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+.act-drow2{border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px;font-size:12.5px}
+.act-tl{border-left:2px solid var(--line);margin-left:6px;padding-left:14px}
+.act-tl-i{position:relative;font-size:12.5px;padding:5px 0}
+.act-tl-d{position:absolute;left:-19px;top:11px;width:8px;height:8px;border-radius:50%;background:var(--line)}
+.act-tl-d.in{background:var(--ok-ink,#10794A)}
+.act-tl-d.on{background:var(--ok-ink,#10794A);box-shadow:0 0 0 3px var(--ok-bg,#E9F6EF)}

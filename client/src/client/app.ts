@@ -622,6 +622,7 @@ export function initApp(root: HTMLElement) {
       }
       applyNavGating();
       _applyExportPerm();
+      try{ _actApplyPerm(); }catch(_){}   // Settings > Login Activity tab: Super Admin / Admin / Manager only
       _advLoadPriority();
       renderFilters();
       renderAll();
@@ -1576,6 +1577,46 @@ export function initApp(root: HTMLElement) {
       }
     }
     // Show/hide the red "Not Eligible" badge in the Open Profile header.
+    // ===== "Not Registered" closes the lead =====================================================
+    // A number that is not registered cannot be called again, so the lead is finished. Marking it
+    // is therefore a decision, not a note: the status is written, the pending follow-up is dropped,
+    // and the profile says CLOSED at the top instead of leading with whether the person was once
+    // eligible for a programme they can no longer be reached about.
+    //
+    // Scoped to this ONE code deliberately. haBucketOf already files several statuses under
+    // "closed" for the dashboard, but only this one was asked to auto-close, and widening it would
+    // silently change what "Not Interested" or "Wrong Number" do to a lead.
+    const CLOSED_CODE="nreg";
+    const _advIsClosedCode=(v:string)=>String(v||"")===CLOSED_CODE;
+    /** Paint the header for a closed lead: CLOSED wins the top slot, eligibility steps aside. */
+    function _advPaintClosed(on:boolean){
+      const top=root.querySelector("#advClosedTop")as HTMLElement|null;
+      if(top) top.style.display=on?"":"none";
+      // Eligibility is not WRONG, it is no longer the headline - so it is demoted, not deleted:
+      // the banner in the form still states it for anyone who scrolls to that section.
+      const nel=root.querySelector("#advNotElig")as HTMLElement|null;
+      if(on&&nel) nel.style.display="none";
+      const ban=root.querySelector("#eligBanner")as HTMLElement|null;
+      if(ban) ban.style.opacity=on?"0.55":"1";
+    }
+    /** Everything that happens the moment an advisor picks Not Registered. */
+    async function _advCloseAsNotRegistered(){
+      const id=String(_advLeadId||""); if(!id) return;
+      _advPaintClosed(true);
+      // The pending follow-up goes with it. Without this the lead keeps its old next_followup and
+      // goes on surfacing in Today's follow-ups for a number nobody can reach.
+      const nf=root.querySelector("#nextFollowUp")as HTMLInputElement|null; if(nf) nf.value="";
+      const l=_advFindLead(id); if(l){ l.callStatus="Not Registered"; l.nextFollowup=null; }
+      // call_status is written by _haSetCallStatus (already called by callStatusChange); this adds
+      // the clear, then saves the record so the decision survives a refresh without a manual Save.
+      const ok=await _dbOk(supabase.from("leads").update({next_followup:null}).eq("meta_lead_id",id),"Closing the lead");
+      if(!ok) return;
+      try{ persistAdvProfileQuiet(id); }catch(_){}
+      try{ logActivity(id,[{action:"Status Changed",field:"Lead status",new:"Closed · Not Registered"}]); }catch(_){}
+      try{ _fuAck(id); _fuRenderReminders(); }catch(_){}   // drop it from today's follow-up rail now
+      try{ renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
+      toast("Lead closed — Not Registered. Saved.");
+    }
     function _advSetNotEligBadge(on:boolean,reasons:string){
       const el=root.querySelector("#advNotElig")as HTMLElement|null; if(!el) return;
       el.style.display=on?"":"none";
@@ -4392,6 +4433,7 @@ export function initApp(root: HTMLElement) {
         const range=_sp.querySelector("input[type=range]")as HTMLInputElement|null; const pv=_sp.querySelector("#pv"); if(range){ range.value="50"; if(pv)pv.textContent="50%"; }
       }
       _advSetNotEligBadge(false,"");   // reset; restored profile (eligCheck) re-shows it if excluded
+      _advPaintClosed(false);   // reset; the call-status restore below re-asserts it for a closed lead
       _advAttachments=[]; renderAdvAtts();
       _advpAtts=[]; try{ _advpRenderAtts(); }catch(_){}
       // Physiotherapy leads get the physio-specific Basic-Information layout (Sugar/medical + Enrolled
@@ -6387,6 +6429,11 @@ export function initApp(root: HTMLElement) {
         const nf=_haFuNext(l); if(!_fuIsToday(nf)) return false;
         const id=String(l.id); if(seen.has(id)) return false; seen.add(id);   // duplicate phone rows
         if(l.enrolledAt) return false;                        // journey complete — not a dial target
+        // A CLOSED lead is not a dial target either. haBucketOf already files the dead ends
+        // (Not Registered, Wrong Number, Not Interested, Out of Service, DND, Invalid) under
+        // "closed" for the dashboard cards, but this rail never consulted it - so a lead the
+        // advisor had finished with kept its old next_followup and went on being served up.
+        if(haBucketOf(String(l.callStatus||""))==="closed") return false;
         const t=new Date(nf).getTime();
         if(!isNaN(t)&&_fuActioned(l,t,facts)) return false;   // handled since the planned moment — on ANY device
         const ack=_fuAckMap[id];
@@ -8232,6 +8279,9 @@ export function initApp(root: HTMLElement) {
       // actually shows the queue is open (it re-renders itself).
       const _scr=_activeScreenId();
       if(_scr==="reception"||_scr==="advisor"||_scr==="coach"){ try{ await loadZoomCheckins(); }catch(_){} }
+      // Pending payment follow-ups for the coach bubble. Loaded on entering the screen and again
+      // whenever payments change, so a collected balance stops being counted without a reload.
+      if(_scr==="coach"||_scr==="advisor"){ try{ _payFuLoad(); }catch(_){} } else { try{ _payFuRender(); }catch(_){} }
       await loadAssignmentExtras();
       const sig=_assignedExtras.map((l:any)=>l.id+":"+l.assignedTo+":"+l.callStatus).join("|");
       if(sig===_assignPollSig) return;
@@ -8308,6 +8358,9 @@ export function initApp(root: HTMLElement) {
       // reassignment at Reception left the Coach page showing the OLD coach until someone re-clicked
       // the nav — the new coach could not see a client who had just been handed to them.
       if(scr==="coach"&&(table==="leads"||table==="payments"||table==="appointments")){ try{ loadCoachClients(); }catch(_){} }
+      // A due row collected, cancelled or deleted anywhere - Reception, Accounts, the coach's own
+      // save - lands here as a payments broadcast, which is what makes the bubble self-correcting.
+      if((scr==="coach"||scr==="advisor")&&(table==="payments"||table==="appointments"||table==="leads")){ try{ _payFuLoad(); }catch(_){} }
       // Physio + Blood Test pages were the LAST screens with no live refresh — a check-in at
       // Reception or a payment collected elsewhere never appeared until the nav was re-clicked
       // ("page still not updating"). Same pattern as Reception above: re-read when active.
@@ -9846,6 +9899,478 @@ export function initApp(root: HTMLElement) {
       try{ await loadReceptionData(); }catch(_){}
       _remRender();
     };
+    // ===== USER LOGIN & ACTIVITY (PRD) =====================================================
+    // Settings → Login Activity. app_users remains the single source of truth for who people are
+    // (§3, §21); this reads user_sessions and shows WHEN they were here. Every number on the page
+    // is derived from real session rows — nothing is estimated.
+    const ACT_ROLES=["Super Admin","Admin","Manager"];                 // §2 — mirrored on the server
+    const _actMay=()=>_rolesOf(_currentUser).some((r:string)=>ACT_ROLES.includes(r));
+    let _actRows:any[]=[];        // sessions in range
+    let _actUsers:any[]=[];       // the whole roster, so "Never Logged In" can exist
+    let _actRange="today";
+    let _actQuery=""; let _actQT:any=null;
+    let _actStale=180000;
+    let _actTimer:any=null;
+    let _actDrawer="";            // email whose drawer is open
+
+    const _actPad=(n:number)=>String(n).padStart(2,"0");
+    /** IST calendar day for an instant — every other date on every other screen is a Chennai day. */
+    function _actDay(iso:any):string{
+      const d=new Date(iso); if(isNaN(d.getTime())) return "";
+      try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(d); }
+      catch(_){ return String(iso).slice(0,10); }
+    }
+    function _uaTime(iso:any):string{
+      const d=new Date(iso); if(isNaN(d.getTime())) return "—";
+      try{ return new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit",hour12:true}).format(d); }
+      catch(_){ return "—"; }
+    }
+    /** "09h 13m" — the unit the PRD's tables and totals are written in. */
+    function _actDur(secs:number):string{
+      const s=Math.max(0,Math.floor(Number(secs)||0));
+      const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+      return h?(_actPad(h)+"h "+_actPad(m)+"m"):(m+"m");
+    }
+    /** A session is live only if it has no logout AND has beaten recently. The server sweeps stale
+     *  rows on read; this keeps the view honest between sweeps as the clock moves on. */
+    const _actIsOn=(r:any)=>!r.logout_at&&(Date.now()-new Date(r.last_activity_at||r.login_at).getTime())<_actStale;
+    const _actSecs=(r:any)=>_actIsOn(r)
+      ? Math.floor((Date.now()-new Date(r.login_at).getTime())/1000)
+      : Math.max(0,Number(r.seconds)||0);
+
+    /** The selected window as two IST dates. Custom reads the two pickers. */
+    function _actWindow():{from:string;to:string}{
+      const today=_actDay(new Date());
+      const shift=(n:number)=>{ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()+n); return _actDay(d); };
+      if(_actRange==="yday") return {from:shift(-1),to:shift(-1)};
+      if(_actRange==="week") return {from:shift(-6),to:today};
+      if(_actRange==="month") return {from:shift(-29),to:today};
+      if(_actRange==="custom"){
+        const f=(root.querySelector("#actFrom")as HTMLInputElement|null)?.value||today;
+        const t=(root.querySelector("#actTo")as HTMLInputElement|null)?.value||today;
+        return f<=t?{from:f,to:t}:{from:t,to:f};
+      }
+      return {from:today,to:today};
+    }
+    w._actRange=(k:string)=>{
+      _actRange=k;
+      const box=root.querySelector("#actRange"); if(box) box.querySelectorAll(".pill").forEach((b:any,i:number)=>
+        b.classList.toggle("on",["today","yday","week","month","custom"][i]===k));
+      const cu=root.querySelector("#actCustom")as HTMLElement|null;
+      if(cu){ cu.style.display=k==="custom"?"inline-flex":"none";
+        if(k==="custom"){ const f=root.querySelector("#actFrom")as HTMLInputElement|null;
+          const t=root.querySelector("#actTo")as HTMLInputElement|null;
+          if(f&&!f.value) f.value=_actDay(new Date()); if(t&&!t.value) t.value=_actDay(new Date()); } }
+      if(k!=="custom") _actLoadNow();
+    };
+    w._actSearch=(v:string)=>{ _actQuery=String(v||"").trim().toLowerCase();
+      if(_actQT) clearTimeout(_actQT); _actQT=setTimeout(()=>_actRender(),180); };   // §13 debounce
+    w._actLoad=()=>_actLoadNow();
+
+    async function _actLoadNow(){
+      if(!_actMay()) return;
+      const host=root.querySelector("#actTable")as HTMLElement|null;
+      if(host&&!_actRows.length) host.innerHTML='<div class="ldwrap"><span class="ldcap">Loading activity…</span><div class="skel w75"></div><div class="skel w90"></div></div>';
+      const {from,to}=_actWindow();
+      try{
+        const r=await fetch(_api("/api/activity/sessions?from="+from+"&to="+to),{headers:authHeaders()});
+        if(r.status===403||r.status===401){ if(host) host.innerHTML='<div class="banner warn">You do not have permission to view login activity.</div>'; return; }
+        const j=await r.json();
+        if(j&&j.error){ if(host) host.innerHTML='<div class="banner warn">'+_orgEsc(j.error)+"</div>"; return; }
+        _actRows=(j&&j.sessions)||[]; _actUsers=(j&&j.users)||[];
+        if(j&&j.staleMs) _actStale=Number(j.staleMs)||_actStale;
+      }catch(e:any){ if(host&&!_actRows.length) host.innerHTML='<div class="banner warn">Could not load activity: '+_orgEsc(e?.message||"network error")+"</div>"; return; }
+      _actFillFilters(); _actRender();
+      const up=root.querySelector("#actUpdated"); if(up) up.textContent="Last updated "+_uaTime(new Date())
+        +" · "+(from===to?from:(from+" → "+to));
+    }
+
+    /** Role + user pickers built from the LIVE roster, so they can never offer a role the app does
+     *  not have (§12). Selections survive a rebuild. */
+    function _actFillFilters(){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const rSel=root.querySelector("#actFRole")as HTMLSelectElement|null;
+      const uSel=root.querySelector("#actFUser")as HTMLSelectElement|null;
+      if(rSel){ const cur=rSel.value;
+        const roles=Array.from(new Set(_actUsers.map((u:any)=>String(u.role||"")).filter(Boolean))).sort();
+        rSel.innerHTML='<option value="all">All roles</option>'+roles.map(r=>'<option>'+e(r)+"</option>").join("");
+        if(cur) rSel.value=cur; }
+      if(uSel){ const cur=uSel.value;
+        const us=_actUsers.slice().sort((a:any,b:any)=>String(a.name||a.email).localeCompare(String(b.name||b.email)));
+        uSel.innerHTML='<option value="all">All users</option>'+us.map((u:any)=>
+          '<option value="'+e(String(u.email||"").toLowerCase())+'">'+e(u.name||u.email)+"</option>").join("");
+        if(cur) uSel.value=cur; }
+    }
+
+    /** One row PER USER for the table (§7), with their sessions folded in. Users with no session in
+     *  range still appear, because "never logged in" is a status somebody has to be able to see. */
+    function _actByUser(){
+      const byEmail:Record<string,any>={};
+      _actUsers.forEach((u:any)=>{ const k=String(u.email||"").toLowerCase(); if(!k) return;
+        byEmail[k]={email:k,name:u.name||u.email,role:u.role||"—",active:u.active!==false,sessions:[] as any[]}; });
+      _actRows.forEach((r:any)=>{ const k=String(r.user_email||"").toLowerCase(); if(!k) return;
+        // A session from someone since removed from app_users still counts — dropping it would
+        // make the day's totals disagree with what actually happened.
+        if(!byEmail[k]) byEmail[k]={email:k,name:r.user_name||k,role:r.user_role||"—",active:false,sessions:[]};
+        byEmail[k].sessions.push(r); });
+      return Object.keys(byEmail).map(k=>{
+        const u=byEmail[k]; const ss=u.sessions.slice().sort((a:any,b:any)=>
+          new Date(a.login_at).getTime()-new Date(b.login_at).getTime());
+        const online=ss.some(_actIsOn);
+        const total=ss.reduce((s:number,r:any)=>s+_actSecs(r),0);
+        const outs=ss.filter((r:any)=>r.logout_at);
+        const expired=!online&&ss.length>0&&ss[ss.length-1].status==="expired";
+        return {...u,sessions:ss,online,total,count:ss.length,
+          first:ss.length?ss[0].login_at:null,
+          lastIn:ss.length?ss[ss.length-1].login_at:null,
+          lastOut:outs.length?outs[outs.length-1].logout_at:null,
+          status:online?"online":(!ss.length?"never":(expired?"expired":"out"))};
+      });
+    }
+    /** The filters + search, applied together (§12, §13). */
+    function _actFiltered(){
+      const role=(root.querySelector("#actFRole")as HTMLSelectElement|null)?.value||"all";
+      const user=(root.querySelector("#actFUser")as HTMLSelectElement|null)?.value||"all";
+      const st=(root.querySelector("#actFStatus")as HTMLSelectElement|null)?.value||"all";
+      return _actByUser().filter((u:any)=>{
+        if(role!=="all"&&String(u.role)!==role) return false;
+        if(user!=="all"&&u.email!==user) return false;
+        if(st==="inactive"){ if(u.active) return false; }
+        else if(st!=="all"&&u.status!==st) return false;
+        if(_actQuery){ const hay=(u.name+" "+u.email+" "+u.role).toLowerCase();
+          if(hay.indexOf(_actQuery)<0) return false; }
+        return true;
+      }).sort((a:any,b:any)=>(b.online?1:0)-(a.online?1:0)||b.total-a.total||String(a.name).localeCompare(String(b.name)));
+    }
+
+    function _actRender(){
+      if(!_actMay()) return;
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const rows=_actFiltered();
+      const all=_actByUser();
+
+      // ---- KPI cards (§5). Counted off the WHOLE window, not the filtered view: a filter answers
+      // "show me these people", it does not change how many users the clinic has.
+      const online=all.filter((u:any)=>u.online);
+      const activeToday=all.filter((u:any)=>u.count>0);
+      const totalSecs=_actRows.reduce((s:number,r:any)=>s+_actSecs(r),0);
+      const kpi=(label:string,val:string,sub:string,live?:boolean)=>
+        '<div class="act-k"><div class="act-kl">'+e(label)+(live?' <span class="act-dot"></span>':"")+'</div>'
+        +'<div class="act-kv">'+e(val)+'</div><div class="act-ks">'+e(sub)+"</div></div>";
+      const kb=root.querySelector("#actKpis");
+      if(kb) kb.innerHTML=
+         kpi("Total Users",String(_actUsers.length),"Registered in Users & Assignees")
+        +kpi("Active Today",String(activeToday.length),"Signed in during this range")
+        +kpi("Currently Online",String(online.length),"Signed in right now",true)
+        +kpi("Sessions",String(_actRows.length),"Login sessions in range")
+        +kpi("Total Active Time",_actDur(totalSecs),"Combined time signed in");
+
+      // ---- Currently online (§6) ----
+      const oc=root.querySelector("#actOnlineCount"); if(oc) oc.textContent=String(online.length);
+      const ob=root.querySelector("#actOnline");
+      if(ob) ob.innerHTML=online.length?online.map((u:any)=>{
+        const live=u.sessions.filter(_actIsOn)[0];
+        return '<button type="button" class="act-card" onclick="window._actOpen(\'' + e(u.email) + '\')">'
+          +'<span class="act-av">'+e(String(u.name||"?").trim().charAt(0).toUpperCase())+'</span>'
+          +'<span class="act-cn">'+e(u.name)+'</span>'
+          +'<span class="act-cr">'+e(u.role)+'</span>'
+          +'<span class="act-cw">In '+e(_uaTime(live&&live.login_at))+' · '+e(_actDur(_actSecs(live||{})))+"</span></button>";
+      }).join(""):'<div class="act-empty">Nobody is signed in right now.</div>';
+
+      // ---- The table (§7) ----
+      const tb=root.querySelector("#actTable");
+      if(tb) tb.innerHTML=rows.length
+        ? '<div class="tscroll" style="max-height:460px"><table class="tbl act-tbl"><thead><tr>'
+          +'<th>User</th><th>Role</th><th>First login</th><th>Last login</th><th>Logout</th>'
+          +'<th>Session duration</th><th>Sessions</th><th>Status</th></tr></thead><tbody>'
+          +rows.map((u:any)=>'<tr onclick="window._actOpen(\'' + e(u.email) + '\')" style="cursor:pointer">'
+            +'<td><div style="font-weight:600">'+e(u.name)+'</div><div class="act-sub2">'+e(u.email)+"</div></td>"
+            +"<td>"+e(u.role)+"</td>"
+            +'<td class="mono">'+e(u.first?_uaTime(u.first):"—")+"</td>"
+            +'<td class="mono">'+e(u.lastIn?_uaTime(u.lastIn):"—")+"</td>"
+            +'<td class="mono">'+(u.online?'<span class="act-cur">Currently active</span>':e(u.lastOut?_uaTime(u.lastOut):"—"))+"</td>"
+            +'<td class="mono" style="font-weight:700">'+e(u.count?_actDur(u.total):"—")+"</td>"
+            +'<td class="mono">'+e(String(u.count))+"</td>"
+            +"<td>"+_actChip(u.status,u.active)+"</td></tr>").join("")
+          +"</tbody></table></div>"
+        : '<div class="act-empty"><b>No login activity found</b><div style="margin:6px 0 10px">There are no login sessions matching your selected filters.</div>'
+          +'<button class="btn bsm" onclick="window._actClear()">Clear filters</button></div>';
+
+      _actRenderCal(); _actRenderCharts();
+      if(_actDrawer) _actRenderDrawer(_actDrawer);
+    }
+    /** §17 — expired and logged-out are different facts and must not read alike. */
+    function _actChip(st:string,active:boolean){
+      if(!active) return '<span class="chipb neu">Inactive</span>';
+      if(st==="online") return '<span class="chipb ok">● Online</span>';
+      if(st==="expired") return '<span class="chipb al">Session expired</span>';
+      if(st==="never") return '<span class="chipb neu">Never logged in</span>';
+      return '<span class="chipb neu">Logged out</span>';
+    }
+    w._actClear=()=>{
+      _actQuery=""; const s=root.querySelector("#actSearch")as HTMLInputElement|null; if(s) s.value="";
+      ["#actFRole","#actFUser","#actFStatus"].forEach(sel=>{ const el=root.querySelector(sel)as HTMLSelectElement|null; if(el) el.value="all"; });
+      _actRender();
+    };
+
+    // ---- Calendar (§11): one line per day in range ----
+    function _actRenderCal(){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const host=root.querySelector("#actCal"); if(!host) return;
+      const byDay:Record<string,any[]>={};
+      _actRows.forEach((r:any)=>{ const d=_actDay(r.login_at); if(!d) return; (byDay[d]=byDay[d]||[]).push(r); });
+      const days=Object.keys(byDay).sort().reverse();
+      host.innerHTML=days.length
+        ? '<div class="tscroll" style="max-height:300px"><table class="tbl"><thead><tr><th>Date</th><th>First login</th>'
+          +"<th>Last logout</th><th>Total time</th><th>Sessions</th><th>Users</th></tr></thead><tbody>"
+          +days.map(d=>{ const ss=byDay[d].slice().sort((a:any,b:any)=>new Date(a.login_at).getTime()-new Date(b.login_at).getTime());
+            const outs=ss.filter((r:any)=>r.logout_at);
+            const anyOn=ss.some(_actIsOn);
+            return "<tr><td class=\"mono\" style=\"font-weight:600\">"+e(d)+"</td>"
+              +'<td class="mono">'+e(_uaTime(ss[0].login_at))+"</td>"
+              +'<td class="mono">'+(anyOn?'<span class="act-cur">Still active</span>':e(outs.length?_uaTime(outs[outs.length-1].logout_at):"—"))+"</td>"
+              +'<td class="mono" style="font-weight:700">'+e(_actDur(ss.reduce((s:number,r:any)=>s+_actSecs(r),0)))+"</td>"
+              +'<td class="mono">'+ss.length+"</td>"
+              +'<td class="mono">'+new Set(ss.map((r:any)=>String(r.user_email).toLowerCase())).size+"</td></tr>"; }).join("")
+          +"</tbody></table></div>"
+        : '<div class="act-empty">No sessions in this range.</div>';
+    }
+
+    // ---- Analytics (§14): peak login hour + status split, drawn as plain bars ----
+    function _actRenderCharts(){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const host=root.querySelector("#actCharts"); if(!host) return;
+      const byHour:number[]=new Array(24).fill(0);
+      _actRows.forEach((r:any)=>{ const d=new Date(r.login_at); if(isNaN(d.getTime())) return;
+        const h=Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",hour:"2-digit",hour12:false}).format(d));
+        if(!isNaN(h)) byHour[h%24]++; });
+      const peak=Math.max(1,...byHour);
+      const all=_actByUser();
+      const dist=[["Online",all.filter((u:any)=>u.status==="online").length,"ok"],
+                  ["Logged out",all.filter((u:any)=>u.status==="out").length,"neu"],
+                  ["Session expired",all.filter((u:any)=>u.status==="expired").length,"al"],
+                  ["Never logged in",all.filter((u:any)=>u.status==="never").length,"neu"],
+                  ["Inactive",all.filter((u:any)=>!u.active).length,"neu"]] as [string,number,string][];
+      const distMax=Math.max(1,...dist.map(d=>d[1]));
+      const hours=byHour.map((n,h)=>({n,h})).filter(x=>x.n>0);
+      host.innerHTML='<div class="act-charts">'
+        +'<div><div class="act-ct">Peak login time</div>'
+        +(hours.length?'<div class="act-bars">'+hours.map(x=>
+            '<div class="act-bar" title="'+e(_actPad(x.h)+":00 · "+x.n+" session"+(x.n===1?"":"s"))+'">'
+            +'<span class="act-barv" style="height:'+Math.round((x.n/peak)*100)+'%"></span>'
+            +'<span class="act-barl">'+_actPad(x.h)+"</span></div>").join("")+"</div>"
+          :'<div class="act-empty">No logins in this range.</div>')+"</div>"
+        +'<div><div class="act-ct">User activity distribution</div><div class="act-dist">'
+        +dist.map(d=>'<div class="act-drow"><span class="act-dl">'+e(d[0])+'</span>'
+            +'<span class="act-dtrack"><span class="act-dfill '+d[2]+'" style="width:'+Math.round((d[1]/distMax)*100)+'%"></span></span>'
+            +'<span class="act-dn">'+d[1]+"</span></div>").join("")+"</div></div></div>";
+    }
+
+    // ---- Session drawer (§10, §15) ----
+    w._actOpen=(email:string)=>{ _actDrawer=String(email||"").toLowerCase(); _actRenderDrawer(_actDrawer); };
+    w._actCloseDrawer=()=>{ _actDrawer=""; const d=root.querySelector("#actDrawer"); if(d) d.classList.remove("open"); };
+    function _actRenderDrawer(email:string){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      let d=root.querySelector("#actDrawer")as HTMLElement|null;
+      if(!d){ d=document.createElement("div"); d.id="actDrawer"; d.className="act-drawer"; root.appendChild(d); }
+      const u=_actByUser().find((x:any)=>x.email===email);
+      if(!u){ d.classList.remove("open"); return; }
+      const ss=u.sessions.slice().reverse();
+      const avg=u.count?Math.round(u.total/u.count):0;
+      // Timeline (§10): each session contributes its login and, when it ended, how it ended.
+      const tl=ss.length?ss.slice().reverse().map((r:any)=>{
+        const end=_actIsOn(r)?'<div class="act-tl-i"><span class="act-tl-d on"></span><span class="mono">now</span> <b>Active</b> · '+e(_actDur(_actSecs(r)))+"</div>":
+          (r.logout_at?'<div class="act-tl-i"><span class="act-tl-d"></span><span class="mono">'+e(_uaTime(r.logout_at))+"</span> <b>"
+            +(r.status==="expired"?"Session expired":"Logged out")+"</b></div>":"");
+        return '<div class="act-tl-i"><span class="act-tl-d in"></span><span class="mono">'+e(_uaTime(r.login_at))+"</span> <b>Logged in</b>"
+          +(r.device?' · <span class="act-sub2">'+e(r.browser+" / "+r.device)+"</span>":"")+"</div>"+end;
+      }).join(""):'<div class="act-empty">No sessions in this range.</div>';
+      d.innerHTML='<div class="act-dhd"><div><div class="act-dnm">'+e(u.name)+"</div>"
+        +'<div class="act-sub2">'+e(u.role)+" · "+e(u.email)+"</div></div>"
+        +'<div style="margin-left:auto;display:flex;gap:8px;align-items:center">'+_actChip(u.status,u.active)
+        +'<button class="pill" onclick="window._actCloseDrawer()">&#10005;</button></div></div>'
+        +'<div class="act-dstats">'
+        +'<div><span>Sessions</span><b>'+u.count+"</b></div>"
+        +"<div><span>Total time</span><b>"+e(_actDur(u.total))+"</b></div>"
+        +"<div><span>First login</span><b>"+e(u.first?_uaTime(u.first):"—")+"</b></div>"
+        +"<div><span>Last logout</span><b>"+(u.online?"Active":e(u.lastOut?_uaTime(u.lastOut):"—"))+"</b></div>"
+        +"<div><span>Average session</span><b>"+e(avg?_actDur(avg):"—")+"</b></div>"
+        +"<div><span>Devices</span><b>"+e(String(new Set(ss.map((r:any)=>r.browser+"/"+r.device)).size||"—"))+"</b></div>"
+        +"</div>"
+        +'<div class="act-dsec">Sessions</div>'
+        +(ss.length?ss.map((r:any,i:number)=>'<div class="act-drow2"><div><b>Session '+(ss.length-i)+"</b> "
+          +'<span class="mono">'+e(_uaTime(r.login_at))+" → "+(_actIsOn(r)?"current":e(r.logout_at?_uaTime(r.logout_at):"—"))+"</span></div>"
+          +'<div class="act-sub2">'+e(_actDur(_actSecs(r)))+(r.browser?(" · "+e(r.browser+" / "+r.device)):"")
+          +(r.ip_address?(" · "+e(r.ip_address)):"")+"</div></div>").join(""):"")
+        +'<div class="act-dsec">Today’s timeline</div><div class="act-tl">'+tl+"</div>";
+      d.classList.add("open");
+    }
+
+    // ---- Export (§18): exactly the rows on screen, one line per SESSION ----
+    w._actExport=()=>{
+      const rows=_actFiltered(); const keep=new Set(rows.map((u:any)=>u.email));
+      const out:string[][]=[["User","Email","Role","Date","Login time","Logout time","Session duration","Status","Device","Browser","IP"]];
+      _actRows.filter((r:any)=>keep.has(String(r.user_email).toLowerCase()))
+        .slice().sort((a:any,b:any)=>new Date(b.login_at).getTime()-new Date(a.login_at).getTime())
+        .forEach((r:any)=>out.push([String(r.user_name||""),String(r.user_email||""),String(r.user_role||""),
+          _actDay(r.login_at),_uaTime(r.login_at),_actIsOn(r)?"Currently active":(r.logout_at?_uaTime(r.logout_at):""),
+          _actDur(_actSecs(r)),_actIsOn(r)?"Online":(r.status==="expired"?"Session expired":"Logged out"),
+          String(r.device||""),String(r.browser||""),String(r.ip_address||"")]));
+      if(out.length===1){ toast("Nothing to export for these filters"); return; }
+      const {from,to}=_actWindow();
+      downloadCsvRows(out,"login-activity-"+from+(from===to?"":"_to_"+to)+".csv");
+    };
+
+    // ---- Live refresh (§16). One timer, started when the tab is opened, stopped when it is not. ----
+    function _actTick(){
+      if(!_actMay()) return;
+      if(_activeScreenId()!=="settings"||!_actVisible()){ if(_actTimer){ clearInterval(_actTimer); _actTimer=null; } return; }
+      if(!_actTimer) _actTimer=setInterval(()=>{ try{ if(_actVisible()) _actLoadNow(); else { clearInterval(_actTimer); _actTimer=null; } }catch(_){} },45000);
+    }
+    const _actVisible=()=>{
+      const p=root.querySelector('.st-p[data-p="st-act"]')as HTMLElement|null;
+      return !!p&&p.style.display!=="none";
+    };
+    /** Show the tab only to roles that may use it (§20 frontend half; the API enforces the rest). */
+    function _actApplyPerm(){
+      const t=root.querySelector("#stActTab")as HTMLElement|null;
+      if(t) t.style.display=_actMay()?"":"none";
+    }
+    w._actRender=_actRender;
+    w._actApplyPerm=_actApplyPerm;
+    // Opening the tab loads it; the shared tabset() handler cannot know that, so poll cheaply for
+    // the panel becoming visible rather than reaching into that generic helper.
+    setInterval(()=>{ try{
+      if(!_actMay()) return;
+      const vis=_actVisible();
+      if(vis&&!_actRows.length&&!_actLoadedOnce){ _actLoadedOnce=true; _actLoadNow(); }
+      if(vis) _actTick();
+    }catch(_){} },1500);
+    let _actLoadedOnce=false;
+
+    // ===== Pending payment follow-ups, split by kind, for the Health Coach =====
+    // Two genuinely different jobs were one undifferentiated "Outstanding" list on the Accounts
+    // screen: chasing the NEXT INSTALMENT of a plan already running, and chasing money a client
+    // committed to at consultation and has not paid at all. They need different conversations, so
+    // they are counted and listed apart.
+    //
+    //   installment      - a numbered instalment is pending (payment_type "installment")
+    //   postConsultation - every other outstanding request: a full payment, an EMI, or the balance
+    //                      left after an advance. Money owed that is not part of an instalment plan.
+    //
+    // Counts come from REAL rows in `payments` with status "due" - never a derived or guessed
+    // number - so collecting, cancelling or deleting one is what makes it disappear.
+    type PayFuRow={id:string;leadId:string;name:string;kind:"inst"|"post";amount:number;
+                  inst:number|null;total:number|null;due:string;program:string;hc:string;adv:string};
+    let _payFuRows:PayFuRow[]=[];
+    let _payFuPanelOpen=false;   // is the drawer showing
+    let _payFuLoading=false;
+    async function _payFuLoad(){
+      if(_payFuLoading) return; _payFuLoading=true;
+      try{
+        const {data:due}=await supabase.from("payments")
+          .select("id,lead_id,amount,payment_type,installment_number,total_installments,due_date,program,status")
+          .eq("status","due").limit(500);
+        const rows=(due||[]).filter((p:any)=>String(p.lead_id||"").trim());
+        const ids=Array.from(new Set(rows.map((p:any)=>String(p.lead_id))));
+        // Names + the fallback coach in one read; the appointment is still the LIVE coach where
+        // one exists, which is the same order every other screen resolves the coach in.
+        const byLead:Record<string,any>={};
+        for(let i2=0;i2<ids.length;i2+=200){
+          try{ const {data}=await supabase.from("leads").select("meta_lead_id,name,phone,hc_assigned,assigned_to").in("meta_lead_id",ids.slice(i2,i2+200));
+            (data||[]).forEach((l:any)=>{ byLead[String(l.meta_lead_id)]=l; }); }catch(_){}
+        }
+        const apptHc:Record<string,string>={};
+        try{ const {data:ap}=await supabase.from("appointments").select("lead_id,hc_pt,status,created_at").limit(1000);
+          const seen:Record<string,number>={};
+          (ap||[]).forEach((a:any)=>{ const k=String(a.lead_id||""); const hc=String(a.hc_pt||"").trim();
+            if(!k||!hc||String(a.status||"").toLowerCase()==="cancelled") return;
+            const t=new Date(a.created_at||0).getTime()||0;
+            if(seen[k]===undefined||t>=seen[k]){ seen[k]=t; apptHc[k]=hc; } }); }catch(_){}
+        _payFuRows=rows.map((p:any)=>{
+          const k=String(p.lead_id); const l=byLead[k]||{};
+          const isInst=String(p.payment_type||"")==="installment";
+          return { id:String(p.id), leadId:k, name:String(l.name||"Client"),
+                   kind:(isInst?"inst":"post") as "inst"|"post", amount:Number(p.amount)||0,
+                   inst:isInst?(Number(p.installment_number)||null):null,
+                   total:isInst?(Number(p.total_installments)||null):null,
+                   due:String(p.due_date||""), program:String(p.program||""),
+                   hc:apptHc[k]||String(l.hc_assigned||""), adv:String(l.assigned_to||"") };
+        });
+      }catch(_){ _payFuRows=[]; }
+      finally{ _payFuLoading=false; }
+      try{ _payFuRender(); }catch(_){}
+    }
+    // Scoped exactly like the Today's-follow-ups rail (_fuScopedBook), because it is the same
+    // question asked about money instead of calls: whose client is this?
+    //   - Full-view roles (Super Admin / Manager / Branch Manager): everything.
+    //   - Everyone else: clients they COACH (the appointment's hc_pt, else leads.hc_assigned) OR
+    //     leads ASSIGNED to them. Someone who both advises and coaches keeps the union, and an
+    //     account that resolves to no name matches nothing - fail closed, never "show them all".
+    function _payFuMine():PayFuRow[]{
+      if(_holdsFullViewRole()) return _payFuRows.slice();
+      const self=_advisorName();
+      if(!self) return [];
+      return _payFuRows.filter((x)=>x.hc===self||x.adv===self);
+    }
+    w._payFuToggle=()=>{ _payFuPanelOpen=!_payFuPanelOpen; _payFuRender(); };
+    // Open the client this request belongs to, straight from the panel.
+    w._payFuOpenLead=(leadId:string)=>{
+      _payFuPanelOpen=false; _payFuRender();
+      // Reuse the list's own opener so the panel fills exactly as it does from a row click.
+      try{ (w as any)._coachOpen(String(leadId)); }
+      catch(_){ toast("Open this client from the visited list below"); }
+    };
+    function _payFuRender(){
+      // Money owed is due wherever you are working, so this rides the same screens the
+      // Today's-follow-ups rail does - an advisor sees it on their page, a coach on theirs - rather
+      // than living on one screen people have to remember to visit. Reception is excluded: it has
+      // its own appointment reminder bell in this exact corner, and two bells would overlap.
+      const scr=_activeScreenId();
+      const onCoach=!!_currentUser&&(scr==="advisor"||scr==="coach");
+      let bell=root.querySelector("#payFuBell") as HTMLElement|null;
+      let panel=root.querySelector("#payFuPanel") as HTMLElement|null;
+      if(!onCoach){ if(bell) bell.style.display="none"; if(panel) panel.classList.remove("open"); return; }
+      const mine=_payFuMine();
+      const inst=mine.filter((x)=>x.kind==="inst"), post=mine.filter((x)=>x.kind==="post");
+      if(!bell){ const b=document.createElement("button"); b.id="payFuBell"; b.className="rem-bell";
+        b.setAttribute("type","button"); b.onclick=()=>{ try{ w._payFuToggle(); }catch(_){} };
+        root.appendChild(b); bell=b; }
+      if(!panel){ const p2=document.createElement("div"); p2.id="payFuPanel"; p2.className="rem-panel"; root.appendChild(p2); panel=p2; }
+      bell.style.display="flex";
+      bell.className="rem-bell"+(mine.length?"":" quiet");
+      bell.innerHTML='<span style="font-size:15px">&#8377;</span><span class="n">'+mine.length+'</span>';
+      bell.title=mine.length
+        ?(inst.length+" instalment + "+post.length+" post-consultation payment follow-up"+(mine.length===1?"":"s")+" pending")
+        :"No pending payment follow-ups";
+      const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      const money=(n:number)=>"₹"+Number(n||0).toLocaleString("en-IN");
+      const dueTxt=(d:string)=>{ if(!d) return "no due date";
+        const t=new Date(/T/.test(d)?d:(d+"T12:00:00")).getTime(); if(isNaN(t)) return e(d);
+        const days=Math.round((t-Date.now())/86400000);
+        return days<0?(Math.abs(days)+"d overdue"):(days===0?"due today":("due in "+days+"d")); };
+      const overdue=(d:string)=>{ if(!d) return false; const t=new Date(/T/.test(d)?d:(d+"T12:00:00")).getTime(); return !isNaN(t)&&t<Date.now()-86400000; };
+      const row=(x:PayFuRow)=>'<div class="rem-row">'
+        +'<div style="display:flex;align-items:center;gap:6px">'
+        +'<span class="rem-nm">'+e(x.name)+'</span>'
+        +'<span class="rem-tier '+(overdue(x.due)?"urg":"due")+'" style="margin-left:auto">'+money(x.amount)+'</span></div>'
+        +'<div class="rem-sub">'
+        +(x.kind==="inst"?("Instalment "+(x.inst||"?")+(x.total?(" of "+x.total):"")):"Post-consultation")
+        +(x.program?(" · "+e(x.program)):"")+" · "+dueTxt(x.due)+'</div>'
+        +'<div class="rem-acts"><button type="button" class="go" onclick="window._payFuOpenLead(&quot;'+e(x.leadId)+'&quot;)">Open client</button></div></div>';
+      const group=(title:string,list:PayFuRow[])=>list.length
+        ?('<div class="rem-row" style="background:var(--wash,#F7F9F8);font-weight:700;font-size:11.5px;letter-spacing:.02em">'
+          +e(title)+' <span class="chipb neu" style="margin-left:6px">'+list.length+'</span></div>'+list.map(row).join(""))
+        :"";
+      panel.className="rem-panel"+(_payFuPanelOpen?" open":"");
+      panel.innerHTML='<div class="rem-hd"><span>&#8377; Payment follow-ups</span>'
+        +'<span class="chipb neu">'+mine.length+'</span>'
+        +'<button type="button" class="pill" style="margin-left:auto;font-size:11px" onclick="window._payFuToggle()">&#10005;</button></div>'
+        +(mine.length
+          ?(group("Instalment follow-ups",inst)+group("Post-consultation payments",post))
+          :'<div class="rem-row" style="color:var(--faint);font-size:12px">No pending payment follow-ups ✓</div>');
+    }
+    w._payFuRender=_payFuRender;
     function _remRender(){
       const onRec=_activeScreenId()==="reception";
       let bell=root.querySelector("#remBell") as HTMLElement|null;
@@ -11862,6 +12387,11 @@ export function initApp(root: HTMLElement) {
       // profile re-writes its (possibly stale) saved call_status back to the DB, silently un-enrolling
       // it on the dashboard. This mirrors the _advApplying guard already used for the activity log below.
       if(!_advApplying && w._haSetCallStatus) w._haSetCallStatus(_csLabelOf(v));
+      // Not Registered closes the lead outright (auto-save + drop the follow-up). Guarded by
+      // _advApplying like the line above: merely OPENING a lead that is already closed must not
+      // re-save it or re-log the change. Repainting the header is safe either way and happens below.
+      if(_advIsClosedCode(v)){ if(!_advApplying){ try{ _advCloseAsNotRegistered(); }catch(_){} } else { try{ _advPaintClosed(true); }catch(_){} } }
+      else { try{ _advPaintClosed(false); }catch(_){} }
       try{ _advSyncReqMarks(); }catch(_){}   // no-contact statuses drop the * from Gender / Occupation
       // Audit: log a real status change (but not when restoring a saved profile).
       if(!_advApplying && _advLeadId) logActivity(_advLeadId,[{action:"Status Changed",field:"Call status",new:_csLabelOf(v)}]);

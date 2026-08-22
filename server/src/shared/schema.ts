@@ -284,6 +284,44 @@ const STEPS: Step[] = [
     name: 'leads.payment_method',
     sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS payment_method TEXT`,
   },
+
+  // ---- User Login & Activity (PRD §21) ----
+  // One row per SESSION, never one per user: a person logs in and out several times a day and each
+  // of those is a separate fact (§9). app_users stays the single source of truth for who people are
+  // — this table only records when they were here, keyed by their email because that is what the
+  // signed session token carries and what app_users is looked up by everywhere else.
+  {
+    name: 'user_sessions',
+    sql: `CREATE TABLE IF NOT EXISTS user_sessions (
+      id               BIGSERIAL PRIMARY KEY,
+      user_email       TEXT NOT NULL,
+      user_name        TEXT,
+      user_role        TEXT,
+      login_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+      logout_at        TIMESTAMPTZ,
+      last_activity_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      status           TEXT NOT NULL DEFAULT 'online',
+      device           TEXT,
+      browser          TEXT,
+      ip_address       TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    // The dashboard's every query is "sessions for a day", newest first.
+    name: 'user_sessions.login_at index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_user_sessions_login_at ON user_sessions(login_at DESC)`,
+  },
+  {
+    name: 'user_sessions.user index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(lower(user_email), login_at DESC)`,
+  },
+  {
+    // Finding the row a heartbeat or logout belongs to: this user's still-open session.
+    name: 'user_sessions.open index',
+    sql: `CREATE INDEX IF NOT EXISTS idx_user_sessions_open ON user_sessions(lower(user_email)) WHERE logout_at IS NULL`,
+  },
 ];
 
 // ---------------------------------------------------------------------------
