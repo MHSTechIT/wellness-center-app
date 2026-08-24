@@ -60,3 +60,7 @@ server/uploads/
 # client's name, phone, appointments and payment rows — same reason the database backups above are
 # never pushed. Keep them locally; they exist so a mistaken removal can be re-inserted.
 server/scripts/deleted-lead-*.json
+
+# Dev-server output (client-dev.log, server-dev.err.log, …). Regenerated on every `npm run dev` and
+# specific to one machine, so it only ever appears as noise in git status.
+*.log
