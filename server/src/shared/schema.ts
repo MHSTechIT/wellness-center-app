@@ -322,6 +322,33 @@ const STEPS: Step[] = [
     name: 'user_sessions.open index',
     sql: `CREATE INDEX IF NOT EXISTS idx_user_sessions_open ON user_sessions(lower(user_email)) WHERE logout_at IS NULL`,
   },
+  {
+    // A BDM approval must RECORD the level it grants, wherever it happens. The client-side fix
+    // writes leads.program_suggested at approval time — but any tab still running an older build
+    // approves without it, and the lead then reads "Enrolled – L1" whatever the request said
+    // (recurred 22-Aug-2026 with three pending L1 + L2 requests). This trigger closes it at the
+    // DATABASE: the moment a bdm_requests row lands approved, the lead's program_suggested is
+    // stamped from the request — only when the lead doesn't already carry one, so the new build's
+    // own write (and any hand-set value) is never overwritten. Idempotent by construction.
+    name: 'trigger bdm approval stamps program level',
+    sql: `
+      CREATE OR REPLACE FUNCTION bdm_approval_stamps_level() RETURNS trigger AS $fn$
+      BEGIN
+        IF NEW.status = 'approved'
+           AND COALESCE(NEW.kind, 'enrollment') = 'enrollment'
+           AND NEW.program IS NOT NULL AND btrim(NEW.program) <> ''
+           AND NEW.program <> 'Assessment edit' THEN
+          UPDATE leads SET program_suggested = NEW.program
+           WHERE meta_lead_id = NEW.lead_id
+             AND (program_suggested IS NULL OR btrim(program_suggested) = '');
+        END IF;
+        RETURN NEW;
+      END $fn$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS trg_bdm_approval_level ON bdm_requests;
+      CREATE TRIGGER trg_bdm_approval_level
+        AFTER INSERT OR UPDATE OF status ON bdm_requests
+        FOR EACH ROW EXECUTE FUNCTION bdm_approval_stamps_level()`,
+  },
 ];
 
 // ---------------------------------------------------------------------------

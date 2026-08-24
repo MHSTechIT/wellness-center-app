@@ -47,6 +47,34 @@ export function initApp(root: HTMLElement) {
       }catch(_){ return s; }
     }
 
+    // Password reveal (.pw-eye), DELEGATED at the document level and attached HERE — synchronously,
+    // at the very top of initApp — for two reasons learned the hard way (24-Aug-2026):
+    //   1. React owns the login overlay's DOM and re-creates those buttons (hydration recovery,
+    //      re-mounts), which silently detaches any per-node listener. Delegation survives that.
+    //   2. The login-form setTimeout block this used to live in can be killed by an exception
+    //      ANYWHERE above it, taking every later wiring line with it — the eye was dead while the
+    //      identical listener pasted into the console worked. Nothing runs before this line.
+    try{
+      // ONCE-ONLY: React StrictMode runs initApp twice in dev, and two copies of this listener
+      // toggle password→text→password in a single click — a perfect no-op that read as "the eye
+      // is dead" (the actual root cause of the 24-Aug-2026 incident; the per-node listeners it
+      // replaced were double-bound the same way). The window flag survives both invocations.
+      if(!(window as any).__pwEyeWired){
+        (window as any).__pwEyeWired=true;
+        document.addEventListener("click",(ev:any)=>{
+          const b=ev.target&&ev.target.closest?ev.target.closest(".pw-eye"):null;
+          if(!b) return;
+          const inp=document.getElementById(String(b.getAttribute("data-pw")||"")) as HTMLInputElement|null;
+          if(!inp) return;
+          const show=inp.type==="password";
+          inp.type=show?"text":"password";
+          b.setAttribute("aria-pressed",show?"true":"false");
+          b.setAttribute("aria-label",show?"Hide password":"Show password");
+          inp.focus();
+        });
+      }
+    }catch(_){/* reveal is a convenience — never let it block boot */}
+
     // Live numeric-only input guard (digits + one optional decimal). Wire via
     // oninput="window._numOnly(this)" on money/number fields so letters and
     // symbols can never be typed. _digitsOnly keeps digits only (phones, refs).
@@ -594,10 +622,14 @@ export function initApp(root: HTMLElement) {
       const appShell=root.querySelector("#appShell") as HTMLElement;
       if(overlay) overlay.style.display="none";
       if(appShell) appShell.style.display="";
-      // Release the pre-paint boot gate (layout.tsx) — its CSS carries !important, so leaving the
-      // attribute on would pin the splash visible forever. The inline styles set in this function
-      // (and by the splash-hide below) take over from here.
-      try{ document.documentElement.removeAttribute("data-boot"); }catch(_){}
+      // The pre-paint boot gate (layout.tsx) is NOT released here any more. React can regenerate
+      // the page tree seconds into boot (a live hydration mismatch does exactly that), and a
+      // regenerated #loginOverlay comes back with its default VISIBLE styling — releasing the gate
+      // on entry re-opened the login-flash this gate exists to kill (re-reported 24-Aug-2026).
+      // The gate's CSS keeps ANY overlay node hidden, however many times React rebuilds it, so it
+      // stays on until the splash actually lifts (below) — by then the tree is long settled. The
+      // repeat-call path (no splash) releases it immediately as before.
+      if(_appShownOnce){ try{ document.documentElement.removeAttribute("data-boot"); }catch(_){} }
       const sfUser=root.querySelector("#sfootUser") as HTMLElement;
       if(sfUser&&_currentUser) sfUser.textContent=(_currentUser.name||_currentUser.email.split("@")[0])+" · "+_currentUser.role;
       if(!_appShownOnce){
@@ -617,7 +649,18 @@ export function initApp(root: HTMLElement) {
         const timeout=new Promise((res)=>setTimeout(res,20000));   // safety NET only: a stuck DB can't trap the user past 20s. The splash no longer waits for a Meta crawl (see fetchMetaLiveFeed — existing DB data lifts it immediately; the sync refreshes in the background), so the normal path lifts in a few seconds.
         Promise.race([ready,timeout]).then(()=>{
           try{ renderAll(); renderHealthDashboard(); renderAssignedLeads(); }catch(_){}
-          if(splash){ splash.classList.add("done"); setTimeout(()=>{ splash.style.display="none"; },400); }
+          // Release the boot gate ONLY now — the app is painted and the tree is settled, so a
+          // regenerated login overlay can no longer flash (see the note at the top of showApp).
+          // Everything is re-applied via FRESH lookups first: if React regenerated the tree during
+          // boot, the nodes captured above are detached — styling those and then dropping the gate
+          // would leave the LIVE overlay at its default (visible) styling.
+          try{
+            const ovNow=document.getElementById("loginOverlay"); if(ovNow) ovNow.style.display="none";
+            const shellNow=document.getElementById("appShell"); if(shellNow) shellNow.style.display="";
+            document.documentElement.removeAttribute("data-boot");
+          }catch(_){}
+          const spNow=(document.getElementById("appLoading")as HTMLElement|null)||splash;
+          if(spNow){ spNow.classList.add("done"); setTimeout(()=>{ spNow.style.display="none"; },400); }
         });
       }
       applyNavGating();
@@ -751,20 +794,10 @@ export function initApp(root: HTMLElement) {
       if(passEl) passEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter"&&!_loginIsSignUp) _signIn(); });
       const confirmEl=root.querySelector("#loginConfirm");
       if(confirmEl) confirmEl.addEventListener("keydown",(e:any)=>{ if(e.key==="Enter") _signIn(); });
-      _rememberRestore();
-      // Password reveal. Only Edge ships a native reveal control, so on Chrome/Firefox there was no
-      // way to check a typo'd password — hence "the eye is missing in the deployed app".
-      root.querySelectorAll(".pw-eye").forEach((b:any)=>{
-        b.addEventListener("click",()=>{
-          const inp=root.querySelector("#"+b.getAttribute("data-pw")) as HTMLInputElement|null;
-          if(!inp) return;
-          const show=inp.type==="password";
-          inp.type=show?"text":"password";
-          b.setAttribute("aria-pressed",show?"true":"false");
-          b.setAttribute("aria-label",show?"Hide password":"Show password");
-          inp.focus();
-        });
-      });
+      // Last, and guarded: a throw here must never have silently killed anything (it killed the
+      // password-reveal wiring that used to follow it — the eye incident, 24-Aug-2026). Anything
+      // failing in this block now says so in the console instead of dying quietly.
+      try{ _rememberRestore(); }catch(e:any){ console.error("[login] remember-restore failed:",e&&e.message); }
     },0);
 
     // ---- Cash payments have no transaction reference ----
@@ -3965,7 +3998,12 @@ export function initApp(root: HTMLElement) {
     // Date & Time shown for an assigned lead = its assignment time (assigned_at),
     // falling back to pool-add / creation time when that column isn't populated.
     let _asnQuery=""; let _asnSearchT:any=null;
-    function _asnDateVal(l:any){ const d=_advLeadsDet[String(l.id)]; return (d&&d.assigned_at)||l.assignedAt||l.poolAddedAt||l.createdAt||null; }
+    // CREATED-first (validation fix 24-Aug-2026): the top date filter selects leads by the day
+    // they ARRIVED — the locked "Total Leads = Created Date" rule the Admin Report follows. It was
+    // assignment-date-first, so a June lead assigned today joined today's cohort and the two
+    // screens could never agree (28 vs 24 on 22-Aug staging: 10 older assignments in, unassigned
+    // new arrivals out). Activity cards are unaffected — they window by each action's own date.
+    function _asnDateVal(l:any){ const d=_advLeadsDet[String(l.id)]; return l.createdAt||(d&&d.assigned_at)||l.assignedAt||l.poolAddedAt||null; }
     // When the lead was ORIGINALLY created/imported — paired with _asnDateVal (when it was
     // assigned) so the gap between the two is visible in the table.
     function _asnGenDateVal(l:any){ return l.createdAt||l.lead_date||null; }
@@ -6676,14 +6714,47 @@ export function initApp(root: HTMLElement) {
       catch(_){ _haPayRows=[]; }
     }
     // Collected money, net of refunds, for a given set of leads. `status==="paid"` is what every
-    // collect-payment path writes; a due row is a promise, not revenue.
+    // other money surface in this app counts, so the dashboard cannot disagree with Accounts.
+    // Restricted to the applied DATE WINDOW: it previously summed
+    // every paid row those leads ever produced, so the Revenue card ignored the date filter while
+    // the Enrollment card beside it obeyed it — two halves of one panel measuring different periods.
+    // Windowed on paid_at: money is earned when it is collected, which is the same rule Accounts
+    // and the reports use. A row with no paid_at falls back to created_at rather than being dropped.
     function _haRevenueOf(ids:Set<string>){
+      const w=_haWinT(); const windowed=!!(w.fromT||w.toT);
       let sum=0;
       _haPayRows.forEach((p:any)=>{ if(!ids.has(String(p.lead_id||""))) return; if(String(p.status||"")!=="paid") return;
+        if(windowed&&!_haInWin(p.paid_at||p.created_at,w)) return;
         sum+=Math.max(0,(Number(p.amount)||0)-(Number(p.refund_amount)||0)); });
       return sum;
     }
     // ---- Per-lead call facts, built once per render from the same rows the KPI cards use ----
+    // Per-lead call facts restricted to the applied DATE WINDOW. §5.8 Call performance measures
+    // activity in the selected period — with the unwindowed facts below it summed every call ever
+    // made to whichever leads the filter matched, so "Date = Today" reported months of history.
+    //
+    // Deliberately a SEPARATE function rather than a window on _haCallFacts: that one feeds
+    // _fuActioned, which decides a follow-up is done by finding a call AFTER the planned moment.
+    // Windowing it would hide calls outside the range and mark handled follow-ups as still due.
+    function _haCallFactsWin(){
+      const w=_haWinT();
+      if(!w.fromT&&!w.toT) return _haCallFacts();   // no window = the whole book, as before
+      const m:Record<string,any>={};
+      _advCallRows.forEach((r:any)=>{
+        const k=String(r.contact_id||""); if(!k) return;
+        if(!_haInWin(r.created_at,w)) return;
+        const o=(m[k]=m[k]||{total:0,connected:0,dur:0,inbound:0,missed:0,first:0,last:0});
+        const secs=Number(r.duration_seconds)||0;
+        const conn=String(r.call_status||"").toLowerCase()==="answered"||secs>0;
+        const inbound=/in/i.test(String(r.direction||""))&&!/out/i.test(String(r.direction||""));
+        const t=r.created_at?new Date(r.created_at).getTime():0;
+        o.total++;
+        if(conn){ o.connected++; o.dur+=secs; }
+        if(inbound){ o.inbound++; if(!conn) o.missed++; }
+        if(t){ if(!o.first||t<o.first) o.first=t; if(t>o.last) o.last=t; }
+      });
+      return m;
+    }
     function _haCallFacts(){
       const m:Record<string,any>={};
       _advCallRows.forEach((r:any)=>{
@@ -6892,6 +6963,17 @@ export function initApp(root: HTMLElement) {
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>_haPassesFilter(l,filter));
+      // TOTAL LEADS with a date window = EVERY lead CREATED in that window — assigned or not —
+      // which is the Admin Report's number (locked rule: Total Leads = Created Date). The card used
+      // to be the assigned book only, so brand-new unassigned arrivals were missing and the two
+      // screens disagreed (28 vs 24, 22-Aug validation). Unassigned sources join only for the
+      // count; every other card still works the assigned book. No window → whole book, unchanged.
+      const _totWin=_haWinT();
+      const _totalLeads=(!_totWin.fromT&&!_totWin.toT)?fullBook.length:(()=>{
+        const seen=new Set<string>();
+        const uni=[...haBook(),..._metaLeads.filter((l:any)=>!(l.isAssigned&&l.assignedTo)),..._poolExtras,..._otherFeedLeads];
+        return haCommonFilter(uni).filter((l:any)=>{ const id=String(l.id); if(seen.has(id)) return false; seen.add(id); return true; }).length;
+      })();
       // ACTIVITY-DATED sets (20-Aug-2026): each activity card counts the ACTION inside the applied
       // date range — appointment fixed on its booking date, Confirmed/Visited/Enrolled on their own
       // stamps, dispositions on their change date — over the book WITHOUT the created-date window,
@@ -6899,7 +6981,7 @@ export function initApp(root: HTMLElement) {
       // the day it was fixed (bookings are counted, not the current status). Only Total Leads and
       // the stage cards stay on the created/assigned-date cohort.
       const ev=_haEventSets();
-      const counts:any={total:fullBook.length,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
+      const counts:any={total:_totalLeads,open:0,apptDirect:0,apptZoom:0,health:0,payment:0,enrolled:0,followup:0,closed:0,confirmed:0};
       book.forEach((l:any)=>{counts[haBucketOf(haEffStatus(l))]++;});
       // "Confirmed" mirrors the Visited-status pill exactly — see _advIsConfirmed. It counts the
       // leads sitting in the Confirm state, nothing inferred from an appointment being booked.
@@ -7124,11 +7206,27 @@ export function initApp(root: HTMLElement) {
       };
       const openList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="open");
       const fuList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="followup");
+      // Same created-in-window rule as counts.total (see renderHealthDashboard): with a date
+      // window the headline card counts EVERY lead created in it, assigned or not — the Admin
+      // Report's number. Without one it remains the assigned book.
+      const _ovWin=_haWinT();
+      const _ovTotal=(!_ovWin.fromT&&!_ovWin.toT)?fullBook.length:(()=>{
+        const seen=new Set<string>();
+        const uni=[...haBook(),..._metaLeads.filter((l:any)=>!(l.isAssigned&&l.assignedTo)),..._poolExtras,..._otherFeedLeads];
+        return haCommonFilter(uni).filter((l:any)=>{ const id=String(l.id); if(seen.has(id)) return false; seen.add(id); return true; }).length;
+      })();
       set("#haOverview",
         // Growth is good for intake (+1) and bad for both backlog buckets (-1).
-        ovCard("Total Leads",fullBook.length,"All assigned leads","i-user","var(--brand)",fullBook,"total",1)
+        ovCard("Total Leads",_ovTotal,(!_ovWin.fromT&&!_ovWin.toT)?"All assigned leads":"Created in the selected dates · incl. unassigned","i-user","var(--brand)",fullBook,"total",1)
         +ovCard("Open",openList.length,"No progress yet","i-inbox","#C07F0E",openList,"open",-1)
-        +ovCard("Follow-up",fuList.length,"Requires follow-up","i-clock","#4C3FA8",fuList,"followup",-1));
+        +ovCard("Follow-up",fuList.length,
+          // Says WHICH follow-up number this is. Panel 3 counts follow-ups PLANNED in the range,
+          // whoever the lead is; this counts leads FROM the range that are sitting in a follow-up
+          // status. The two rarely overlap - a lead created today is usually not also due today -
+          // so one card reading 0 beside another reading 12 looked like a bug and was reported as
+          // one. Both were right; neither said what it measured.
+          (!_ovWin.fromT&&!_ovWin.toT)?"Requires follow-up":"In a follow-up status · of leads created in range",
+          "i-clock","#4C3FA8",fuList,"followup",-1));
 
       // ---------- PANEL 2 · Pipeline performance (actual vs expected) ----------
       // Expected values come from advisor_targets (Settings → Advisor targets). A blank column there
@@ -7197,7 +7295,7 @@ export function initApp(root: HTMLElement) {
           +'</div>';
       };
       set("#haFollowupCards",
-        ring("Total Follow-ups",fuTot,"var(--brand)","i-board","fu:total","Every lead with a planned follow-up date & time. Click to open them.")
+        ring("Total Follow-ups",fuTot,"var(--brand)","i-board","fu:total",(_haWinT().fromT||_haWinT().toT)?"Follow-ups PLANNED in the selected dates — whenever the lead itself arrived. Pipeline overview's Follow-up card counts something different: leads created in these dates that are now in a follow-up status. Click to open them.":"Every lead with a planned follow-up date & time. Click to open them.")
         +ring("Done",fu.done.length,"var(--ok)","i-check","fu:done","A call or a follow-up note logged after the planned time. Click to open them.")
         +ring("Due Today",fu.today.length,"#2A5378","i-cal","fu:today","Planned for today and still not actioned. Click to open them.")
         +ring("Overdue",fu.overdue.length,"var(--alert)","i-warn","fu:overdue","The planned day has passed with no call or note since, and the lead has not enrolled. Click to open them."));
@@ -7424,8 +7522,10 @@ export function initApp(root: HTMLElement) {
 
       // ---------- §5.8 Call performance ----------
       let tot=0,conn=0,dur=0,inb=0,miss=0,touchSum=0,touchN=0;
+      // Calls made INSIDE the applied window, not every call these leads ever received.
+      const perfFacts=_haCallFactsWin();
       book.forEach((l:any)=>{
-        const f=facts[String(l.id)]; if(!f) return;
+        const f=perfFacts[String(l.id)]; if(!f) return;
         tot+=f.total; conn+=f.connected; dur+=f.dur; inb+=f.inbound; miss+=f.missed;
         // §9.2 speed-to-contact: assigned → first call attempt. Needs both timestamps; a lead with
         // no assignment date or no call simply doesn't contribute to the average.
@@ -20420,7 +20520,7 @@ export function initApp(root: HTMLElement) {
       // OUTCOME (call_status = "No Sugar"). Two columns carrying the same label had people setting a
       // lead's sugar level and waiting for this column to move, which it never will.
       {key:"nosugar",label:"No Sugar (call)",group:"CALL STATUS",gcls:"g-call"},
-      {key:"callTot",label:"Total Calls",group:"CALL STATUS",gcls:"g-call"},
+      {key:"callTot",label:"Statuses Set",group:"CALL STATUS",gcls:"g-call"},
       {key:"apptD",label:"Appt Direct",group:"APPOINTMENTS",gcls:"g-appt"},
       {key:"apptZ",label:"Appt Zoom",group:"APPOINTMENTS",gcls:"g-appt"},
       {key:"apptTot",label:"Total Appt",group:"APPOINTMENTS",gcls:"g-appt"},
@@ -20999,10 +21099,13 @@ export function initApp(root: HTMLElement) {
       _rpcLeads=lr; _rpcAppts=ar; _rpcPays=pr; _rpcRecs=rr;
       // Latest logged action per lead, resolved once. A row dated in the FUTURE would drag a lead
       // forward out of its real bucket, so anything after "now" is ignored.
-      _rpcActBy={}; const _nowT=Date.now();
+      _rpcActBy={}; _rpcStatusBy={}; const _nowT=Date.now();
       (act||[]).forEach((a:any)=>{ const id=String(a.lead_id||""); if(!id) return;
         const t=new Date(a.created_at||0).getTime(); if(isNaN(t)||t>_nowT) return;
-        if(!_rpcActBy[id]||t>_rpcActBy[id]) _rpcActBy[id]=t; });
+        if(!_rpcActBy[id]||t>_rpcActBy[id]) _rpcActBy[id]=t;
+        // Call-status CHANGES separately: the CALL STATUS columns date each disposition by the day
+        // it was SET (the Advisor dashboard's rule), which needs this narrower map.
+        if(String(a.field||"")==="Call status"&&(!_rpcStatusBy[id]||t>_rpcStatusBy[id])) _rpcStatusBy[id]=t; });
       // Topbar chrome: live date + the signed-in role (design shows an access badge).
       const now=new Date(); const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       const ld=root.querySelector("#rpcLiveDate"); if(ld) ld.textContent=days[now.getDay()]+", "+now.getDate()+" "+months[now.getMonth()]+" "+now.getFullYear();
@@ -21185,8 +21288,14 @@ export function initApp(root: HTMLElement) {
       let payingLeads=0;
       L.forEach((l:any)=>{
         const id=String(l.meta_lead_id);
-        const ck=_rpcCallKey(l.call_status); if(ck&&r[ck]!=null) r[ck]++;
-        if(ck&&ck!=="blank") r.callTot++;
+        // CALL STATUS (activity basis): each disposition is counted on the day it was SET — the
+        // same rule the Advisor dashboard's windowed disposition panel uses — so the two screens
+        // give one answer for one date (validation 24-Aug-2026: Call Back read 10 here and 12 on
+        // the dashboard for the same day). The created basis keeps the original cohort tally.
+        if(!_rpcByActivity){
+          const ck=_rpcCallKey(l.call_status); if(ck&&r[ck]!=null) r[ck]++;
+          if(ck&&ck!=="blank") r.callTot++;
+        }
         const sg=_rpcSugarKey(l.sugar_poll); if(sg==="hi")r.sugarHi++; else if(sg==="mid")r.sugarMid++; else if(sg==="no")r.sugarNo++;
         if(/chennai/i.test(l.city||"")) r.chen++; else if((l.city||"").trim()) r.oth++;
         srcCnt[l.source||"—"]=(srcCnt[l.source||"—"]||0)+1;
@@ -21206,10 +21315,36 @@ export function initApp(root: HTMLElement) {
 
       // ---- visits: by the date the client actually attended, not the date the lead arrived ----
       const visited=new Set<string>();
+      // Appt Fixed counts LEADS, not appointment rows — two bookings for one client in a day are
+      // one "appointment fixed" everywhere else (the Advisor dashboard counts leads), so sets here.
+      const apptDSet=new Set<string>(); const apptZSet=new Set<string>();
       const leadSvcById:Record<string,string>={};
       scope.leads.forEach((l:any)=>{
         const id=String(l.meta_lead_id);
         leadSvcById[id]=l.service||"";
+        // CALL STATUS (activity basis): the lead counts under its CURRENT status on the day that
+        // status was last CHANGED (see the note in the cohort loop above).
+        if(_rpcByActivity){
+          const chT=_rpcStatusBy[id];
+          if(chT&&chT>=scope.from&&chT<=scope.to){
+            const ck=_rpcCallKey(l.call_status); if(ck&&r[ck]!=null) r[ck]++;
+            if(ck&&ck!=="blank") r.callTot++;
+          }
+        }
+        // Visited is the CHECK-IN STAMP (leads.visited_at) on the day it happened — the same
+        // source the Advisor dashboard and the Coach page count, so all three agree to the DAY
+        // (audit 24-Aug-2026: dating visits by the appointment's slot day put a next-morning
+        // check-in on the previous row — 9/9 vs the true 8/10 across 20–21 Aug).
+        const vRaw=l.visited_at?new Date(l.visited_at).getTime():NaN;
+        const vT=isNaN(vRaw)?NaN:_rpcEvtAt(vRaw,l);
+        if(!isNaN(vT)&&vT>=scope.from&&vT<=scope.to) visited.add(id);
+        // Confirmed is the ADVISOR'S OWN stamp (leads.confirmed_at, the Confirm button), dated to
+        // the day it was pressed — the Advisor dashboard's exact rule. It was previously derived
+        // from appointment rows in the visit window, which made the two screens disagree
+        // (validation 24-Aug-2026: report 4 vs dashboard 8 for the same day).
+        const cfRaw=l.confirmed_at?new Date(l.confirmed_at).getTime():NaN;
+        const cf=isNaN(cfRaw)?NaN:_rpcEvtAt(cfRaw,l);
+        if(!isNaN(cf)&&cf>=scope.from&&cf<=scope.to) r.conf++;
         // Enrolment belongs to the day it happened; enrolled_at is the canonical stamp.
         const etRaw=l.enrolled_at?new Date(l.enrolled_at).getTime():NaN;
         const et=isNaN(etRaw)?NaN:_rpcEvtAt(etRaw,l);   // milestone must exist either way
@@ -21224,20 +21359,20 @@ export function initApp(root: HTMLElement) {
         const st=isNaN(stRaw)?NaN:_rpcEvtAt(stRaw,l);
         if(!isNaN(st)&&st>=scope.from&&st<=scope.to) r.hafDone++;
         (apptsBy[id]||[]).forEach((a:any)=>{
-          const d=_visitDate(a);
-          const t=_rpcEvtAt(d?d.getTime():NaN,l);
-          if(isNaN(t)||t<scope.from||t>scope.to) return;
-          if(_rpcIsZoomAppt(a,l))r.apptZ++; else r.apptD++;
-          // "Confirmed" means the ADVISOR confirmed it with the client — leads.confirmed_at, set only
-          // by the Confirm button — not merely that a slot is booked and uncancelled. Counting every
-          // non-cancelled appointment made this column equal Total Appt and disagree with the Advisor
-          // dashboard's Confirmed card (10 Aug: report 1, card 0, same single Zoom booking). Visited
-          // wins, exactly as the Visited-status pill does, so a lead who turned up moves to Visited.
-          if(a.status!=="cancelled"&&l.confirmed_at&&!l.visited_at)r.conf++;
-          if(a.visited_at) visited.add(id);
+          // APPT FIXED counts on the day the appointment was BOOKED (a.created_at) — "Appointment
+          // Fixed = the date it was fixed", the locked rule the Advisor dashboard already follows.
+          // It used to count by the visit date, so a big visit day read as a big booking day and
+          // the two screens disagreed (validation 24-Aug-2026: report 26 vs dashboard 10).
+          // Cancelled bookings don't count — cancelling withdraws the "fixed".
+          const bkRaw=a.created_at?new Date(a.created_at).getTime():NaN;
+          const bk=_rpcEvtAt(bkRaw,l);
+          if(!isNaN(bk)&&bk>=scope.from&&bk<=scope.to&&String(a.status||"").toLowerCase()!=="cancelled"){
+            if(_rpcIsZoomAppt(a,l))apptZSet.add(id); else apptDSet.add(id);
+          }
         });
       });
       r.vis=visited.size;
+      r.apptD=apptDSet.size; r.apptZ=apptZSet.size;
 
       // ---- money: by payment date, split by service, billed against collected ----
       const winPays:any[]=[];
@@ -21333,6 +21468,7 @@ export function initApp(root: HTMLElement) {
     let _rpcByActivity=true;
     let _rpcMovedCount=0;   // leads whose row changes when the basis is flipped
     let _rpcActBy:Record<string,number>={};   // lead id -> latest logged action time
+    let _rpcStatusBy:Record<string,number>={};   // lead id -> latest CALL-STATUS change time (dates the disposition columns)
     // Which timestamp puts an EVENT (appointment, payment, enrolment, screening) in a bucket.
     // ON  → the event's own date, so it lands on the day it happened.
     // OFF → the lead's created date, so the ENTIRE row shares one basis and an appointment kept on
@@ -21421,7 +21557,7 @@ export function initApp(root: HTMLElement) {
     // instead of leaving readers to assume one basis for the whole row.
     const _RPC_BASIS_MAP:Record<string,string>={
       "REVENUE":"payment date","REVENUE BY SERVICE":"payment date","PAYMENT":"payment date",
-      "L1/L2 BREAKDOWN":"payment date","APPOINTMENTS":"visit date",
+      "L1/L2 BREAKDOWN":"payment date","APPOINTMENTS":"booked date · Visited by visit date",
       "INFO":"lead created date","CALL STATUS":"lead created date","HEALTH PROFILE":"lead created date",
       "CONSULTATION":"lead created date","FOLLOW-UP":"lead created date","LOCATION":"lead created date",
     };

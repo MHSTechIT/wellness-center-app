@@ -709,7 +709,7 @@ export function getMainContent(): string {
     <div class="c-p" data-p="notes2" style="display:none"><div class="stub">Internal notes.</div></div>
     <div class="c-p" data-p="extra2" style="display:none"><div class="stub">Extra info.</div></div>
     <div class="c-p" data-p="calls2" style="display:none"><div class="sec"><div class="sec-hd" style="cursor:default;padding:10px 14px"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-phone"></use></svg> Call logs &amp; recordings <span class="chipb ok" style="margin-left:auto">Auto-captured</span></div><div class="sec-bd" id="coachCallLog"><div class="stub">No call records for this lead yet.</div></div></div>
-</div></div>
+</div>
   </div></section>
 
   <!-- LEAD IMPORT -->

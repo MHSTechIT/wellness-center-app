@@ -35,6 +35,14 @@ export default function RootLayout({
           +`var p=JSON.parse(atob(b));if(p.exp&&Date.now()>p.exp)ok=false;}catch(e){}`
           +`if(ok)document.documentElement.setAttribute("data-boot","sess");}}catch(e){}`
         }}/>
+        {/* The gate's CSS lives INLINE here, not only in globals.css: the stylesheet arrives as an
+            async chunk in dev, and whenever first paint won that race the login form flashed again
+            (regression reported 24-Aug-2026). An inline <style> applies at parse time — there is
+            nothing to wait for, so the gate can never lose the race again. */}
+        <style dangerouslySetInnerHTML={{__html:
+          `html[data-boot="sess"] #loginOverlay{display:none!important}`
+          +`html[data-boot="sess"] #appLoading{display:flex!important}`
+        }}/>
         {children}
       </body>
     </html>
