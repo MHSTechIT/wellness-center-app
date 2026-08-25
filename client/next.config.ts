@@ -18,6 +18,11 @@ const nextConfig: NextConfig = {
   // — no proxy target, no CORS, nothing to misconfigure.
   output: "export",
   images: { unoptimized: true },
+  // Lets the dev server (webpack-hmr websocket + /_next/* assets) answer requests coming from
+  // another machine on the LAN, e.g. http://192.168.80.121:3000. Next.js blocks cross-origin
+  // dev-server requests by default; without this the HMR socket fails with ERR_INVALID_HTTP_RESPONSE
+  // and hot reload never connects on the other machine. Dev-only — irrelevant to the static export.
+  allowedDevOrigins: ["192.168.80.121"],
   // Hide the Next.js dev-mode on-screen indicator (the floating "N" badge). It is a
   // development-only overlay and never ships in the static export, but disabling it keeps
   // the local dev view clean. Compile/runtime errors are still surfaced.
