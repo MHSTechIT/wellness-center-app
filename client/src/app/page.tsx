@@ -128,6 +128,7 @@ export default function Home() {
             <button data-s="leadsview"><svg className="icon"><use href="#i-inbox"/></svg> Leads View</button>
             <div className="ng">Admin</div>
             <button data-s="admin"><svg className="icon"><use href="#i-cog"/></svg> Settings &amp; masters</button>
+            <button data-s="loginact" style={{display:"none"}}><svg className="icon"><use href="#i-clock"/></svg> Login Activity</button>
           </nav>
           <div className="sfoot" id="sfoot"><span className="ldot"></span> <span id="sfootUser" style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>WellnessOS</span><button id="signOutBtn" style={{background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",color:"#AFC2B8",borderRadius:"7px",padding:"3px 8px",fontSize:"10.5px",fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}} onClick={()=>(window as any)._doSignOut?.()}>Sign out</button></div>
         </aside>

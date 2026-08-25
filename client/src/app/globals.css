@@ -2362,3 +2362,18 @@ html[data-boot="sess"] #appLoading{display:flex!important}
 .act-tl-d{position:absolute;left:-19px;top:11px;width:8px;height:8px;border-radius:50%;background:var(--line)}
 .act-tl-d.in{background:var(--ok-ink,#10794A)}
 .act-tl-d.on{background:var(--ok-ink,#10794A);box-shadow:0 0 0 3px var(--ok-bg,#E9F6EF)}
+
+/* Activity log → jump to the change (25-Aug-2026). Each log row navigates to the field or section
+   it describes; .act-jump is the landing flash so the eye finds it after the scroll. */
+.act-row{cursor:pointer}
+.act-row:hover{background:var(--brand-tint)}
+.act-row:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.act-jump{animation:actJump 2.4s ease-out;border-radius:8px}
+@keyframes actJump{
+  0%,55%{box-shadow:0 0 0 3px var(--brand);background:var(--brand-tint)}
+  100%{box-shadow:0 0 0 0 rgba(0,0,0,0);background:transparent}
+}
+@media (prefers-reduced-motion:reduce){
+  /* No sweep, but the target must still be findable — hold a static ring instead. */
+  .act-jump{animation:none;box-shadow:0 0 0 3px var(--brand);background:var(--brand-tint);border-radius:8px}
+}

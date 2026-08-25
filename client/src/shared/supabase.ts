@@ -28,6 +28,26 @@ function clearSession() { try { window.localStorage.removeItem(SESSION_KEY); } c
 // The session's access_token is now a real server-issued, HMAC-signed token (see server/src/shared
 // /session.ts) — not the old hardcoded "local" string nobody ever validated. Every backend call
 // attaches it; the server rejects anything unsigned, expired, or tampered with.
+// Tell the server this session is still alive (PRD §16). Without a beat, last_activity_at never
+// advances: the staleness sweep then closes every session at its LOGIN time, so the dashboard
+// reported real working sessions as 0m and "Session expired" — which is exactly what it did.
+// Returns the session id to use from here on: the server re-opens one if this tab's was already
+// swept (a laptop reopened after lunch), and that new id has to replace the stored one.
+export async function beatSession(): Promise<void> {
+  try {
+    const s = readSession();
+    if (!s?.access_token || s.access_token === "local") return;
+    const r = await fetch(api("/auth/heartbeat"), {
+      method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ sessionId: s.sessionId || "" }),
+    });
+    const j = await r.json();
+    if (j && j.sessionId && String(j.sessionId) !== String(s.sessionId || "")) {
+      saveSession({ ...s, sessionId: String(j.sessionId) });
+    }
+  } catch { /* a missed beat is recoverable — the next one lands, or the sweep closes it honestly */ }
+}
+
 export function authHeaders(): Record<string, string> {
   const s = readSession();
   const t = s?.access_token;

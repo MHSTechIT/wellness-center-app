@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase, authHeaders } from "@/shared/supabase";
+import { supabase, authHeaders, beatSession } from "@/shared/supabase";
 
 // All client-side UI logic, state and window.* handlers for the app shell.
 // Invoked once from the Home component after the container mounts; returns the
@@ -665,7 +665,12 @@ export function initApp(root: HTMLElement) {
       }
       applyNavGating();
       _applyExportPerm();
-      try{ _actApplyPerm(); }catch(_){}   // Settings > Login Activity tab: Super Admin / Admin / Manager only
+      try{ _actApplyPerm(); }catch(_){}   // Login Activity nav item: Super Admin / Admin / Manager only
+      // Keep this session marked alive (PRD §16). 60s against a 3-minute staleness window, so two
+      // beats can be missed before anyone is called offline. Beat once NOW as well: without it the
+      // very first session sits at its login timestamp until a full minute has passed, which is what
+      // made every duration read 0m.
+      try{ beatSession(); if(!w.__wosBeat) w.__wosBeat=setInterval(()=>{ try{ beatSession(); }catch(_){} },60000); }catch(_){}
       _advLoadPriority();
       renderFilters();
       renderAll();
@@ -929,6 +934,7 @@ export function initApp(root: HTMLElement) {
       // prevents a mistyped or unlisted role (e.g. "Admin") from silently unlocking the app.
       if(roles.includes("Super Admin")){
         root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>btn.style.display="");
+        try{ _actApplyPerm(); }catch(_){}   // Login Activity owns its own visibility
         _syncNavGroups();
         return;
       }
@@ -936,6 +942,9 @@ export function initApp(root: HTMLElement) {
       root.querySelectorAll("#nav button[data-s]").forEach((btn:any)=>{
         (btn as HTMLElement).style.display=allowed.includes(btn.dataset.s)?"":"none";
       });
+      // ...then Login Activity, which is NOT in any role's module list: the generic pass above
+      // would hide it from Admin and Manager, who are exactly the roles meant to have it.
+      try{ _actApplyPerm(); }catch(_){}
       _syncNavGroups();
       const activeBtn=root.querySelector("#nav button.active") as HTMLElement|null;
       if(activeBtn&&activeBtn.style.display==="none"){
@@ -5893,6 +5902,91 @@ export function initApp(root: HTMLElement) {
     }
     // Health Coach copy of the lead history. Same data, same renderer, its own container and its
     // own open-lead guard.
+    // ---- Activity log → jump to what changed (25-Aug-2026) ----
+    // The log's `field` IS the control's own label: _advLabels builds it from each control's
+    // .fld > .lbl. That makes the mapping REVERSIBLE — match the label back to its control and we
+    // land on the exact input the entry describes. Deliberately not a hand-written field→section
+    // table: that would drift out of step the first time somebody renamed a label, and silently,
+    // because a stale entry would just stop jumping rather than fail.
+    //
+    // Entries that are not field edits (Appointment, Payment, Checked In, a reassignment) name a
+    // SUBJECT rather than a control, so those fall back to matching a section heading.
+    // A non-field entry (Appointment, Payment, Checked In, a reassignment) names a SUBJECT rather
+    // than a control, so it resolves to the profile TAB that owns that subject.
+    //
+    // Matching .sec headings was tried first and abandoned: each screen's DASHBOARD is a .sec too,
+    // so "Call status" matched "Health Coach dashboard · By consultation status" and the jump landed
+    // on the chart at the top of the page instead of the lead. Tabs are unambiguous.
+    //
+    // Ordered, first match wins — "call status" is a field on the Basic-info tab and must be tested
+    // before the generic call/recording rule that routes to the Call logs tab.
+    const _ACT_PANE:[RegExp,string,string][]=[
+      [/call ?status/i,                                            "sales","sales2"],
+      [/payment|instal|refund|collect|enrol|paid|invoice/i,        "pay",  "pay2"  ],
+      [/recording|call log|reminder|\bcall\b|rnr|dial/i,           "calls","calls2"],
+      [/visited|check.?in|walk.?in|reception/i,                    "recep","recep2"],
+      [/assessment|consult|treatment|program|coach|prescription/i, "health","health2"],
+    ];
+    // Strips the same badge text _advLabels strips, so the two produce identical keys.
+    const _actLabelOf=(el:Element)=>{
+      const fld=el.closest(".fld"); const lab=fld?fld.querySelector(".lbl"):null;
+      return lab?(lab.textContent||"").replace(/\bFROM (ASSIGNMENT|APPOINTMENT)\b/g,"")
+        .replace(/\b(NEW|AUTO|SYNCED)\b/g,"").replace(/[*]/g,"").replace(/\s+/g," ").trim().toLowerCase():"";
+    };
+    function _actFindTarget(isCoach:boolean,field:string,action:string):HTMLElement|null{
+      const want=String(field||"").trim().toLowerCase();
+      const panel=isCoach?_coachPanelEl():_advPanelEl();
+      if(want&&panel){
+        // Exact label first, then a contains-match so "Occupation (2)" (the dedupe suffix
+        // _advLabels adds for repeated labels) still resolves to its control.
+        const ctrls=Array.from(panel.querySelectorAll("input,select,textarea"));
+        let hit=ctrls.find((el:any)=>_actLabelOf(el)===want);
+        if(!hit) hit=ctrls.find((el:any)=>{ const t=_actLabelOf(el); return !!t&&want.indexOf(t)===0; });
+        if(hit) return ((hit as any).closest(".fld") as HTMLElement)||(hit as HTMLElement);
+      }
+      const scr=root.querySelector(isCoach?"#s-coach":"#s-advisor")as HTMLElement|null;
+      if(!scr) return null;
+      const paneSel=isCoach?".c-p":".a-p";
+      // A coach reads the SAME history, including the advisor's own edits — "Gender", "Occupation"
+      // and friends are logged on the Advisor page and have no editable control on the coach screen.
+      // Sweep every coach tab before giving up on a control match, so anything the coach can see
+      // still lands on the field itself rather than only on the tab.
+      if(want&&isCoach){
+        const wide=Array.from(scr.querySelectorAll(paneSel+" input,"+paneSel+" select,"+paneSel+" textarea"));
+        const hit=wide.find((el:any)=>_actLabelOf(el)===want);
+        if(hit) return ((hit as any).closest(".fld") as HTMLElement)||(hit as HTMLElement);
+      }
+      const hay=(want+" "+String(action||"")).toLowerCase();
+      let key=isCoach?"sales2":"sales";          // the lead's own details are where a plain field edit belongs
+      for(const [subject,a,c] of _ACT_PANE){ if(subject.test(hay)){ key=isCoach?c:a; break; } }
+      return scr.querySelector(paneSel+'[data-p="'+key+'"]')as HTMLElement|null;
+    }
+    // Make the target actually visible: its tab, then every collapsed section above it, then scroll.
+    function _actReveal(el:HTMLElement){
+      const pane=el.closest(".a-p,.c-p,.abm-p,.acc-p")as HTMLElement|null;
+      if(pane&&pane.style.display==="none"){
+        const key=pane.getAttribute("data-p")||"";
+        const wr=pane.classList.contains("a-p")?"#aTabs":pane.classList.contains("c-p")?"#cTabs"
+          :pane.classList.contains("abm-p")?"#abmTabs":"#accTabs";
+        const btn=root.querySelector(wr+' button[data-t="'+key+'"]')as HTMLElement|null;
+        if(btn) btn.click();                       // reuse tabset's own handler rather than re-implement it
+      }
+      // A field can sit inside nested collapsed sections; open all of them, not just the nearest.
+      let n:HTMLElement|null=el;
+      for(let i=0;i<6&&n;i++){ const sec=n.closest(".sec")as HTMLElement|null; if(!sec) break;
+        sec.classList.remove("closed"); n=sec.parentElement as HTMLElement|null; }
+      try{ el.scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){ try{ el.scrollIntoView(); }catch(__){} }
+      el.classList.add("act-jump"); setTimeout(()=>{ try{ el.classList.remove("act-jump"); }catch(_){} },2400);
+      const f=(el.matches("input,select,textarea")?el:el.querySelector("input,select,textarea"))as HTMLElement|null;
+      if(f) try{ (f as any).focus({preventScroll:true}); }catch(_){}
+    }
+    function _actJump(isCoach:boolean,field:string,action:string){
+      const t=_actFindTarget(isCoach,field,action);
+      // Say so rather than appearing dead: some entries (a bulk "+3 more fields" roll-up, a field
+      // since removed from the form) genuinely have nowhere to go.
+      if(!t){ toast("No matching section on this page for “"+(field||action||"this entry")+"”"); return; }
+      _actReveal(t);
+    }
     function renderCoachActivityLog(leadId:any){ return renderActivityLog(leadId,".js-actlog-coach",()=>String(_coachLeadId)); }
     // sel/cur mirror renderCallLogs: the Advisor and Coach panels both live in the DOM at once, so
     // a single ".js-actlog" sweep would repaint the advisor's log with whichever lead the COACH just
@@ -5925,10 +6019,23 @@ export function initApp(root: HTMLElement) {
                 ?': '+(_ov?'<span style="color:var(--faint)">'+e(_ov)+'</span> &rarr; ':'')+'<b>'+e(_nv||"—")+'</b>'
                 :''))
               :'<span style="color:var(--faint)">—</span>';
-            return '<tr><td><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span></td><td style="line-height:1.5;word-break:break-word">'+chg+'</td><td>'+e(r.actor||"—")+'</td><td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_actTime(r.created_at))+'</td></tr>';
+            // data-af / data-aa carry the entry's field and action so the delegated handler below can
+            // resolve where to jump without re-reading the row's rendered text.
+            return '<tr class="act-row" data-af="'+e(r.field||"")+'" data-aa="'+e(r.action||"")+'" title="Go to this change" tabindex="0"><td><span class="chipb '+_actColor(r.action)+'">'+e(r.action)+'</span></td><td style="line-height:1.5;word-break:break-word">'+chg+'</td><td>'+e(r.actor||"—")+'</td><td class="mono" style="white-space:nowrap;font-size:11.5px">'+e(_actTime(r.created_at))+'</td></tr>';
           }).join("")
         : stateRow("No activity recorded for this lead yet.");
-      els.forEach((el:any)=>{ el.innerHTML=wrap(body); });
+      const isCoach=sel.indexOf("coach")>=0;
+      els.forEach((el:any)=>{
+        el.innerHTML=wrap(body);
+        // Delegated, and reassigned on every repaint — the table is rebuilt from scratch each time,
+        // so per-row listeners would be thrown away with it. Keyboard gets the same route as the
+        // mouse: the rows are tabbable, so Enter/Space must do what a click does.
+        el.onclick=(ev:any)=>{ const tr=ev&&ev.target&&ev.target.closest?ev.target.closest("tr.act-row"):null;
+          if(tr) _actJump(isCoach,tr.getAttribute("data-af")||"",tr.getAttribute("data-aa")||""); };
+        el.onkeydown=(ev:any)=>{ if(ev.key!=="Enter"&&ev.key!==" ") return;
+          const tr=ev.target&&ev.target.closest?ev.target.closest("tr.act-row"):null;
+          if(tr){ ev.preventDefault(); _actJump(isCoach,tr.getAttribute("data-af")||"",tr.getAttribute("data-aa")||""); } };
+      });
     }
     // Render the lead's Call logs + voice recordings from `call_recordings` (contact_id = lead id,
     // with a phone/to_number fallback so calls placed before the id mapping still surface). Latest
@@ -9913,34 +10020,59 @@ export function initApp(root: HTMLElement) {
     }
     // Appointments still awaiting a reminder call. Anything already actioned drops out, and a
     // No-Turn-Up stays out for 24 hours before returning to the queue, per the workflow.
+    //
+    // THE SCOPE IS THE WHOLE IST DAY (changed 25-Aug-2026). This used to return only the imminent
+    // window — 30 min before a slot to 3h after — which answers "who do I ring right now" but left
+    // the Reception badge reading 0 while the Appointments table listed a full day of bookings.
+    // That mismatch was reported as a bug: at 10:28 the nearest slot was 11:00, 32 minutes out, so
+    // nothing qualified and the bell showed nothing to do on a day with eight appointments.
+    //
+    // The badge now counts every pending appointment for today. Urgency is NOT lost — each row
+    // still carries its tier, the panel is still ranked nearest-first, and `imminent` preserves the
+    // old window for the one thing that must stay narrow: the chime. A 6pm slot is listed from the
+    // moment Reception opens the screen, but it cannot beep until 5:30pm.
+    const REM_LEAD_MIN=30;                                   // actionable from 30 min before a slot
+    const REM_TRAIL_MIN=-180;                                // and for 3h after it
     function _remDue():any[]{
-      const ack=_remRead(); const now=Date.now();
+      const ack=_remRead(); const now=Date.now(); const today=_istDay(new Date().toISOString());
       return (_recAll||[]).filter((r:any)=>{
         if(r.status!=="expected") return false;              // visited / cancelled are finished with
         const a=ack[String(r.id)];
         if(a&&a.done) return false;
         if(a&&a.noturnup&&(now-Number(a.at||0))<86400000) return false;   // 24h cool-off
-        const mins=_remMinsTo(r); if(isNaN(mins)) return false;
-        return mins<=30&&mins>=-180;                         // 30 min before, up to 3h after
-      }).map((r:any)=>{ const mins=_remMinsTo(r);
-        return {r,mins,tier:mins<=0?"urg":(mins<=15?"due":"up")};
-      }).sort((a:any,b:any)=>a.mins-b.mins);                 // nearest / most urgent first
+        // Today's bookings, matched the way the rest of the app matches a Chennai day. Reading the
+        // first 10 characters of appt_date would name YESTERDAY, because a slot is stored as IST
+        // midnight expressed in UTC — the same trap _remMinsTo documents just above.
+        const raw=String(r._date||""); if(!raw) return false;
+        return (/T/.test(raw)?_istDay(raw):raw.slice(0,10))===today;
+      }).map((r:any)=>{ const mins=_remMinsTo(r); const known=!isNaN(mins);
+        // A row whose time never got filled in is still part of today's workload, so it is counted
+        // and listed; it simply cannot be ranked, so it sorts last and never counts as imminent.
+        return {r,mins,
+          imminent:known&&mins<=REM_LEAD_MIN&&mins>=REM_TRAIL_MIN,
+          tier:!known?"up":(mins<=0?"urg":(mins<=15?"due":"up"))};
+      }).sort((a:any,b:any)=>(isNaN(a.mins)?1e9:a.mins)-(isNaN(b.mins)?1e9:b.mins));  // nearest first
     }
-    // A FIVE-BEEP chime when a reminder first reaches a stronger tier. One long tone read as a UI
-    // blip and was missed across a busy clinic floor; five short beeps with a gap between them read
-    // as a notification. WebAudio needs no asset, and a blocked sound never hides the visual
+    // A FIFTEEN-BEEP chime when a reminder first reaches a stronger tier. One long tone read as a UI
+    // blip and was missed across a busy clinic floor; a run of short beeps with a gap between them
+    // reads as a notification. WebAudio needs no asset, and a blocked sound never hides the visual
     // reminder, which stays the primary mechanism.
     //
-    // All five are SCHEDULED UP FRONT on one AudioContext against ctx.currentTime, not fired from
+    // Every beep is SCHEDULED UP FRONT on one AudioContext against ctx.currentTime, not fired from
     // setTimeout. Timer callbacks drift under load and would smear the rhythm; the audio clock does
     // not, so the pattern sounds identical on a busy machine.
-    const REM_BEEPS=5, REM_TONE=0.13, REM_GAP=0.09;      // 5 x (130ms tone + 90ms gap) ≈ 1.1s total
+    //
+    // REM_BEEPS is the only number to change to make the chime longer or shorter — the loop below,
+    // the one-sequence-at-a-time throttle and the context teardown are all derived from it. Raised
+    // from 5 to 15 on 25-Aug-2026 (reception asked for a longer alert across the floor).
+    const REM_BEEPS=15, REM_TONE=0.13, REM_GAP=0.09;     // 15 x (130ms tone + 90ms gap) ≈ 3.3s total
     let _remBeepUntil=0;
     function _remBeep(){
       try{
         // One sequence at a time. Several reminders can cross a tier in the same render pass (the
         // 2 o'clock and 2:15 appointments both coming due on one tick), and without this each would
-        // start its own five beeps over the top of the last — a smear, not a notification. The
+        // start its own run of beeps over the top of the last — a smear, not a notification. This
+        // matters more at 15 beeps than it did at 5: the sequence now holds the channel for ~3.3s. The
         // per-reminder _remSounded guard still decides WHETHER to notify; this decides that a
         // notification already in the air is not doubled.
         const now=Date.now(); if(now<_remBeepUntil) return;
@@ -9952,7 +10084,7 @@ export function initApp(root: HTMLElement) {
         const step=REM_TONE+REM_GAP;
         const total=0.03+REM_BEEPS*step;
         _remBeepUntil=now+Math.ceil(total*1000)+150;
-        // One master gain for the whole chime keeps the five beeps at an identical level and gives a
+        // One master gain for the whole chime keeps every beep at an identical level and gives a
         // single place to change the volume. 0.55 against the old 0.12 is the audible-across-a-room
         // level asked for, and still short of the clipping a raw 1.0 sine would risk.
         const master=ctx.createGain(); master.gain.value=0.55; master.connect(ctx.destination);
@@ -10324,17 +10456,22 @@ export function initApp(root: HTMLElement) {
     // ---- Live refresh (§16). One timer, started when the tab is opened, stopped when it is not. ----
     function _actTick(){
       if(!_actMay()) return;
-      if(_activeScreenId()!=="settings"||!_actVisible()){ if(_actTimer){ clearInterval(_actTimer); _actTimer=null; } return; }
+      if(!_actVisible()){ if(_actTimer){ clearInterval(_actTimer); _actTimer=null; } return; }
       if(!_actTimer) _actTimer=setInterval(()=>{ try{ if(_actVisible()) _actLoadNow(); else { clearInterval(_actTimer); _actTimer=null; } }catch(_){} },45000);
     }
-    const _actVisible=()=>{
-      const p=root.querySelector('.st-p[data-p="st-act"]')as HTMLElement|null;
-      return !!p&&p.style.display!=="none";
-    };
-    /** Show the tab only to roles that may use it (§20 frontend half; the API enforces the rest). */
+    // Its own screen now, so "visible" is simply "this screen is the active one".
+    const _actVisible=()=>_activeScreenId()==="loginact";
+    /** Show the NAV ITEM only to roles that may use it (§20 frontend half; the API enforces the
+     *  rest). Called after the generic RBAC nav pass too, because that one hides anything not in a
+     *  role's module list and would otherwise take this button away from Admin / Manager. */
     function _actApplyPerm(){
-      const t=root.querySelector("#stActTab")as HTMLElement|null;
-      if(t) t.style.display=_actMay()?"":"none";
+      const b=root.querySelector('#nav button[data-s="loginact"]')as HTMLElement|null;
+      if(b) b.style.display=_actMay()?"":"none";
+      // Somebody who may not see it must not be left sitting on the screen either.
+      if(!_actMay()&&_activeScreenId()==="loginact"){
+        const first=root.querySelector('#nav button[data-s]:not([style*="display: none"])')as HTMLElement|null;
+        if(first) first.click();
+      }
     }
     w._actRender=_actRender;
     w._actApplyPerm=_actApplyPerm;
@@ -10484,17 +10621,23 @@ export function initApp(root: HTMLElement) {
       bell.style.display="flex";
       bell.className="rem-bell"+(due.length?"":" quiet");
       bell.innerHTML='<span style="font-size:15px">&#128276;</span><span class="n">'+due.length+'</span>';
-      bell.title=due.length?(due.length+" appointment follow-up"+(due.length===1?"":"s")+" pending"):"No appointment follow-ups due";
+      bell.title=due.length?(due.length+" appointment follow-up"+(due.length===1?"":"s")+" pending today"):"No appointments pending today";
       // Sound only when a reminder REACHES a stronger tier, never on a repaint or a timer tick.
+      // `imminent` is what keeps the chime on the old 30-min window now that the badge counts the
+      // whole day: without it, opening Reception in the morning would fire the alert for every slot
+      // already past its start, and an afternoon booking would beep hours before anyone can act.
       due.forEach((x:any)=>{ const k=String(x.r.id)+":"+x.tier;
-        if(x.tier!=="up"&&!_remSounded[k]){ _remSounded[k]=true; _remBeep(); } });
+        if(x.imminent&&x.tier!=="up"&&!_remSounded[k]){ _remSounded[k]=true; _remBeep(); } });
       const e=(v:any)=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+      // "in 465 min" is how a 6pm slot read once the panel covered the whole day; hours are what a
+      // receptionist actually thinks in, so anything past an hour is shown as "7h 45m".
+      const _hm=(m:number)=>m>=60?(Math.floor(m/60)+"h"+(m%60?" "+(m%60)+"m":"")):(m+" min");
       panel.className="rem-panel"+(_remOpen?" open":"");
       panel.innerHTML='<div class="rem-hd"><span>&#128276; Appointment follow-ups</span>'
         +'<span class="chipb neu">'+due.length+'</span>'
         +'<button type="button" class="pill" style="margin-left:auto;font-size:11px" onclick="window._remToggle()">&#10005;</button></div>'
         +(due.length?due.map((x:any)=>{ const r=x.r;
-          const when=x.mins>0?("in "+x.mins+" min"):(x.mins===0?"now":(Math.abs(x.mins)+" min ago"));
+          const when=isNaN(x.mins)?"time not set":(x.mins>0?("in "+_hm(x.mins)):(x.mins===0?"now":(_hm(Math.abs(x.mins))+" ago")));
           const tl=x.tier==="urg"?"Urgent":(x.tier==="due"?"Due":"Upcoming");
           return '<div class="rem-row">'
             +'<div style="display:flex;align-items:center;gap:6px">'
@@ -10506,7 +10649,7 @@ export function initApp(root: HTMLElement) {
             +'<button type="button" onclick="window._remDone(&quot;'+e(String(r.id))+'&quot;)">Done</button>'
             +'<button type="button" onclick="window._remNoTurnUp(&quot;'+e(String(r.id))+'&quot;)">No turn up</button>'
             +'</div></div>';
-        }).join(""):'<div class="rem-row" style="color:var(--faint);font-size:12px">Nothing due right now.</div>');
+        }).join(""):'<div class="rem-row" style="color:var(--faint);font-size:12px">No appointments pending today ✓</div>');
     }
     w._remRender=_remRender;
     // Recompute on a timer so a reminder becomes due without needing a page interaction.
@@ -10571,9 +10714,15 @@ export function initApp(root: HTMLElement) {
             if(!(r.status==="visited"&&(r.toCollect>0||r.payStatus==="due"))) return false;
             const k=String(r.lead_id||r.id); if(_seenPay.has(k)) return false; _seenPay.add(k); return true;
           });
+        // The heading carries the count and says "all dates" out loud. Reception reads this section
+        // directly under the Today / Yesterday / This week tabs and reasonably assumed it obeyed
+        // them; on 25-Aug-2026 that was reported as a date-filter bug when in fact all ten people
+        // listed had visited on the 22nd-24th and still owed money. Naming the scope is the fix —
+        // applying the tabs here would have emptied the queue and lost sight of every debt.
+        const cnt=root.querySelector("#recPayCount"); if(cnt) cnt.textContent=String(due.length);
         el.innerHTML = (due.length?due.map((r:any)=>{ const amt=Number(r.collectAmt)||Number(r.toCollect)||Number(r.payAmt)||Number(r.physioDue)||0;   // next installment / due amount (not the aggregate)
           const typeChip=r.collectLabel?' <span class="chipb info" style="font-size:10px">'+r.collectLabel+'</span>':(r.physioConsultDone?' <span class="chipb ok" style="font-size:10px">Consultation done</span>':'');
-          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recCollectRoute('+r.id+')">Collect</button></div>';
+          return '<div class="li" style="padding:8px 0"><div style="flex:1"><b style="font-weight:600">'+r.name+'</b>'+typeChip+'<div style="font-size:11px;color:var(--muted)">'+r.svcLabel+(amt?' · <b>₹'+amt.toLocaleString("en-IN")+'</b> to collect':'')+(r.date?' · visited '+r.date:'')+(r.stage==="screened"?' · <span class="chipb ok" style="font-size:10px">Screened ✓</span>':'')+'</div></div><button class="btn bsm bp" onclick="window._recCollectRoute('+r.id+')">Collect</button></div>';
         }).join(""):'<div style="font-size:12px;color:var(--faint);padding:8px 0">No pending payments.</div>');
       }
     }
@@ -21202,16 +21351,22 @@ export function initApp(root: HTMLElement) {
       if((apptsBy[id]||[]).some((a:any)=>_svcCanonMatch(a.service||"",svc))) return true;
       return (paysBy[id]||[]).some((p:any)=>p.status==="paid"&&_svcCanonMatch(p.service||"",svc));
     }
-    function _rpcFilteredLeads(apptsBy:Record<string,any[]>,paysBy:Record<string,any[]>){
+    // `skip` scopes the two person tables (25-Aug-2026). The Per Salesperson table is built with
+    // skip="hc" and the Per Health Coach table with skip="sales", so each dropdown drives its own
+    // table instead of the two intersecting into one row set — an advisor filter combined with an
+    // HC filter used to return nothing at all, because a lead only survives the HC test if it has
+    // an appointment with that coach and an RNR lead never has one. Called with no argument the
+    // behaviour is unchanged, which is what the whole Period view still does.
+    function _rpcFilteredLeads(apptsBy:Record<string,any[]>,paysBy:Record<string,any[]>,skip?:"sales"|"hc"){
       // No language filter — the control was removed from the report (the stored `language` column
       // carries occupation-style values like "Business"/"Private Job", so it never filtered by
       // language at all). _rpcSelVal on a missing element would return "" and drop every row.
       const svc=_rpcSelVal("rpcFService"), sales=_rpcSelVal("rpcFSales"), hc=_rpcSelVal("rpcFHc"), src=_rpcSelVal("rpcFSource"), prog=_rpcSelVal("rpcFProg");
       return _rpcLeads.filter((l:any)=>{
         if(svc!=="all"&&!_rpcLeadHasSvc(l,svc,apptsBy,paysBy)) return false;
-        if(sales!=="all"&&(l.assigned_to||"")!==sales) return false;
+        if(skip!=="sales"&&sales!=="all"&&(l.assigned_to||"")!==sales) return false;
         if(src!=="all"&&(l.source||"")!==src) return false;
-        if(hc!=="all"&&!(apptsBy[String(l.meta_lead_id)]||[]).some((a:any)=>(a.hc_pt||"")===hc)) return false;
+        if(skip!=="hc"&&hc!=="all"&&!(apptsBy[String(l.meta_lead_id)]||[]).some((a:any)=>(a.hc_pt||"")===hc)) return false;
         if(prog!=="all"){ const pg=_rpcLeadProg(l,paysBy); const want=prog==="L1 + L2"?(pg.l1&&pg.l2):(prog==="L1"?(pg.l1&&!pg.l2):(pg.l2&&!pg.l1)); if(!want) return false; }
         return true;
       });
@@ -21498,11 +21653,19 @@ export function initApp(root: HTMLElement) {
     function _rpcBuildRows(){
       const apptsBy=_rpcIndex(_rpcAppts,"lead_id"), paysBy=_rpcIndex(_rpcPays,"lead_id"), recsBy=_rpcIndex(_rpcRecs,"lead_id");
       const win=_rpcWindow();
-      const leads=_rpcFilteredLeads(apptsBy,paysBy);
+      // Period view keeps the single, fully-filtered set it has always used. Person view scopes this
+      // one to the salesperson table and builds the health-coach table from its own set below, so
+      // the two dropdowns stop intersecting — see _rpcFilteredLeads for what that intersection cost.
+      const leads=_rpcFilteredLeads(apptsBy,paysBy,_rpcRowView==="person"?"hc":undefined);
       const wFrom=win.buckets.length?win.buckets[0].from:0, wTo=win.buckets.length?win.buckets[win.buckets.length-1].to:Date.now();
       // One date per lead, resolved once, then reused for the window and the bucket — so the two can
-      // never disagree about where a lead belongs.
+      // never disagree about where a lead belongs. Memoised across BOTH person sets: a lead reachable
+      // from either table must not be dated twice and risk landing in different buckets.
       const basisAt=new Map<any,number>();
+      const _prep=(set:any[])=>{
+        set.forEach((l:any)=>{ if(!basisAt.has(l)) basisAt.set(l,_rpcActivityAt(l,apptsBy,paysBy)); });
+        return set.filter((l:any)=>{ const t=basisAt.get(l)??0; return t>=wFrom&&t<=wTo; });
+      };
       leads.forEach((l:any)=>basisAt.set(l,_rpcActivityAt(l,apptsBy,paysBy)));
       // How many leads this toggle actually MOVES. Most leads never do anything after arriving, so
       // flipping the basis can change very little and the control reads as broken. Stating the
@@ -21514,7 +21677,34 @@ export function initApp(root: HTMLElement) {
       });
       const _at=(l:any)=>basisAt.get(l)??0;
       const inWin=leads.filter((l:any)=>{ const t=_at(l); return t>=wFrom&&t<=wTo; });
-      let rows:any[]=[];
+      let rows:any[]=[]; let salesRows:any[]=[]; let hcRows:any[]=[];
+      // The two person groupings, built the same way for BOTH views (25-Aug-2026). Person view puts
+      // the salesperson set straight into the main table; Period view keeps its date breakdown on
+      // top and shows these two underneath it. One implementation, so a person can never be counted
+      // one way in Person view and a different way in Period view.
+      const _personRows=()=>{
+        // One row per SALESPERSON, from the sales-scoped set (the HC dropdown is not applied here).
+        // Advisors come from lead assignment. In Person view `inWin` already IS that set, so it is
+        // reused rather than filtered a second time.
+        const advWin=_rpcRowView==="person"?inWin:_prep(_rpcFilteredLeads(apptsBy,paysBy,"hc"));
+        const byAdv:Record<string,any[]>={};
+        advWin.forEach((l:any)=>{ const a=(l.assigned_to||"").trim(); if(!a)return; (byAdv[a]=byAdv[a]||[]).push(l); });
+        const sales=Object.keys(byAdv).sort().map(n=>_rpcAgg(n,byAdv[n],apptsBy,paysBy,recsBy,{leads:byAdv[n],from:wFrom,to:wTo}));
+        // One row per HEALTH COACH, from its OWN set: the HC dropdown applies, the salesperson one
+        // does not. HC/PTs come from the appointments they hosted.
+        //
+        // These used to be appended to the salesperson rows as extra "<name> (HC/PT)" lines in a
+        // single table, which made the TOTAL double-count — a lead was added once under its
+        // salesperson and again under the coach who saw it (13+5+4 advisors = 22, total read 26).
+        // Separate tables give each an honest total, and the suffix is gone: the title carries it.
+        const hcWin=_prep(_rpcFilteredLeads(apptsBy,paysBy,"sales"));
+        const leadById:Record<string,any>={}; hcWin.forEach((l:any)=>{leadById[String(l.meta_lead_id)]=l;});
+        const byHc:Record<string,Set<string>>={};
+        _rpcAppts.forEach((a:any)=>{ const h=(a.hc_pt||"").trim(); if(!h)return; const lid=String(a.lead_id||""); if(!leadById[lid])return; (byHc[h]=byHc[h]||new Set()).add(lid); });
+        const hc=Object.keys(byHc).sort().map(h=>{ const hl=Array.from(byHc[h]).map(id=>leadById[id]);
+          return _rpcAgg(h,hl,apptsBy,paysBy,recsBy,{leads:hl,from:wFrom,to:wTo}); });
+        return {sales,hc};
+      };
       if(_rpcRowView==="period"){
         // Money and visits are selected by the bucket's DATES over every filtered lead, so a payment
         // taken on 4 Aug counts on 4 Aug even when the client arrived in July.
@@ -21525,19 +21715,13 @@ export function initApp(root: HTMLElement) {
           inWin.filter((l:any)=>{ const t=_at(l); return t>=b.from&&t<=b.to; }),
           apptsBy,paysBy,recsBy,{leads,from:b.from,to:b.to,
             createdLeads:leads.filter((l:any)=>{ const t=new Date(l.created_at||0).getTime(); return t>=b.from&&t<=b.to; }).length}));
+        const pr=_personRows(); salesRows=pr.sales; hcRows=pr.hc;
       } else if(_rpcRowView==="person"){
-        // Advisors from lead assignment + HC/PTs from the appointments they hosted.
-        const byAdv:Record<string,any[]>={};
-        inWin.forEach((l:any)=>{ const a=(l.assigned_to||"").trim(); if(!a)return; (byAdv[a]=byAdv[a]||[]).push(l); });
-        rows=Object.keys(byAdv).sort().map(n=>_rpcAgg(n,byAdv[n],apptsBy,paysBy,recsBy,{leads:byAdv[n],from:wFrom,to:wTo}));
-        const leadById:Record<string,any>={}; inWin.forEach((l:any)=>{leadById[String(l.meta_lead_id)]=l;});
-        const byHc:Record<string,Set<string>>={};
-        _rpcAppts.forEach((a:any)=>{ const h=(a.hc_pt||"").trim(); if(!h)return; const lid=String(a.lead_id||""); if(!leadById[lid])return; (byHc[h]=byHc[h]||new Set()).add(lid); });
-        Object.keys(byHc).sort().forEach(h=>{ const hl=Array.from(byHc[h]).map(id=>leadById[id]); rows.push(_rpcAgg(h+" (HC/PT)",hl,apptsBy,paysBy,recsBy,{leads:hl,from:wFrom,to:wTo})); });
+        const pr=_personRows(); rows=pr.sales; salesRows=pr.sales; hcRows=pr.hc;
       }
       // The per-Client/Lead row view was removed from the report; _rpcSetRowView now only ever
       // yields "period" or "person", so there is no third branch to fall through to.
-      return {rows,win};
+      return {rows,salesRows,hcRows,win};
     }
 
     // ---- rendering ----
@@ -21570,7 +21754,9 @@ export function initApp(root: HTMLElement) {
       // spec: intake is when the lead arrived, activity is when it was worked.
       const b=_rpcByActivity?(raw==="lead created date"?(g==="INFO"?"lead created date":"activity date"):raw):"lead created date";
       return b?'<span style="font-weight:500;opacity:.72;text-transform:none;letter-spacing:0"> — by '+b+'</span>':''; };
-    function _rpcHeader(){
+    // theadSel lets the same header render into either person table; defaulted so every existing
+    // caller and the whole Period view are untouched.
+    function _rpcHeader(theadSel:string="#rpcThead"){
       const vis=_rpcVisCols(); const gc:Record<string,number>={}; const seen:Record<string,boolean>={};
       vis.forEach((c:any)=>{gc[c.group]=(gc[c.group]||0)+1;});
       let grp='<tr class="grp-row">', col='<tr class="col-row">';
@@ -21578,7 +21764,7 @@ export function initApp(root: HTMLElement) {
         if(!seen[c.group]){ seen[c.group]=true; grp+='<th class="'+(c.gcls||"g-info")+'" colspan="'+gc[c.group]+'">'+c.group+_RPC_BASIS(c.group)+'</th>'; }
         col+='<th class="'+(c.sticky||"")+(_rpcColFilters[c.key]?" filtered":"")+'" onclick="window._rpcColHd(event,\''+c.key+'\')"><div style="font-size:8px;line-height:1.3">'+c.label+'<span style="font-size:8px;opacity:0.5;margin-left:2px">&#9660;</span></div></th>';
       });
-      const th=root.querySelector("#rpcThead"); if(th) th.innerHTML=grp+"</tr>"+col+"</tr>";
+      const th=root.querySelector(theadSel); if(th) th.innerHTML=grp+"</tr>"+col+"</tr>";
     }
     // A summary card is "active" when the table carries its ≥1 filter. Derived from _rpcColFilters
     // rather than a separate variable, so the cards, the column-header markers and the export can
@@ -21653,11 +21839,14 @@ export function initApp(root: HTMLElement) {
       }).filter(Boolean).join("");
       host.innerHTML=rowsHtml;
     }
-    function _rpcBody(win:any){
+    // src/tbodySel/subSel let this render either person table. Defaults reproduce the original
+    // single-table behaviour exactly, so search, column filters, sort and the TOTAL row are shared
+    // logic rather than a second copy that could drift.
+    function _rpcBody(win:any,src?:any[],tbodySel:string="#rpcTbody",subSel:string="#rpcSecSub"){
       const vis=_rpcVisCols();
       const srch=((root.querySelector("#rpcSearch")as HTMLInputElement)?.value||"").toLowerCase();
       const sortKey=(root.querySelector("#rpcSort")as HTMLSelectElement)?.value||"none";
-      let rows=_rpcRows.slice();
+      let rows=(src||_rpcRows).slice();
       if(sortKey!=="none") rows.sort((a:any,b:any)=>(b[sortKey]||0)-(a[sortKey]||0));
       const totals:any={}; RPC_COLS.forEach((c:any)=>{totals[c.key]=0;});
       let html=""; let shown=0;
@@ -21706,10 +21895,10 @@ export function initApp(root: HTMLElement) {
         html+='<td style="font-weight:500">'+(totals[c.key]||0)+"</td>";
       });
       html+="</tr>";
-      const tb=root.querySelector("#rpcTbody"); if(tb) tb.innerHTML=(shown?html:'<tr><td colspan="'+vis.length+'" style="padding:20px;color:#6B7280">No rows match the current search / filters.</td></tr>');
+      const tb=root.querySelector(tbodySel); if(tb) tb.innerHTML=(shown?html:'<tr><td colspan="'+vis.length+'" style="padding:20px;color:#6B7280">No rows match the current search / filters.</td></tr>');
       // Say what the table is showing: the cohort basis, how many rows survived the filters, and any
       // truncation — silent capping reads as "that's all there is".
-      const sub=root.querySelector("#rpcSecSub")as HTMLElement|null;
+      const sub=root.querySelector(subSel)as HTMLElement|null;
       if(sub){
         // A load failure must never render as a page of zeros — that reads as "nothing happened",
         // which is the opposite of the truth and is exactly how a missing column went unnoticed.
@@ -21725,15 +21914,38 @@ export function initApp(root: HTMLElement) {
         }
       }
     }
+    // The two person row sets, held beside _rpcRows rather than merged into it. The summary cards
+    // read _rpcRows, so keeping the coach rows out of it is what stops a lead being counted twice
+    // in the headline figures — every lead has exactly one salesperson, but it can also appear
+    // under the coach who saw it.
+    let _rpcHcRows:any[]=[]; let _rpcSalesRows:any[]=[];
+    // Both extra tables render through the SAME header/body code as the main one, so the three can
+    // never drift apart in columns, search, sort or totals.
+    function _rpcPaintHc(win:any){ _rpcHeader("#rpcHcThead"); _rpcBody(win,_rpcHcRows,"#rpcHcTbody","#rpcHcSub"); }
+    function _rpcPaintSales(win:any){ _rpcHeader("#rpcSalesThead"); _rpcBody(win,_rpcSalesRows,"#rpcSalesTbody","#rpcSalesSub"); }
+    const _rpcShow=(sel:string,on:boolean)=>{ const el=root.querySelector(sel)as HTMLElement|null; if(el) el.style.display=on?"":"none"; };
     function _rpcRenderAll(){
-      const {rows,win}=_rpcBuildRows(); _rpcRows=rows;
-      const titles:any={period:"Period View",person:"Per Salesperson / HC"};
-      const st=root.querySelector("#rpcSecTitle"); if(st) st.textContent=_rpcPeriod.charAt(0).toUpperCase()+_rpcPeriod.slice(1)+" Report — "+(titles[_rpcRowView]||"Period View");
+      const {rows,salesRows,hcRows,win}=_rpcBuildRows(); _rpcRows=rows; _rpcSalesRows=salesRows; _rpcHcRows=hcRows;
+      const person=_rpcRowView==="person";
+      const titles:any={period:"Period View",person:"Per Salesperson"};
+      const pfx=_rpcPeriod.charAt(0).toUpperCase()+_rpcPeriod.slice(1)+" Report — ";
+      const st=root.querySelector("#rpcSecTitle"); if(st) st.textContent=pfx+(titles[_rpcRowView]||"Period View");
+      const sat=root.querySelector("#rpcSalesTitle"); if(sat) sat.textContent=pfx+"Per Salesperson";
+      const ht=root.querySelector("#rpcHcTitle"); if(ht) ht.textContent=pfx+"Per Health Coach";
       const pl=root.querySelector("#rpcPeriodLabel"); if(pl) pl.textContent=win.winLabel;
+      // Per Health Coach shows in BOTH views (25-Aug-2026). Per Salesperson gets its own table only
+      // in Period view — in Person view the main table above already IS that table, and painting
+      // both would print identical rows twice.
+      _rpcShow("#rpcSalesHd",!person); _rpcShow("#rpcSalesTblWrap",!person);
+      _rpcShow("#rpcHcHd",true); _rpcShow("#rpcHcTblWrap",true);
       _rpcSummary(rows); _rpcHeader(); _rpcBody(win);
+      if(!person) _rpcPaintSales(win);
+      _rpcPaintHc(win);
     }
     w._rpcRender=()=>_rpcRenderAll();
-    w._rpcRenderBody=()=>{ _rpcHeader(); _rpcBody(_rpcWindow()); };
+    w._rpcRenderBody=()=>{ const win=_rpcWindow(); _rpcHeader(); _rpcBody(win);
+      if(_rpcRowView!=="person") _rpcPaintSales(win);
+      _rpcPaintHc(win); };
     // Flip the date basis for the lead-cohort columns. Re-renders the header too, because the group
     // captions state which basis is in force.
     w._rpcToggleBasis=()=>{
@@ -21821,10 +22033,13 @@ export function initApp(root: HTMLElement) {
     };
 
     // ---- export (visible columns × current rows, honouring search + column filters) ----
-    w._rpcExport=()=>{
+    // One exporter, two buttons (25-Aug-2026). It was hard-wired to _rpcRows; it now takes the
+    // row set and a filename tag, so the Per Salesperson and Per Health Coach tables each download
+    // their own file, each carrying whatever search / column filter / sort the screen has on.
+    function _rpcExportRows(src:any[],fileTag:string){
       const vis=_rpcVisCols();
       const srch=((root.querySelector("#rpcSearch")as HTMLInputElement)?.value||"").toLowerCase();
-      let rows=_rpcRows.slice();
+      let rows=src.slice();
       // Export what the table shows, in the order it shows it — the sort used to be ignored, and the
       // search matched raw JSON rather than the visible cells.
       const sortKey=(root.querySelector("#rpcSort")as HTMLSelectElement)?.value||"none";
@@ -21838,9 +22053,12 @@ export function initApp(root: HTMLElement) {
       if(!rows.length){ toast("No rows to export"); return; }
       const out:string[][]=[vis.map((c:any)=>c.label)];
       rows.forEach((r:any)=>out.push(vis.map((c:any)=>{ const v=r[c.key]; return c.isPct?(v+"%"):String(v??""); })));
-      _downloadCsv("admin_report_"+_rpcPeriod+"_"+_rpcRowView+".csv",out);
+      _downloadCsv("admin_report_"+_rpcPeriod+"_"+fileTag+".csv",out);
       toast(rows.length+" row"+(rows.length===1?"":"s")+" exported");
-    };
+    }
+    w._rpcExport=()=>_rpcExportRows(_rpcRows,_rpcRowView==="person"?"salesperson":_rpcRowView);
+    w._rpcExportHc=()=>_rpcExportRows(_rpcHcRows,"healthcoach");
+    w._rpcExportSales=()=>_rpcExportRows(_rpcSalesRows,"salesperson");
 
     // INIT — nav click handlers (data loading gated behind auth in showApp)
     {
