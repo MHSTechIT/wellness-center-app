@@ -7143,7 +7143,11 @@ export function initApp(root: HTMLElement) {
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
         // by call count, "Total Call Duration" by talk time — see the calls/callduration branch in
         // renderHaResults.
-        const _scopedCallStats=_advCallScopedStats();
+        // WINDOWED, like §9 and like the drill-down BOTH of these cards open. _advCallScopedStats
+        // ignores the date filter entirely: leaving it here would have moved the 25-Aug-2026
+        // card-vs-table mismatch one panel up rather than fixing it, because these two cards open
+        // the very table that is now windowed. Every call figure on this screen is on one basis.
+        const _scopedCallStats=_haCallFactsWin();
         const _callAgg=book.reduce((a:any,l:any)=>{ const st=_scopedCallStats[String(l.id)]; if(st){ a.n+=st.connected; a.d+=st.dur; } return a; },{n:0,d:0});
         // These two cards are personal whenever the dashboard represents ONE advisor — a locked
         // Advisor login (their own calls) OR a full-access viewer who has filtered the top
@@ -7769,14 +7773,25 @@ export function initApp(root: HTMLElement) {
       // and opened nothing.
       const _CALL_CARDS=["calls","callduration","callsin","callsmiss","calltouch"];
       const _isCallCard=_CALL_CARDS.indexOf(String(_haActiveBucket))>=0;
-      const _scopedCallStats=_isCallCard?_advCallScopedStats():{};
+      // WINDOWED, exactly like the cards above. This used to be _advCallScopedStats(), which walks
+      // every call row with no date filter, so the drill-down answered a different question from the
+      // card that opened it: with a range applied the card counted calls INSIDE it (Connected 2,
+      // Talk 1m 20s) while the table underneath counted every call ever recorded on those leads
+      // (5 calls, 6m 20s) — reported 25-Aug-2026 as a mismatch, and it was one.
+      //
+      // _haCallFactsWin already carries connected + dur alongside inbound/missed/first, so a single
+      // source now feeds the card, the row filter, the title totals and the per-lead columns. They
+      // cannot disagree again. (_advCallScopedStats is still used by the §5 panel above, which is
+      // deliberately whole-book; it is left alone.)
+      const _cfWin:Record<string,any>=_isCallCard?_haCallFactsWin():{};
+      const _scopedCallStats:Record<string,any>=_cfWin;
       // Enhancement sections (PRD §5.2–§5.7) own the "ns:arg" keys; everything else falls through to
       // the original card logic below exactly as before.
       const _cust=_haCustomList(_haActiveBucket,book,fullBook);
       // Each call card selects its OWN leads. Connected/Talk time need a connected call; Incoming and
       // Missed need inbound activity; Avg 1st touch needs the two timestamps the average is built
       // from, so the list is exactly the leads that contributed to the number on the card.
-      const _cf=_isCallCard?_haCallFacts():{};
+      const _cf=_cfWin;
       const _touchMs=(l:any)=>{ const f=_cf[String(l.id)]; if(!f||!f.first) return 0;
         const det=_advLeadsDet[String(l.id)]||{};
         const asg=det.assigned_at?new Date(det.assigned_at).getTime():(l.assignedAt?new Date(l.assignedAt).getTime():0);
