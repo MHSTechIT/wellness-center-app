@@ -13061,6 +13061,9 @@ export function initApp(root: HTMLElement) {
       if(a==="enrol1"||a==="enrol2"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Enrolled";cBadge.className="chipb ok";}}   // no auto celebration popup — only updates the consultation status
       if(a==="paidb"||a==="paida"){if(pay)pay.style.display="block";if(cBadge){cBadge.textContent="Paid";cBadge.className="chipb info";}}
       if(a==="ni"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Not Interested";cBadge.className="chipb al";}}
+      // Invalid = the record itself is unusable (wrong person, duplicate, bad data). A dead end
+      // like Not Interested, so no payment section — there is nothing to collect against it.
+      if(a==="invalid"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Invalid";cBadge.className="chipb al";}}
       if(a==="open"){if(pay)pay.style.display="none";if(cBadge){cBadge.textContent="Open";cBadge.className="chipb vio";}}
       // Whenever the payment section is revealed, refresh the auto quote/balances and
       // apply the L1/L2 program-specific pricing view.
@@ -14003,6 +14006,29 @@ export function initApp(root: HTMLElement) {
     let _coachApplying=false;
     let _coachClients:any[]=[];
     function _coachPanelEl(){ return root.querySelector('#s-coach .c-p[data-p="health2"]')as HTMLElement|null; }
+    // ===== Trainee audit (coach page) =====================================================
+    // Mirrors the Advisor's BDM audit. Every control is data-nocap and persistence is by NAME
+    // (coach_profile.traineeAudit) — the positional field/pill/chip capture never sees it, so
+    // adding this section shifted nothing in existing saved profiles.
+    w._trnScore=(b:HTMLElement)=>{
+      const box=b&&b.parentElement; if(!box) return;
+      const was=b.classList.contains("on");
+      box.querySelectorAll("button").forEach((x:any)=>x.classList.remove("on"));
+      if(!was) b.classList.add("on");   // click the lit score again to clear it
+    };
+    function _trnCollect(){
+      const g=(id:string)=>String(((root.querySelector("#"+id)as any)?.value)||"").trim();
+      const on=root.querySelector("#trnScore button.on");
+      return { good:g("trnGood"), notGood:g("trnNotGood"), improve:g("trnImprove"),
+               score:on?(Number((on.textContent||"").trim())||0):0, status:g("trnStatus")||"Open" };
+    }
+    function _trnApply(a:any){
+      a=a||{};
+      const s=(id:string,v:any,dflt:string)=>{ const el=root.querySelector("#"+id)as any; if(el) el.value=String(v||dflt); };
+      s("trnGood",a.good,""); s("trnNotGood",a.notGood,""); s("trnImprove",a.improve,""); s("trnStatus",a.status,"Open");
+      const n=Number(a.score)||0;
+      root.querySelectorAll("#trnScore button").forEach((b:any)=>b.classList.toggle("on",Number((b.textContent||"").trim())===n));
+    }
     function collectCoachProfile(){
       const p=_coachPanelEl(); if(!p) return null;
       // [data-nocap] elements (the payment Status dropdowns, which mirror the existing hidden
@@ -14015,6 +14041,7 @@ export function initApp(root: HTMLElement) {
         // EMI payment proofs {name,url} — a NAMED key (not positional), so old profiles are
         // unaffected. Without this they lived only in the tab's memory and were gone on reopen.
         emiProofs:(_payProofsAll["emiProofs"]||[]).slice(),
+        traineeAudit:_trnCollect(),
         consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
     }
     function applyCoachProfile(obj:any){
@@ -14031,7 +14058,12 @@ export function initApp(root: HTMLElement) {
           // time to 09:00 so an older record opens with its date intact.
           if(el.type==="datetime-local"&&/^\d{4}-\d{2}-\d{2}$/.test(v)) v+="T09:00";
           el.value=v; });
-        const pills=Array.from(p.querySelectorAll(".pill")); (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
+        // FILTERED to match collectCoachProfile's states(), which skips [data-nocap]. Saving and
+        // restoring walked two different lists otherwise, so one excluded pill would shift every
+        // later pill's state by one. No pill carried data-nocap until Invalid, so nothing already
+        // saved changes meaning here.
+        const pills=Array.from(p.querySelectorAll(".pill")).filter((b:any)=>!b.hasAttribute("data-nocap"));
+        (obj.pills||[]).forEach((on:boolean,i:number)=>{ if(pills[i]) (pills[i]as HTMLElement).classList.toggle("on",!!on); });
         const chipEls=Array.from(p.querySelectorAll(".chip-o")); (obj.chips||[]).forEach((on:boolean,i:number)=>{ if(chipEls[i]) (chipEls[i]as HTMLElement).classList.toggle("on",!!on); });
         _coachAttachments=Array.isArray(obj.attachments)?obj.attachments.slice():[]; renderCoachAtts();
         // Restore saved EMI proofs into the container (and the per-container list, so a re-save or
@@ -14048,12 +14080,23 @@ export function initApp(root: HTMLElement) {
               if(first) box.insertBefore(tag,first); else box.appendChild(tag); });
           }
         }catch(_){}
+        try{ _trnApply((obj as any).traineeAudit); }catch(_){}
         // Restores the saved-assessment lock for this client (absent on profiles saved before this
         // feature — those stay editable, which is the safe direction: nothing is retro-locked).
         _haSavedAt=String((obj as any).haSavedAt||"1970-01-01T00:00:00.000Z");
         try{ _haGateApply(); }catch(_){}
         _haBmiCalc();
         // Re-trigger panel visibility based on restored consultation status pills
+        // A consultation status held on a [data-nocap] pill (Invalid) is not in obj.pills, so it is
+        // restored from the saved consStatus label — the value collectCoachProfile stores alongside.
+        try{
+          const want=String((obj&&(obj as any).consStatus)||"").trim();
+          if(want){ const g=root.querySelector("#consStatus");
+            const hit=g?Array.from(g.querySelectorAll(".pill")).find((b:any)=>String(b.textContent||"").trim()===want):null;
+            if(hit&&!(hit as HTMLElement).classList.contains("on")){
+              g!.querySelectorAll(".pill").forEach((b:any)=>b.classList.remove("on"));
+              (hit as HTMLElement).classList.add("on"); } }
+        }catch(_){}
         const cs=root.querySelector("#consStatus"); if(cs){ const onPill=cs.querySelector(".pill.on")as HTMLElement; if(onPill){ const act=onPill.getAttribute("onclick")||""; const m=act.match(/consAct\('([^']+)'/); if(m) consAct(m[1],onPill); } }
         // Re-trigger payment method panel visibility
         const pm=root.querySelector("#payMethod")as HTMLSelectElement; if(pm&&pm.value) payBlk(pm.value);
@@ -14852,6 +14895,7 @@ export function initApp(root: HTMLElement) {
       _coachAttachments=[]; renderCoachAtts();
       Object.keys(_payProofs).forEach(k=>delete _payProofs[k]);   // clear per-client payment proofs
       Object.keys(_payProofsAll).forEach(k=>delete _payProofsAll[k]);
+      try{ _trnApply(null); }catch(_){}   // fresh client -> blank trainee audit until its profile restores
       // Reset the EMI proof container to its three Attach buttons — restored files (if any) are
       // re-rendered by applyCoachProfile from the saved profile.
       try{ root.querySelectorAll("#emiProofs .att:not(.add)").forEach((t:any)=>t.remove()); }catch(_){}
@@ -21279,13 +21323,74 @@ export function initApp(root: HTMLElement) {
       _rpcFillFilters();
       _rpcRenderAll();
     }
+    // ===== Admin Report multi-select filters ================================================
+    // Each filter holds a SET of chosen values. An empty set means "all" — the same thing the old
+    // "all" option meant, so every downstream test still reads "no constraint" when nothing is
+    // ticked and nothing had to change about what a filter MEANS.
+    const RPC_MS_IDS=["rpcFService","rpcFSales","rpcFHc","rpcFSource","rpcFProg"];
+    const RPC_MS_LABEL:Record<string,string>={rpcFService:"All Services",rpcFSales:"All Salespersons",
+      rpcFHc:"All HCs",rpcFSource:"All Sources",rpcFProg:"All Programs"};
+    const _rpcMsSel:Record<string,Set<string>>={};
+    const _rpcMsOpts:Record<string,string[]>={};
+    RPC_MS_IDS.forEach(id=>{ _rpcMsSel[id]=new Set(); _rpcMsOpts[id]=[]; });
+    /** Chosen values for a filter. Empty = no constraint. */
+    const _rpcSelSet=(id:string)=>_rpcMsSel[id]||new Set<string>();
+    /** Does a single value pass this filter? The one place the empty-set rule is written down. */
+    const _rpcMsAllows=(id:string,v:string)=>{ const s=_rpcSelSet(id); return s.size===0||s.has(v); };
+
+    function _rpcMsPaint(id:string){
+      const btn=root.querySelector("#"+id+"Btn")as HTMLElement|null;
+      const pop=root.querySelector("#"+id+"Pop")as HTMLElement|null;
+      const sel=_rpcSelSet(id), opts=_rpcMsOpts[id]||[];
+      if(btn){
+        // Say WHAT is chosen while it still fits, and fall back to a count rather than truncating
+        // names — "3 selected" is readable where "Deepak, Gayathr…" is not.
+        const txt=sel.size===0?RPC_MS_LABEL[id]
+          :(sel.size===1?Array.from(sel)[0]:(sel.size+" selected"));
+        btn.textContent=txt;
+        btn.classList.toggle("on",sel.size>0);
+        btn.title=sel.size?Array.from(sel).join(", "):"Showing every value";
+      }
+      if(!pop) return;
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      pop.innerHTML='<div class="ms-hd"><button type="button" onclick="window._rpcMsAll(&quot;'+id+'&quot;)">Select all</button>'+'<button type="button" onclick="window._rpcMsNone(&quot;'+id+'&quot;)">Clear</button></div>'+(opts.length?opts.map((o:string)=>'<label class="ms-row"><input type="checkbox" '+(sel.has(o)?"checked":"")+' onchange="window._rpcMsPick(&quot;'+id+'&quot;,this.value,this.checked)" value="'+e(o)+'"> <span>'+e(o)+"</span></label>").join(""):'<div class="ms-empty">Nothing to filter by yet.</div>');
+    }
+    w._rpcMsToggle=(id:string)=>{
+      const pop=root.querySelector("#"+id+"Pop")as HTMLElement|null; if(!pop) return;
+      const open=pop.classList.contains("open");
+      RPC_MS_IDS.forEach(x=>{ const p2=root.querySelector("#"+x+"Pop")as HTMLElement|null; if(p2) p2.classList.remove("open"); });
+      if(!open) pop.classList.add("open");
+    };
+    w._rpcMsPick=(id:string,val:string,on:boolean)=>{
+      const s=_rpcMsSel[id]; if(!s) return;
+      if(on) s.add(val); else s.delete(val);
+      _rpcMsPaint(id); _rpcRenderAll();
+    };
+    w._rpcMsAll=(id:string)=>{ _rpcMsSel[id]=new Set(_rpcMsOpts[id]||[]); _rpcMsPaint(id); _rpcRenderAll(); };
+    w._rpcMsNone=(id:string)=>{ _rpcMsSel[id]=new Set(); _rpcMsPaint(id); _rpcRenderAll(); };
+    // Click anywhere else closes the open panel — a popover that only shuts via its own button
+    // gets left open over the table it is filtering.
+    root.addEventListener("click",(ev:any)=>{
+      const t=ev&&ev.target; if(!t||!t.closest) return;
+      if(t.closest(".ms")) return;
+      RPC_MS_IDS.forEach(x=>{ const p2=root.querySelector("#"+x+"Pop")as HTMLElement|null; if(p2) p2.classList.remove("open"); });
+    });
     function _rpcFillFilters(){
-      const fill=(id:string,vals:string[],allLabel:string)=>{ const el=root.querySelector("#"+id)as HTMLSelectElement|null; if(!el) return; const cur=el.value; const uniq=Array.from(new Set(vals.filter(Boolean))).sort(); el.innerHTML='<option value="all">'+allLabel+'</option>'+uniq.map(v=>'<option>'+String(v).replace(/</g,"&lt;")+'</option>').join(""); if(Array.from(el.options).some(o=>o.value===cur)) el.value=cur; };
-      const svcEl=root.querySelector("#rpcFService")as HTMLSelectElement|null;
-      if(svcEl&&svcEl.options.length<=1) svcEl.innerHTML='<option value="all">All Services</option>'+SERVICE_MASTER.map(s=>'<option>'+s+'</option>').join("");
-      fill("rpcFSales",_rpcLeads.map((l:any)=>l.assigned_to),"All Salespersons");
-      fill("rpcFHc",_rpcAppts.map((a:any)=>a.hc_pt),"All HCs");
-      fill("rpcFSource",_rpcLeads.map((l:any)=>l.source),"All Sources");
+      // Option lists for the checkbox panels. Values are DISTINCT and sorted; a filter offers only
+      // what the loaded data actually contains, so it can never present a choice that yields nothing.
+      const put=(id:string,vals:any[])=>{
+        _rpcMsOpts[id]=Array.from(new Set(vals.map((v:any)=>String(v||"").trim()).filter(Boolean))).sort(
+          (a,b)=>a.localeCompare(b,undefined,{sensitivity:"base"}));
+        // Drop any selection that no longer exists in the data, or the filter would silently
+        // exclude everything while its button still named the vanished value.
+        const sel=_rpcMsSel[id]; if(sel) Array.from(sel).forEach(v=>{ if(!_rpcMsOpts[id].includes(v)) sel.delete(v); });
+        _rpcMsPaint(id);
+      };
+      put("rpcFService",SERVICE_MASTER.slice());
+      put("rpcFSales",_rpcLeads.map((l:any)=>l.assigned_to));
+      put("rpcFHc",_rpcAppts.map((a:any)=>a.hc_pt));
+      put("rpcFSource",_rpcLeads.map((l:any)=>l.source));
+      put("rpcFProg",["L1","L2","L1 + L2"]);
     }
 
     // ---- value classifiers ----
@@ -21355,7 +21460,8 @@ export function initApp(root: HTMLElement) {
     }
 
     // ---- filters (control bar 2) ----
-    function _rpcSelVal(id:string){ return (root.querySelector("#"+id)as HTMLSelectElement|null)?.value||"all"; }
+    // (_rpcSelVal removed with the <select>s: the filters are SETS now, and a second reader that
+    //  could only ever return one value would quietly disagree with them.)
     // A lead belongs to a service if its own tag says so, OR if it was actually booked or billed for
     // it. The desk sells blood tests to leads whose lead row reads "Diabetes" or "Physiotherapy", so
     // matching the lead tag alone hid them: 4 Aug reported 4 Blood Test leads while the Blood Test
@@ -21376,13 +21482,19 @@ export function initApp(root: HTMLElement) {
       // No language filter — the control was removed from the report (the stored `language` column
       // carries occupation-style values like "Business"/"Private Job", so it never filtered by
       // language at all). _rpcSelVal on a missing element would return "" and drop every row.
-      const svc=_rpcSelVal("rpcFService"), sales=_rpcSelVal("rpcFSales"), hc=_rpcSelVal("rpcFHc"), src=_rpcSelVal("rpcFSource"), prog=_rpcSelVal("rpcFProg");
+      // ANY-of within a filter, AND across filters: "Deepak or Gayathri" AND "Diabetes or Physio".
+      // That is what a multi-select means to the person using it, and it degrades to the old
+      // single-value behaviour exactly when one box is ticked.
+      const svcS=_rpcSelSet("rpcFService"), salesS=_rpcSelSet("rpcFSales"), hcS=_rpcSelSet("rpcFHc");
+      const srcS=_rpcSelSet("rpcFSource"), progS=_rpcSelSet("rpcFProg");
       return _rpcLeads.filter((l:any)=>{
-        if(svc!=="all"&&!_rpcLeadHasSvc(l,svc,apptsBy,paysBy)) return false;
-        if(skip!=="sales"&&sales!=="all"&&(l.assigned_to||"")!==sales) return false;
-        if(src!=="all"&&(l.source||"")!==src) return false;
-        if(skip!=="hc"&&hc!=="all"&&!(apptsBy[String(l.meta_lead_id)]||[]).some((a:any)=>(a.hc_pt||"")===hc)) return false;
-        if(prog!=="all"){ const pg=_rpcLeadProg(l,paysBy); const want=prog==="L1 + L2"?(pg.l1&&pg.l2):(prog==="L1"?(pg.l1&&!pg.l2):(pg.l2&&!pg.l1)); if(!want) return false; }
+        if(svcS.size&&!Array.from(svcS).some((v:any)=>_rpcLeadHasSvc(l,v,apptsBy,paysBy))) return false;
+        if(skip!=="sales"&&salesS.size&&!salesS.has(String(l.assigned_to||""))) return false;
+        if(srcS.size&&!srcS.has(String(l.source||""))) return false;
+        if(skip!=="hc"&&hcS.size&&!(apptsBy[String(l.meta_lead_id)]||[]).some((a:any)=>hcS.has(String(a.hc_pt||"")))) return false;
+        if(progS.size){ const pg=_rpcLeadProg(l,paysBy);
+          const want=Array.from(progS).some((v:any)=>v==="L1 + L2"?(pg.l1&&pg.l2):(v==="L1"?(pg.l1&&!pg.l2):(pg.l2&&!pg.l1)));
+          if(!want) return false; }
         return true;
       });
     }
@@ -21435,10 +21547,12 @@ export function initApp(root: HTMLElement) {
     // Does this payment survive the Service filter? Rows with no service of their own fall back to
     // the lead (which already passed the filter), so their money is never silently dropped.
     function _rpcSvcAllows(p:any){
-      const svc=_rpcSelVal("rpcFService");
-      if(svc==="all") return true;
+      const sel=_rpcSelSet("rpcFService");
+      if(!sel.size) return true;
       const s=String((p&&p.service)||"").trim();
-      return !s||_svcCanonMatch(s,svc);
+      // An untagged payment still belongs to its lead, which already passed the filter — dropping it
+      // would silently lose money from the totals.
+      return !s||Array.from(sel).some((v:any)=>_svcCanonMatch(s,v));
     }
 
     // ---- one row: lead metrics from the cohort, money and visits from their own dates ----
@@ -21454,7 +21568,11 @@ export function initApp(root: HTMLElement) {
         l1fp:0,l1tot:0,l2fp:0,l2pp:0,l2tot:0,fuSched:0,chen:0,oth:0};
       _svcAll().forEach((s:string)=>{ r[_rpcSvcKey(s,"bill")]=0; r[_rpcSvcKey(s,"coll")]=0; });
       const srcCnt:Record<string,number>={}, svcCnt:Record<string,number>={};
-      const _svcSel=_rpcSelVal("rpcFService");
+      // The row's Service column: name the filter when it picks exactly ONE service, otherwise
+      // fall back to the row's own commonest service. With several ticked there is no single
+      // answer, and inventing one would be worse than showing what the row actually contains.
+      const _svcSelSet=_rpcSelSet("rpcFService");
+      const _svcSel=_svcSelSet.size===1?Array.from(_svcSelSet)[0]:"all";
       let payingLeads=0;
       L.forEach((l:any)=>{
         const id=String(l.meta_lead_id);

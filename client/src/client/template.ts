@@ -514,6 +514,12 @@ export function getMainContent(): string {
               <button class="pill p-info" onclick="consAct('paida',this)">Already Paid – After Consultation</button>
               <button class="pill p-al" onclick="consAct('ni',this)">Not Interested</button>
               <button class="pill p-al" onclick="consAct('refund',this)">Refund</button>
+              <!-- data-nocap: the coach profile stores pill states as ONE positional array over every
+                   .pill in the panel, and there are more pill groups below this one. A capturable pill
+                   inserted here would shift every later group's index, so a saved "Verified" would
+                   restore onto the wrong control. Excluded from the array; its state is restored from
+                   the saved consStatus string instead (see applyCoachProfile). -->
+              <button class="pill p-al" data-nocap onclick="consAct('invalid',this)">Invalid</button>
             </div></div>
           <div class="banner plan hideblock" id="coachFu" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
             <div style="display:flex;gap:9px;align-items:center"><svg aria-hidden="true" focusable="false" class="icon" style="width:16px;height:16px"><use href="#i-repeat"></use></svg><b>Strong follow-up flow — auto-created plan (committed but not paid)</b></div>
@@ -614,7 +620,7 @@ export function getMainContent(): string {
               <div class="fld"><label class="lbl" for="emiCost">Program cost <span class="ab">AUTO</span></label><input  class="input mono" id="emiCost" readonly></div>
               <div class="fld"><label class="lbl" for="emiDown">Down payment (₹) — drives calculator</label><input  class="input mono" id="emiDown" placeholder="e.g. 5000" inputmode="decimal" oninput="window._numOnly(this);emiCalc()"></div>
               <div class="fld"><label class="lbl" for="emiRemain">Financed balance <span class="ab">AUTO</span></label><input  class="input mono" id="emiRemain" readonly></div>
-              <div class="fld"><label class="lbl" for="emiTenure">Tenure (months) — drives calculator</label><select  class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>9</option><option>12</option></select></div>
+              <div class="fld"><label class="lbl" for="emiTenure">Tenure (months) — drives calculator</label><select  class="select" id="emiTenure" onchange="emiCalc()"><option value="">--</option><option>3</option><option>6</option><option>8</option><option>9</option><option>12</option></select></div>
               <div class="fld"><label class="lbl" for="emiPer">EMI / month <span class="ab">AUTO calculated</span></label><input  class="input mono" id="emiPer" readonly></div>
               <div class="fld"><label class="lbl">Documentation date</label><input aria-label="Documentation date" class="input" type="date"></div>
               <div class="fld"><label class="lbl">Disbursement ETA <span class="ab">24–48h</span></label><input aria-label="Disbursement ETA" class="input" type="date" data-future="1"></div>
@@ -675,6 +681,20 @@ export function getMainContent(): string {
           <div class="fld" style="grid-column:span 2"><label class="lbl">Welcome kit status</label>
             <div class="pills"><button class="pill p-ok" onclick="toast('Kit issued · logged')">Given</button><button class="pill p-warn">Need to Ship</button><button class="pill p-vio on">Not Required</button></div></div>
         </div></div></div>
+
+      <!-- TRAINEE AUDIT (Health Coach) — mirrors the Advisor page's BDM audit block (Good / Not
+           good / Improve + score + status), sitting directly above the Activity log. CAPTURE
+           SAFETY: every control carries data-nocap and the score buttons are NOT .pill / .chip-o,
+           so the coach profile's positional field/pill/chip arrays are untouched — existing saved
+           profiles keep restoring exactly. Values persist by NAME (coach_profile.traineeAudit). -->
+      <div class="sec closed" id="coachTrnAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> Trainee audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="aud"><div class="ahd">Trainee evaluation</div><div class="g3">
+          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="Trainee audit — ✓ Good" class="area" id="trnGood" data-nocap></textarea></div>
+          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="Trainee audit — ✗ Not good" class="area" id="trnNotGood" data-nocap></textarea></div>
+          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="Trainee audit — ▲ Improve" class="area" id="trnImprove" data-nocap></textarea></div></div>
+          <div class="g3" style="margin-top:4px">
+            <div class="fld"><label class="lbl">Trainee score</label><div class="score" id="trnScore"><button type="button" onclick="window._trnScore(this)">1</button><button type="button" onclick="window._trnScore(this)">2</button><button type="button" onclick="window._trnScore(this)">3</button><button type="button" onclick="window._trnScore(this)">4</button><button type="button" onclick="window._trnScore(this)">5</button></div></div>
+            <div class="fld"><label class="lbl">Status</label><select aria-label="Trainee audit status" class="select" id="trnStatus" data-nocap><option>Open</option><option>Done</option></select></div></div></div></div></div>
 
       <!-- ACTIVITY LOG (Health Coach) — placed exactly where the Advisor has it: the last section of
            the record, immediately above the Save button, so it is read in the same place on both
@@ -1779,11 +1799,14 @@ export function getMainContent(): string {
       </div>
       <!-- CONTROL BAR 2 — Filters -->
       <div class="ctrl2">
-        <select class="filter-sel" id="rpcFService" onchange="window._rpcRender()"><option value="all">All Services</option></select>
-        <select class="filter-sel" id="rpcFSales" onchange="window._rpcRender()"><option value="all">All Salespersons</option></select>
-        <select class="filter-sel" id="rpcFHc" onchange="window._rpcRender()"><option value="all">All HCs</option></select>
-        <select class="filter-sel" id="rpcFSource" onchange="window._rpcRender()"><option value="all">All Sources</option></select>
-        <select class="filter-sel" id="rpcFProg" onchange="window._rpcRender()"><option value="all">All Programs</option><option>L1</option><option>L2</option><option>L1 + L2</option></select>
+        <!-- MULTI-SELECT FILTERS. Native <select multiple> shows a scrolling list box that cannot
+             match this bar and hides the selection; these are checkbox popovers that state what is
+             chosen on the button itself. Ids are unchanged, so every existing read still resolves. -->
+        <div class="ms" id="rpcFServiceWrap"><button type="button" class="filter-sel ms-btn" id="rpcFServiceBtn" onclick="window._rpcMsToggle('rpcFService')">All Services</button><div class="ms-pop" id="rpcFServicePop"></div></div>
+        <div class="ms" id="rpcFSalesWrap"><button type="button" class="filter-sel ms-btn" id="rpcFSalesBtn" onclick="window._rpcMsToggle('rpcFSales')">All Salespersons</button><div class="ms-pop" id="rpcFSalesPop"></div></div>
+        <div class="ms" id="rpcFHcWrap"><button type="button" class="filter-sel ms-btn" id="rpcFHcBtn" onclick="window._rpcMsToggle('rpcFHc')">All HCs</button><div class="ms-pop" id="rpcFHcPop"></div></div>
+        <div class="ms" id="rpcFSourceWrap"><button type="button" class="filter-sel ms-btn" id="rpcFSourceBtn" onclick="window._rpcMsToggle('rpcFSource')">All Sources</button><div class="ms-pop" id="rpcFSourcePop"></div></div>
+        <div class="ms" id="rpcFProgWrap"><button type="button" class="filter-sel ms-btn" id="rpcFProgBtn" onclick="window._rpcMsToggle('rpcFProg')">All Programs</button><div class="ms-pop" id="rpcFProgPop"></div></div>
         <input type="text" class="search-input" id="rpcSearch" placeholder="Search..." oninput="window._rpcRenderBody()">
         <div style="margin-left:auto;display:flex;gap:5px">
           <button class="btn-s" onclick="window._rpcToggleColPanel()" id="rpcColPanelBtn">

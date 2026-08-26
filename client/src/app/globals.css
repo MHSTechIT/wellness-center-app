@@ -2377,3 +2377,28 @@ html[data-boot="sess"] #appLoading{display:flex!important}
   /* No sweep, but the target must still be findable — hold a static ring instead. */
   .act-jump{animation:none;box-shadow:0 0 0 3px var(--brand);background:var(--brand-tint);border-radius:8px}
 }
+
+/* ============================================================
+   ADMIN REPORT — multi-select filters (25-Aug-2026)
+   Checkbox popovers replacing single-choice <select>s. Sized and coloured off .rpc .filter-sel so
+   the bar still reads as one row of controls; only the panel is new.
+   ============================================================ */
+.rpc .ms{position:relative;display:inline-block}
+.rpc .ms-btn{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  cursor:pointer;text-align:left;font-family:inherit}
+.rpc .ms-btn::after{content:"\25BE";margin-left:5px;opacity:.5;font-size:9px}
+.rpc .ms-btn.on{border-color:#4F46E5;color:#4F46E5;font-weight:700;background:#EEF2FF}
+.rpc .ms-pop{display:none;position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:186px;
+  max-height:266px;overflow-y:auto;background:#fff;border:1px solid #D1D5DB;border-radius:9px;
+  box-shadow:0 10px 30px rgba(17,24,39,.14);padding:4px}
+.rpc .ms-pop.open{display:block}
+.rpc .ms-hd{display:flex;gap:6px;padding:4px 6px 6px;border-bottom:1px solid #F1F3F5;margin-bottom:3px}
+.rpc .ms-hd button{flex:1;font-size:9.5px;font-weight:700;padding:3px 6px;border:0.5px solid #D1D5DB;
+  border-radius:6px;background:#fff;color:#374151;cursor:pointer;font-family:inherit}
+.rpc .ms-hd button:hover{background:#F9FAFB;border-color:#9CA3AF}
+.rpc .ms-row{display:flex;align-items:center;gap:7px;padding:4px 7px;border-radius:6px;
+  font-size:10.5px;color:#111827;cursor:pointer}
+.rpc .ms-row:hover{background:#F3F4F6}
+.rpc .ms-row input{accent-color:#4F46E5;width:12px;height:12px;flex:none;cursor:pointer}
+.rpc .ms-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpc .ms-empty{padding:12px 8px;font-size:10px;color:#9CA3AF;text-align:center}
