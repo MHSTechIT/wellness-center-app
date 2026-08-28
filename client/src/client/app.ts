@@ -6385,13 +6385,22 @@ export function initApp(root: HTMLElement) {
       // Every call, latest first, inside a bounded scroller. The chips report the same totals the
       // list contains, so there is no longer a count on screen that disagrees with what is under it.
       const shown=rows;   // all of them; the scroller below bounds the height instead
-      el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span></div>'
+      // PROVENANCE. initiated_by_email is written ONLY by /api/calls/initiate, at the moment
+      // someone clicks Call - nothing else in the codebase sets it. Its absence therefore means the
+      // call reached us through the telephony webhook, which attaches ANY call on the account to a
+      // lead by matching the dialled number. Both kinds are real calls and both belong here; what
+      // was missing was a way to tell them apart, so an advisor's desk-phone call read as app
+      // activity and "did she use the CRM today" could not be answered from this page.
+      const _fromApp=(r:any)=>!!String((r&&r.initiated_by_name)||(r&&r.initiated_by_email)||"").trim();
+      const _appN=rows.filter(_fromApp).length, _extN=rows.length-_appN;
+      el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="chipb info">'+rows.length+' call'+(rows.length===1?"":"s")+'</span><span class="chipb '+(recCount?"ok":"neu")+'">'+recCount+' recording'+(recCount===1?"":"s")+'</span>'+(_appN?'<span class="chipb ok" title="Placed with the Call button in this app">'+_appN+' from CRM</span>':"")+(_extN?'<span class="chipb warn" title="Recorded by the telephony webhook - dialled outside this app and matched to this lead by number">'+_extN+' external line</span>':"")+'</div>'
         // maxHeight, not a row limit: the panel keeps its size however long the history gets, and
         // scrolling costs nothing - where expanding cost a telephony round trip.
         +'<div style="max-height:320px;overflow-y:auto;overscroll-behavior:contain">'
         +shown.map((r:any)=>{
           const out=/out/i.test(r.direction||"outbound");
           const dir=out?'<span class="chipb vio">Outgoing</span>':'<span class="chipb info">Incoming</span>';
+          const via=_fromApp(r)?'<span class="chipb ok" title="Placed with the Call button in this app by '+e(String(r.initiated_by_name||'a CRM user'))+'">CRM</span>':'<span class="chipb warn" title="Not placed from this app - dialled on an external line and matched to this lead by phone number">External</span>';
           const dur=r.duration_seconds?((r.duration_seconds/60|0)+":"+String(r.duration_seconds%60).padStart(2,"0")):"—";
           const st=r.call_status||"—"; const stc=/complet|answer|connect/i.test(st)?"ok":/miss|fail|no.?answer|busy|reject|cancel/i.test(st)?"al":"warn";
           const rec=r.recording_url
@@ -6399,7 +6408,7 @@ export function initApp(root: HTMLElement) {
             : '<div style="margin-top:6px;font-size:11px;color:var(--faint)">'+(/(initiat|ring)/i.test(st)?"Recording will appear once the call completes.":"No recording available.")+'</div>';
           return '<div style="border-bottom:1px solid var(--line);padding:11px 0">'
             +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-            +'<span class="mono" style="font-size:12px;font-weight:600">'+e(fmtIST(r.created_at))+'</span>'+dir
+            +'<span class="mono" style="font-size:12px;font-weight:600">'+e(fmtIST(r.created_at))+'</span>'+dir+via
             +'<span class="chipb '+stc+'">'+e(st)+'</span>'
             +'<span style="font-size:11.5px;color:var(--muted)">Duration '+dur+'</span>'
             +'<span style="font-size:11.5px;color:var(--muted)">Agent '+e(r.agent_number||r.from_number||"—")+'</span>'

@@ -194,7 +194,16 @@ async function webhook(req: Request, res: Response) {
     if (got !== expected) { res.status(403).json({ ok: false }); return; }
   } else if (!_warnedWebhookOpen) {
     _warnedWebhookOpen = true;
-    console.warn('[wellness-api] TATA_WEBHOOK_SECRET is not set — /api/calls/webhook/recording is accepting unauthenticated requests. Set TATA_WEBHOOK_SECRET and add ?secret=<value> to the webhook URL configured in the Smartflo dashboard.');
+    // Repeated every 30 minutes, not once at boot: a single line in a log nobody scrolls back
+    // through is how this stayed open. Until the secret is set, anyone who knows the URL can POST
+    // a call record and inflate an advisor's numbers.
+    const nag = () => console.warn(
+      '[wellness-api] SECURITY: TATA_WEBHOOK_SECRET is not set - /api/calls/webhook/recording '
+      + 'accepts UNAUTHENTICATED posts, so anyone who knows the URL can write call history. '
+      + 'Set TATA_WEBHOOK_SECRET in the environment and append ?secret=<value> to the URL '
+      + 'configured in the Tata/Smartflo console.');
+    nag();
+    setInterval(nag, 30 * 60 * 1000).unref();
   }
   const payload: any = req.body && Object.keys(req.body).length ? req.body : {};
   res.json({ ok: true });
@@ -245,6 +254,11 @@ async function processRecording(p: any) {
     duration_seconds: duration, from_number: fromNum || null, to_number: toNum || null,
     direction: direction || null, call_status: norm, raw_payload: p,
   };
+  // NEVER write initiated_by_* here. Only /api/calls/initiate may set them, at the moment somebody
+  // actually clicks Call — that is what makes their absence trustworthy evidence that a call came
+  // from an external line rather than this app. The upsert below builds its SET clause from this
+  // row's own keys, so omitting them leaves an existing stamp untouched when the provider later
+  // reports on a call the app DID place.
   try { await supabase.from('call_recordings').upsert(row, { onConflict: 'call_id' }); } catch (_) { return; }
 
   if (contactId && isTerminalStatus(norm) && !isTerminalStatus(prevNorm)) {
