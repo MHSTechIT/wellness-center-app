@@ -188,6 +188,64 @@ const STEPS: Step[] = [
     // IST day simply matches no rows and the full allocation is available again. A stored counter
     // would need a cron to zero it, and would drift the first time a lead was reassigned or deleted.
     // advisor is the assignees.name the rest of the app already assigns by (leads.assigned_to).
+    // PERCENTAGE allocation per SERVICE TEAM (28-Aug-2026). Replaces the fixed daily number as the
+    // thing auto-assignment reads: Meta delivers an unpredictable number of leads through the day,
+    // so a per-advisor COUNT can only ever be a guess, while a RATIO holds whatever the day brings.
+    //
+    // service = '' is the DEFAULT team, used for any service that has no team of its own — which is
+    // what lets one configuration keep covering every line. A row per (service, advisor); the
+    // percentages within a service are expected to total 100, and the engine normalises if they do
+    // not rather than refusing to place leads.
+    //
+    // advisor_lead_targets is deliberately LEFT IN PLACE, not dropped: it is the rollback path, and
+    // the backfill below reads it once to carry the existing split over.
+    // TEAM TARGET SHEET (28-Aug-2026). One row per month holding the figures the whole plan is
+    // derived from, replacing a per-advisor table of hand-typed counts: an admin sets the team's
+    // revenue, lead volume and funnel rates once, and every person's numbers fall out of their
+    // percentage of it. Rates are stored as percentages (30 means 30%), the way they are entered.
+    name: 'team_targets',
+    sql: `CREATE TABLE IF NOT EXISTS team_targets (
+      period         TEXT PRIMARY KEY,
+      revenue        NUMERIC(14,2) NOT NULL DEFAULT 0,
+      enrollment     NUMERIC(10,2) NOT NULL DEFAULT 0,
+      leads          NUMERIC(10,2) NOT NULL DEFAULT 0,
+      spent          NUMERIC(14,2) NOT NULL DEFAULT 0,
+      lead_to_app    NUMERIC(6,3) NOT NULL DEFAULT 0,
+      lead_to_conv   NUMERIC(6,3) NOT NULL DEFAULT 0,
+      lead_to_visit  NUMERIC(6,3) NOT NULL DEFAULT 0,
+      app_to_visit   NUMERIC(6,3) NOT NULL DEFAULT 0,
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by     TEXT
+    )`,
+  },
+  {
+    // Each person's PERCENTAGES for a month, per team. JSONB rather than a column per metric: the
+    // advisor sheet and the coach sheet track different things (appointments vs consultations) and
+    // the list is expected to grow, so the shape belongs to the UI that defines it. Counts are never
+    // stored — they are derived from these percentages and the team row, so the two can never drift.
+    name: 'member_targets',
+    sql: `CREATE TABLE IF NOT EXISTS member_targets (
+      period     TEXT NOT NULL,
+      team       TEXT NOT NULL,
+      person     TEXT NOT NULL,
+      pcts       JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (period, team, person)
+    )`,
+  },
+  {
+    name: 'advisor_alloc',
+    sql: `CREATE TABLE IF NOT EXISTS advisor_alloc (
+      service    TEXT NOT NULL DEFAULT '',
+      advisor    TEXT NOT NULL,
+      pct        NUMERIC(7,3) NOT NULL DEFAULT 0 CHECK (pct >= 0 AND pct <= 100),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_by TEXT,
+      PRIMARY KEY (service, advisor)
+    )`,
+  },
+  {
     name: 'advisor_lead_targets',
     sql: `CREATE TABLE IF NOT EXISTS advisor_lead_targets (
       advisor      TEXT PRIMARY KEY,
@@ -410,6 +468,31 @@ const TABLES: Step[] = [
 // value that is already set. After the first successful run these match no rows.
 // ---------------------------------------------------------------------------
 const BACKFILLS: Step[] = [
+  {
+    // Carry the existing fixed daily targets over as percentages, ONCE, so switching to ratio
+    // allocation does not silently stop auto-assignment while somebody reconfigures it by hand.
+    // 5 / 4 / 13 / 14 (36 a day) becomes 13.889 / 11.111 / 36.111 / 38.889 of whatever arrives —
+    // the same split, expressed as a ratio instead of a count.
+    //
+    // Into service '' (the DEFAULT team) rather than a named service: the old targets were never
+    // service-scoped, so every line keeps being served exactly as it is today until an admin adds
+    // a team for one. Guarded by NOT EXISTS over the whole table, so it runs only while the new
+    // allocation is still empty — it can never overwrite a configuration somebody has since saved.
+    name: 'advisor_alloc from daily targets',
+    sql: `
+      INSERT INTO advisor_alloc (service, advisor, pct, updated_by)
+      SELECT '', t.advisor,
+             round(100.0 * t.daily_target::numeric / s.total, 3),
+             'carried over from daily targets'
+        FROM advisor_lead_targets t
+        CROSS JOIN (SELECT sum(daily_target)::numeric AS total
+                      FROM advisor_lead_targets WHERE daily_target > 0) s
+       WHERE t.daily_target > 0
+         AND s.total > 0
+         AND NOT EXISTS (SELECT 1 FROM advisor_alloc)
+      ON CONFLICT (service, advisor) DO NOTHING
+    `,
+  },
   {
     // The advisor's Sugar level lived only inside advisor_profile, while leads.sugar_poll kept the
     // raw Meta poll answer — so a level the advisor CORRECTED on the call never reached the filter,

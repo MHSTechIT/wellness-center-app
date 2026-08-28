@@ -3446,6 +3446,94 @@ export function initApp(root: HTMLElement) {
     };
     // Close the Advisor multi-select when clicking outside it (mirrors the pool-assign menu).
     document.addEventListener("click",(e:any)=>{ const wrap=root.querySelector("#advLeadsAdvWrap"); const m=root.querySelector("#advLeadsAdvMenu")as HTMLElement|null; if(m&&m.style.display==="block"&&wrap&&!wrap.contains(e.target)) m.style.display="none"; });
+    // ===== Target sheet — team plan → per-person targets ======================================
+    // The whole plan derives from ONE team row plus each person's percentages; no count is ever
+    // typed or stored, so a person's numbers can never drift from the team's. Rules confirmed with
+    // the requester 28-Aug-2026, and each is a decision the sheet alone did not settle:
+    //
+    //  · VISITS come from LEAD → VISIT, not App → Visit. The sheet gives both (30% of 1000 leads =
+    //    300, but 70% of 300 appointments = 210) and they disagree; leads drive it. App → Visit is
+    //    kept and REPORTED so the gap between the two stays visible rather than hidden.
+    //  · ENROLMENTS are the team's Enrollment FIELD, not Lead → Conversion. Again both are given
+    //    (10 against 10% of 1000 = 100) and the explicit field wins.
+    //  · ONLINE / OFFLINE percentages are RATES ON THAT PERSON'S OWN LEADS, not a split of their
+    //    appointments and not a share of a team pool.
+    //  · REVENUE per person = their conversions × (team revenue ÷ team enrolments).
+    //
+    // Every rate falls back to the team rate when a person leaves it blank, so a sheet filled in
+    // only at the top still produces a complete plan.
+    type TeamPlan={revenue:number;enrollment:number;leads:number;spent:number;
+      leadToApp:number;leadToConv:number;leadToVisit:number;appToVisit:number};
+    const _tsNum=(v:any)=>{ const n=Number(v); return isFinite(n)?n:0; };
+    const _tsPct=(v:any,fallback:number)=>{ const n=Number(v); return (isFinite(n)&&String(v??"").trim()!=="")?n:fallback; };
+    // Derived team figures. CPL and ROAS are formulas in the sheet, never inputs.
+    function _tsTeamDerived(t:TeamPlan){
+      const cpl=t.leads>0?t.spent/t.leads:0;
+      const roas=t.spent>0?t.revenue/t.spent:0;
+      const revPerEnrol=t.enrollment>0?t.revenue/t.enrollment:0;
+      return {
+        cpl, roas, revPerEnrol,
+        appts:t.leads*(t.leadToApp/100),
+        visits:t.leads*(t.leadToVisit/100),            // LEAD → VISIT drives, as confirmed
+        visitsViaAppt:t.leads*(t.leadToApp/100)*(t.appToVisit/100),   // reported, for the gap
+        convByRate:t.leads*(t.leadToConv/100),         // reported, for the gap
+        enrolments:t.enrollment,                        // the FIELD drives, as confirmed
+      };
+    }
+    // One ADVISOR's targets. `p` holds their percentages; a blank rate inherits the team's.
+    //
+    // Con % is that person's SHARE OF THE TEAM'S ENROLMENTS, not a rate on their leads (settled
+    // 28-Aug-2026). Deriving it from Lead → Conversion instead produced 100 conversions against an
+    // enrolment target of 10, and per-person revenue ten times the team's. Shares are ENTERED per
+    // person and never divided equally on their behalf — two people on one team are expected to
+    // carry different numbers.
+    //
+    // Online / offline CONVERSION percentages are rates on that person's own online / offline
+    // APPOINTMENTS, not on their leads: as a rate on leads they produced 100 online conversions out
+    // of 50 online appointments, which no funnel can mean.
+    function _tsAdvisorRow(t:TeamPlan,p:any){
+      const d=_tsTeamDerived(t);
+      const leads=t.leads*(_tsNum(p.leadsPct)/100);
+      const appPct=_tsPct(p.appPct,t.leadToApp);
+      const visitPct=_tsPct(p.visitPct,t.leadToVisit);
+      const appts=leads*(appPct/100);
+      const con=d.enrolments*(_tsNum(p.conPct)/100);
+      const onlineAppts=leads*(_tsNum(p.onlineAppPct)/100);
+      const offlineAppts=leads*(_tsNum(p.offlineAppPct)/100);
+      const onlineCon=onlineAppts*(_tsNum(p.onlineConPct)/100);
+      const offlineCon=offlineAppts*(_tsNum(p.offlineConPct)/100);
+      return {
+        leads, appts, visits:leads*(visitPct/100), con,
+        revenue:con*d.revPerEnrol,
+        onlineAppts, onlineCon, onlineRevenue:onlineCon*d.revPerEnrol,
+        offlineAppts, offlineCon, offlineRevenue:offlineCon*d.revPerEnrol,
+        appPct, visitPct,
+      };
+    }
+    // One COACH's targets. The coach team is configured SEPARATELY from the advisors and counts
+    // CONSULTATIONS rather than leads: a consultation is what a visit becomes, so a coach's
+    // consultation share is taken of the team's visits. Their conversion share, like the advisors',
+    // is a share of the team's enrolments — the same enrolment seen from the coach's side, which is
+    // why both teams' revenue totals to the team target rather than twice it.
+    function _tsCoachRow(t:TeamPlan,p:any){
+      const d=_tsTeamDerived(t);
+      const consults=d.visits*(_tsNum(p.consultPct)/100);
+      const conv=d.enrolments*(_tsNum(p.convPct)/100);
+      const onlineConsults=d.visits*(_tsNum(p.onlineConsultPct)/100);
+      const offlineConsults=d.visits*(_tsNum(p.offlineConsultPct)/100);
+      const onlineConv=onlineConsults*(_tsNum(p.onlineConvPct)/100);
+      const offlineConv=offlineConsults*(_tsNum(p.offlineConvPct)/100);
+      return {
+        consults, conv, revenue:conv*d.revPerEnrol,
+        onlineConsults, onlineConv, onlineRevenue:onlineConv*d.revPerEnrol,
+        offlineConsults, offlineConv, offlineRevenue:offlineConv*d.revPerEnrol,
+      };
+    }
+    // Whole-number targets: a target of "37.5 appointments" is not a target anyone can hit.
+    const _tsR=(n:number)=>Math.round((Number(n)||0)*100)/100;
+    const _tsI=(n:number)=>Math.round(Number(n)||0);
+    const _tsInr=(n:number)=>"₹"+Math.round(Number(n)||0).toLocaleString("en-IN");
+
     // ===== Advisor Leads Count Setting — daily auto-assignment allocation =====
     // The admin sets a per-advisor DAILY target; the server tops each advisor up to it as leads
     // arrive (see server/src/services/autoassign.ts, which runs on every Meta sync).
@@ -3454,18 +3542,94 @@ export function initApp(root: HTMLElement) {
     // today's IST date, so it already includes anything the admin placed by hand — the two paths
     // share one number and cannot between them exceed the target. It is also why there is no daily
     // reset to run: tomorrow simply matches no rows.
-    let _alcRows:any[]=[];          // [{advisor, role, target, todayCount}]
-    let _alcTargets:Record<string,number>={};
+    let _alcRows:any[]=[];          // [{advisor, role, pct, todayCount}] for the SELECTED service team
+    // service key -> { advisor -> pct }. '' is the default team, used by any service without its own.
+    let _alcAlloc:Record<string,Record<string,number>>={};
+    let _alcSvc="";                 // which team the table is currently editing
+    // The same normalisation the server applies (serviceTeamKey in autoassign.ts), so the team an
+    // admin edits here is exactly the team a lead will be routed to. A combined service is served by
+    // the FIRST line named; the same line spelt differently collapses onto one key.
+    function _alcSvcKey(raw:string):string{
+      const x=String(raw||"").split("+")[0].trim().toLowerCase();
+      if(!x) return "";
+      if(x.indexOf("weight")>=0||x.indexOf("wt loss")>=0) return "weight loss counselling";
+      if(x.indexOf("diab")>=0||x.indexOf("sugar")>=0) return "diabetes counselling";
+      if(x.indexOf("sauna")>=0||x.indexOf("sona")>=0) return "sauna bath";
+      if(x.indexOf("cold")>=0||x.indexOf("plunge")>=0) return "cold plunge";
+      if(x.indexOf("phys")>=0) return "physiotherapy";
+      if(x.indexOf("blood")>=0||x.indexOf("diagnost")>=0) return "blood test";
+      if(x.indexOf("hbot")>=0||x.indexOf("hyperbaric")>=0||x.indexOf("oxygen")>=0) return "hbot";
+      return x;
+    }
+    const _alcSvcLabel=(k:string)=>{
+      if(!k) return "All services (default)";
+      const hit=SERVICE_MASTER.find((m:string)=>_alcSvcKey(m)===k);
+      return hit||k.replace(/\b\w/g,(c:string)=>c.toUpperCase());
+    };
     const _alcIstToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
     async function loadAdvisorLeadTargets(){
       try{
-        const res:any=await supabase.from("advisor_lead_targets").select("*");
-        _alcTargets={};
-        if(res&&!res.error) (res.data||[]).forEach((r:any)=>{ _alcTargets[String(r.advisor||"").trim()]=Number(r.daily_target)||0; });
-      }catch(_){ _alcTargets={}; }
+        const res:any=await supabase.from("advisor_alloc").select("*");
+        _alcAlloc={};
+        if(res&&!res.error) (res.data||[]).forEach((r:any)=>{
+          const k=_alcSvcKey(String(r.service||""));
+          const a=String(r.advisor||"").trim(); if(!a) return;
+          (_alcAlloc[k]=_alcAlloc[k]||{})[a]=Number(r.pct)||0;
+        });
+      }catch(_){ _alcAlloc={}; }
+      _alcFillServiceSelect();
       renderAdvisorLeadCounts();
       try{ _alcLoadSwitch(); }catch(_){}
     }
+    // Every service the app knows about, plus the default team, plus any team already configured for
+    // a service no longer on the master (so a saved team can never become invisible and un-editable).
+    function _alcFillServiceSelect(){
+      const sel=root.querySelector("#alcService")as HTMLSelectElement|null; if(!sel) return;
+      const keys:string[]=[""];
+      SERVICE_MASTER.forEach((m:string)=>{ const k=_alcSvcKey(m); if(keys.indexOf(k)<0) keys.push(k); });
+      Object.keys(_alcAlloc).forEach(k=>{ if(keys.indexOf(k)<0) keys.push(k); });
+      const cur=_alcSvc;
+      sel.innerHTML=keys.map(k=>{
+        const n=Object.keys(_alcAlloc[k]||{}).filter(a=>(_alcAlloc[k][a]||0)>0).length;
+        return '<option value="'+_attr(k)+'"'+(k===cur?" selected":"")+'>'+_attr(_alcSvcLabel(k))+(n?" \u00b7 "+n+" advisor"+(n===1?"":"s"):"")+'</option>';
+      }).join("");
+      sel.value=cur;
+    }
+    w._alcServiceChange=()=>{
+      const sel=root.querySelector("#alcService")as HTMLSelectElement|null;
+      _alcSvc=sel?String(sel.value||""):"";
+      renderAdvisorLeadCounts();
+    };
+    // Adding a member is what puts an advisor on the team; the percentage is edited in the row.
+    w._alcAddMember=()=>{
+      const sel=root.querySelector("#alcAddAdv")as HTMLSelectElement|null;
+      const name=sel?String(sel.value||"").trim():"";
+      if(!name){ toast("Pick an advisor first"); return; }
+      const team=(_alcAlloc[_alcSvc]=_alcAlloc[_alcSvc]||{});
+      const live=_alcReadInputs();
+      Object.keys(live).forEach(a=>{ team[a]=live[a]; });          // keep unsaved edits
+      if(team[name]!=null&&team[name]>0){ toast(name+" is already on this team"); return; }
+      team[name]=0;
+      renderAdvisorLeadCounts();
+      toast(name+" added \u2014 set their share, then Save allocation");
+    };
+    w._alcRemoveMember=(name:string)=>{
+      const team=_alcAlloc[_alcSvc]||{};
+      const live=_alcReadInputs();
+      Object.keys(live).forEach(a=>{ team[a]=live[a]; });
+      delete team[String(name)];
+      renderAdvisorLeadCounts();
+    };
+    // Equal shares, with the rounding remainder given to the first member so the total is exactly 100.
+    w._alcSplitEven=()=>{
+      const team=_alcAlloc[_alcSvc]||{};
+      const names=Object.keys(team);
+      if(!names.length){ toast("Add advisors to this team first"); return; }
+      const each=Math.floor((100/names.length)*1000)/1000;
+      names.forEach(n=>{ team[n]=each; });
+      team[names[0]]=Math.round((100-each*(names.length-1))*1000)/1000;
+      renderAdvisorLeadCounts();
+    };
     // Today's assigned count per advisor, from the SAME leads the rest of the app reads.
     function _alcTodayCounts():Record<string,number>{
       const out:Record<string,number>={}; const today=_alcIstToday();
@@ -3486,58 +3650,89 @@ export function initApp(root: HTMLElement) {
       // "all" = the union across every service line, because the allocation is a DAILY limit for the
       // advisor, not a per-service one. Same predicate as the Assign-to menus, so anyone who can be
       // assigned a lead has a row here to set their limit in.
-      _alcRows=_assignableAdvisors("all")
-        .map((a:any)=>{ const name=String(a.name||"").trim(); const key=name;
-          // Show every role held, not just the mirrored one — otherwise sugashini reads "Health
-          // Coach" here and the admin cannot tell why she is in an advisor allocation table.
-          const roles=_rolesOf(a).filter(Boolean);
-          return {advisor:name,role:(roles.length?roles.join(" · "):String(a.role||"")),
-            target:Number(_alcTargets[key]||0),todayCount:Number(today[key]||0)}; })
-        .sort((x:any,y:any)=>x.advisor.localeCompare(y.advisor));
+      // ROWS ARE THE TEAM, not every advisor: a team is the people an admin put on it, so an
+      // advisor who works another service is not listed here waiting to be given a 0.
+      const _team=_alcAlloc[_alcSvc]||{};
+      const _all=_assignableAdvisors("all");
+      const _roleOf=(name:string)=>{ const a=_all.find((x:any)=>String(x.name||"").trim()===name);
+        const roles=a?_rolesOf(a).filter(Boolean):[];
+        return roles.length?roles.join(" · "):String((a&&a.role)||""); };
+      _alcRows=Object.keys(_team)
+        .map((name:string)=>({advisor:name,role:_roleOf(name),pct:Number(_team[name])||0,todayCount:Number(today[name]||0)}))
+        .sort((x:any,y:any)=>(y.pct-x.pct)||x.advisor.localeCompare(y.advisor));
+      // The "add" dropdown offers whoever is NOT already on this team.
+      {
+        const add=root.querySelector("#alcAddAdv")as HTMLSelectElement|null;
+        if(add){
+          const free=_all.map((a:any)=>String(a.name||"").trim()).filter(Boolean)
+            .filter((n:string)=>!(n in _team)).sort((a:string,b:string)=>a.localeCompare(b));
+          add.innerHTML=free.length?free.map((n:string)=>'<option value="'+_attr(n)+'">'+_attr(n)+'</option>').join("")
+            :'<option value="">Everyone is already on this team</option>';
+        }
+      }
       // NO DEDUPING, and names are matched CASE-SENSITIVELY throughout this table. "Deepak" and
       // "deepak" look like one person typed twice but are two different staff members — different
       // email addresses, separate logins, 54 and 17 leads of their own. leads.assigned_to stores the
       // exact name, so exact matching is the only thing that can tell them apart; folding case would
       // merge two people into one allocation and mis-state both their daily counts.
       if(!_alcRows.length){
-        body.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">No active advisors — add them in Settings → Users &amp; Assignees.</td></tr>';
-        const f0=root.querySelector("#alcFoot"); if(f0) f0.innerHTML=""; return;
+        body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">'
+          +'No advisors on the <b>'+e(_alcSvcLabel(_alcSvc))+'</b> team yet — pick an advisor above and Add to team.'
+          +(_alcSvc?'<br><span style="font-size:11.5px">Leads for this service fall back to the <b>All services (default)</b> team until you add someone here.</span>':'')
+          +'</td></tr>';
+        const f0=root.querySelector("#alcFoot"); if(f0) f0.innerHTML=""; _alcRenderFoot(); return;
       }
       const num='class="mono" style="text-align:right;white-space:nowrap"';
+      const _todayTot=_alcRows.reduce((a:number,r:any)=>a+r.todayCount,0);
       body.innerHTML=_alcRows.map((r:any)=>{
-        const remaining=Math.max(0,r.target-r.todayCount);
-        const off=r.target<=0;
+        const off=r.pct<=0;
+        // The share ACTUALLY achieved today, next to the share configured — the two should track
+        // each other closely, and seeing them side by side is how an admin confirms it is working.
+        const shareTxt=_todayTot?((r.todayCount/_todayTot*100).toFixed(1)+"%"):"—";
         return '<tr'+(off?' style="opacity:.62"':'')+'>'
           +'<td style="font-weight:600">'+e(r.advisor)+'</td>'
           +'<td>'+e(r.role)+'</td>'
-          +'<td style="text-align:right"><input class="input mono" type="number" min="0" step="1" data-alc="'+e(r.advisor)+'"'
-            +' value="'+r.target+'" oninput="window._alcInput()" style="height:32px;max-width:110px;text-align:right"></td>'
+          +'<td style="text-align:right"><input class="input mono" type="number" min="0" max="100" step="0.1" data-alc="'+e(r.advisor)+'"'
+            +' value="'+r.pct+'" oninput="window._alcInput()" style="height:32px;max-width:110px;text-align:right"> %</td>'
           +'<td '+num+'>'+r.todayCount+'</td>'
-          // Not "0 of 0": with no target there is no allocation to have a remainder of, and a bare 0
-          // reads as "this advisor is full" when they are simply not in the rotation.
-          +'<td '+num+' style="font-weight:700;color:'+(off?"var(--faint)":(remaining>0?"var(--brand-600)":"var(--muted)"))+'">'
-            +(off?"—":String(remaining))+'</td></tr>';
+          +'<td '+num+' style="font-weight:700;color:'+(off?"var(--faint)":"var(--brand-600)")+'">'+shareTxt+'</td>'
+          +'<td style="text-align:right"><button class="btn bsm" title="Remove from this team" onclick="window._alcRemoveMember(\''+e(r.advisor).replace(/'/g,"\\'")+'\')">Remove</button></td>'
+          +'</tr>';
       }).join("");
       _alcRenderFoot();
     }
     function _alcRenderFoot(){
       const foot=root.querySelector("#alcFoot")as HTMLElement|null; if(!foot) return;
       const vals=_alcReadInputs();
-      const totT=_alcRows.reduce((s:number,r:any)=>s+(vals[r.advisor]!=null?vals[r.advisor]:r.target),0);
+      const pctOf=(r:any)=>(vals[r.advisor]!=null?vals[r.advisor]:r.pct);
+      const totPct=Math.round(_alcRows.reduce((s:number,r:any)=>s+pctOf(r),0)*1000)/1000;
       const totToday=_alcRows.reduce((s:number,r:any)=>s+r.todayCount,0);
-      const totLeft=_alcRows.reduce((s:number,r:any)=>{ const t=(vals[r.advisor]!=null?vals[r.advisor]:r.target); return s+(t>0?Math.max(0,t-r.todayCount):0); },0);
       const num='class="mono" style="text-align:right;white-space:nowrap;font-weight:700"';
+      // 100 is the target, but a total that misses it is NOT an error the engine cannot survive:
+      // it normalises whatever it is given, so the ratio between advisors still holds. Say that
+      // rather than blocking the save, which would leave a team half-configured and unusable.
+      const okTot=Math.abs(totPct-100)<0.05;
+      const tone=okTot?"var(--ok-ink)":(totPct>100?"var(--alert-ink)":"var(--warn-ink)");
       foot.innerHTML='<tr style="border-top:2px solid var(--line)">'
         +'<td style="font-weight:700">Total</td><td></td>'
-        +'<td '+num+'>'+totT+'</td><td '+num+'>'+totToday+'</td><td '+num+'>'+totLeft+'</td></tr>';
+        +'<td '+num+' style="color:'+tone+'">'+totPct+' %</td>'
+        +'<td '+num+'>'+totToday+'</td><td '+num+'>'+(totToday?"100%":"—")+'</td><td></td></tr>';
       const info=root.querySelector("#alcInfo");
-      if(info) info.textContent=totT?(totT+" leads/day across "+_alcRows.filter((r:any)=>((vals[r.advisor]!=null?vals[r.advisor]:r.target)>0)).length+" advisor(s) · "+totLeft+" still to place today"):"No allocation set";
+      if(info){
+        const n=_alcRows.filter((r:any)=>pctOf(r)>0).length;
+        info.textContent=n
+          ?(_alcSvcLabel(_alcSvc)+" \u00b7 "+n+" advisor"+(n===1?"":"s")+" \u00b7 "+totPct+"%"
+            +(okTot?" \u2713":(totPct>100?" \u2014 over 100, shares will be scaled down":" \u2014 under 100, shares will be scaled up")))
+          :"No team set for "+_alcSvcLabel(_alcSvc);
+      }
     }
     function _alcReadInputs():Record<string,number>{
       const out:Record<string,number>={};
       root.querySelectorAll("#alcBody input[data-alc]").forEach((el:any)=>{
         const n=String(el.getAttribute("data-alc")||""); if(!n) return;
-        out[n]=Math.max(0,Math.round(Number(el.value)||0));
+        // Percentages, so fractions matter — 12.5% is a real share. Clamped to 0..100 and kept to
+        // three decimals, which is what the column stores.
+        out[n]=Math.min(100,Math.max(0,Math.round((Number(el.value)||0)*1000)/1000));
       });
       return out;
     }
@@ -3546,22 +3741,32 @@ export function initApp(root: HTMLElement) {
     w._alcSave=async()=>{
       const vals=_alcReadInputs();
       const names=Object.keys(vals);
-      if(!names.length){ toast("Nothing to save"); return; }
+      if(!names.length){ toast("Add advisors to this team first"); return; }
       const by=(_currentUser&&(_currentUser.name||_currentUser.email))||"Admin";
+      const svc=_alcSvc;
       let ok=0;
       for(const n of names){
-        // upsert on the advisor key: one standing row per advisor, not one per day.
-        const res:any=await supabase.from("advisor_lead_targets")
-          .upsert({advisor:n,daily_target:vals[n],updated_at:new Date().toISOString(),updated_by:by},{onConflict:"advisor"});
+        // One standing row per (service, advisor) — not one per day. A member set back to 0 is kept
+        // rather than deleted, so the team still lists them and a share can be restored in a click.
+        const res:any=await supabase.from("advisor_alloc")
+          .upsert({service:svc,advisor:n,pct:vals[n],updated_at:new Date().toISOString(),updated_by:by},{onConflict:"service,advisor"});
         if(!(res&&res.error)) ok++;
-        else if(/advisor_lead_targets|relation|exist|unknown table/i.test(String(res.error.message||""))){
+        else if(/advisor_alloc|relation|exist|unknown table/i.test(String(res.error.message||""))){
           toastErr("Restart the server first — the allocation table is created by the self-applying schema on boot");
           return;
         }
       }
-      Object.keys(vals).forEach(n=>{ _alcTargets[n.trim()]=vals[n]; });
+      // Anyone REMOVED from the team in this edit has to lose their row, or the server would keep
+      // sending them leads from a team the admin can no longer see them on.
+      const before=Object.keys(_alcAlloc[svc]||{});
+      for(const gone of before.filter(a=>names.indexOf(a)<0)){
+        try{ await supabase.from("advisor_alloc").delete().eq("service",svc).eq("advisor",gone); }catch(_){}
+      }
+      _alcAlloc[svc]={}; names.forEach(n=>{ _alcAlloc[svc][n]=vals[n]; });
+      _alcFillServiceSelect();
       renderAdvisorLeadCounts();
-      toast("Allocation saved for "+ok+" advisor"+(ok===1?"":"s"));
+      const tot=Math.round(names.reduce((a,n)=>a+vals[n],0)*1000)/1000;
+      toast("Saved "+_alcSvcLabel(svc)+" \u2014 "+ok+" advisor"+(ok===1?"":"s")+" \u00b7 "+tot+"%");
     };
     // ---- Auto-assignment ON/OFF (Super Admin only) --------------------------------------------
     // The switch is stored per DAY, so "stop today" and "arm tomorrow" are separate rows and neither
@@ -3630,28 +3835,37 @@ export function initApp(root: HTMLElement) {
           +'Nothing to assign — '+e(j.reason||"no eligible leads in the pool")+'.</div>';
         return;
       }
-      // The rotation line makes the round-robin visible: ring order with each advisor's turn size,
-      // and where the next turn starts — so "why did X get the first leads" is answered on screen.
-      const rot=j.rotation;
-      const rotLine=rot&&rot.order&&rot.order.length
-        ?'<br>Rotation: '+rot.order.map((n:string,i:number)=>e(n)+' ('+(rot.chunks&&rot.chunks[i]||1)+'/turn)').join(' → ')
-          +(rot.nextStart?(' · next turn starts at <b>'+e(rot.nextStart)+'</b>'):'')
-        :'';
+      // Grouped BY TEAM, because that is the unit the split is computed in: each team's leads are
+      // shared among its own members by its own percentages, and showing them mixed would suggest
+      // one pool. Each advisor's actual against the perfect share answers "is the ratio holding?".
+      const byTeam:Record<string,any[]>={};
+      rows.forEach((r:any)=>{ const k=String(r.service||""); (byTeam[k]=byTeam[k]||[]).push(r); });
+      const teamLines=Object.keys(byTeam).map(k=>{
+        const list=byTeam[k].slice().sort((a:any,b:any)=>b.assigned-a.assigned);
+        return '<div style="margin-top:5px"><b>'+e(_alcSvcLabel(k))+'</b> — '
+          +list.map((r:any)=>e(r.advisor)+' → <b>'+r.assigned+'</b>'
+            +'<span style="color:var(--faint)"> ('+r.pct+'%'+(r.expected!=null?', share '+r.expected:'')+')</span>').join(' · ')
+          +'</div>';
+      }).join("");
+      // Leads whose service matched no team AND had no default to fall back on stay pooled. Saying
+      // so is the difference between "nothing to assign" and "these had nowhere to go".
+      const unrouted=Number(j.unrouted||0);
       host.innerHTML='<div class="aud" style="background:#fff;padding:10px 12px">'
         +'<div class="ahd">'+(dry?"Preview — this is what would be assigned":"Assigned")+'</div>'
         +'<div style="font-size:12.5px;color:var(--muted);margin-top:4px">'
-        +rows.map((r:any)=>e(r.advisor)+" → <b>"+r.assigned+"</b>").join(" · ")
-        +'<br>'+j.assigned+' of '+j.poolSeen+' eligible lead(s)'+(j.poolLeft?(' · '+j.poolLeft+' left in the pool for manual assignment'):'')
-        +rotLine
-        +'</div></div>';
+        +teamLines
+        +'<div style="margin-top:6px">'+j.assigned+' of '+j.poolSeen+' eligible lead(s)'
+        +(j.poolLeft?(' · '+j.poolLeft+' left in the pool'):'')
+        +(unrouted?(' · <b>'+unrouted+'</b> had no team for their service and no default team — add one above'):'')
+        +'</div></div></div>';
     }
     w._alcPreview=async()=>{
       try{ _alcShowPlan(await _alcCall(true),true); }
       catch(e:any){ toastErr("Preview failed: "+(e.message||"network error")); }
     };
     w._alcRunNow=async()=>{
-      csvConfirm("Assign the pooled leads now, following each advisor's remaining daily allocation?"
-        +"<br><br>Anything beyond the configured targets stays in the pool for you to assign by hand.",
+      csvConfirm("Assign today's pooled leads now, splitting each service team's leads by the configured percentages?"
+        +"<br><br>There is no daily ceiling — every eligible lead is placed. Only leads whose service has no team, and no default team to fall back on, stay in the pool.",
         async()=>{
         try{
           const j=await _alcCall(false);
@@ -7500,7 +7714,11 @@ export function initApp(root: HTMLElement) {
       // movement rather than its direction. Total Leads rising is intake growth; Open and Follow-up
       // rising is untouched work piling up. Painting every arrow green because it points up would
       // tell an advisor their backlog doubling is good news.
-      const ovCard=(label:string,n:number,desc:string,icon:string,tint:string,list:any[],dm:string,goodDir:1|-1)=>{
+      // `dataReady` is for cards whose number depends on data that arrives LATER than the rest of
+      // the dashboard (the call rows). Without it such a card paints a confident figure computed
+      // from an empty set, then silently corrects itself once the calls land.
+      const ovCard=(label:string,n:number,desc:string,icon:string,tint:string,list:any[],dm:string,goodDir:1|-1,dataReady?:boolean)=>{
+        const rdy=(dataReady===undefined)?ready:(ready&&dataReady);
         const t=trend(list);
         const arrow=t.dir==="up"?"↑":(t.dir==="dn"?"↓":"→");
         // NAMESPACED. ".dn" is already a global 7x7px status dot in globals.css — naming the
@@ -7514,10 +7732,10 @@ export function initApp(root: HTMLElement) {
         // ran under the icon and wrapped one word per line.
         return '<div class="dov-c" data-metric="'+e(dm)+'" title="'+e(label+": "+n+". Click to open these leads.")+'">'
           +'<div class="k">'+e(label)+'</div>'
-          +'<div class="v"'+(ready?' data-count="'+n+'" data-ck="ov:'+e(dm)+'"':'')+'>'+(ready?n.toLocaleString("en-IN"):dash)+'</div>'
+          +'<div class="v"'+(rdy?' data-count="'+n+'" data-ck="ov:'+e(dm)+'"':'')+'>'+(rdy?n.toLocaleString("en-IN"):dash)+'</div>'
           +'<div class="d">'+e(desc)+'</div>'
           +'<div class="dov-f">'
-            +(ready?'<span class="t '+tcls+'" title="'+e("New leads in the last 7 days vs the 7 days before"
+            +(rdy?'<span class="t '+tcls+'" title="'+e("New leads in the last 7 days vs the 7 days before"
               +(moved===0?"." : moved===goodDir?" — moving the right way for this bucket." : " — moving the wrong way for this bucket."))+'">'
               +'<b>'+arrow+' '+t.pct+'%</b><span class="tw">vs last week</span></span>':'<span class="t"></span>')
             +'<span class="ic" style="background:'+tint+'"><svg class="icon" style="width:15px;height:15px;stroke:#fff"><use href="#'+icon+'"/></svg></span>'
@@ -7539,6 +7757,8 @@ export function initApp(root: HTMLElement) {
       const _ovAsg=_ovUni.filter(_haOvAssigned);
       const _ovUn=_ovUni.filter((l:any)=>!_haOvAssigned(l));
       const _ovTotal=(!_ovWin.fromT&&!_ovWin.toT)?fullBook.length:_ovUni.length;
+      // Same shared engine the drill-downs use, so the cards and their tables cannot disagree.
+      const _ovAuth=_haAuthSets(book);
       set("#haOverview",
         // Growth is good for intake (+1) and bad for both backlog buckets (-1).
         // ROW ORDER (UX pass 27-Aug-2026): row 1 is the universe split (Total = Assigned +
@@ -7555,7 +7775,34 @@ export function initApp(root: HTMLElement) {
           // so one card reading 0 beside another reading 12 looked like a bug and was reported as
           // one. Both were right; neither said what it measured.
           (!_ovWin.fromT&&!_ovWin.toT)?"Requires follow-up":"In a follow-up status · of leads created in range",
-          "i-clock","#4C3FA8",fuList,"followup",-1));
+          "i-clock","#4C3FA8",fuList,"followup",-1)
+        // MOVED HERE from §9 Call performance (28-Aug-2026). Same engine, same drill-downs — only
+        // the place they are shown changed: they describe the STATE of the book, which is what this
+        // panel is for, rather than call volume. dataReady is passed because _haAuthSets reads the
+        // call rows, which load after the first paint; without it both cards would show a confident
+        // number computed from no calls at all and then quietly change.
+        +ovCard("Unauthorized Lead",_ovAuth.unauth.length,"RNR / Busy / DND · not reached in 48h","i-warn","#C0392B",_ovAuth.unauth,"auth:unauth",-1,_advCallLoaded)
+        +ovCard("Active Leads",_ovAuth.active.length,"Reached within 48h of RNR / Busy / DND","i-check","var(--ok)",_ovAuth.active,"auth:active",1,_advCallLoaded));
+      // Call Status and Priority are built into their own container (#haKpis) by the KPI block that
+      // runs BEFORE this panel. MOVING those two nodes into this grid — rather than rebuilding them
+      // here — keeps every handler, chip and click target they already carry exactly as it is, and
+      // makes the panel nine cards: a clean 3 / 3 / 3 (requested 28-Aug-2026) instead of seven cards
+      // leaving a hole in the last row. If this panel is ever not rendered they simply stay where
+      // they were, so nothing can lose them.
+      try{
+        const _kp=root.querySelector("#haKpis");
+        const _ovGrid=root.querySelector("#haOverview");
+        // ONLY when there are fresh tiles to move, and the old ones are cleared first. The set()
+        // above rewrites the grid only when its markup CHANGED (so repeated repaints do not restart
+        // the entrance animations) — which means on an unchanged re-render the tiles moved in last
+        // time are still sitting there. Appending without clearing added another pair on every
+        // repaint, and this dashboard repaints on many signals: SSE pushes, filter changes, and the
+        // lazy call/target/payment loads. Reported 28-Aug-2026 as the grid filling with copies.
+        if(_kp&&_ovGrid&&_kp.firstChild){
+          _ovGrid.querySelectorAll(":scope > .metric").forEach((n:any)=>n.remove());
+          while(_kp.firstChild) _ovGrid.appendChild(_kp.firstChild);
+        }
+      }catch(_){}
 
       // ---------- PANEL 2 · Pipeline performance (actual vs expected) ----------
       // Expected values come from advisor_targets (Settings → Advisor targets). A blank column there
@@ -7884,7 +8131,6 @@ export function initApp(root: HTMLElement) {
         for(let i=1;i<_scTimes.length;i++){ if(_haDayKey(_scTimes[i])===_haDayKey(_scTimes[i-1])){ _gapSum+=_scTimes[i]-_scTimes[i-1]; _gapN++; } }
         const _scOut=Math.max(0,tot-inb);
         const _scOk=ready&&_advCallLoaded;
-        const _authSets=_haAuthSets(book);
         set("#haCallScore",
           tCard("Total Calls",_scOk?String(tot):dash,"All attempts on these leads","","callsall","Every call linked to these leads in the applied dates — outbound (app + external) and inbound together.")
           +tCard("Total Dialed Calls",_scOk?String(_scOut):dash,"Outbound attempts · app + external","","callsout","Calls made TO these leads: dialled from this app or from outside lines. Inbound calls are not counted here.")
@@ -7894,15 +8140,8 @@ export function initApp(root: HTMLElement) {
           +tCard("Avg Duration / Call",_scOk?(conn?_fmtCallDur(Math.round(dur/conn)):dash):dash,conn?("Talk time ÷ "+conn+" connected call"+(conn===1?"":"s")):"No connected calls yet","","","Total talk time divided by connected calls. Attempts that never connected carry no talk time, so they are not in the denominator.")
           +tCard("Avg Duration / Day",_scOk?(_scDays.size?_fmtCallDur(Math.round(dur/_scDays.size)):dash):dash,_scDays.size?("Across "+_scDays.size+" active day"+(_scDays.size===1?"":"s")):"No call days yet","","","Total talk time divided by the number of days (IST) that had at least one call in the applied dates.")
           +tCard("Avg Time Between Calls",_scOk?(_gapN?_haDurWords(Math.round(_gapSum/_gapN/1000)):dash):dash,_gapN?("Consecutive calls · same day · "+_gapN+" gap"+(_gapN===1?"":"s")):"Needs 2+ calls in a day","","","Average gap between one call and the next within the same working day (IST). Overnight gaps between days are excluded.")
-          // The two cards below report STATE, not call volume, so they read from the shared
-          // _haAuthSets engine rather than the counters above. Together they partition the
-          // RNR / Line Busy / DND population of this book.
-          +tCard("Unauthorized Lead",_scOk?String(_authSets.unauth.length):dash,
-            _authSets.unauth.length?("RNR / Busy / DND · not reached in 48h"):"None waiting","","auth:unauth",
-            "Leads sitting at RNR, Line Busy or DND that have had no connected call within 48 hours of reaching that state. Click to open them.")
-          +tCard("Active Leads",_scOk?String(_authSets.active.length):dash,
-            "Reached within 48h of RNR / Busy / DND","","auth:active",
-            "Leads that were RNR, Line Busy or DND and did get a connected call within 48 hours of entering that state. Click to open them."));
+          );   // Unauthorized Lead / Active Leads moved to §1 Pipeline overview on 28-Aug-2026 —
+               // they report the state of the book, not call volume.
       }
 
       // Last, once every figure on the screen is in the DOM. Any element written above that carries
@@ -8118,10 +8357,16 @@ export function initApp(root: HTMLElement) {
         const COLS:Record<string,string>={callsin:'<th>Incoming</th><th>Missed</th>',
           callsmiss:'<th>Missed</th><th>Incoming</th>', calltouch:'<th>Assigned → 1st call</th><th>Total calls</th>',
           callsall:'<th>Total Calls</th><th>Connected</th>', callsout:'<th>Dialed</th><th>Connected</th>'};
-        if(hd) hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned Advisor</th>'
+        // The two timestamps LEAD the row here for the same reason they do in the other drill-down
+        // (28-Aug-2026): when a lead arrived and when it was handed over is the context every other
+        // column is read against, and having them in one place across both tables means one habit.
+        if(hd) hd.innerHTML='<th>Lead Generated Date &amp; Time</th><th>Assigned Date &amp; Time</th>'
+          +'<th>Lead Name</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned Advisor</th>'
           +(COLS[K]||'<th>Connected Calls</th><th>Talk Time</th>');
         body.innerHTML=rows.length?rows.map((l:any)=>{ const s=stOf(l);
           return '<tr>'
+            +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(l.createdAt?fmtIST(l.createdAt):"—")+'</td>'
+            +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(l.assignedAt?fmtIST(l.assignedAt):"—")+'</td>'
             +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
             +'<td class="mono">'+e(l.phone||"—")+'</td>'
             +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
@@ -8134,7 +8379,7 @@ export function initApp(root: HTMLElement) {
               if(K==="callsout")  return '<td class="mono" style="font-weight:700">'+Math.max(0,(f.total||0)-(f.inbound||0))+'</td><td class="mono">'+s.connected+'</td>';
               return '<td class="mono" style="font-weight:700">'+s.connected+'</td><td class="mono">'+e(_fmtCallDur(s.dur))+'</td>'; })()
             +'</tr>';
-        }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No connected calls for these leads yet')+'</td></tr>';
+        }).join(""):'<tr><td colspan="8" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No connected calls for these leads yet')+'</td></tr>';
         return;
       }
       if(title) title.textContent=(card?card.label:"Call status")+" — "+list.length+" lead"+(list.length===1?"":"s");
@@ -16844,109 +17089,218 @@ export function initApp(root: HTMLElement) {
       if(!window.confirm('Delete "'+(t.name||"this panel")+'" from the pricing master? Past records keep their stored prices.')) return;
       supabase.from("bt_tests").delete().eq("id",id).then(async()=>{ toast("Panel deleted"); await loadBtMaster(); }).catch((e:any)=>toast("Delete failed: "+(e?.message||"db error")));
     };
-    // ===== Advisor Targets Master (advisor_targets) — the ONLY source of the Health Advisor
-    // dashboard's targets and expected values. Nothing on that screen is hardcoded: a change saved
-    // here re-reads on the dashboard immediately (see the _haTargetsLoaded reset in _tgtRefresh).
-    let _tgtList:any[]=[]; let _tgtEditId:any=null;
+    // ===== TARGET SHEET (team_targets + member_targets) — the ONLY source of the Health Advisor
+    // dashboard's targets and expected values. The team plan is entered once and every person's
+    // numbers are DERIVED from their share of it (see _tsAdvisorRow / _tsCoachRow); nothing is
+    // stored as a count, so a person's target can never drift out of step with the team's.
+    let _tgtTeam:any={};                       // the team row for the selected period
+    const _tgtLastDerived:Record<string,any>={};   // last painted value per derived tile, for the pulse
+    let _tgtMembers:Record<string,any>={};     // "team|person" -> { pct keys }
     const _tgtV=(id:string)=>((root.querySelector("#"+id)as HTMLInputElement|null)?.value||"").trim();
-    const _tgtSetV=(id:string,val:string)=>{ const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=val; };
-    const _tgtNum=(id:string)=>{ const v=_tgtV(id); return v===""?null:Number(v); };
-    const _tgtThisMonth=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); };
-    // Advisors come from the SAME live assignee master the rest of the app uses, so a new joiner is
-    // selectable the moment they are added rather than needing a second list kept in step by hand.
-    function _tgtFillAdvisors(){
-      const sel=root.querySelector("#tgtAdvisor")as HTMLSelectElement|null; if(!sel) return;
-      const cur=sel.value;
-      const ppl=_assignees.filter((a:any)=>a.is_active&&a.role!=="Health Coach").map((a:any)=>String(a.name||"")).filter(Boolean);
-      sel.innerHTML='<option value="">— Select advisor —</option>'+ppl.map((n:string)=>'<option>'+_attr(n)+'</option>').join("");
-      if(cur) sel.value=cur;
-    }
-    function _renderTgtMaster(){
-      const body=root.querySelector("#tgtBody"); if(!body) return;
-      const money=(n:any)=>n==null?"—":"₹"+(Number(n)||0).toLocaleString("en-IN");
-      const or=(n:any)=>n==null||n===""?"auto":String(n);
-      body.innerHTML=_tgtList.length?_tgtList.map((t:any)=>'<tr>'
-        +'<td style="font-weight:600">'+_attr(String(t.advisor||"—"))+'</td>'
-        +'<td class="mono">'+_attr(String(t.period||"—"))+'</td>'
-        +'<td class="mono">'+money(t.revenue_target)+'</td>'
-        +'<td class="mono">'+(t.enrollment_target==null?"—":t.enrollment_target)+'</td>'
-        +'<td class="mono">'+(t.crm_usage_target_hours==null?"—":(t.crm_usage_target_hours+"h"))+'</td>'
-        +'<td class="mono" style="font-size:11.5px">'+[t.expected_appt_direct,t.expected_appt_zoom,t.expected_confirmed,t.expected_visited,t.expected_enrolled].map(or).join(" / ")+'</td>'
-        +'<td><div style="display:flex;gap:5px;flex-wrap:wrap">'
-          +'<button class="btn bsm" onclick="window._tgtEdit(\''+_attr(String(t.id))+'\')">Edit</button>'
-          +'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._tgtDelete(\''+_attr(String(t.id))+'\')">Delete</button>'
-        +'</div></td></tr>').join("")
-        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:18px">No targets set yet — the dashboard is using its fallback defaults. Add a row above.</td></tr>';
+    const _tgtSetV=(id:string,val:any)=>{ const e=root.querySelector("#"+id)as HTMLInputElement|null; if(e) e.value=(val==null?"":String(val)); };
+    const _tgtPeriodNow=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); };
+    const _tgtPeriod=()=>_tgtV("tgtPeriod")||_tgtPeriodNow();
+    // The plan exactly as typed, so every derived figure recalculates live rather than on save.
+    function _tgtPlan():any{
+      return {revenue:Number(_tgtV("tgtRevenue"))||0, enrollment:Number(_tgtV("tgtEnroll"))||0,
+        leads:Number(_tgtV("tgtLeads"))||0, spent:Number(_tgtV("tgtSpent"))||0,
+        leadToApp:Number(_tgtV("tgtL2A"))||0, leadToVisit:Number(_tgtV("tgtL2V"))||0,
+        leadToConv:Number(_tgtV("tgtL2C"))||0, appToVisit:Number(_tgtV("tgtA2V"))||0};
     }
     async function loadTgtMaster(){
-      try{ const r:any=await supabase.from("advisor_targets").select("*").order("period",{ascending:false}); _tgtList=(r&&r.error)?[]:((r&&r.data)||[]); }
-      catch(_){ _tgtList=[]; }
-      _tgtFillAdvisors(); _renderTgtMaster();
-      if(!_tgtV("tgtPeriod")) _tgtSetV("tgtPeriod",_tgtThisMonth());
+      const per=_tgtPeriod();
+      try{
+        const r:any=await supabase.from("team_targets").select("*").eq("period",per);
+        _tgtTeam=(r&&!r.error&&r.data&&r.data[0])||{};
+      }catch(_){ _tgtTeam={}; }
+      try{
+        const r:any=await supabase.from("member_targets").select("*").eq("period",per);
+        _tgtMembers={};
+        if(r&&!r.error) (r.data||[]).forEach((row:any)=>{
+          _tgtMembers[String(row.team||"")+"|"+String(row.person||"")]=row.pcts||{};
+        });
+      }catch(_){ _tgtMembers={}; }
+      _tgtSetV("tgtPeriod",per);
+      _tgtSetV("tgtRevenue",_tgtTeam.revenue!=null?Number(_tgtTeam.revenue):"");
+      _tgtSetV("tgtEnroll",_tgtTeam.enrollment!=null?Number(_tgtTeam.enrollment):"");
+      _tgtSetV("tgtLeads",_tgtTeam.leads!=null?Number(_tgtTeam.leads):"");
+      _tgtSetV("tgtSpent",_tgtTeam.spent!=null?Number(_tgtTeam.spent):"");
+      _tgtSetV("tgtL2A",_tgtTeam.lead_to_app!=null?Number(_tgtTeam.lead_to_app):"");
+      _tgtSetV("tgtL2V",_tgtTeam.lead_to_visit!=null?Number(_tgtTeam.lead_to_visit):"");
+      _tgtSetV("tgtL2C",_tgtTeam.lead_to_conv!=null?Number(_tgtTeam.lead_to_conv):"");
+      _tgtSetV("tgtA2V",_tgtTeam.app_to_visit!=null?Number(_tgtTeam.app_to_visit):"");
+      _tgtRender();
     }
-    // Saved targets must show up on the dashboard WITHOUT a reload — that is the whole point of moving
-    // them out of the code. Dropping the loaded flag makes the next render re-read the table.
-    function _tgtRefresh(){
-      _haTargetsLoaded=false; _haTargets=null; _haTargetsMissing=false;
-      try{ renderHealthDashboard(); }catch(_){}
+    w._tgtPeriodChange=()=>{ loadTgtMaster(); };
+    // Live recalculation as the plan is typed — reading the inputs, not the saved row, so the
+    // consequences of a change are visible before it is committed.
+    w._tgtRecalc=()=>{ try{ _tgtRender(); }catch(_){} };
+    // Who appears on each team. Advisors from the assignable master, coaches by role, so a new
+    // member of staff shows up here the moment they are added rather than needing a second list.
+    // WHO IS ON WHICH TEAM. Strictly by role: the Advisor sheet lists advisors, the Coach sheet
+    // lists coaches, and nobody else appears on either. An earlier draft also swept in managers and
+    // telecallers, which put three people on an advisor sheet they have no leads on. Somebody who
+    // genuinely holds both roles appears on both, because they carry a target in both.
+    const _TGT_ROLE:Record<string,RegExp>={advisor:/advisor/i, coach:/coach/i};
+    function _tgtPeople(team:string):{name:string;role:string}[]{
+      const want=_TGT_ROLE[team]||/$^/;
+      const seen=new Set<string>();
+      const out:{name:string;role:string}[]=[];
+      _assignableAdvisors("all").forEach((a:any)=>{
+        const roles=_rolesOf(a).filter(Boolean);
+        if(!roles.some((r:string)=>want.test(String(r)))) return;
+        const name=String(a.name||"").trim(); if(!name||seen.has(name)) return;
+        seen.add(name);
+        out.push({name,role:roles.join(" \u00b7 ")});
+      });
+      // Anyone already carrying a share stays listed even if their role changed since, so a saved
+      // target is never orphaned by an edit in Users & Assignees.
+      Object.keys(_tgtMembers).forEach(k=>{ const [t,p]=k.split("|");
+        if(t===team&&p&&!seen.has(p)){ seen.add(p); out.push({name:p,role:"no longer on this team"}); } });
+      return out.sort((a,b)=>a.name.localeCompare(b.name));
     }
-    w._tgtSave=async()=>{
-      const advisor=_tgtV("tgtAdvisor"); if(!advisor){ toast("Pick an advisor"); return; }
-      const period=_tgtV("tgtPeriod"); if(!/^\d{4}-\d{2}$/.test(period)){ toast("Pick a period (month)"); return; }
-      const row:any={advisor,period,
-        revenue_target:Number(_tgtV("tgtRevenue"))||0,
-        enrollment_target:Math.round(Number(_tgtV("tgtEnroll"))||0),
-        crm_usage_target_hours:_tgtNum("tgtCrm"),
-        expected_appt_direct:_tgtNum("tgtExpDirect"), expected_appt_zoom:_tgtNum("tgtExpZoom"),
-        expected_confirmed:_tgtNum("tgtExpConfirmed"), expected_visited:_tgtNum("tgtExpVisited"),
-        expected_enrolled:_tgtNum("tgtExpEnrolled"), updated_at:new Date().toISOString()};
-      // The gateway RESOLVES with {error} rather than throwing, so the result is checked rather than
-      // relying on a catch that a failed write never reaches.
-      const res:any=_tgtEditId
-        ? await supabase.from("advisor_targets").update(row).eq("id",_tgtEditId)
-        : await supabase.from("advisor_targets").insert(row);
-      if(res&&res.error){
-        const m=String(res.error.message||"");
-        toastErr(/exist|relation|column|schema/i.test(m)?"Run db/migration-advisor-targets.sql first":"Save failed: "+(m||"database error"));
+    const _tgtPct=(team:string,person:string,key:string)=>{
+      const el=root.querySelector('input[data-tgt="'+team+"|"+person+"|"+key+'"]')as HTMLInputElement|null;
+      if(el) return el.value;                              // live value while typing
+      const m=_tgtMembers[team+"|"+person]||{};
+      return m[key]!=null?m[key]:"";
+    };
+    function _tgtRender(){
+      const t=_tgtPlan();
+      const d=_tsTeamDerived(t);
+      const e=(x:any)=>(x==null?"":String(x)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+      // ---- the team plan's own consequences ----
+      const dv=root.querySelector("#tgtDerived");
+      if(dv) dv.innerHTML=[
+        ["CPL","₹"+_tsR(d.cpl),"spend ÷ leads"],
+        ["ROAS",_tsR(d.roas)+"×","revenue ÷ spend"],
+        ["Appointments",String(_tsI(d.appts)),"Lead → App"],
+        ["Visits",String(_tsI(d.visits)),"Lead → Visit · App → Visit gives "+_tsI(d.visitsViaAppt)],
+        ["Enrolments",String(_tsI(d.enrolments)),"the Enrollment field · Lead → Conv gives "+_tsI(d.convByRate)],
+        ["Revenue / enrolment",_tsInr(d.revPerEnrol),"revenue ÷ enrolments"],
+      ].map(([k,v,sub],di)=>{
+        // A figure that CHANGED gets a one-shot pulse, so retyping a rate visibly moves the numbers
+        // it drives rather than silently swapping them. Keyed by label, compared with the last
+        // render — no pulse on first paint, when everything is "new".
+        const chg=_tgtLastDerived[k]!==undefined&&_tgtLastDerived[k]!==v;
+        _tgtLastDerived[k]=v;
+        return '<div class="metric tgt-d'+(chg?" bump":"")+'" style="--i:'+di+'"><div class="ml">'+e(k)+'</div>'
+          +'<div class="mv">'+e(v)+'</div><div class="msub">'+e(sub)+'</div></div>';
+      }).join("");
+      const num='class="mono" style="text-align:right;white-space:nowrap"';
+      const inp=(team:string,person:string,key:string)=>'<td style="text-align:right"><input class="input mono" type="number" min="0" max="100" step="0.1"'
+        +' data-tgt="'+e(team+"|"+person+"|"+key)+'" value="'+e(_tgtPct(team,person,key))+'" oninput="window._tgtRecalc()"'
+        +' style="height:30px;max-width:74px;text-align:right"></td>';
+      // ---- Health Advisor team ----
+      const advPeople=_tgtPeople("advisor");
+      const advBody=root.querySelector("#tgtAdvBody");
+      const advTot={leads:0,appts:0,visits:0,con:0,rev:0,pct:0};
+      if(advBody) advBody.innerHTML=advPeople.length?advPeople.map((pp,pi)=>{
+        const p=pp.name;
+        const pc:any={leadsPct:_tgtPct("advisor",p,"leadsPct"),appPct:_tgtPct("advisor",p,"appPct"),
+          visitPct:_tgtPct("advisor",p,"visitPct"),conPct:_tgtPct("advisor",p,"conPct"),
+          onlineAppPct:_tgtPct("advisor",p,"onlineAppPct"),onlineConPct:_tgtPct("advisor",p,"onlineConPct"),
+          offlineAppPct:_tgtPct("advisor",p,"offlineAppPct"),offlineConPct:_tgtPct("advisor",p,"offlineConPct")};
+        const r=_tsAdvisorRow(t,pc);
+        advTot.leads+=r.leads; advTot.appts+=r.appts; advTot.visits+=r.visits; advTot.con+=r.con; advTot.rev+=r.revenue;
+        advTot.pct+=Number(pc.leadsPct)||0;
+        return '<tr class="tgt-row" style="--i:'+pi+'"><td><div class="tgt-nm">'+e(p)+'</div><div class="tgt-role">'+e(pp.role)+'</div></td>'
+          +inp("advisor",p,"leadsPct")+'<td '+num+'>'+_tsI(r.leads)+'</td>'
+          +inp("advisor",p,"appPct")+'<td '+num+'>'+_tsI(r.appts)+'</td>'
+          +inp("advisor",p,"visitPct")+'<td '+num+'>'+_tsI(r.visits)+'</td>'
+          +inp("advisor",p,"conPct")+'<td '+num+'>'+_tsR(r.con)+'</td>'
+          +'<td '+num+' style="font-weight:700">'+_tsInr(r.revenue)+'</td>'
+          +inp("advisor",p,"onlineAppPct")+'<td '+num+'>'+_tsI(r.onlineAppts)+'</td>'
+          +inp("advisor",p,"onlineConPct")+'<td '+num+'>'+_tsR(r.onlineCon)+'</td>'
+          +inp("advisor",p,"offlineAppPct")+'<td '+num+'>'+_tsI(r.offlineAppts)+'</td>'
+          +inp("advisor",p,"offlineConPct")+'<td '+num+'>'+_tsR(r.offlineCon)+'</td></tr>';
+      }).join(""):'<tr><td colspan="18" style="text-align:center;color:var(--faint);padding:14px">No advisors found — add them in Settings → Users &amp; Assignees.</td></tr>';
+      // The footer is the reconciliation: shares that miss 100%, or revenue that misses the team
+      // target, are stated rather than quietly absorbed.
+      const foot=root.querySelector("#tgtAdvFoot");
+      const okPct=(v:number)=>Math.abs(v-100)<0.05?"var(--ok-ink)":"var(--warn-ink)";
+      if(foot) foot.innerHTML='<tr style="border-top:2px solid var(--line)"><td style="font-weight:700">Team</td>'
+        +'<td '+num+' style="font-weight:700;color:'+okPct(advTot.pct)+'">'+_tsR(advTot.pct)+'%</td>'
+        +'<td '+num+' style="font-weight:700">'+_tsI(advTot.leads)+'</td><td></td><td '+num+'>'+_tsI(advTot.appts)+'</td>'
+        +'<td></td><td '+num+'>'+_tsI(advTot.visits)+'</td><td></td><td '+num+'>'+_tsR(advTot.con)+' / '+_tsI(d.enrolments)+'</td>'
+        +'<td '+num+' style="font-weight:700;color:'+(Math.abs(advTot.rev-t.revenue)<1?"var(--ok-ink)":"var(--warn-ink)")+'">'+_tsInr(advTot.rev)+'</td>'
+        +'<td colspan="8"></td></tr>';
+      // ---- Health Coach team (configured separately) ----
+      const coPeople=_tgtPeople("coach");
+      const coBody=root.querySelector("#tgtCoachBody");
+      const coTot={c:0,cv:0,rev:0,pct:0};
+      if(coBody) coBody.innerHTML=coPeople.length?coPeople.map((pp,pi)=>{
+        const p=pp.name;
+        const pc:any={consultPct:_tgtPct("coach",p,"consultPct"),convPct:_tgtPct("coach",p,"convPct"),
+          onlineConsultPct:_tgtPct("coach",p,"onlineConsultPct"),onlineConvPct:_tgtPct("coach",p,"onlineConvPct"),
+          offlineConsultPct:_tgtPct("coach",p,"offlineConsultPct"),offlineConvPct:_tgtPct("coach",p,"offlineConvPct")};
+        const r=_tsCoachRow(t,pc);
+        coTot.c+=r.consults; coTot.cv+=r.conv; coTot.rev+=r.revenue; coTot.pct+=Number(pc.consultPct)||0;
+        return '<tr class="tgt-row" style="--i:'+pi+'"><td><div class="tgt-nm">'+e(p)+'</div><div class="tgt-role">'+e(pp.role)+'</div></td>'
+          +inp("coach",p,"consultPct")+'<td '+num+'>'+_tsI(r.consults)+'</td>'
+          +inp("coach",p,"convPct")+'<td '+num+'>'+_tsR(r.conv)+'</td>'
+          +'<td '+num+' style="font-weight:700">'+_tsInr(r.revenue)+'</td>'
+          +inp("coach",p,"onlineConsultPct")+'<td '+num+'>'+_tsI(r.onlineConsults)+'</td>'
+          +inp("coach",p,"onlineConvPct")+'<td '+num+'>'+_tsR(r.onlineConv)+'</td>'
+          +inp("coach",p,"offlineConsultPct")+'<td '+num+'>'+_tsI(r.offlineConsults)+'</td>'
+          +inp("coach",p,"offlineConvPct")+'<td '+num+'>'+_tsR(r.offlineConv)+'</td></tr>';
+      }).join(""):'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:14px">No health coaches found — add them in Settings → Users &amp; Assignees.</td></tr>';
+      const cfoot=root.querySelector("#tgtCoachFoot");
+      if(cfoot) cfoot.innerHTML='<tr style="border-top:2px solid var(--line)"><td style="font-weight:700">Team</td>'
+        +'<td '+num+' style="font-weight:700;color:'+okPct(coTot.pct)+'">'+_tsR(coTot.pct)+'%</td>'
+        +'<td '+num+' style="font-weight:700">'+_tsI(coTot.c)+'</td><td></td>'
+        +'<td '+num+'>'+_tsR(coTot.cv)+' / '+_tsI(d.enrolments)+'</td>'
+        +'<td '+num+' style="font-weight:700;color:'+(Math.abs(coTot.rev-t.revenue)<1?"var(--ok-ink)":"var(--warn-ink)")+'">'+_tsInr(coTot.rev)+'</td>'
+        +'<td colspan="8"></td></tr>';
+      // Head-count chips beside each team name.
+      { const a=root.querySelector("#tgtAdvCount"); if(a) a.textContent=advPeople.length+" advisor"+(advPeople.length===1?"":"s");
+        const c=root.querySelector("#tgtCoachCount"); if(c) c.textContent=coPeople.length+" coach"+(coPeople.length===1?"":"es"); }
+      const info=root.querySelector("#tgtInfo");
+      if(info) info.textContent=t.leads?(_tsI(t.leads)+" leads · "+_tsI(d.enrolments)+" enrolments · "+_tsInr(t.revenue)+" · "+_tgtPeriod()):"No team plan for "+_tgtPeriod();
+    }
+    w._tgtSaveSheet=async()=>{
+      const per=_tgtPeriod();
+      const t=_tgtPlan();
+      const by=(_currentUser&&(_currentUser.name||_currentUser.email))||"Admin";
+      const row={period:per,revenue:t.revenue,enrollment:t.enrollment,leads:t.leads,spent:t.spent,
+        lead_to_app:t.leadToApp,lead_to_visit:t.leadToVisit,lead_to_conv:t.leadToConv,app_to_visit:t.appToVisit,
+        updated_at:new Date().toISOString(),updated_by:by};
+      const r1:any=await supabase.from("team_targets").upsert(row,{onConflict:"period"});
+      if(r1&&r1.error){
+        const m=String(r1.error.message||"database error");
+        // Say what the server actually said. An earlier version answered every error mentioning
+        // "relation" or "exist" with "restart the server", which sent the user to fix a server that
+        // was running perfectly while the real cause — the /db gateway's table allowlist — went
+        // unmentioned. The hint is now attached to the message rather than replacing it.
+        toastErr("Could not save the team plan: "+m
+          +(/unknown table|not allowed/i.test(m)?" — the table is not on the /db gateway allowlist (server/src/shared/query.ts).":""));
         return;
       }
-      toast(_tgtEditId?("Target updated — "+advisor+" · "+period):("Target saved — "+advisor+" · "+period));
-      w._tgtCancel(); await loadTgtMaster(); _tgtRefresh();
-    };
-    w._tgtEdit=(id:any)=>{
-      const t=_tgtList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
-      _tgtFillAdvisors();
-      const sel=root.querySelector("#tgtAdvisor")as HTMLSelectElement|null;
-      // An advisor who has since been deactivated is no longer in the dropdown; add them back for
-      // this edit so opening an old row can never silently reassign its target to someone else.
-      if(sel&&t.advisor&&!Array.from(sel.options).some(o=>o.value===t.advisor||o.text===t.advisor)) sel.add(new Option(String(t.advisor),String(t.advisor)));
-      if(sel) sel.value=String(t.advisor||"");
-      _tgtSetV("tgtPeriod",String(t.period||""));
-      _tgtSetV("tgtRevenue",t.revenue_target!=null?String(t.revenue_target):"");
-      _tgtSetV("tgtEnroll",t.enrollment_target!=null?String(t.enrollment_target):"");
-      _tgtSetV("tgtCrm",t.crm_usage_target_hours!=null?String(t.crm_usage_target_hours):"");
-      _tgtSetV("tgtExpDirect",t.expected_appt_direct!=null?String(t.expected_appt_direct):"");
-      _tgtSetV("tgtExpZoom",t.expected_appt_zoom!=null?String(t.expected_appt_zoom):"");
-      _tgtSetV("tgtExpConfirmed",t.expected_confirmed!=null?String(t.expected_confirmed):"");
-      _tgtSetV("tgtExpVisited",t.expected_visited!=null?String(t.expected_visited):"");
-      _tgtSetV("tgtExpEnrolled",t.expected_enrolled!=null?String(t.expected_enrolled):"");
-      _tgtEditId=id;
-      const b=root.querySelector("#tgtAddBtn"); if(b)b.textContent="Update target";
-      const c=root.querySelector("#tgtCancelBtn")as HTMLElement|null; if(c)c.style.display="";
-    };
-    w._tgtCancel=()=>{
-      _tgtEditId=null;
-      ["tgtRevenue","tgtEnroll","tgtCrm","tgtExpDirect","tgtExpZoom","tgtExpConfirmed","tgtExpVisited","tgtExpEnrolled"].forEach(id=>_tgtSetV(id,""));
-      const b=root.querySelector("#tgtAddBtn"); if(b)b.textContent="+ Save target";
-      const c=root.querySelector("#tgtCancelBtn")as HTMLElement|null; if(c)c.style.display="none";
-    };
-    w._tgtDelete=(id:any)=>{
-      const t=_tgtList.find((x:any)=>String(x.id)===String(id)); if(!t) return;
-      if(!window.confirm('Delete the '+(t.period||"")+' target for '+(t.advisor||"this advisor")+'? The dashboard will fall back to its defaults.')) return;
-      supabase.from("advisor_targets").delete().eq("id",id).then(async(r:any)=>{
-        if(r&&r.error){ toastErr("Delete failed: "+(r.error.message||"database error")); return; }
-        toast("Target deleted"); await loadTgtMaster(); _tgtRefresh();
+      // One row per person, holding only their percentages. Everything else is derived on read.
+      const byPerson:Record<string,any>={};
+      root.querySelectorAll("input[data-tgt]").forEach((el:any)=>{
+        const parts=String(el.getAttribute("data-tgt")||"").split("|");
+        if(parts.length!==3) return;
+        const v=String(el.value||"").trim();
+        if(v==="") return;                                  // a blank is "no share", not a zero
+        const k=parts[0]+"|"+parts[1];
+        (byPerson[k]=byPerson[k]||{})[parts[2]]=Number(v)||0;
       });
+      let ok=0, lastErr="";
+      for(const k of Object.keys(byPerson)){
+        const [team,person]=k.split("|");
+        const res:any=await supabase.from("member_targets")
+          .upsert({period:per,team,person,pcts:byPerson[k],updated_at:new Date().toISOString(),updated_by:by},
+            {onConflict:"period,team,person"});
+        if(!(res&&res.error)) ok++;
+        else lastErr=String(res.error.message||"database error");
+      }
+      if(!ok&&lastErr){ toastErr("Saved the team plan, but no person rows: "+lastErr); return; }
+      _tgtMembers=byPerson;
+      // The dashboard re-reads its targets on the next paint — same reset the old master used.
+      _haTargetsLoaded=false;
+      try{ renderHealthDashboard(); }catch(_){}
+      toast("Target sheet saved — "+per+" · "+ok+" person row"+(ok===1?"":"s"));
     };
 
     // ===== COUPON CODES MASTER (Settings → Coupon codes) =====

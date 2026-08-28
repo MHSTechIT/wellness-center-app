@@ -44,6 +44,16 @@ const TABLES = new Set([
   // Per-advisor daily lead allocation (self-applying schema) — Settings → Advisor targets. Read by
   // the settings table and by the auto-assigner; holds counts only, no credentials.
   'advisor_lead_targets',
+  // Percentage allocation per service team (self-applying schema) — Settings → Advisor Leads Count
+  // Setting. Read by that panel and by the auto-assigner; percentages only, no credentials.
+  'advisor_alloc',
+  // Target sheet (self-applying schema) — Settings → Masters. team_targets holds one month's team
+  // plan (revenue, leads, spend, funnel rates); member_targets holds each person's PERCENTAGES of
+  // it. Every count on the sheet and on the Health Advisor dashboard is derived from these two, so
+  // both must be readable by the client that renders them. Targets only — no credentials, no money.
+  // Added here at the same time as the schema: the advisor_targets note above records what happens
+  // when they drift apart, and these three were briefly created-but-refused for exactly that reason.
+  'team_targets', 'member_targets',
   // Auto-assignment on/off per day (self-applying schema). READ by every client so the settings
   // screen can show the state; WRITES go through /api/meta/autoassign/control, which is Super-Admin
   // gated. Listing it here is not a way around that gate — see the route.

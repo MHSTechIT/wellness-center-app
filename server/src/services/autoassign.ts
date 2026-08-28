@@ -20,13 +20,80 @@ import { pool } from '../shared/db';
 // counted against tomorrow's allocation. Every date expression below is explicitly AT TIME ZONE.
 // ============================================================
 
-export type AssignPlanRow = { advisor: string; target: number; already: number; headroom: number; assigned: number };
+export type AssignPlanRow = { service: string; advisor: string; pct: number; already: number; assigned: number; expected: number };
+export type AllocMember = { advisor: string; pct: number };
+
+// A lead's service, reduced to the key its team is stored under. Two jobs:
+//  · a COMBINED service ("Diabetes Counselling + Blood Test") is served by the FIRST line named,
+//    decided 28-Aug-2026 — the string is written in the order it was captured, so the first is the
+//    line the lead actually came in for.
+//  · the same line written differently ("Blood test" / "Blood Test", "Physio" / "Physiotherapy")
+//    collapses onto one key, so a team configured once serves every spelling of its own service.
+// Anything unrecognised keeps its own trimmed, lowercased name rather than being forced into a
+// bucket it does not belong to — it simply falls through to the default team.
+export function serviceTeamKey(raw: string): string {
+  const first = String(raw || '').split('+')[0];
+  const x = first.trim().toLowerCase();
+  if (!x) return '';
+  if (x.includes('weight') || x.includes('wt loss')) return 'weight loss counselling';
+  if (x.includes('diab') || x.includes('sugar')) return 'diabetes counselling';
+  if (x.includes('sauna') || x.includes('sona')) return 'sauna bath';
+  if (x.includes('cold') || x.includes('plunge')) return 'cold plunge';
+  if (x.includes('phys')) return 'physiotherapy';
+  if (x.includes('blood') || x.includes('diagnost')) return 'blood test';
+  if (x.includes('hbot') || x.includes('hyperbaric') || x.includes('oxygen')) return 'hbot';
+  return x;
+}
+
+// LARGEST DEFICIT, one lead at a time. For each arriving lead the advisor furthest BELOW their
+// share of the day so far gets it — the standard apportionment answer to "the total keeps growing
+// and the ratio must hold at every point", and the reason this needs no daily total to work from.
+//
+// It self-corrects: whoever the rounding shorted on one lead is the most deficient on the next, so
+// nobody accumulates a deficit. At any moment each advisor's count sits within one lead of their
+// exact quota, whether the day ends at 25 leads or 500.
+//
+// `already` seeds the counts with what each advisor was given earlier today (auto or by hand), so
+// the ratio is measured across the WHOLE day rather than restarting at every sync.
+export function distributeByPercent(
+  members: AllocMember[],
+  already: Record<string, number>,
+  queue: string[],
+): { perAdvisor: Map<string, string[]>; counts: Record<string, number> } {
+  const perAdvisor = new Map<string, string[]>();
+  const live = members.filter((m) => m.pct > 0);
+  const counts: Record<string, number> = {};
+  for (const m of live) counts[m.advisor] = Number(already[m.advisor] || 0);
+  const totalPct = live.reduce((a, m) => a + m.pct, 0);
+  if (!live.length || totalPct <= 0 || !queue.length) return { perAdvisor, counts };
+  // Sorted once, so ties resolve the same way on every run: larger share first, then by name.
+  const ordered = live.slice().sort((a, b) => (b.pct - a.pct) || a.advisor.localeCompare(b.advisor));
+  let n = Object.values(counts).reduce((a, b) => a + b, 0);
+  for (const id of queue) {
+    n += 1;
+    let best = ordered[0];
+    let bestDeficit = -Infinity;
+    for (const m of ordered) {
+      const deficit = (m.pct / totalPct) * n - counts[m.advisor];
+      if (deficit > bestDeficit + 1e-9) { bestDeficit = deficit; best = m; }
+    }
+    counts[best.advisor] += 1;
+    const arr = perAdvisor.get(best.advisor) || [];
+    arr.push(id);
+    perAdvisor.set(best.advisor, arr);
+  }
+  return { perAdvisor, counts };
+}
 export type AssignResult = {
   ok: boolean;
   assigned: number;
   poolSeen: number;
   poolLeft: number;
   rows: AssignPlanRow[];
+  /** Leads whose service matched no team and had no default to fall back on — left pooled. */
+  unrouted?: number;
+  /** How many of today's leads each team was handed, for the preview. */
+  teams?: { service: string; leads: number }[];
   rotation?: { order: string[]; chunks: number[]; lastServed: string | null; nextStart: string | null };
   reason?: string;
 };
@@ -35,72 +102,16 @@ export type AssignResult = {
 // Leads are dealt in TURNS around the ring of advisors with a target, not by filling one advisor's
 // whole day first. Each advisor's turn size scales with their target — the day split into roughly
 // four waves — so the worked example (targets 8 / 7 / 5) deals 2 / 2 / 1 per lap:
-export function turnSizeOf(target: number): number { return Math.max(1, Math.round(target / 4)); }
+// The round-robin distributor that stood here (turnSizeOf / distributeRoundRobin) is gone with
+// the fixed daily target it served: turns sized as a quarter of a NUMBER have no meaning once
+// allocation is a ratio. distributeByPercent above replaces it.
 
-/**
- * Deal `queue` around `plan` starting AFTER `lastServed` (the persistent rotation pointer), so the
- * same advisor does not receive the first leads of every run. Each stop takes up to their turn
- * size, capped by their remaining headroom; a full lap in which nobody can take anything ends the
- * deal (targets full → the rest stays pooled). Pure function so the tests can drive it directly.
- */
-export function distributeRoundRobin(
-  plan: AssignPlanRow[], queue: string[], lastServed: string
-): { writes: { advisor: string; ids: string[] }[]; assigned: number; served: string; nextStart: string | null } {
-  const byAdv = new Map<string, string[]>();
-  let qi = 0;
-  let served = lastServed;
-  if (plan.length) {
-    const li = plan.findIndex((p) => p.advisor === lastServed);
-    let idx = li >= 0 ? li + 1 : 0;                       // continue from the NEXT advisor in the ring
-    let dry = plan.length;                                // consecutive stops that took nothing
-    while (qi < queue.length && dry > 0) {
-      const p = plan[idx % plan.length]; idx++;
-      const take = Math.min(turnSizeOf(p.target), p.headroom - p.assigned, queue.length - qi);
-      if (take <= 0) { dry--; continue; }
-      dry = plan.length;
-      const ids = queue.slice(qi, qi + take); qi += take;
-      p.assigned += take;
-      served = p.advisor;
-      const arr = byAdv.get(p.advisor) || []; arr.push(...ids); byAdv.set(p.advisor, arr);
-    }
-  }
-  const si = plan.findIndex((p) => p.advisor === served);
-  const nextStart = plan.length ? plan[((si >= 0 ? si : -1) + 1) % plan.length].advisor : null;
-  return { writes: [...byAdv.entries()].map(([advisor, ids]) => ({ advisor, ids })), assigned: qi, served, nextStart };
-}
+// The rotation pointer (app_settings 'auto_assign_rotation') belonged to the round-robin ring:
+// it remembered whose turn was next so the same advisor did not always receive the first leads
+// of the day. Ratio allocation needs no such memory — the largest-deficit rule reads the day's
+// counts and is self-correcting from any starting point — so nothing reads or writes it now.
+// The stored row is left untouched rather than deleted, as the rollback path to the old engine.
 
-// The rotation pointer lives in app_settings so it survives server restarts and is shared by every
-// path that assigns (sync trigger, the settings screen's button). Reading it must never break a
-// run; a missing row simply starts the ring from the top.
-const ROTATION_KEY = 'auto_assign_rotation';
-async function getRotationPointer(): Promise<string> {
-  try {
-    const { rows } = await pool.query(`SELECT value->>'last_served' AS v FROM app_settings WHERE key = $1`, [ROTATION_KEY]);
-    return rows.length ? String(rows[0].v || '') : '';
-  } catch { return ''; }
-}
-async function setRotationPointer(name: string): Promise<void> {
-  try {
-    await pool.query(
-      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, jsonb_build_object('last_served', $2::text), now())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [ROTATION_KEY, name]
-    );
-  } catch { /* the pointer is fairness, not correctness — a failed save must not fail the run */ }
-}
-
-// Who counts as an advisor for lead assignment — the SAME three gates the client's _assignTargets
-// applies, expressed in SQL:
-//   1. an active assignee;
-//   2. holding a role of ADVISOR GRADE (Advisor / Senior Advisor / any Telecaller variant). Roles
-//      come from app_users.roles, which is a LIST — assignees.role mirrors only one of them, and
-//      reading that column alone is what hid sugashini, whose mirrored role is "Health Coach" while
-//      app_users.roles is ["Health Coach","Advisor"]. She showed in the Assign-to menu and was
-//      missing from the allocation table, the one place her daily limit is set;
-//   3. that role still ticked Assignable in Settings → Roles, so assignment can be switched off
-//      org-wide without editing anybody's record.
-// Health Coach is assignable but is NOT an advisor grade, so a Health Coach alone still never
-// qualifies — only the second role does it.
 export async function listAdvisors(): Promise<{ name: string; role: string }[]> {
   const { rows } = await pool.query(
     `SELECT a.name,
@@ -172,108 +183,128 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
     }
   }
 
-  // 1 — targets. Only a POSITIVE target opts an advisor in; 0 or no row means "not in the rotation",
-  //     which is how an admin excludes somebody without deleting them from the staff master.
-  // EXISTS, not JOIN, and matched CASE-SENSITIVELY.
-  //   · EXISTS because a join can multiply one target row once per matching assignee — which put an
-  //     advisor in the plan twice and handed them 8 + 4 = 12 leads against a target of 8. EXISTS asks
-  //     the question actually meant ("is this advisor active staff?") and answers once.
-  //   · case-sensitively because "Deepak" and "deepak" are two DIFFERENT staff members here, with
-  //     different email addresses, separate logins and 54 and 17 leads of their own. leads.assigned_to
-  //     stores the exact name, so exact comparison is the only thing that can tell them apart;
-  //     lower() would let one person's target validate against the other's staff row.
-  const { rows: tRows } = await pool.query(
-    `SELECT t.advisor, t.daily_target
-       FROM advisor_lead_targets t
-      WHERE t.daily_target > 0
-        AND EXISTS (SELECT 1 FROM assignees a
-                     WHERE a.is_active AND btrim(a.name) = btrim(t.advisor))
-      ORDER BY t.advisor`
+  // 1 — ALLOCATION. Percentages per service team (advisor_alloc), not a fixed count: Meta
+  //     delivers an unpredictable number of leads through the day, so a per-advisor NUMBER can only
+  //     ever be a guess about a total nobody knows yet, while a RATIO holds whatever the day brings.
+  //     Only a POSITIVE percentage opts an advisor in, and the advisor must still be active staff —
+  //     EXISTS rather than a join, and matched case-sensitively, for the same reasons the fixed
+  //     targets did: "Deepak" and "deepak" are two different people here with two different books.
+  const { rows: allocRows } = await pool.query(
+    `SELECT a.service, a.advisor, a.pct
+       FROM advisor_alloc a
+      WHERE a.pct > 0
+        AND EXISTS (SELECT 1 FROM assignees s
+                     WHERE s.is_active AND btrim(s.name) = btrim(a.advisor))
+      ORDER BY a.service, a.advisor`
   );
-  if (!tRows.length) {
-    return { ok: true, assigned: 0, poolSeen: 0, poolLeft: 0, rows: [], reason: 'no advisor has a daily target set' };
+  if (!allocRows.length) {
+    return { ok: true, assigned: 0, poolSeen: 0, poolLeft: 0, rows: [], reason: 'no advisor allocation configured' };
   }
-
-  // 2 — what each advisor has ALREADY been given today (IST). Counted across every lead, not just
-  //     auto-assigned ones: a lead the admin hands over manually is still part of that advisor's day,
-  //     so it has to reduce the headroom or the two paths would together exceed the target.
-  const { rows: aRows } = await pool.query(
-    `SELECT assigned_to AS advisor, count(*)::int AS n
-       FROM leads
-      WHERE is_assigned
-        AND assigned_at IS NOT NULL
-        AND (assigned_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date
-      GROUP BY 1`
-  );
-  // Keyed by the EXACT assigned_to string. Lowercasing here collapsed "Deepak" (54 leads) and
-  // "deepak" (17) onto one key, where Map.set let whichever row came last silently overwrite the
-  // other's count — so one of the two would have been handed a full day's allocation they had
-  // already used up.
-  const already = new Map<string, number>();
-  for (const r of aRows) already.set(String(r.advisor || '').trim(), Number(r.n) || 0);
-
-  const plan: AssignPlanRow[] = tRows.map((r: any) => {
-    const target = Number(r.daily_target) || 0;
-    const done = already.get(String(r.advisor).trim()) || 0;
-    return { advisor: String(r.advisor), target, already: done, headroom: Math.max(0, target - done), assigned: 0 };
-  });
-
-  const totalHeadroom = plan.reduce((s, p) => s + p.headroom, 0);
-  if (totalHeadroom <= 0) {
-    return { ok: true, assigned: 0, poolSeen: 0, poolLeft: 0, rows: plan, reason: "every advisor has reached today's target" };
+  // Teams keyed by NORMALISED service, so a team saved as "Blood Test" still serves leads whose
+  // service reads "Blood test". '' is the default team every unmatched service falls back to.
+  const teams = new Map<string, AllocMember[]>();
+  for (const r of allocRows) {
+    const key = serviceTeamKey(String(r.service || ''));
+    const arr = teams.get(key) || [];
+    arr.push({ advisor: String(r.advisor), pct: Number(r.pct) || 0 });
+    teams.set(key, arr);
   }
+  // Which team serves a given lead: its own service's team where one exists, otherwise the default.
+  const teamFor = (service: string): string | null => {
+    const k = serviceTeamKey(service);
+    if (teams.has(k)) return k;
+    return teams.has('') ? '' : null;
+  };
 
-  // 3 — ELIGIBLE LEADS. Anything unassigned that either arrived TODAY (IST) or was deliberately
-  //     pushed into the manual pool.
+  // 2 — ELIGIBLE LEADS. Anything unassigned that arrived TODAY (IST). Unchanged in spirit from the
+  //     fixed-target engine, and deliberately still TODAY ONLY: the backlog in this database is
+  //     thousands of unassigned leads and the brief has always been that yesterday's stay put.
   //
-  //     It used to require in_pool = true, and that was the bug behind "16 leads still showing as
-  //     unassigned": a lead arriving from Meta is written with in_pool = false and no pool_added_at.
-  //     The flag marks a lead an admin has PUSHED to the pool, not a lead awaiting assignment — so
-  //     the engine saw zero eligible leads however many came in, and every live lead sat in the
-  //     Unassigned table waiting for a manual hand-off that the whole feature exists to avoid.
-  //
-  //     TODAY ONLY, and that is a deliberate instruction rather than a convenience: the backlog in
-  //     this database is 5,500+ unassigned leads, and the brief is explicit that yesterday's and
-  //     older leads stay untouched. So a lead that arrives after every target is full is NOT carried
-  //     into tomorrow — it stays unassigned for an admin to place by hand. (An earlier version used
-  //     a 7-day window to stop exactly that stranding; it was withdrawn because auto-assigning a
-  //     lead a day or more after it arrived is worse than leaving it visible in the Unassigned list.)
-  //     in_pool is no longer consulted at all: a Meta lead is written with in_pool = false, so that
-  //     flag was the original reason live leads were never eligible.
-  //     LIMIT is the headroom, which is what enforces "never exceed the configured daily target".
+  //     THE LIMIT IS GONE. It used to be the sum of everyone's headroom, which is what made a
+  //     target a hard ceiling; with ratio allocation there is no ceiling to enforce (decided
+  //     28-Aug-2026), so every lead that arrives today is placed and nothing is left pooled merely
+  //     because somebody hit a number.
   const { rows: leadRows } = await pool.query(
-    `SELECT meta_lead_id FROM leads
+    `SELECT meta_lead_id, coalesce(service,'') AS service
+       FROM leads
       WHERE coalesce(is_assigned,false) = false
         AND coalesce(btrim(assigned_to),'') = ''
         AND (coalesce(created_at, pool_added_at) AT TIME ZONE 'Asia/Kolkata')::date
             = (now() AT TIME ZONE 'Asia/Kolkata')::date
-      ORDER BY coalesce(pool_added_at, created_at) ASC NULLS LAST
-      LIMIT $1`,
-    [totalHeadroom]
+      ORDER BY coalesce(pool_added_at, created_at) ASC NULLS LAST`
   );
   const poolSeen = leadRows.length;
   if (!poolSeen) {
-    return { ok: true, assigned: 0, poolSeen: 0, poolLeft: 0, rows: plan, reason: "no unassigned leads from today — older leads are left alone by design" };
+    return { ok: true, assigned: 0, poolSeen: 0, poolLeft: 0, rows: [], reason: "no unassigned leads from today — older leads are left alone by design" };
   }
 
-  // 4 — ROUND-ROBIN BATCH DEAL (changed from sequential fill on request, 21-Aug-2026): leads go
-  //     around the ring in target-scaled turns (see turnSizeOf) so every advisor with headroom gets
-  //     a share as leads arrive, and the persistent pointer makes the NEXT run continue from the
-  //     next advisor — the same person never keeps receiving the first leads of the day. Targets
-  //     stay hard caps: a full advisor is skipped, and when everyone is full the rest stays pooled.
-  const queue = leadRows.map((r: any) => String(r.meta_lead_id));
-  const lastServed = await getRotationPointer();
-  const { writes, assigned, served, nextStart } = distributeRoundRobin(plan, queue, lastServed);
-  const rotation = {
-    order: plan.map((p) => p.advisor),
-    chunks: plan.map((p) => turnSizeOf(p.target)),
-    lastServed: lastServed || null,
-    nextStart,
-  };
+  // 3 — WHAT EACH ADVISOR ALREADY HOLDS TODAY, per team. Counted across every lead assigned today,
+  //     not just auto-assigned ones: a lead the admin places by hand is still part of that advisor's
+  //     day, so it has to pull their share down or the two paths would fight each other. Bucketed by
+  //     TEAM because an advisor can sit on more than one, and each team's ratio stands on its own.
+  const { rows: todayRows } = await pool.query(
+    `SELECT assigned_to AS advisor, coalesce(service,'') AS service
+       FROM leads
+      WHERE is_assigned
+        AND assigned_at IS NOT NULL
+        AND (assigned_at AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date`
+  );
+  const already = new Map<string, Record<string, number>>();
+  for (const r of todayRows) {
+    const t = teamFor(String(r.service || ''));
+    if (t === null) continue;
+    const m = already.get(t) || {};
+    const name = String(r.advisor || '').trim();
+    if (!name) continue;
+    m[name] = (m[name] || 0) + 1;
+    already.set(t, m);
+  }
+
+  // 4 — SPLIT BY RATIO, team by team. Leads keep their arrival order within a team so the earliest
+  //     lead is still placed first.
+  const byTeam = new Map<string, string[]>();
+  let unrouted = 0;
+  for (const r of leadRows) {
+    const t = teamFor(String(r.service || ''));
+    if (t === null) { unrouted++; continue; }   // no team for this service and no default — stays pooled
+    const arr = byTeam.get(t) || [];
+    arr.push(String(r.meta_lead_id));
+    byTeam.set(t, arr);
+  }
+  const writeMap = new Map<string, string[]>();
+  const plan: AssignPlanRow[] = [];
+  let assigned = 0;
+  for (const [teamKey, queue] of byTeam) {
+    const members = teams.get(teamKey) || [];
+    const startCounts = already.get(teamKey) || {};
+    const d = distributeByPercent(members, startCounts, queue);
+    for (const [advisor, ids] of d.perAdvisor) {
+      const cur = writeMap.get(advisor) || [];
+      cur.push(...ids);
+      writeMap.set(advisor, cur);
+      assigned += ids.length;
+    }
+    const totalPct = members.reduce((a, m) => a + m.pct, 0) || 1;
+    const finalN = Object.values(d.counts).reduce((a, b) => a + b, 0);
+    for (const m of members) {
+      plan.push({
+        service: teamKey,
+        advisor: m.advisor,
+        pct: m.pct,
+        already: Number(startCounts[m.advisor] || 0),
+        assigned: (d.perAdvisor.get(m.advisor) || []).length,
+        // What a perfect split of the day so far would have given them — the number the actual
+        // count is meant to sit within one of.
+        expected: Math.round((m.pct / totalPct) * finalN * 100) / 100,
+      });
+    }
+  }
+  const writes = Array.from(writeMap, ([advisor, ids]) => ({ advisor, ids }));
 
   if (dryRun) {
-    // Preview shows the identical deal — and does NOT move the pointer; only real assignments do.
-    return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan, rotation };
+    // The preview runs the identical split and writes nothing.
+    return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan,
+      unrouted, teams: Array.from(byTeam, ([k, v]) => ({ service: k, leads: v.length })) };
   }
 
   // 5 — write. One statement per advisor, each re-checking that the lead is still unassigned, so a
@@ -318,14 +349,12 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
   // this an assignment made by the sync was invisible to an already-open app until someone reloaded.
   // Emitting 'leads' is what makes an Advisor's book fill in front of them.
   if (assigned > 0) {
-    // Advance the rotation pointer only after the writes committed — a failed run must not skip
-    // anyone's turn.
-    await setRotationPointer(served);
     try {
       const { broadcastChange } = await import('../routes/events');
       broadcastChange('leads');
     } catch { /* a missed notification must never fail the assignment */ }
   }
 
-  return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan, rotation };
+  return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan,
+    unrouted, teams: Array.from(byTeam, ([k, v]) => ({ service: k, leads: v.length })) };
 }

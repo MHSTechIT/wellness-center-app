@@ -121,7 +121,7 @@ export function getMainContent(): string {
             <!-- Lives OUTSIDE the table so a re-render (which rewrites thead/tbody only) can't steal focus mid-typing. -->
             <input aria-label="Search results by lead, phone, advisor or status" class="input" id="haResultsSearch" placeholder="Search lead / phone / advisor / status…" oninput="window._haResultsSearch()" style="margin-left:auto;max-width:280px;height:32px;font-size:12.5px">
             <button class="btn bsm" onclick="window._haCloseResults()">Close</button></div>
-          <div class="tscroll"><table class="tbl" style="min-width:980px"><thead><tr id="haResultsHead"><th scope="col">Lead Generated Date &amp; Time</th><th scope="col">Assigned Date &amp; Time</th><th scope="col">Lead</th><th scope="col">Source</th><th scope="col">Lang</th><th scope="col">Assigned to</th><th scope="col">Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
+          <div class="tscroll"><table class="tbl" style="min-width:1120px"><thead><tr id="haResultsHead"><th scope="col">Lead Generated Date &amp; Time</th><th scope="col">Assigned Date &amp; Time</th><th scope="col">Lead</th><th scope="col">Source</th><th scope="col">Lang</th><th scope="col">Assigned to</th><th scope="col">Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
@@ -2446,9 +2446,17 @@ export function getMainContent(): string {
           <button class="btn bsm bp" onclick="window._alcRunNow()">⚡ Assign pooled leads now</button>
           <button class="btn bsm bp" onclick="window._alcSave()">Save allocation</button></span></div>
         <div class="sec-bd">
-          <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px">Set how many leads each advisor should receive <b>per day</b>. As leads arrive through the day the system tops each advisor up to their number — it does not wait for the whole day's leads to exist. Leave a target at <b>0</b> to keep an advisor out of auto-assignment. The count resets every day on its own. <b>Admin manual assignment is unaffected</b> — you can still assign any lead by hand from Assign &amp; approve, and anything you assign by hand counts towards that advisor's day.</p>
-          <div class="tscroll"><table class="tbl" style="min-width:720px"><thead><tr><th scope="col">Advisor</th><th scope="col">Role</th><th scope="col" style="text-align:right">Daily lead target</th><th scope="col" style="text-align:right">Assigned today</th><th scope="col" style="text-align:right">Remaining today</th></tr></thead>
-            <tbody id="alcBody"><tr><td colspan="5" style="text-align:center;color:var(--faint);padding:14px">Loading advisors…</td></tr></tbody>
+          <p style="font-size:12px;color:var(--muted);margin:6px 2px 10px">Set each advisor's <b>share</b> of the leads for a service, as a percentage. Meta delivers an unpredictable number of leads through the day, so there is no daily target to set — whether 25 or 500 arrive, each one is handed to whichever advisor is furthest below their share, and the ratio holds at every point in the day. Pick a <b>service</b>, add the advisors who work it, and give each a percentage totalling 100. <b>All services (default)</b> covers every line that has no team of its own. <b>Admin manual assignment is unaffected</b> — anything you assign by hand from Assign &amp; approve counts towards that advisor's share.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:0 2px 12px">
+            <div class="fld" style="margin:0"><label class="lbl" for="alcService">Assign to · service</label>
+              <select class="select" id="alcService" style="height:34px;min-width:220px" onchange="window._alcServiceChange()"></select></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="alcAddAdv">Advisor</label>
+              <select class="select" id="alcAddAdv" style="height:34px;min-width:200px"></select></div>
+            <button class="btn bsm bp" style="height:34px" onclick="window._alcAddMember()">+ Add to team</button>
+            <button class="btn bsm" style="height:34px" onclick="window._alcSplitEven()" title="Give every member of this team an equal share">Split evenly</button>
+          </div>
+          <div class="tscroll"><table class="tbl" style="min-width:760px"><thead><tr><th scope="col">Advisor</th><th scope="col">Role</th><th scope="col" style="text-align:right">Allocation %</th><th scope="col" style="text-align:right">Assigned today</th><th scope="col" style="text-align:right">Share today</th><th scope="col"></th></tr></thead>
+            <tbody id="alcBody"><tr><td colspan="6" style="text-align:center;color:var(--faint);padding:14px">Loading advisors…</td></tr></tbody>
             <tfoot id="alcFoot"></tfoot></table></div>
           <!-- AUTO-ASSIGNMENT SWITCH — Super Admin only. Hidden for everyone else, and the server
                enforces the same rule on the write, so hiding it is presentation rather than the
@@ -2457,27 +2465,60 @@ export function getMainContent(): string {
           <div id="alcPlan" style="margin-top:10px"></div>
         </div></div>
 
-      <div class="sec"><div class="sec-hd" style="cursor:default"><svg class="icon"><use href="#i-chart"></use></svg> Advisor Targets Master — drives the Health Advisor dashboard</div>
+      <!-- TEAM TARGET SHEET (28-Aug-2026). Replaces the per-advisor table of hand-typed counts:
+           the team plan is entered ONCE at the top and every person's numbers are derived from
+           their percentage of it, so a person's target can never drift from the team's. No count
+           is stored anywhere — all of them are recalculated from these inputs on every render. -->
+      <div class="sec"><div class="sec-hd" style="cursor:default;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+        <span><svg class="icon"><use href="#i-chart"></use></svg> Target Sheet — team plan drives every person's numbers</span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="tgtInfo" style="font-size:11.5px;color:var(--muted)"></span>
+          <button class="btn bsm bp" onclick="window._tgtSaveSheet()">Save target sheet</button></span></div>
         <div class="sec-bd">
-          <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px">One row per advisor per month. The Health Advisor dashboard reads these live — Revenue, Enrollment and CRM usage fill the <b>Targets &amp; performance</b> cards; the five expected counts fill <b>Pipeline performance</b>. Leave an expected value blank to have it derived from that advisor's own book size instead of a fixed number.</p>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtAdvisor">Advisor</label><select class="select" id="tgtAdvisor" style="height:34px;width:190px"></select></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtPeriod">Period (month)</label><input class="input mono" id="tgtPeriod" type="month" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtRevenue">Revenue target (₹)</label><input class="input mono" id="tgtRevenue" type="number" min="0" placeholder="1800000" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtEnroll">Enrollment target</label><input class="input mono" id="tgtEnroll" type="number" min="0" placeholder="90" style="height:34px;width:140px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtCrm">CRM usage target (hours/day)</label><input class="input mono" id="tgtCrm" type="number" min="0" step="0.5" placeholder="8" style="height:34px;width:170px"></div>
+          <p style="font-size:12px;color:var(--muted);margin:6px 2px 12px">Set the <b>team</b> plan for a month, then give each person their <b>share</b>. Counts are calculated, never typed — CPL is spend ÷ leads, ROAS is revenue ÷ spend, and every person's leads, appointments, visits, conversions and revenue fall out of their percentages. The Health Advisor dashboard reads the result live: revenue and enrolment fill <b>Targets &amp; performance</b>, the expected counts fill <b>Pipeline performance</b>.</p>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtPeriod">Period (month)</label><input class="input mono" id="tgtPeriod" type="month" style="height:34px;width:150px" onchange="window._tgtPeriodChange()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtRevenue">Revenue (₹)</label><input class="input mono" id="tgtRevenue" type="number" min="0" placeholder="2000000" style="height:34px;width:150px" oninput="window._tgtRecalc()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtEnroll">Enrollment</label><input class="input mono" id="tgtEnroll" type="number" min="0" placeholder="10" style="height:34px;width:120px" oninput="window._tgtRecalc()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtLeads">Leads</label><input class="input mono" id="tgtLeads" type="number" min="0" placeholder="1000" style="height:34px;width:120px" oninput="window._tgtRecalc()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtSpent">Spent (₹)</label><input class="input mono" id="tgtSpent" type="number" min="0" placeholder="20000" style="height:34px;width:130px" oninput="window._tgtRecalc()"></div>
           </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpDirect">Expected · Appt Direct</label><input class="input mono" id="tgtExpDirect" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpZoom">Expected · Appt Zoom</label><input class="input mono" id="tgtExpZoom" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpConfirmed">Expected · Confirmed</label><input class="input mono" id="tgtExpConfirmed" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpVisited">Expected · Visited</label><input class="input mono" id="tgtExpVisited" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
-            <div class="fld" style="margin:0"><label class="lbl" for="tgtExpEnrolled">Expected · Enrolled</label><input class="input mono" id="tgtExpEnrolled" type="number" min="0" placeholder="auto" style="height:34px;width:150px"></div>
-            <button class="btn bp" id="tgtAddBtn" onclick="window._tgtSave()" style="height:34px">+ Save target</button>
-            <button class="btn bsm" id="tgtCancelBtn" onclick="window._tgtCancel()" style="height:34px;display:none">Cancel</button>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtL2A">Lead to App %</label><input class="input mono" id="tgtL2A" type="number" min="0" max="100" step="0.1" placeholder="30" style="height:34px;width:130px" oninput="window._tgtRecalc()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtL2V">Lead to Visit %</label><input class="input mono" id="tgtL2V" type="number" min="0" max="100" step="0.1" placeholder="30" style="height:34px;width:130px" oninput="window._tgtRecalc()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtL2C">Lead to Conversion %</label><input class="input mono" id="tgtL2C" type="number" min="0" max="100" step="0.1" placeholder="10" style="height:34px;width:160px" oninput="window._tgtRecalc()"></div>
+            <div class="fld" style="margin:0"><label class="lbl" for="tgtA2V">App to Visit %</label><input class="input mono" id="tgtA2V" type="number" min="0" max="100" step="0.1" placeholder="70" style="height:34px;width:130px" oninput="window._tgtRecalc()"></div>
           </div>
-          <div class="tscroll"><table class="tbl" style="min-width:980px"><thead><tr><th scope="col">Advisor</th><th scope="col">Period</th><th scope="col">Revenue</th><th scope="col">Enrollment</th><th scope="col">CRM / day</th><th scope="col">Expected (D/Z/C/V/E)</th><th scope="col">Actions</th></tr></thead><tbody id="tgtBody"></tbody></table></div>
-          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Targets do not roll over — each month is set explicitly, so a missed month never silently inflates the next one. An advisor with no row for the current month falls back to the defaults shown on the dashboard.</p>
+          <!-- Everything the team plan implies, recalculated as you type. CPL and ROAS are formulas
+               in the sheet, never inputs, so they are shown rather than entered. -->
+          <div id="tgtDerived" class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0 0 14px"></div>
+
+          <div class="tgt-team"><span class="ic" aria-hidden="true">A</span><span class="nm">Health Advisor Team</span><span class="ct" id="tgtAdvCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">percentages in, counts out</span></div>
+          <div class="tscroll"><table class="tbl" style="min-width:1180px" id="tgtAdvTbl"><thead><tr>
+            <th scope="col">Advisor</th><th scope="col" style="text-align:right">Leads %</th><th scope="col" style="text-align:right">Leads</th>
+            <th scope="col" style="text-align:right">App %</th><th scope="col" style="text-align:right">Appts</th>
+            <th scope="col" style="text-align:right">Visit %</th><th scope="col" style="text-align:right">Visits</th>
+            <th scope="col" style="text-align:right">Con %</th><th scope="col" style="text-align:right">Conv</th>
+            <th scope="col" style="text-align:right">Revenue</th>
+            <th scope="col" style="text-align:right">Online App %</th><th scope="col" style="text-align:right">Online Appts</th>
+            <th scope="col" style="text-align:right">Online Con %</th><th scope="col" style="text-align:right">Online Conv</th>
+            <th scope="col" style="text-align:right">Offline App %</th><th scope="col" style="text-align:right">Offline Appts</th>
+            <th scope="col" style="text-align:right">Offline Con %</th><th scope="col" style="text-align:right">Offline Conv</th>
+          </tr></thead><tbody id="tgtAdvBody"></tbody><tfoot id="tgtAdvFoot"></tfoot></table></div>
+
+          <div class="tgt-team"><span class="ic" aria-hidden="true">C</span><span class="nm">Health Coach Team</span><span class="ct" id="tgtCoachCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">configured separately from the advisors</span></div>
+          <div class="tscroll"><table class="tbl" style="min-width:1080px" id="tgtCoachTbl"><thead><tr>
+            <th scope="col">Coach</th><th scope="col" style="text-align:right">Consultation %</th><th scope="col" style="text-align:right">Consultations</th>
+            <th scope="col" style="text-align:right">Conversion %</th><th scope="col" style="text-align:right">Conversions</th>
+            <th scope="col" style="text-align:right">Revenue</th>
+            <th scope="col" style="text-align:right">Online Consult %</th><th scope="col" style="text-align:right">Online Consults</th>
+            <th scope="col" style="text-align:right">Online Conv %</th><th scope="col" style="text-align:right">Online Conv</th>
+            <th scope="col" style="text-align:right">Offline Consult %</th><th scope="col" style="text-align:right">Offline Consults</th>
+            <th scope="col" style="text-align:right">Offline Conv %</th><th scope="col" style="text-align:right">Offline Conv</th>
+          </tr></thead><tbody id="tgtCoachBody"></tbody><tfoot id="tgtCoachFoot"></tfoot></table></div>
+
+          <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Targets do not roll over — each month is set explicitly, so a missed month never silently inflates the next one. A person with no share for the month simply has no target, and the dashboard falls back to deriving one from their own book size.</p>
         </div></div>
     </div>
 
