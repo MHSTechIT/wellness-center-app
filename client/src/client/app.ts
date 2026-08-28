@@ -6925,6 +6925,50 @@ export function initApp(root: HTMLElement) {
       });
       return m;
     }
+    // ---- Unauthorized / Active leads (28-Aug-2026) --------------------------------------------
+    // A lead whose call status says the person was never actually reached — RNR, Line Busy or DND —
+    // enters UNAUTHORIZED. It becomes ACTIVE once a qualifying contact lands within 48 hours of it
+    // entering that state; if the window passes with nothing, it stays unauthorized.
+    //
+    // ONE function serves both the cards and their drill-downs. A second copy of this rule is
+    // exactly how a card and the table under it end up reporting different numbers, which this
+    // screen has been bitten by before.
+    //
+    // Two decisions worth stating, because they are a reading of the brief rather than facts:
+    //  · QUALIFYING CONTACT = a call that CONNECTED (answered, or with real talk time). RNR, Busy
+    //    and DND all mean "we did not reach them", so another unanswered attempt changes nothing
+    //    about whether the lead was actually contacted.
+    //  · THE CLOCK starts when the lead ENTERED the state — the dated status change where there is
+    //    one, otherwise when the lead arrived (a lead with no status change entered it on arrival).
+    //    It is not 48h from "now", so neither count drifts as the day passes.
+    // The two sets PARTITION the RNR/Busy/DND population: Unauthorized + Active always equals it.
+    const _UNAUTH_RE=/^(rnr|dnd|line\s*busy)$/i;
+    const _AUTH_WINDOW_MS=48*3600*1000;
+    function _haAuthSets(list:any[]):{unauth:any[];active:any[]}{
+      // Connected calls per lead, so "was there a contact after X" is answerable per lead. Built
+      // from the UNWINDOWED rows on purpose: the contact that rescues a lead may well have happened
+      // outside the dashboard's date filter, and it still happened.
+      const connAt:Record<string,number[]>={};
+      _advCallRows.forEach((r:any)=>{
+        const k=String(r.contact_id||""); if(!k) return;
+        const secs=Number(r.duration_seconds)||0;
+        if(!(String(r.call_status||"").toLowerCase()==="answered"||secs>0)) return;
+        const t=r.created_at?new Date(r.created_at).getTime():0; if(!t) return;
+        (connAt[k]=connAt[k]||[]).push(t);
+      });
+      const unauth:any[]=[], active:any[]=[];
+      (list||[]).forEach((l:any)=>{
+        if(!_UNAUTH_RE.test(String(haEffStatus(l)||"").trim())) return;
+        const id=String(l.id);
+        const entered=_haStatusActs[id]||new Date(l.assignedAt||l.createdAt||0).getTime()||0;
+        const hits=connAt[id]||[];
+        // With no usable entry time the best available answer is "was this lead ever reached at
+        // all" — better than silently calling every such lead unauthorized.
+        const reached=entered?hits.some(t=>t>=entered&&(t-entered)<=_AUTH_WINDOW_MS):hits.length>0;
+        (reached?active:unauth).push(l);
+      });
+      return {unauth,active};
+    }
     // ---- Follow-up state (PRD §5.2) ----
     const _haDayKey=(ms:number)=>{ try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(ms)); }catch(_){ return ""; } };
     // A follow-up counts as DONE when the advisor demonstrably acted on the lead AFTER the time they
@@ -7144,6 +7188,12 @@ export function initApp(root: HTMLElement) {
         const uni=_haOvUniverse();
         if(arg==="assigned") return {label:"Assigned Leads",list:uni.filter(_haOvAssigned)};
         if(arg==="unassigned") return {label:"Unassigned",list:uni.filter((l:any)=>!_haOvAssigned(l))};
+        return null;
+      }
+      if(ns==="auth"){
+        const a=_haAuthSets(book);
+        if(arg==="unauth") return {label:"Unauthorized Leads · RNR / Busy / DND, not reached in 48h",list:a.unauth};
+        if(arg==="active") return {label:"Active Leads · reached within 48h",list:a.active};
         return null;
       }
       if(ns==="pr"){
@@ -7834,15 +7884,25 @@ export function initApp(root: HTMLElement) {
         for(let i=1;i<_scTimes.length;i++){ if(_haDayKey(_scTimes[i])===_haDayKey(_scTimes[i-1])){ _gapSum+=_scTimes[i]-_scTimes[i-1]; _gapN++; } }
         const _scOut=Math.max(0,tot-inb);
         const _scOk=ready&&_advCallLoaded;
+        const _authSets=_haAuthSets(book);
         set("#haCallScore",
-          tCard("Total Calls",_scOk?String(tot):dash,"All attempts on these leads","","","Every call linked to these leads in the applied dates — outbound (app + external) and inbound together.")
-          +tCard("Total Dialed Calls",_scOk?String(_scOut):dash,"Outbound attempts · app + external","","","Calls made TO these leads: dialled from this app or from outside lines. Inbound calls are not counted here.")
+          tCard("Total Calls",_scOk?String(tot):dash,"All attempts on these leads","","callsall","Every call linked to these leads in the applied dates — outbound (app + external) and inbound together.")
+          +tCard("Total Dialed Calls",_scOk?String(_scOut):dash,"Outbound attempts · app + external","","callsout","Calls made TO these leads: dialled from this app or from outside lines. Inbound calls are not counted here.")
           +tCard("Incoming Calls",_scOk?String(inb):dash,"Inbound attempts","","callsin","Calls these leads made in. Click to open the leads with inbound calls.")
           +tCard("Missed Calls",_scOk?String(miss):dash,"Inbound, not answered","","callsmiss","Inbound calls that never connected. Click to open those leads.")
           +tCard("Connected Calls",_scOk?String(conn):dash,tot?(_haPct(conn,tot)+"% of all attempts"):"","","calls","Calls that answered or carried real talk time, whoever dialled them. Click to open those leads.")
           +tCard("Avg Duration / Call",_scOk?(conn?_fmtCallDur(Math.round(dur/conn)):dash):dash,conn?("Talk time ÷ "+conn+" connected call"+(conn===1?"":"s")):"No connected calls yet","","","Total talk time divided by connected calls. Attempts that never connected carry no talk time, so they are not in the denominator.")
           +tCard("Avg Duration / Day",_scOk?(_scDays.size?_fmtCallDur(Math.round(dur/_scDays.size)):dash):dash,_scDays.size?("Across "+_scDays.size+" active day"+(_scDays.size===1?"":"s")):"No call days yet","","","Total talk time divided by the number of days (IST) that had at least one call in the applied dates.")
-          +tCard("Avg Time Between Calls",_scOk?(_gapN?_haDurWords(Math.round(_gapSum/_gapN/1000)):dash):dash,_gapN?("Consecutive calls · same day · "+_gapN+" gap"+(_gapN===1?"":"s")):"Needs 2+ calls in a day","","","Average gap between one call and the next within the same working day (IST). Overnight gaps between days are excluded."));
+          +tCard("Avg Time Between Calls",_scOk?(_gapN?_haDurWords(Math.round(_gapSum/_gapN/1000)):dash):dash,_gapN?("Consecutive calls · same day · "+_gapN+" gap"+(_gapN===1?"":"s")):"Needs 2+ calls in a day","","","Average gap between one call and the next within the same working day (IST). Overnight gaps between days are excluded.")
+          // The two cards below report STATE, not call volume, so they read from the shared
+          // _haAuthSets engine rather than the counters above. Together they partition the
+          // RNR / Line Busy / DND population of this book.
+          +tCard("Unauthorized Lead",_scOk?String(_authSets.unauth.length):dash,
+            _authSets.unauth.length?("RNR / Busy / DND · not reached in 48h"):"None waiting","","auth:unauth",
+            "Leads sitting at RNR, Line Busy or DND that have had no connected call within 48 hours of reaching that state. Click to open them.")
+          +tCard("Active Leads",_scOk?String(_authSets.active.length):dash,
+            "Reached within 48h of RNR / Busy / DND","","auth:active",
+            "Leads that were RNR, Line Busy or DND and did get a connected call within 48 hours of entering that state. Click to open them."));
       }
 
       // Last, once every figure on the screen is in the DOM. Any element written above that carries
@@ -7957,7 +8017,10 @@ export function initApp(root: HTMLElement) {
       // Each Call-Performance card drills into its OWN cohort. They used to share the "calls" key,
       // so Incoming and Missed both opened the Connected list, and the Avg card had no key at all
       // and opened nothing.
-      const _CALL_CARDS=["calls","callduration","callsin","callsmiss","calltouch","callsext"];
+      // callsall / callsout added 28-Aug-2026: the Total Calls and Total Dialed Calls cards
+      // were built with no drill key at all, so clicking them did nothing and whatever the
+      // previous card had opened stayed on screen — which read as "No leads in this status".
+      const _CALL_CARDS=["calls","callduration","callsin","callsmiss","calltouch","callsext","callsall","callsout"];
       const _isCallCard=_CALL_CARDS.indexOf(String(_haActiveBucket))>=0;
       // WINDOWED, exactly like the cards above. This used to be _advCallScopedStats(), which walks
       // every call row with no date filter, so the drill-down answered a different question from the
@@ -7988,6 +8051,10 @@ export function initApp(root: HTMLElement) {
             if(_haActiveBucket==="callsin")   return !!f&&f.inbound>0;
             if(_haActiveBucket==="callsmiss") return !!f&&f.missed>0;
             if(_haActiveBucket==="callsext")  return !!f&&(f.ext||0)>0;
+            // Every lead that had ANY call in the window — the population Total Calls counts.
+            if(_haActiveBucket==="callsall")  return !!f&&(f.total||0)>0;
+            // Outbound only: total minus inbound, which is exactly what the card reports.
+            if(_haActiveBucket==="callsout")  return !!f&&Math.max(0,(f.total||0)-(f.inbound||0))>0;
             if(_haActiveBucket==="calltouch") return _touchMs(l)>0;
             const st=_scopedCallStats[String(l.id)]; return !!st&&((st.app||0)>0||st.connected>0); })
         // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
@@ -8029,22 +8096,28 @@ export function initApp(root: HTMLElement) {
           :K==="callsin"?((_cf[String(l.id)]||{}).inbound||0)
           :K==="callsmiss"?((_cf[String(l.id)]||{}).missed||0)
           :K==="calltouch"?_touchMs(l)
+          :K==="callsall"?((_cf[String(l.id)]||{}).total||0)
+          :K==="callsout"?Math.max(0,((_cf[String(l.id)]||{}).total||0)-((_cf[String(l.id)]||{}).inbound||0))
           :stOf(l).connected;
         const rows=list.slice().sort((a:any,b:any)=>metric(b)-metric(a));
         const tot=rows.reduce((a:any,l:any)=>{ const s=stOf(l); a.n+=s.connected; a.d+=s.dur; return a; },{n:0,d:0});
         const LBL:Record<string,string>={calls:"Connected Calls",callduration:"Total Call Duration",
-          callsin:"Incoming Calls",callsmiss:"Missed Calls",calltouch:"Avg 1st Call Touch Time"};
+          callsin:"Incoming Calls",callsmiss:"Missed Calls",calltouch:"Avg 1st Call Touch Time",
+          callsall:"Total Calls",callsout:"Total Dialed Calls"};
         const sumM=rows.reduce((a:number,l:any)=>a+metric(l),0);
         const lead=rows.length+" lead"+(rows.length===1?"":"s");
         if(title) title.textContent=(LBL[K]||"Calls")+" — "+(
             K==="calltouch"?(rows.length?_haDurWords(Math.round(sumM/rows.length/1000))+" average":"—")
           : K==="callsin"?(sumM+" inbound call"+(sumM===1?"":"s"))
           : K==="callsmiss"?(sumM+" missed call"+(sumM===1?"":"s"))
+          : K==="callsall"?(sumM+" call"+(sumM===1?"":"s"))
+          : K==="callsout"?(sumM+" outbound call"+(sumM===1?"":"s"))
           : (_fmtCallDur(tot.d)+" across "+tot.n+" call"+(tot.n===1?"":"s"))
           )+" · "+lead;
         const hd=root.querySelector("#haResultsHead");
         const COLS:Record<string,string>={callsin:'<th>Incoming</th><th>Missed</th>',
-          callsmiss:'<th>Missed</th><th>Incoming</th>', calltouch:'<th>Assigned → 1st call</th><th>Total calls</th>'};
+          callsmiss:'<th>Missed</th><th>Incoming</th>', calltouch:'<th>Assigned → 1st call</th><th>Total calls</th>',
+          callsall:'<th>Total Calls</th><th>Connected</th>', callsout:'<th>Dialed</th><th>Connected</th>'};
         if(hd) hd.innerHTML='<th>Lead Name</th><th>Lead Number</th><th>Source · Lang</th><th>Assigned Advisor</th>'
           +(COLS[K]||'<th>Connected Calls</th><th>Talk Time</th>');
         body.innerHTML=rows.length?rows.map((l:any)=>{ const s=stOf(l);
@@ -8057,6 +8130,8 @@ export function initApp(root: HTMLElement) {
               if(K==="callsin")   return '<td class="mono" style="font-weight:700">'+f.inbound+'</td><td class="mono">'+f.missed+'</td>';
               if(K==="callsmiss") return '<td class="mono" style="font-weight:700">'+f.missed+'</td><td class="mono">'+f.inbound+'</td>';
               if(K==="calltouch") return '<td class="mono" style="font-weight:700">'+e(_haDurWords(Math.round(_touchMs(l)/1000)))+'</td><td class="mono">'+f.total+'</td>';
+              if(K==="callsall")  return '<td class="mono" style="font-weight:700">'+(f.total||0)+'</td><td class="mono">'+s.connected+'</td>';
+              if(K==="callsout")  return '<td class="mono" style="font-weight:700">'+Math.max(0,(f.total||0)-(f.inbound||0))+'</td><td class="mono">'+s.connected+'</td>';
               return '<td class="mono" style="font-weight:700">'+s.connected+'</td><td class="mono">'+e(_fmtCallDur(s.dur))+'</td>'; })()
             +'</tr>';
         }).join(""):'<tr><td colspan="6" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No connected calls for these leads yet')+'</td></tr>';
