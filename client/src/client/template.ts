@@ -478,6 +478,24 @@ export function getMainContent(): string {
             <button class="btn bsm bp" id="ovrStartBtn" onclick="window._ovrToggle()">● Start Recording</button>
             <button class="btn bsm" id="ovrStopBtn" onclick="window._ovrStop()" style="display:none;background:var(--alert,#D8442B);border-color:var(--alert,#D8442B);color:#fff">■ Stop Recording</button>
             <input aria-label="Consultation recording link" class="input" id="coachRecUrl" style="max-width:220px" placeholder="https://zoom.us/rec/… or call recording"><button class="btn bsm bp" id="coachSaveZoomBtn" onclick="window._coachSaveZoomLink()" style="margin-left:6px;white-space:nowrap">Save Link</button></div>
+          <!-- Upload an existing recording (28-Aug-2026). A consultation captured on a phone, a
+               dictaphone or Zoom belongs on the same client profile as one recorded here, so it
+               lands in the SAME office_recordings list and player rather than a parallel place. -->
+          <div class="ovup" id="ovrUpWrap">
+            <input type="file" id="ovrFileInput" style="display:none" aria-label="Choose a recording to upload"
+                   accept=".mp4,.mov,.webm,.mp3,.wav,.m4a,.aac,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac"
+                   onchange="window._ovrFileChosen(this)">
+            <div class="ovup-drop" id="ovrDrop" role="button" tabindex="0" onclick="window._ovrPickFile()"
+                 onkeydown="if(event.key===&apos;Enter&apos;||event.key===&apos; &apos;){event.preventDefault();window._ovrPickFile()}">
+              <span class="ovup-ic" aria-hidden="true">⬆</span>
+              <span class="ovup-txt">
+                <b>Upload a recording</b>
+                <span class="ovup-sub">Drop a file here or browse · Video MP4, MOV, WEBM · Audio MP3, WAV, M4A, AAC</span>
+              </span>
+              <button class="btn bsm bp ovup-btn" type="button" onclick="event.stopPropagation();window._ovrPickFile()">Choose file</button>
+            </div>
+            <div class="ovup-sel" id="ovrPick" style="display:none"></div>
+          </div>
           <div id="ovrList" style="margin-top:8px"></div>
 
           <!-- Assessment gate: these three sections stay hidden until Start Recording is clicked in the

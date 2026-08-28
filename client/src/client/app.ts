@@ -5600,17 +5600,27 @@ export function initApp(root: HTMLElement) {
       // call, so there is nothing to demand. Skipping the whole loop (rather than field by field)
       // keeps that intent obvious and can't be partially undone by a later exemption.
       const _noContactNow=_advNoContact();
+      // NOTHING THE LAYOUT HID CAN BE MANDATORY. This replaces three per-layout exemption lists
+      // that had to be kept in step with the layout by hand — and were not: the physio layout hides
+      // the whole "Sugar & medical profile" section (show("#advSugarSec",!physio&&!bt)), but only
+      // the blood-test list named #advfSugar, so saving a physiotherapy lead was blocked on a Sugar
+      // level the page never renders and the user cannot fill (reported 28-Aug-2026).
+      //
+      // The test is an INLINE display:none on the field or any ancestor, which is exactly what
+      // layout switching writes (see `show()` and the .adv-nonphysio loop in the layout function).
+      // The section accordion is deliberately NOT caught by this: togSec toggles a `closed` CLASS
+      // and never touches inline styles, so a section the user merely collapsed still validates.
+      const _layoutHid=(node:HTMLElement|null):boolean=>{
+        let p:HTMLElement|null=node;
+        while(p&&p!==root&&p!==document.body){
+          if(p.style&&p.style.display==="none") return true;
+          p=p.parentElement;
+        }
+        return false;
+      };
       for(const [sel,lbl] of _reqAdv){
         const el=root.querySelector(sel)as HTMLInputElement|HTMLSelectElement|null;
-        // A PHYSIOTHERAPY lead hides every ".adv-nonphysio" field (Occupation, Language, Email,
-        // Lead-gen, Batch), so those can't be mandatory for it — the save was being blocked on
-        // "Occupation", a field the physio layout never renders and the user cannot fill. Scoped to
-        // the physio layout, so every other service keeps its rules exactly as they were.
-        if(_advLayoutPhysio&&el&&typeof el.closest==="function"&&el.closest(".adv-nonphysio")) continue;
-        // Same rule for a BLOOD-TEST-only lead: that layout hides Occupation and the whole Sugar &
-        // medical profile section, so neither can be mandatory — the save would otherwise be blocked
-        // on fields the user cannot even see. Scoped to this layout; every other service is unchanged.
-        if(_advLayoutBt&&(sel==="#advfOcc"||sel==="#advfSugar")) continue;
+        if(_layoutHid(el as unknown as HTMLElement|null)) continue;
         if(_noContactNow) continue;   // no-contact status → nothing on this profile is mandatory
         const v=((el&&el.value)||"").trim();
         let bad=!v||/^--\s*select\s*--$/i.test(v);
@@ -14814,6 +14824,123 @@ export function initApp(root: HTMLElement) {
     // expired — confirmed live: sugashini's 51m recording carried sugashini's token and 401'd for
     // the Owner, while the Owner's own 2s row played fine. Re-signing per viewer fixes every
     // existing row too, because file_path was always stored alongside the stale URL.
+    // ===== Upload an existing recording (28-Aug-2026) =====================================
+    // Accepts the formats a clinic actually produces: phone video (MP4/MOV), browser capture
+    // (WEBM), and dictated or exported audio (MP3/WAV/M4A/AAC). Everything lands in the same
+    // office_recordings row shape the in-app recorder writes, so one list and one player serve
+    // both, and nothing downstream (the Recordings screen, the coach status) needs to know which
+    // way a file arrived.
+    const _OVR_VIDEO = ["mp4", "mov", "webm"];
+    const _OVR_AUDIO = ["mp3", "wav", "m4a", "aac"];
+    // The server accepts a 150 MB REQUEST and base64 inflates a file by a third, so the largest
+    // file that can actually get through is ~112 MB. Refusing it here, with the real numbers,
+    // beats a minute of encoding followed by a rejection.
+    const _OVR_MAX_MB = 110;
+    const _ovrExt = (name: string) => String(name || "").split(".").pop()!.toLowerCase();
+    const _ovrKind = (name: string) => _OVR_VIDEO.indexOf(_ovrExt(name)) >= 0 ? "video"
+      : (_OVR_AUDIO.indexOf(_ovrExt(name)) >= 0 ? "audio" : "");
+    const _ovrMB = (b: number) => (b / 1048576).toFixed(b >= 10485760 ? 0 : 1) + " MB";
+    let _ovrPending: File | null = null;
+    w._ovrPickFile = () => { const i = root.querySelector("#ovrFileInput") as HTMLInputElement | null; if (i) { i.value = ""; i.click(); } };
+    // Duration comes from the file itself rather than being left at 0 — the list, the Recordings
+    // table and the CSV export all report it, and "0s" beside a 40-minute consultation is worse
+    // than no number at all. A file the browser cannot decode simply reports 0.
+    function _ovrProbeDuration(f: File, kind: string): Promise<number> {
+      return new Promise((resolve) => {
+        let done = false;
+        const fin = (v: number) => { if (!done) { done = true; try { URL.revokeObjectURL(m.src); } catch (_) {} resolve(v); } };
+        const m = document.createElement(kind === "video" ? "video" : "audio") as HTMLMediaElement;
+        m.preload = "metadata";
+        m.onloadedmetadata = () => fin(isFinite(m.duration) ? Math.round(m.duration) : 0);
+        m.onerror = () => fin(0);
+        setTimeout(() => fin(0), 8000);   // never hang the upload on a codec the browser dislikes
+        try { m.src = URL.createObjectURL(f); } catch (_) { fin(0); }
+      });
+    }
+    function _ovrPickPaint() {
+      const box = root.querySelector("#ovrPick") as HTMLElement | null; if (!box) return;
+      const f = _ovrPending;
+      if (!f) { box.style.display = "none"; box.innerHTML = ""; return; }
+      const e = (x: any) => (x == null ? "" : String(x)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      const kind = _ovrKind(f.name);
+      box.style.display = "";
+      box.innerHTML = '<span class="ovup-ic" style="width:28px;height:28px;font-size:13px">' + (kind === "video" ? "\uD83C\uDFAC" : "\uD83C\uDFB5") + '</span>'
+        + '<span class="ovup-name" title="' + e(f.name) + '">' + e(f.name) + '</span>'
+        + '<span class="ovrec-fmt">' + e(_ovrExt(f.name)) + '</span>'
+        + '<span class="ovup-meta">' + e(_ovrMB(f.size)) + '</span>'
+        + '<span class="ovrec-act"><button class="btn bsm bp" type="button" id="ovrUpBtn" onclick="window._ovrUploadFile()">Upload</button>'
+        + '<button class="btn bsm" type="button" onclick="window._ovrClearPick()">Cancel</button></span>'
+        + '<span class="ovup-bar" id="ovrUpBar"><span></span></span>';
+    }
+    w._ovrClearPick = () => { _ovrPending = null; _ovrPickPaint(); };
+    function _ovrAccept(f: File | null | undefined) {
+      if (!f) return;
+      const kind = _ovrKind(f.name);
+      if (!kind) { toastErr("Unsupported file type \u201C." + _ovrExt(f.name) + "\u201D. Use video (MP4, MOV, WEBM) or audio (MP3, WAV, M4A, AAC)."); return; }
+      if (!f.size) { toastErr("That file is empty."); return; }
+      if (f.size > _OVR_MAX_MB * 1048576) { toastErr("That file is " + _ovrMB(f.size) + " — larger than the " + _OVR_MAX_MB + " MB the server accepts. Upload a compressed or trimmed copy."); return; }
+      _ovrPending = f; _ovrPickPaint();
+    }
+    w._ovrFileChosen = (input: any) => { _ovrAccept(input && input.files && input.files[0]); };
+    w._ovrUploadFile = async () => {
+      const f = _ovrPending; if (!f) return;
+      const id = String(_coachLeadId || "");
+      if (!id) { toastErr("Open a client first"); return; }
+      const kind = _ovrKind(f.name);
+      const btn = root.querySelector("#ovrUpBtn") as HTMLButtonElement | null;
+      const bar = root.querySelector("#ovrUpBar") as HTMLElement | null;
+      if (btn) { btn.disabled = true; btn.textContent = "Uploading\u2026"; }
+      if (bar) bar.classList.add("on");
+      try {
+        const secs = await _ovrProbeDuration(f, kind);
+        const safe = id.replace(/[^a-zA-Z0-9._-]/g, "_");
+        // Keep the original name in the stored path (sanitised) so the file is recognisable on
+        // disk, and timestamp it so two uploads of "recording.mp4" cannot collide.
+        const base = String(f.name).replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60);
+        const path = safe + "/" + Date.now() + "_upload_" + base;
+        const up = await supabase.storage.from("office-recordings").upload(path, f as any, { upsert: false });
+        if (up.error) throw up.error;
+        const { data } = supabase.storage.from("office-recordings").getPublicUrl(path);
+        const url = String((data && data.publicUrl) || "").split("?")[0];
+        const ins: any = await supabase.from("office_recordings").insert({
+          lead_id: id, file_url: url, file_path: path, file_name: f.name,
+          duration_seconds: secs, recorded_by: _recBy(), created_at: new Date().toISOString(),
+        });
+        // The gateway REPORTS failures instead of throwing, so a bad insert would otherwise look
+        // like success while the file sat on disk with no row pointing at it.
+        if (ins && ins.error) throw new Error(String(ins.error.message || ins.error));
+        logActivity(id, [{ action: "File Uploaded", field: "Consultation recording", new: f.name + " \u00B7 " + _ovrMB(f.size) }]);
+        _ovrPending = null; _ovrPickPaint();
+        toast("\u2713 " + (kind === "video" ? "Video" : "Audio") + " uploaded to this profile");
+        if (String(_coachLeadId) === id) { _recStatusApply("done"); _ovrRenderList(id); }
+      } catch (err: any) {
+        if (btn) { btn.disabled = false; btn.textContent = "Upload"; }
+        if (bar) bar.classList.remove("on");
+        toastErr("Upload failed: " + ((err && err.message) || "unknown error"));
+      }
+    };
+    // Stop = pause AND rewind. Native controls give play/pause, seek and volume but never a stop,
+    // so a coach who "stopped" a recording would find it resuming mid-sentence next time.
+    w._ovrStopPlay = (btn: any) => {
+      try {
+        const wrap = btn && btn.closest ? btn.closest(".ovrec") : null; if (!wrap) return;
+        const m = wrap.querySelector("audio,video") as HTMLMediaElement | null; if (!m) return;
+        m.pause(); m.currentTime = 0;
+      } catch (_) {}
+    };
+    // Drag-and-drop onto the zone, wired once (the coach panel re-renders on every client open).
+    function _ovrWireDrop() {
+      const z = root.querySelector("#ovrDrop") as HTMLElement | null; if (!z || (z as any).__wired) return;
+      (z as any).__wired = true;
+      const stop = (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); };
+      ["dragenter", "dragover"].forEach(t => z.addEventListener(t, (ev: any) => { stop(ev); z.classList.add("drag"); }));
+      ["dragleave", "dragend"].forEach(t => z.addEventListener(t, (ev: any) => { stop(ev); z.classList.remove("drag"); }));
+      z.addEventListener("drop", (ev: any) => {
+        stop(ev); z.classList.remove("drag");
+        const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+        _ovrAccept(f);
+      });
+    }
     function _ovrUrl(r:any):string{
       try{
         if(r&&r.file_path){ const {data}=supabase.storage.from("office-recordings").getPublicUrl(String(r.file_path)); if(data&&data.publicUrl) return data.publicUrl; }
@@ -14833,15 +14960,37 @@ export function initApp(root: HTMLElement) {
       if(rows.length && _recStatusCurrent()!=="notdone") _recStatusApply("done");
       const e=(s:any)=>(s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       const dur=(s:number)=>{ s=s||0; const m=Math.floor(s/60); return (m?m+"m ":"")+(s%60)+"s"; };
-      el.innerHTML=recovery+(rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>
-        '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">'
-        +'<span style="font-size:12px;font-weight:600">🎙 '+e(fmtIST(r.created_at))+'</span>'
-        +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
-        +(r.recorded_by?'<span style="font-size:10.5px;color:var(--muted)">'+e(r.recorded_by)+'</span>':'')
-        +'<audio controls preload="none" src="'+e(_safeHref(_ovrUrl(r)))+'" style="height:32px;flex:1;min-width:180px"></audio>'
-        +'<a class="btn bsm" href="'+e(_safeHref(_ovrUrl(r)))+'" download style="text-decoration:none">⬇ Download</a>'
-        +'</div>'
-      ).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>');
+      // One row per recording, whichever way it arrived. A VIDEO gets a real preview element and an
+      // AUDIO file gets the compact player — deciding on the stored extension rather than on how
+      // the row was created, so an uploaded .mp4 and a recorded .webm are both shown correctly.
+      // preload="none" throughout: a client with fifteen recordings must not fetch them all on open.
+      el.innerHTML=recovery+(rows.length?('<div style="font-size:11px;color:var(--faint);font-weight:600;margin-bottom:4px">OFFICE-VISIT RECORDINGS ('+rows.length+')</div>'+rows.map((r:any)=>{
+        const href=_safeHref(_ovrUrl(r));
+        const nm=String(r.file_name||"");
+        // Fall back to the stored PATH for the extension: rows written by the in-app recorder name
+        // themselves "Office visit …" with no extension at all.
+        const ext=_ovrExt(nm)||_ovrExt(String(r.file_path||""));
+        const isVid=_OVR_VIDEO.indexOf(ext)>=0;
+        const player=isVid
+          ? '<span class="ovrec-vwrap"><video controls preload="none" playsinline src="'+e(href)+'"></video></span>'
+          : '<audio controls preload="none" src="'+e(href)+'"></audio>';
+        return '<div class="ovrec">'
+          +'<div class="ovrec-hd">'
+            +'<span aria-hidden="true">'+(isVid?"\uD83C\uDFAC":"\uD83C\uDFA4")+'</span>'
+            +'<span class="ovrec-nm" title="'+e(nm||fmtIST(r.created_at))+'">'+e(nm||fmtIST(r.created_at))+'</span>'
+            +(ext?'<span class="ovrec-fmt">'+e(ext)+'</span>':'')
+            +'<span class="chipb neu" style="font-size:10px">'+e(dur(r.duration_seconds))+'</span>'
+            +'<span class="ovrec-sp"></span>'
+            +'<span class="ovrec-by">'+e(fmtIST(r.created_at))+(r.recorded_by?' \u00B7 '+e(r.recorded_by):'')+'</span>'
+          +'</div>'
+          +'<div class="ovrec-bd">'+player
+            +'<span class="ovrec-act">'
+              +'<button class="btn bsm" type="button" title="Stop and rewind to the start" onclick="window._ovrStopPlay(this)">\u25A0 Stop</button>'
+              +'<a class="btn bsm" href="'+e(href)+'" download style="text-decoration:none">\u2B07 Download</a>'
+            +'</span>'
+          +'</div></div>';
+      }).join("")):'<div style="font-size:12px;color:var(--faint)">No office-visit recordings yet.</div>');
+      _ovrWireDrop();
     }
     // ===== Recordings screen: cross-client Office-visit audio + Zoom meeting tables =====
     // Both reuse the shared Excel-style filter grid engine (regGrid/gridHead/gridApply),
