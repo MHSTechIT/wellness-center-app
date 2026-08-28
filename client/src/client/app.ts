@@ -10205,7 +10205,12 @@ export function initApp(root: HTMLElement) {
         // is reflected in Reception (Coach → Reception sync via the SAME leads record).
         const _leadIds=Array.from(new Set((ar.data||[]).map((a:any)=>a.lead_id).filter(Boolean)));
         const _csById:Record<string,string>={}; const _enrAtById:Record<string,string>={}; const _consById:Record<string,string>={}; const _emailById:Record<string,string>={};
-        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at,coach_profile,email").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; _consById[String(r.meta_lead_id)]=(r.coach_profile&&r.coach_profile.consStatus)||""; _emailById[String(r.meta_lead_id)]=r.email||""; }); }catch(_){} }
+        // The LEAD's own identity, for the appointment-reminder popup. appointments.client_name is
+        // what Reception typed at booking and can differ from the lead record; showing both, plus
+        // who owns the lead, is what makes a reminder actionable without opening the profile.
+        const _leadInfoById:Record<string,any>={};
+        if(_leadIds.length){ try{ const {data:_lr}=await supabase.from("leads").select("meta_lead_id,call_status,enrolled_at,coach_profile,email,name,phone,assigned_to,source,language").in("meta_lead_id",_leadIds); (_lr||[]).forEach((r:any)=>{ _csById[String(r.meta_lead_id)]=r.call_status||""; _enrAtById[String(r.meta_lead_id)]=r.enrolled_at||""; _consById[String(r.meta_lead_id)]=(r.coach_profile&&r.coach_profile.consStatus)||""; _emailById[String(r.meta_lead_id)]=r.email||"";
+          _leadInfoById[String(r.meta_lead_id)]={name:r.name||"",phone:r.phone||"",advisor:r.assigned_to||"",source:r.source||"",lang:r.language||""}; }); }catch(_){} }
         _recAll=(ar.data||[]).map((a:any)=>{
           const _cs=_csById[String(a.lead_id)]||"";
           const _def=a.status==="cancelled"?"refunded":((a.status==="visited"||a.stage==="screening"||a.stage==="screened")?"due":"free");
@@ -10301,6 +10306,7 @@ export function initApp(root: HTMLElement) {
           return {
           id:a.id, lead_id:a.lead_id, name:a.client_name||"Client", ph:a.phone||"", svc:_recSvcCode(a.service), svcLabel:_recSvcLabelMulti(a.service,a.session), serviceRaw:a.service||"", createdAt:a.created_at||"",
           _date:_recRowDate, date:_recFmtDate(_recRowDate), time:_rowTime, _sortTs, hc:((/blood/i.test(a.service||"")&&!/(diabet|phys|weight|sauna|cold|hbot|counsel)/i.test(a.service||""))?"—":(a.hc_pt||"—")), status:a.status||"expected", visitedAt:_visitIso(a)||"", clientId:a.client_id||"", email:_emailById[String(a.lead_id)]||"",
+          lead:_leadInfoById[String(a.lead_id)]||null,   // lead identity for the reminder popup
           payStatus, payAmt, hasPaid, toCollect, stage:a.stage||"", enrollLine, stageChip, stageChips, session:a.session||"", notes:a.notes||"", calls:callsByLead[String(a.lead_id||"")]||0, source:a.source||"", lang:a.language||"Tamil",
           enrolled:_isEnrolled, enrolledAt:_enrAtById[String(a.lead_id)]||"", inst:_recInst[String(a.lead_id)]||null, collectLabel:(dueByLead[String(a.lead_id)]||{}).label||"", collectAmt:(dueByLead[String(a.lead_id)]||{}).amount||0,
           collectPayId:(dueByLead[String(a.lead_id)]||{}).id||null, collectProgram:(dueByLead[String(a.lead_id)]||{}).program||"",
@@ -11253,7 +11259,21 @@ export function initApp(root: HTMLElement) {
             +'<div style="display:flex;align-items:center;gap:6px">'
             +'<span class="rem-nm">'+e(r.name||"Client")+'</span>'
             +'<span class="rem-tier '+x.tier+'" style="margin-left:auto">'+tl+'</span></div>'
-            +'<div class="rem-sub">'+e(r.time||"—")+' · '+e(r.svcLabel||"—")+' · '+when+'</div>'
+            // The reminder used to say only time / service / how-late. Acting on it — ringing the
+            // right person, knowing what they booked and whether money is owed — meant opening the
+            // appointment first. Everything below already sits on the row; none of it is a new read.
+            +'<div class="rem-sub">'+e(r.date||"")+(r.date?' · ':'')+e(r.time||"—")+' · '+e(r.svcLabel||"—")+' · '+when+'</div>'
+            // The lead's OWN name, only when it differs from what was typed at booking — the same
+            // person under two spellings is exactly when a receptionist picks up the wrong record.
+            +((r.lead&&r.lead.name&&String(r.lead.name).trim().toLowerCase()!==String(r.name||'').trim().toLowerCase())
+               ?'<div class="rem-sub">Lead: '+e(r.lead.name)+'</div>':'')
+            +((r.ph||(r.lead&&r.lead.phone))?'<div class="rem-sub mono">'+e(r.ph||r.lead.phone)+'</div>':'')
+            +((r.hc&&r.hc!=='—')?'<div class="rem-sub">With '+e(r.hc)+((r.lead&&r.lead.advisor)?' · Advisor '+e(r.lead.advisor):'')+'</div>'
+               :((r.lead&&r.lead.advisor)?'<div class="rem-sub">Advisor '+e(r.lead.advisor)+'</div>':''))
+            // Money owed is the one thing that changes what Reception says on the call.
+            +((r.toCollect>0)?'<div class="rem-sub" style="color:var(--warn-ink,#B26A00);font-weight:700">Collect ₹'+Number(r.toCollect).toLocaleString('en-IN')+(r.collectLabel?(' · '+e(r.collectLabel)):'')+'</div>':'')
+            +((r.stage||r.enrolled)?'<div class="rem-sub">'+e(r.enrolled?'Enrolled':String(r.stage||''))+'</div>':'')
+            +(r.notes?'<div class="rem-sub" style="font-style:italic">'+e(String(r.notes).slice(0,90))+'</div>':'')
             +'<div class="rem-acts">'
             +'<button type="button" class="go" onclick="window._remCallNow(&quot;'+e(String(r.id))+'&quot;)">Call now</button>'
             +'<button type="button" onclick="window._remDone(&quot;'+e(String(r.id))+'&quot;)">Done</button>'
