@@ -11,7 +11,14 @@ export function initApp(root: HTMLElement) {
     // Backend API base URL. Empty = same-origin (dev / reverse-proxy). Set
     // NEXT_PUBLIC_API_BASE_URL to the deployed server origin (e.g.
     // https://api.example.com) when the client and server run separately.
-    const API_BASE=(process.env.NEXT_PUBLIC_API_BASE_URL||"").replace(/\/+$/,"");
+    const _rawApiBase=(process.env.NEXT_PUBLIC_API_BASE_URL||"").replace(/\/+$/,"");
+    // "auto" = resolve the API from whatever host served this page (same rule as shared/supabase.ts,
+    // which had the fix first — this helper missing it left login working but every dashboard stuck
+    // on "Loading…", because these calls went to the literal URL "auto/api/..."). "" stays
+    // same-origin for the production single-server build.
+    const API_BASE=_rawApiBase==="auto"
+      ?(typeof window!=="undefined"?window.location.protocol+"//"+window.location.hostname+":4100":"")
+      :_rawApiBase;
     const _api=(p:string)=>API_BASE+p;
     // Commit SHA baked into this bundle at build time (see next.config.ts). Compared against the
     // server's /version to detect when a newer build has been deployed while this tab is still open.
@@ -2922,9 +2929,16 @@ export function initApp(root: HTMLElement) {
       {key:"_act",label:"Actions",filter:false},
     ];
     regGrid("usr", ()=>_usrCols, ()=>renderUsers());
+    // Column order requested 27-Aug-2026: the two timestamps lead, then identity, then workflow.
+    // The dates are filter:false — every row's timestamp is unique, so a distinct-values dropdown
+    // would just list the whole table. Source and Lang are separate columns (were one "Source ·
+    // Lang" cell) so each gets its own filter.
     const _haResCols:any[]=[
+      {key:"created",label:"Lead Generated Date & Time",filter:false,text:(l:any)=>l.createdAt?fmtIST(l.createdAt):"—"},
+      {key:"assignedat",label:"Assigned Date & Time",filter:false,text:(l:any)=>l.assignedAt?fmtIST(l.assignedAt):"—"},
       {key:"lead",label:"Lead",filter:true,text:(l:any)=>l.name||""},
-      {key:"src",label:"Source · Lang",filter:true,text:(l:any)=>l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil"))},
+      {key:"source",label:"Source",filter:true,text:(l:any)=>l.source||"Meta"},
+      {key:"lang",label:"Lang",filter:true,text:(l:any)=>l.source==="Manual"?"—":(l.lang||"Tamil")},
       {key:"assigned",label:"Assigned to",filter:true,text:(l:any)=>l.assignedTo||"—"},
       {key:"status",label:"Call status",filter:true,text:(l:any)=>haEffStatus(l)},
     ];
@@ -3089,6 +3103,13 @@ export function initApp(root: HTMLElement) {
     // one per star), which the dashboard otherwise only reads when a lead is opened — so the card
     // needs its own small pass. Loaded once with the rest of the advisor data.
     const _advPrioStars:Record<string,number>=Object.create(null);
+    // 4-level scale (27-Aug-2026): star count → category. Old saves hold 3-length star arrays, so
+    // their counts still read correctly (3 = Mid under the new scale).
+    const PRIO_MAX=4;
+    const PRIO_LABELS:Record<number,string>={4:"High",3:"Mid",2:"Low",1:"Poor"};
+    // One colour per level (dashboard category buttons): warm gold for High cooling to grey for
+    // Poor, all drawn from colours the dashboard already uses.
+    const PRIO_COLORS:Record<number,string>={4:"var(--gold)",3:"#C07F0E",2:"#2A5378",1:"#9AA69F"};
     const _advPrioOf=(l:any)=>{
       const live=l&&l.advisorProfile&&l.advisorProfile.stars;   // an open lead's unsaved edits win
       if(Array.isArray(live)) return live.filter(Boolean).length;
@@ -4766,7 +4787,9 @@ export function initApp(root: HTMLElement) {
     let _advLocPrev="";
     function _advLocMerge(names:any[]){
       const sel=root.querySelector("#advfLoc")as HTMLSelectElement|null; if(!sel) return;
-      const addOpt=Array.from(sel.options).find(o=>o.value===_ADV_LOC_ADD)||null;
+      // "+ Add new location" was removed from the dropdown (27-Aug-2026) — merged options now
+      // anchor before the manual-entry sentinel so they always sit above it.
+      const addOpt=Array.from(sel.options).find(o=>o.value===_ADV_LOC_ADD||o.value===_ADV_LOC_MANUAL)||null;
       const have=new Set(Array.from(sel.options).map(o=>o.value.trim().toLowerCase()));
       (names||[]).forEach((n:any)=>{
         const v=String(n||"").trim(); if(!v||have.has(v.toLowerCase())) return;
@@ -6850,7 +6873,7 @@ export function initApp(root: HTMLElement) {
       _advCallRows.forEach((r:any)=>{
         const k=String(r.contact_id||""); if(!k) return;
         if(!_haInWin(r.created_at,w)) return;
-        const o=(m[k]=m[k]||{total:0,connected:0,dur:0,inbound:0,missed:0,first:0,last:0});
+        const o=(m[k]=m[k]||{total:0,connected:0,dur:0,inbound:0,missed:0,first:0,last:0,app:0,appConn:0,appDur:0,ext:0,extConn:0});
         const secs=Number(r.duration_seconds)||0;
         const conn=String(r.call_status||"").toLowerCase()==="answered"||secs>0;
         const inbound=/in/i.test(String(r.direction||""))&&!/out/i.test(String(r.direction||""));
@@ -6858,6 +6881,13 @@ export function initApp(root: HTMLElement) {
         o.total++;
         if(conn){ o.connected++; o.dur+=secs; }
         if(inbound){ o.inbound++; if(!conn) o.missed++; }
+        // APP vs EXTERNAL (rule locked 27-Aug-2026): a call dialled from this app always carries
+        // WHO clicked Call (initiated_by, stamped server-side at dial time). A row without it came
+        // in via the telephony webhook from an outside line/portal - counted SEPARATELY, never
+        // inside the app call count. Inbound calls stay their own bucket.
+        const isApp=!!(r.initiated_by_email);
+        if(isApp){ o.app++; if(conn){ o.appConn++; o.appDur+=secs; } }
+        else if(!inbound){ o.ext++; if(conn) o.extConn++; }
         if(t){ if(!o.first||t<o.first) o.first=t; if(t>o.last) o.last=t; }
       });
       return m;
@@ -6866,7 +6896,7 @@ export function initApp(root: HTMLElement) {
       const m:Record<string,any>={};
       _advCallRows.forEach((r:any)=>{
         const k=String(r.contact_id||""); if(!k) return;
-        const o=(m[k]=m[k]||{total:0,connected:0,dur:0,inbound:0,missed:0,first:0,last:0});
+        const o=(m[k]=m[k]||{total:0,connected:0,dur:0,inbound:0,missed:0,first:0,last:0,app:0,appConn:0,appDur:0,ext:0,extConn:0});
         const secs=Number(r.duration_seconds)||0;
         const conn=String(r.call_status||"").toLowerCase()==="answered"||secs>0;
         const inbound=/in/i.test(String(r.direction||""))&&!/out/i.test(String(r.direction||""));
@@ -6874,6 +6904,13 @@ export function initApp(root: HTMLElement) {
         o.total++;
         if(conn){ o.connected++; o.dur+=secs; }
         if(inbound){ o.inbound++; if(!conn) o.missed++; }
+        // APP vs EXTERNAL (rule locked 27-Aug-2026): a call dialled from this app always carries
+        // WHO clicked Call (initiated_by, stamped server-side at dial time). A row without it came
+        // in via the telephony webhook from an outside line/portal - counted SEPARATELY, never
+        // inside the app call count. Inbound calls stay their own bucket.
+        const isApp=!!(r.initiated_by_email);
+        if(isApp){ o.app++; if(conn){ o.appConn++; o.appDur+=secs; } }
+        else if(!inbound){ o.ext++; if(conn) o.extConn++; }
         if(t){ if(!o.first||t<o.first) o.first=t; if(t>o.last) o.last=t; }
       });
       return m;
@@ -6957,7 +6994,77 @@ export function initApp(root: HTMLElement) {
     // day it happened, whatever the lead's age. The top date range therefore means two things at
     // once: "leads that arrived in this window" for Total Leads, and "actions performed in this
     // window" for the activity cards — which is exactly how a daily report is read.
+    // ===== Performance modes: Daily Wise / Batch Wise (requested 27-Aug-2026) ================
+    // COHORT scoping: the date range selects WHICH LEADS (by the day they were received), and every
+    // dashboard panel is then computed from that exact population's FULL JOURNEY — current statuses,
+    // appointments ever booked, visits, enrolments, and the calls linked to those leads. "If the
+    // filtered population is 20 leads, every metric is calculated from those 20." Implemented by
+    // filtering the datasets to the cohort and widening the event window to lifetime for ONE
+    // synchronous re-render, then restoring — no panel needed its own changes, so all nine sections
+    // (overview, performance, follow-ups, targets, dispositions, visited, enrolment, funnel, call
+    // performance) follow the same population with no duplicate counting. Daily = today's intake;
+    // Batch = the custom range (prefilled to the last 10 days when empty). Mode off = the standard
+    // event-dated view, unchanged.
+    let _perfMode:""|"daily"|"batch"="";
+    let _perfInRender=false;
+    let _perfSaved:any=null;
+    function _perfUniverse(){
+      const seen=new Set<string>();
+      return [...haBook(),..._metaLeads.filter((l:any)=>!(l.isAssigned&&l.assignedTo)),..._poolExtras,..._otherFeedLeads]
+        .filter((l:any)=>{ const id=String(l.id); if(seen.has(id)) return false; seen.add(id); return true; });
+    }
+    function _perfCohortIds():Set<string>{
+      const w=_haWinT(); const ids=new Set<string>();
+      _perfUniverse().forEach((l:any)=>{
+        const t=new Date(l.createdAt||0).getTime();
+        if(isNaN(t)||!t) return;
+        if(w.fromT&&t<w.fromT) return;
+        if(w.toT&&t>w.toT) return;
+        ids.add(String(l.id));
+      });
+      return ids;
+    }
+    function _perfSwapIn(ids:Set<string>){
+      _perfSaved={ml:_metaLeads,ax:_assignedExtras,px:_poolExtras,ox:_otherFeedLeads,ap:_haApptRows,cr:_advCallRows,sa:_haStatusActs};
+      const f=(a:any[])=>a.filter((l:any)=>ids.has(String(l.id)));
+      _metaLeads=f(_metaLeads); _assignedExtras=f(_assignedExtras); _poolExtras=f(_poolExtras); _otherFeedLeads=f(_otherFeedLeads);
+      _haApptRows=_haApptRows.filter((a:any)=>ids.has(String(a.lead_id)));
+      _advCallRows=_advCallRows.filter((c:any)=>ids.has(String(c.contact_id)));
+      const sa:Record<string,number>={}; Object.keys(_haStatusActs).forEach(k=>{ if(ids.has(k)) sa[k]=_haStatusActs[k]; });
+      _haStatusActs=sa;
+    }
+    function _perfSwapOut(){
+      if(!_perfSaved) return;
+      _metaLeads=_perfSaved.ml; _assignedExtras=_perfSaved.ax; _poolExtras=_perfSaved.px; _otherFeedLeads=_perfSaved.ox;
+      _haApptRows=_perfSaved.ap; _advCallRows=_perfSaved.cr; _haStatusActs=_perfSaved.sa;
+      _perfSaved=null;
+    }
+    const _perfIstToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata"}).format(new Date());
+    function _perfPaint(n?:number){
+      const db=root.querySelector("#perfDailyBtn"), bb=root.querySelector("#perfBatchBtn"), cap=root.querySelector("#perfModeCap");
+      if(db) (db as HTMLElement).className="btn perfbtn"+(_perfMode==="daily"?" bp":"");
+      if(bb) (bb as HTMLElement).className="btn perfbtn"+(_perfMode==="batch"?" bp":"");
+      if(cap) cap.textContent=_perfMode
+        ?((_perfMode==="daily"?"Daily wise":"Batch wise")+" · every card below is computed only from the "
+          +(n==null?"":n+" ")+"lead(s) received in the selected dates — their full journey (statuses, appointments, visits, enrolments, calls). Click again for the standard view.")
+        :"";
+    }
+    w._perfSetMode=(m:any)=>{
+      _perfMode=_perfMode===m?"":(m==="daily"?"daily":"batch");
+      const set=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
+      const today=_perfIstToday();
+      if(_perfMode==="daily"){ set("asnFrom",today); set("asnTo",today); }
+      if(_perfMode==="batch"){
+        const f=(root.querySelector("#asnFrom")as HTMLInputElement|null)?.value||"";
+        if(!f){ set("asnFrom",new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata"}).format(new Date(Date.now()-9*864e5))); set("asnTo",today); }
+      }
+      try{ (w as any)._topFilterApply(); }catch(_){ try{ renderHealthDashboard(); }catch(__){} }
+      try{ _perfPaint(); }catch(_){}
+    };
     function _haWinT(){
+      // Performance modes widen the event window to LIFETIME: the cohort decides membership, and a
+      // cohort lead's booking/visit/enrolment counts whenever it happened.
+      if(_perfInRender) return {fromT:0,toT:0};
       const from=_asnApplied.from,to=_asnApplied.to;
       return {fromT:from?new Date(from+"T00:00:00").getTime():0,toT:to?new Date(to+"T23:59:59").getTime():0};
     }
@@ -7010,9 +7117,31 @@ export function initApp(root: HTMLElement) {
     // Resolve one of the enhancement sections' drill-down keys to a lead set + a title. Returns null
     // for anything it doesn't own, so renderHaResults falls through to the original card logic
     // untouched — the new sections extend the drill-down, they don't replace it.
+    // ONE universe for the Pipeline-Overview assignment split, shared by the two cards and their
+    // drill-downs so a card face and its table can never disagree: the assigned book plus every
+    // unassigned lead (intake + pool + other sources), deduped, through the same top filters and
+    // date window as the Total card (haCommonFilter applies both).
+    const _haOvUniverse=()=>{
+      const seen=new Set<string>();
+      const uni=[...haBook(),..._metaLeads.filter((l:any)=>!(l.isAssigned&&l.assignedTo)),..._poolExtras,..._otherFeedLeads];
+      return haCommonFilter(uni).filter((l:any)=>{ const id=String(l.id); if(seen.has(id)) return false; seen.add(id); return true; });
+    };
+    const _haOvAssigned=(l:any)=>!!l.assignedTo;
     function _haCustomList(key:string,book:any[],fullBook:any[]):{list:any[];label:string}|null{
       if(!key||key.indexOf(":")<0) return null;
       const [ns,arg]=[key.slice(0,key.indexOf(":")),key.slice(key.indexOf(":")+1)];
+      if(ns==="ov"){
+        const uni=_haOvUniverse();
+        if(arg==="assigned") return {label:"Assigned Leads",list:uni.filter(_haOvAssigned)};
+        if(arg==="unassigned") return {label:"Unassigned",list:uni.filter((l:any)=>!_haOvAssigned(l))};
+        return null;
+      }
+      if(ns==="pr"){
+        // One priority category (pr:4 = High … pr:1 = Poor) — exactly the leads at that star count.
+        const n=Number(arg)||0;
+        if(n>=1&&n<=PRIO_MAX) return {label:"Priority · "+(PRIO_LABELS[n]||n+"★"),list:book.filter((l:any)=>_advPrioOf(l)===n)};
+        return null;
+      }
       if(ns==="ev"){
         // The activity-dated pipeline cards. Deliberately computed from _haEventSets, NOT the passed
         // book — these cards read the date range as "actions in this window", so an old lead worked
@@ -7060,6 +7189,16 @@ export function initApp(root: HTMLElement) {
       return null;
     }
     function renderHealthDashboard(){
+      // Performance mode: one synchronous re-entry with the datasets narrowed to the cohort and the
+      // event window widened to lifetime (see the block above _haWinT), then everything restored.
+      if(_perfMode&&!_perfInRender){
+        const ids=_perfCohortIds();
+        _perfInRender=true;
+        try{ _perfSwapIn(ids); renderHealthDashboard(); }
+        finally{ _perfSwapOut(); _perfInRender=false; }
+        try{ _perfPaint(ids.size); }catch(_){}
+        return;
+      }
       const fsel=root.querySelector("#haStatusFilter")as HTMLSelectElement;
       if(fsel && fsel.options.length<=1) _haFillStatusFilter(fsel);
       const filter=fsel?.value||"all";
@@ -7161,7 +7300,16 @@ export function initApp(root: HTMLElement) {
         // Priority — leads the advisor starred, sitting just before the call KPIs. Like Confirmed and
         // Visited-ever it OVERLAPS the status buckets (a starred lead is also Open, Follow-up, …), so
         // it is an overlay and stays out of the sum-to-Total partition.
-        if(!_btView) cards.push('<div class="metric" style="cursor:pointer" title="Leads you marked with a priority star (★ to ★★★) — click to see them. Overlaps the status cards, so it is not part of the sum to Total." onclick="window._haCardClick(\'priority\')"><div class="ml">Priority</div>'+mv(book.filter((l:any)=>_advPrioOf(l)>0).length)+'</div>');
+        if(!_btView){
+          // The four categories are shown ON the card and each drills into just its level; the big
+          // number (and the card body) still opens every starred lead. stopPropagation keeps a chip
+          // click from also triggering the card's own onclick.
+          const _pcN=(n:number)=>book.filter((l:any)=>_advPrioOf(l)===n).length;
+          cards.push('<div class="metric" style="cursor:pointer" title="Leads you marked with a priority star — Poor ★ up to High ★★★★. Click a category for only that level, or the number for all. Overlaps the status cards, so it is not part of the sum to Total." onclick="window._haCardClick(\'priority\')"><div class="ml">Priority</div>'+mv(book.filter((l:any)=>_advPrioOf(l)>0).length)
+            +'<div class="priocats">'+[4,3,2,1].map((n:number)=>'<span class="pc" onclick="event.stopPropagation();window._haCardClick(\'pr:'+n+'\')" title="'+PRIO_LABELS[n]+' priority — click to see only these leads">'
+              +'<span class="pcs1" style="color:'+PRIO_COLORS[n]+'">★</span>'
+              +'<span class="pcl">'+PRIO_LABELS[n]+'<b>'+_pcN(n)+'</b></span></span>').join("")+'</div></div>');
+        }
         // Connected Calls / Total Call Duration used to sit here. §5.8 Call Performance now reports the
         // same two numbers (Connected, Talk Duration) alongside four more, so keeping these would print
         // the same figure twice on one screen — and two copies of a number are how they end up
@@ -7236,7 +7384,8 @@ export function initApp(root: HTMLElement) {
       // panel 1 stays because it hosts the Blood-Test card grid (#haKpis).
       const _btView=String(_asnApplied.svc||"all")==="Blood Test";
       const showEl=(sel:string,on:boolean)=>{ const el=root.querySelector(sel)as HTMLElement|null; if(el) el.style.display=on?"":"none"; };
-      showEl("#haPanelPerf",!_btView); showEl("#haRow2",!_btView); showEl("#haLowerSections",!_btView);
+      showEl("#haPanelPerf",!_btView); showEl("#haFuPanel",!_btView); showEl("#haRow2",!_btView); showEl("#haLowerSections",!_btView);   // #haFuPanel is listed explicitly: Follow-ups moved out of #haRow2 into the right-hand
+      // column on 28-Aug-2026, so hiding that row alone no longer hides it in blood-test view.
       const ovEl=root.querySelector("#haOverview")as HTMLElement|null;
       if(ovEl) ovEl.style.display=_btView?"none":"";
       if(_btView) return;
@@ -7321,14 +7470,23 @@ export function initApp(root: HTMLElement) {
       // window the headline card counts EVERY lead created in it, assigned or not — the Admin
       // Report's number. Without one it remains the assigned book.
       const _ovWin=_haWinT();
-      const _ovTotal=(!_ovWin.fromT&&!_ovWin.toT)?fullBook.length:(()=>{
-        const seen=new Set<string>();
-        const uni=[...haBook(),..._metaLeads.filter((l:any)=>!(l.isAssigned&&l.assignedTo)),..._poolExtras,..._otherFeedLeads];
-        return haCommonFilter(uni).filter((l:any)=>{ const id=String(l.id); if(seen.has(id)) return false; seen.add(id); return true; }).length;
-      })();
+      const _ovWinOn=!!(_ovWin.fromT||_ovWin.toT);
+      // The assignment split (requested 27-Aug-2026): the same universe the windowed Total counts,
+      // divided by whether an advisor holds the lead. With a window, Total = Assigned + Unassigned
+      // exactly; without one the Total card keeps its historical "assigned book" meaning while
+      // Unassigned still shows who is waiting in intake/pool right now.
+      const _ovUni=_haOvUniverse();
+      const _ovAsg=_ovUni.filter(_haOvAssigned);
+      const _ovUn=_ovUni.filter((l:any)=>!_haOvAssigned(l));
+      const _ovTotal=(!_ovWin.fromT&&!_ovWin.toT)?fullBook.length:_ovUni.length;
       set("#haOverview",
         // Growth is good for intake (+1) and bad for both backlog buckets (-1).
+        // ROW ORDER (UX pass 27-Aug-2026): row 1 is the universe split (Total = Assigned +
+        // Unassigned), row 2 is the workload (Open, Follow-up) — reads as a narrative instead of
+        // the split straddling two rows.
         ovCard("Total Leads",_ovTotal,(!_ovWin.fromT&&!_ovWin.toT)?"All assigned leads":"Created in the selected dates · incl. unassigned","i-user","var(--brand)",fullBook,"total",1)
+        +ovCard("Assigned Leads",_ovAsg.length,_ovWinOn?"Created in range · assigned to an advisor":"Assigned to an advisor","i-split","var(--ok)",_ovAsg,"ov:assigned",1)
+        +ovCard("Unassigned",_ovUn.length,_ovWinOn?"Created in range · not yet assigned":"Waiting in intake / pool · not yet assigned","i-inbox","#2A5378",_ovUn,"ov:unassigned",-1)
         +ovCard("Open",openList.length,"No progress yet","i-inbox","#C07F0E",openList,"open",-1)
         +ovCard("Follow-up",fuList.length,
           // Says WHICH follow-up number this is. Panel 3 counts follow-ups PLANNED in the range,
@@ -7632,32 +7790,50 @@ export function initApp(root: HTMLElement) {
         +'<span class="hakey"><i style="background:var(--alert)"></i>under 70% of goal</span>');
 
       // ---------- §5.8 Call performance ----------
-      let tot=0,conn=0,dur=0,inb=0,miss=0,touchSum=0,touchN=0;
+      // The old seven-card deck (touch time, app/external split, talk duration…) was removed on
+      // request 27-Aug-2026 — the Call Scorecard below is now the single call deck for this panel.
+      // The sums stay: the scorecard reads them, so the two could never have disagreed anyway.
+      let tot=0,conn=0,dur=0,inb=0,miss=0;
       // Calls made INSIDE the applied window, not every call these leads ever received.
       const perfFacts=_haCallFactsWin();
       book.forEach((l:any)=>{
         const f=perfFacts[String(l.id)]; if(!f) return;
         tot+=f.total; conn+=f.connected; dur+=f.dur; inb+=f.inbound; miss+=f.missed;
-        // §9.2 speed-to-contact: assigned → first call attempt. Needs both timestamps; a lead with
-        // no assignment date or no call simply doesn't contribute to the average.
-        const det=_advLeadsDet[String(l.id)]||{};
-        const asg=det.assigned_at?new Date(det.assigned_at).getTime():(l.assignedAt?new Date(l.assignedAt).getTime():0);
-        if(asg&&f.first&&f.first>=asg){ touchSum+=(f.first-asg); touchN++; }
       });
-      const touchTxt=touchN?_haDurWords(Math.round(touchSum/touchN/1000)):"—";
-      set("#haCallPerf",
-        tCard("Avg 1st Call Touch Time",ready&&_advCallLoaded?touchTxt:dash,
-          touchN?("Assigned → first call · "+touchN+" lead"+(touchN===1?"":"s")):"Assigned → first call",
-          "","calltouch","Average time from a lead being assigned to the first call attempt on it (speed to contact) — not the length of that call. Leads with no assignment date or no call yet are excluded.")
-        +tCard("Total Calls",ready&&_advCallLoaded?String(tot):dash,"All attempts on these leads","","calls","Every call row linked to these leads. Click to open the leads with calls.")
-        // §7 — Call Performance is informational and stays NEUTRAL: none of these has a target, and
-        // colouring them anyway is what makes the colour rule read as decoration. On this screen a
-        // coloured card always means "measured against a target"; these are counts.
-        +tCard("Connected",ready&&_advCallLoaded?String(conn):dash,tot?(_haPct(conn,tot)+"% of attempts"):"","","calls","Calls that answered or carried real talk time. Click to open those leads.")
-        +tCard("Talk Duration",ready&&_advCallLoaded?_fmtCallDur(dur):dash,"Across connected calls","","","Cumulative talk time. No lead list of its own — use Connected to browse the leads.")
-        +tCard("Incoming Calls",ready&&_advCallLoaded?String(inb):dash,"Inbound attempts","","callsin","Inbound calls on these leads. Click to open the leads with calls.")
-        +tCard("Missed Calls",ready&&_advCallLoaded?String(miss):dash,"Inbound, not answered","","callsmiss","Inbound calls that never connected. Click to open the leads with calls."));
-      txt("#haCallHint",_advCallLoaded?"Every call linked to these leads, however it was dialled.":"Loading call records…");
+      txt("#haCallHint",_advCallLoaded?"Every call linked to these leads in the applied dates — dialled from the app or outside it; inbound has its own cards.":"Loading call records…");
+
+      // ---------- Call Scorecard (requested 27-Aug-2026) ----------
+      // The same scoped rows as the cards above, read as one deck. Totals reuse the sums already
+      // accumulated from perfFacts so the two decks can never disagree; only the day and gap
+      // averages need the raw rows (they depend on each call's own timestamp, which the per-lead
+      // facts deliberately collapse to first/last).
+      {
+        const _scIds=new Set(book.map((l:any)=>String(l.id)));
+        const _scW=_haWinT(); const _scWinOn=!!(_scW.fromT||_scW.toT);
+        const _scDays=new Set<string>(); const _scTimes:number[]=[];
+        _advCallRows.forEach((r:any)=>{
+          if(!_scIds.has(String(r.contact_id||""))) return;
+          if(_scWinOn&&!_haInWin(r.created_at,_scW)) return;
+          const t=r.created_at?new Date(r.created_at).getTime():0;
+          if(t){ _scDays.add(_haDayKey(t)); _scTimes.push(t); }
+        });
+        _scTimes.sort((a,b)=>a-b);
+        // Gaps only between calls on the SAME IST day — an overnight gap is not "time between
+        // calls", it is going home; averaging it in would swamp the number the card is for.
+        let _gapSum=0,_gapN=0;
+        for(let i=1;i<_scTimes.length;i++){ if(_haDayKey(_scTimes[i])===_haDayKey(_scTimes[i-1])){ _gapSum+=_scTimes[i]-_scTimes[i-1]; _gapN++; } }
+        const _scOut=Math.max(0,tot-inb);
+        const _scOk=ready&&_advCallLoaded;
+        set("#haCallScore",
+          tCard("Total Calls",_scOk?String(tot):dash,"All attempts on these leads","","","Every call linked to these leads in the applied dates — outbound (app + external) and inbound together.")
+          +tCard("Total Dialed Calls",_scOk?String(_scOut):dash,"Outbound attempts · app + external","","","Calls made TO these leads: dialled from this app or from outside lines. Inbound calls are not counted here.")
+          +tCard("Incoming Calls",_scOk?String(inb):dash,"Inbound attempts","","callsin","Calls these leads made in. Click to open the leads with inbound calls.")
+          +tCard("Missed Calls",_scOk?String(miss):dash,"Inbound, not answered","","callsmiss","Inbound calls that never connected. Click to open those leads.")
+          +tCard("Connected Calls",_scOk?String(conn):dash,tot?(_haPct(conn,tot)+"% of all attempts"):"","","calls","Calls that answered or carried real talk time, whoever dialled them. Click to open those leads.")
+          +tCard("Avg Duration / Call",_scOk?(conn?_fmtCallDur(Math.round(dur/conn)):dash):dash,conn?("Talk time ÷ "+conn+" connected call"+(conn===1?"":"s")):"No connected calls yet","","","Total talk time divided by connected calls. Attempts that never connected carry no talk time, so they are not in the denominator.")
+          +tCard("Avg Duration / Day",_scOk?(_scDays.size?_fmtCallDur(Math.round(dur/_scDays.size)):dash):dash,_scDays.size?("Across "+_scDays.size+" active day"+(_scDays.size===1?"":"s")):"No call days yet","","","Total talk time divided by the number of days (IST) that had at least one call in the applied dates.")
+          +tCard("Avg Time Between Calls",_scOk?(_gapN?_haDurWords(Math.round(_gapSum/_gapN/1000)):dash):dash,_gapN?("Consecutive calls · same day · "+_gapN+" gap"+(_gapN===1?"":"s")):"Needs 2+ calls in a day","","","Average gap between one call and the next within the same working day (IST). Overnight gaps between days are excluded."));
+      }
 
       // Last, once every figure on the screen is in the DOM. Any element written above that carries
       // data-count rises to its value from the one it last held.
@@ -7771,7 +7947,7 @@ export function initApp(root: HTMLElement) {
       // Each Call-Performance card drills into its OWN cohort. They used to share the "calls" key,
       // so Incoming and Missed both opened the Connected list, and the Avg card had no key at all
       // and opened nothing.
-      const _CALL_CARDS=["calls","callduration","callsin","callsmiss","calltouch"];
+      const _CALL_CARDS=["calls","callduration","callsin","callsmiss","calltouch","callsext"];
       const _isCallCard=_CALL_CARDS.indexOf(String(_haActiveBucket))>=0;
       // WINDOWED, exactly like the cards above. This used to be _advCallScopedStats(), which walks
       // every call row with no date filter, so the drill-down answered a different question from the
@@ -7801,8 +7977,9 @@ export function initApp(root: HTMLElement) {
             const f=_cf[String(l.id)];
             if(_haActiveBucket==="callsin")   return !!f&&f.inbound>0;
             if(_haActiveBucket==="callsmiss") return !!f&&f.missed>0;
+            if(_haActiveBucket==="callsext")  return !!f&&(f.ext||0)>0;
             if(_haActiveBucket==="calltouch") return _touchMs(l)>0;
-            const st=_scopedCallStats[String(l.id)]; return !!st&&st.connected>0; })
+            const st=_scopedCallStats[String(l.id)]; return !!st&&((st.app||0)>0||st.connected>0); })
         // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
         // (every other card is a subset of it).
         : (_haActiveBucket==="total"?fullBook
@@ -7897,7 +8074,7 @@ export function initApp(root: HTMLElement) {
       // Priority card → its own table, so the star rating can have a column of its own. Kept separate
       // from the shared "haResults" grid on purpose: adding the column there would put it on every
       // other card's drill-down too.
-      if(_haActiveBucket==="priority"){
+      if(_haActiveBucket==="priority"||_haActiveBucket.indexOf("pr:")===0){
         const hd=root.querySelector("#haResultsHead");
         if(hd) hd.innerHTML='<th>Lead</th><th>Source · Lang</th><th>Assigned To</th><th>Call Status</th><th>Priority</th>';
         const _pR=list;   // the search box already narrowed `list` above
@@ -7909,9 +8086,11 @@ export function initApp(root: HTMLElement) {
             +'<td>'+(l.enrolledAt
                 ?'<span class="chipb ok" style="white-space:normal;line-height:1.5">'+e(_enrollStatusLine(String(l.id),l.enrolledLevel||"",_advProgPay))+'</span>'
                 :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td>'
-            // Filled stars up to the rating, hollow for the rest, so 1 / 2 / 3 read at a glance.
-            +'<td title="Priority '+n+' of 3" style="white-space:nowrap;font-size:14px;letter-spacing:1px">'
-            +'<span style="color:#E8A33D">'+"★".repeat(n)+'</span><span style="color:var(--line)">'+"★".repeat(Math.max(0,3-n))+'</span></td>'
+            // Filled stars up to the rating, hollow for the rest, with the category named beside
+            // them so High/Mid/Low/Poor reads without counting stars.
+            +'<td title="'+e((PRIO_LABELS[n]||"")+' priority — '+n+' of '+PRIO_MAX)+'" style="white-space:nowrap;font-size:14px;letter-spacing:1px">'
+            +'<span style="color:#E8A33D">'+"★".repeat(n)+'</span><span style="color:var(--line)">'+"★".repeat(Math.max(0,PRIO_MAX-n))+'</span>'
+            +(n?'<span style="margin-left:7px;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--muted)">'+e(PRIO_LABELS[n]||"")+'</span>':'')+'</td>'
             +'</tr>';
         }).join(""):'<tr><td colspan="5" style="text-align:center;color:var(--faint);padding:16px">'
           +(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads have a priority star yet')+'</td></tr>';
@@ -7925,15 +8104,18 @@ export function initApp(root: HTMLElement) {
         _advProgPayLoading=true; _advLoadEnrollProgress().then(()=>{ _advProgPayLoading=false; renderHaResults(); });
       }
       const _hhd=root.querySelector("#haResultsHead"); if(_hhd)_hhd.innerHTML=gridHead("haResults"); const _haR=gridApply("haResults",list); body.innerHTML=_haR.length?_haR.map((l:any)=>'<tr>'
+        +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(l.createdAt?fmtIST(l.createdAt):"—")+'</td>'
+        +'<td class="mono" style="font-size:11px;white-space:nowrap">'+e(l.assignedAt?fmtIST(l.assignedAt):"—")+'</td>'
         +'<td style="font-weight:600;cursor:pointer;color:var(--brand)" onclick="window._openLeadProfile(\''+e(String(l.id))+'\')">'+e(l.name)+' ↗</td>'
-        +'<td><span class="tag">'+e(l.source==="Manual"?"Manual":((l.source||"Meta")+" · "+(l.lang||"Tamil")))+'</span></td>'
+        +'<td><span class="tag">'+e(l.source||"Meta")+'</span></td>'
+        +'<td>'+e(l.source==="Manual"?"—":(l.lang||"Tamil"))+'</td>'
         +'<td>'+e(l.assignedTo||"—")+'</td>'
         // Enrolled leads show the DETAILED payment stage (same label as Reception) instead of a
         // generic "Enrolled" chip, so the stage is readable without opening the lead.
         +'<td>'+(l.enrolledAt
             ?'<span class="chipb ok" style="white-space:normal;line-height:1.5">'+e(_enrollStatusLine(String(l.id),l.enrolledLevel||"",_advProgPay))+'</span>'
             :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td></tr>').join("")
-        :'<tr><td colspan="4" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads in this status')+'</td></tr>';
+        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads in this status')+'</td></tr>';
     }
     w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();if(key==="enrolled"){_advLoadEnrollProgress().then(()=>{if(_haActiveBucket==="enrolled")renderHaResults();});}
       // Call stats load lazily on first dashboard paint. If a card is clicked before that finished,
@@ -10672,9 +10854,9 @@ export function initApp(root: HTMLElement) {
     function _recPrioCell(r:any):string{
       const n=_advPrioStars[String(r&&r.lead_id||"")]||0;
       if(!n) return '<td class="mono" style="color:var(--faint)">—</td>';
-      return '<td title="Priority '+n+' of 3 - set by the advisor" style="white-space:nowrap;font-size:13px;letter-spacing:1px">'
+      return '<td title="'+(PRIO_LABELS[n]||"")+' priority - '+n+' of '+PRIO_MAX+' - set by the advisor" style="white-space:nowrap;font-size:13px;letter-spacing:1px">'
         +'<span style="color:#E8A33D">'+"★".repeat(n)+'</span>'
-        +'<span style="color:var(--line)">'+"★".repeat(Math.max(0,3-n))+'</span></td>';
+        +'<span style="color:var(--line)">'+"★".repeat(Math.max(0,PRIO_MAX-n))+'</span></td>';
     }
     function _recPhNext(r:any):string{ const v=String((r&&r.phNext)||"").trim(); return v?fmtIST(v):"—"; }
     regGrid("appt",()=>_apptColsFn(),()=>renderAppt());
@@ -12949,6 +13131,29 @@ export function initApp(root: HTMLElement) {
     // role selects which page's Tata Tele extension/caller ID the server dials with
     // ("advisor" | "coach" | "reception") — see server tataConfig(role).
     async function _callInitiate(id:string,role?:string){ try{ const url=_api("/api/calls/initiate/"+encodeURIComponent(id))+(role?("?role="+encodeURIComponent(role)):""); const r=await fetch(url,{method:"POST",headers:authHeaders()}); return await r.json(); }catch(_){ return {ok:false,error:"network error"}; } }
+    // ---- Real hangup (28-Aug-2026) ----------------------------------------------------------
+    // End Call used to reset only the CRM: the timer stopped and an activity was written while the
+    // line stayed up, so the call could only really be ended from the handset. Smartflo does expose
+    // POST /v1/call/hangup (it takes the originate ref_id, which we now keep), so the button can
+    // drop the line for real. ONE handle is enough: a browser can only have a single call up at a
+    // time, and each initiate overwrites it, so End always targets the call that is actually live.
+    let _callHandle:{refId?:string|null;callId?:string|null;destination?:string}|null=null;
+    function _callRemember(r:any){ _callHandle=r?{refId:r.refId||null,callId:r.callId||null,destination:r.destination||""}:null; }
+    async function _callHangup(){
+      const h=_callHandle||{};
+      try{
+        const r=await fetch(_api("/api/calls/hangup"),{method:"POST",headers:{"Content-Type":"application/json",...authHeaders()},
+          body:JSON.stringify({refId:h.refId||null,callId:h.callId||null,destination:h.destination||""})});
+        return await r.json();
+      }catch(_){ return {ok:false,error:"network error"}; }
+      finally{ _callHandle=null; }
+    }
+    // One sentence for every outcome, so the toast never claims more than the provider confirmed.
+    function _callEndMsg(res:any,dur:string){
+      if(res&&res.alreadyEnded) return "Call already ended · "+dur;
+      if(res&&res.ok) return (res.verified?"Call ended · ":"Hangup sent · ")+dur;
+      return "Could not end the call from here — hang up on your phone. ("+((res&&res.error)||"provider did not respond")+")";
+    }
     async function _callRecordings(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/recordings"),{headers:authHeaders()}); return await r.json(); }catch(_){ return {ok:false,recordings:[]}; } }
     // Pull final call status + recordings from the provider's CDR into the DB (webhook-independent).
     async function _callSync(id:string){ try{ const r=await fetch(_api("/api/calls/"+encodeURIComponent(id)+"/sync"),{headers:authHeaders()}); return await r.json(); }catch(_){ return {ok:false,synced:0}; } }
@@ -12994,20 +13199,26 @@ export function initApp(root: HTMLElement) {
         if(!r||!r.ok){ _endCallUi(); toastErr((r&&r.error)||"Call could not be placed"); return; }
         toast("📞 Calling "+nm+" — your phone rings first, then the customer");
         logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
+        _callRemember(r);
         _callSecs=0; _callBtnState("active");
         if(_callTimer)clearInterval(_callTimer);
         _callTimer=setInterval(()=>{ _callSecs++; _callBtnState("active"); },1000);
         _pollRecordings(id,"outbound");
       } else {
-        // End the call (agent hangs up on their phone; CRM finalises + records).
+        // End the call FOR REAL: ask the provider to drop the line, then finalise the CRM side.
         const id=_advLeadId?String(_advLeadId):"";
         const dur=(_callSecs/60|0)+":"+String(_callSecs%60).padStart(2,"0");
+        _callBusy=true;
+        const bEnd=root.querySelector("#callBtn")as HTMLElement|null; const sEnd=bEnd&&bEnd.querySelector("span");
+        if(sEnd) sEnd.textContent="Ending…";
+        const res=await _callHangup();
+        _callBusy=false;
         _endCallUi();
-        if(id){ logActivity(id,[{action:"Updated",field:"Call ended",new:dur}]);
+        if(id){ logActivity(id,[{action:"Updated",field:"Call ended",new:dur+(res&&res.ok?"":" (hangup failed)")}]);
           // Pull the final status/recording once the webhook posts it (a few seconds after hangup).
           setTimeout(()=>{ if(String(_advLeadId)===id){ const l=_advFindLead(id); if(l) renderCallLogs(l); } }, 9000);
         }
-        toast("Call ended · "+dur);
+        if(res&&res.ok) toast(_callEndMsg(res,dur)); else toastErr(_callEndMsg(res,dur));
       }
     };
     // Bind directly too (belt-and-suspenders: works even if the template onclick is missing).
@@ -16067,13 +16278,18 @@ export function initApp(root: HTMLElement) {
         if(!r||!r.ok){ _cOnCall=0; _ccb.style.background=""; if(sp)sp.textContent="Call"; toastErr((r&&r.error)||"Call could not be placed"); return; }
         toast("📞 Calling "+nm+" — your phone rings first, then the customer");
         logActivity(id,[{action:"Status Changed",field:"Call",new:"Outbound call initiated"}]);
+        _callRemember(r);
         _cCt=0; if(_cCti)clearInterval(_cCti); _cCti=setInterval(()=>{_cCt++;const s2=_ccb.querySelector("span");if(s2)s2.textContent="End · "+(_cCt/60|0)+":"+String(_cCt%60).padStart(2,"0");},1000);
         _pollRecordings(id,"coach"); setTimeout(()=>_coachRenderRecordings(id),50000);
       } else {
+        // Same real hangup as the advisor button — the line drops from here, not just the timer.
+        const durC=(_cCt/60|0)+":"+String(_cCt%60).padStart(2,"0");
+        if(sp)sp.textContent="Ending…";
+        const resC=await _callHangup();
         _cOnCall=0; if(_cCti)clearInterval(_cCti); _ccb.style.background=""; if(sp)sp.textContent="Call";
         const id=String(_coachLeadId);
-        if(id) logActivity(id,[{action:"Updated",field:"Call ended",new:(_cCt/60|0)+":"+String(_cCt%60).padStart(2,"0")}]);
-        toast("Call ended");
+        if(id) logActivity(id,[{action:"Updated",field:"Call ended",new:durC+(resC&&resC.ok?"":" (hangup failed)")}]);
+        if(resC&&resC.ok) toast(_callEndMsg(resC,durC)); else toastErr(_callEndMsg(resC,durC));
         // Pull final status + recording from the CDR and refresh the Call History tab.
         const c=_coachClients.find((x:any)=>String(x.id)===id); if(c) renderCallLogs(c,"#coachCallLog",()=>String(_coachLeadId));
       }

@@ -45,6 +45,13 @@ const origins = (process.env.CORS_ORIGIN || '')
 // to abuse — it would still need a token it has no way to read. Non-loopback origins remain
 // restricted to the explicit CORS_ORIGIN allowlist, and still fail CLOSED when it is unset.
 const isLoopbackOrigin = (o: string) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(o);
+// Private-LAN origins get the same treatment, for the same reason: the office machines reach this
+// dev server by the host's LAN IP, and DHCP renumbers it (three addresses in one week) - pinning
+// each new IP into CORS_ORIGIN broke the other desks every time. Auth is a Bearer header, never a
+// cookie, so a cross-origin page without the token still gets nothing. RFC1918 ranges only;
+// public origins remain restricted to the explicit allowlist and fail closed.
+const isPrivateLanOrigin = (o: string) =>
+  /^https?:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/i.test(o);
 
 // Baseline security response headers. Purely additive — no request is accepted or rejected
 // differently, and no response BODY changes; these only tell the browser how to treat what it
@@ -63,7 +70,7 @@ app.use(cors({
   origin(origin, cb) {
     // No Origin header = same-origin, curl, or server-to-server — nothing to police.
     if (!origin) return cb(null, true);
-    if (isLoopbackOrigin(origin)) return cb(null, true);
+    if (isLoopbackOrigin(origin) || isPrivateLanOrigin(origin)) return cb(null, true);
     return cb(null, origins.includes(origin));
   },
 }));

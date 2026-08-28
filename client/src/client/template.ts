@@ -27,6 +27,15 @@ export function getMainContent(): string {
              drill-down table. No target on this screen is hardcoded — they all come from the
              advisor_targets master in Settings → Advisor targets. -->
         <div id="advDashSections">
+          <!-- Performance modes (added 27-Aug-2026). Cohort scoping: the date range picks WHICH
+               LEADS (received in range) and every panel below is then computed from that exact
+               population's full journey — statuses, appointments, visits, enrolments and their
+               calls. Neither button active = the standard event-dated view (the audited default). -->
+          <div id="perfModeBar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px">
+            <button type="button" class="btn perfbtn" id="perfDailyBtn" onclick="window._perfSetMode('daily')"><span class="pemo">📅</span> Daily Wise Performance</button>
+            <button type="button" class="btn perfbtn" id="perfBatchBtn" onclick="window._perfSetMode('batch')"><span class="pemo">🗂</span> Batch Wise Performance</button>
+            <span id="perfModeCap" style="font-size:12px;color:var(--muted)"></span>
+          </div>
           <div class="dgrid">
             <div class="dpanel">
               <div class="dpanel-hd"><span class="dnum">1</span><h4>Pipeline overview</h4></div>
@@ -35,18 +44,26 @@ export function getMainContent(): string {
                    below the three headline counters rather than competing with them. -->
               <div class="dovmore" id="haKpis"></div>
             </div>
-            <div class="dpanel" id="haPanelPerf">
-              <div class="dpanel-hd"><span class="dnum">2</span><h4>Pipeline performance</h4><span class="sub">(Actual vs Expected)</span></div>
-              <div class="dpf" id="haPipeTargets"></div>
-              <div class="dlegend" id="haPipeKey"></div>
-              <div class="dsrc" id="haPipeHint"></div>
+            <!-- Panels 2 and 3 STACK in the right column (28-Aug-2026). Panel 1 carries five cards
+                 plus two overlay tiles, so it is far taller than Performance alone — which left a
+                 tall void beside it (reported with screenshot). Follow-ups moves up into that space,
+                 so the column runs 2 over 3 and the two columns end at roughly the same depth. -->
+            <div class="dcol">
+              <div class="dpanel" id="haPanelPerf">
+                <div class="dpanel-hd"><span class="dnum">2</span><h4>Pipeline performance</h4><span class="sub">(Actual vs Expected)</span></div>
+                <div class="dpf" id="haPipeTargets"></div>
+                <div class="dlegend" id="haPipeKey"></div>
+                <div class="dsrc" id="haPipeHint"></div>
+              </div>
+              <div class="dpanel" id="haFuPanel">
+                <div class="dpanel-hd"><span class="dnum">3</span><h4>Follow-ups</h4></div>
+                <div class="dfu" id="haFollowupCards"></div>
+              </div>
             </div>
           </div>
-          <div class="dgrid2" id="haRow2">
-            <div class="dpanel">
-              <div class="dpanel-hd"><span class="dnum">3</span><h4>Follow-ups</h4></div>
-              <div class="dfu" id="haFollowupCards"></div>
-            </div>
+          <!-- Panel 4 now owns a FULL-WIDTH row. Left in a two-column grid on its own it would have
+               sat in the first column with the second one empty — the same void, moved. -->
+          <div id="haRow2" style="margin-top:14px">
             <div class="dpanel">
               <div class="dpanel-hd"><span class="dnum">4</span><h4>Targets &amp; performance</h4><span class="sub" id="haTargetKey"></span></div>
               <div class="dtg" id="haTargetCards"></div>
@@ -92,7 +109,10 @@ export function getMainContent(): string {
           <div class="dpanel" style="margin-top:14px">
             <div class="dpanel-hd"><span class="dnum">9</span><h4>Call performance</h4></div>
             <div class="dsub" id="haCallHint"></div>
-            <div class="metrics" id="haCallPerf" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin:11px 0 0"></div>
+            <!-- Call Scorecard (27-Aug-2026): THE call deck for this panel — totals split by
+                 direction plus the three averages. The earlier seven-card row above it was removed
+                 on request the same day, taking the speed-to-contact and app/external split with it. -->
+            <div class="metrics" id="haCallScore" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin:11px 0 0"></div>
           </div>
           </div>
         </div>
@@ -101,7 +121,7 @@ export function getMainContent(): string {
             <!-- Lives OUTSIDE the table so a re-render (which rewrites thead/tbody only) can't steal focus mid-typing. -->
             <input aria-label="Search results by lead, phone, advisor or status" class="input" id="haResultsSearch" placeholder="Search lead / phone / advisor / status…" oninput="window._haResultsSearch()" style="margin-left:auto;max-width:280px;height:32px;font-size:12.5px">
             <button class="btn bsm" onclick="window._haCloseResults()">Close</button></div>
-          <div class="tscroll"><table class="tbl" style="min-width:640px"><thead><tr id="haResultsHead"><th scope="col">Lead</th><th scope="col">Source · Lang</th><th scope="col">Assigned to</th><th scope="col">Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
+          <div class="tscroll"><table class="tbl" style="min-width:980px"><thead><tr id="haResultsHead"><th scope="col">Lead Generated Date &amp; Time</th><th scope="col">Assigned Date &amp; Time</th><th scope="col">Lead</th><th scope="col">Source</th><th scope="col">Lang</th><th scope="col">Assigned to</th><th scope="col">Call status</th></tr></thead><tbody id="haResultsBody"></tbody></table></div>
         </div>
       </div></div>
     <div class="sec" style="margin-bottom:14px"><div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-user"></use></svg> Assigned leads <span class="chipb ok" id="assignedCount" style="margin-left:8px">0</span></div>
@@ -179,7 +199,7 @@ export function getMainContent(): string {
           <div class="fld adv-nonphysio"><label class="lbl">Lead source</label><select aria-label="Lead source" class="select"><option value="" selected>— Select —</option><option>web</option><option>Meta</option><option>WhatsApp</option><option>Referral</option><option>Direct Walk-in</option></select></div>
           <div class="fld adv-nonphysio"><label class="lbl" for="haLeadGen">Lead generated <span class="ab">AUTO</span></label><input  class="input mono" id="haLeadGen" readonly></div>
           <div class="fld adv-nonphysio"><label class="lbl" for="haBatch">Batch code</label><input  class="input mono" id="haBatch" placeholder="—"></div>
-          <div class="fld"><label class="lbl" for="advfLoc">Location <span class="req">*</span></label><select  class="select" id="advfLoc" data-freeform="1" onchange="window._advLocChange(this)"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>✎ Type location manually</option><option>+ Add new location</option></select><input class="input" id="advfLocManual" data-nocap placeholder="Type the location and press Enter…" style="display:none;margin-top:6px" onkeydown="window._advLocManualKey(event)" onblur="window._advLocManualCommit()"></div>
+          <div class="fld"><label class="lbl" for="advfLoc">Location <span class="req">*</span></label><select  class="select" id="advfLoc" data-freeform="1" onchange="window._advLocChange(this)"><option selected>Poonamalle</option><option>Porur</option><option>Maduravoyal</option><option>Ambattur</option><option>Avadi</option><option>Tambaram</option><option>Nagapattinam</option><option>✎ Type location manually</option></select><input class="input" id="advfLocManual" data-nocap placeholder="Type the location and press Enter…" style="display:none;margin-top:6px" onkeydown="window._advLocManualKey(event)" onblur="window._advLocManualCommit()"></div>
           <div class="fld adv-nonphysio" style="grid-column:span 3"><label class="lbl">Address</label><div class="g4" style="gap:9px"><input aria-label="Address — street or area" class="input" placeholder="Street / Area"><input aria-label="Address — city" class="input" value="Chennai"><input aria-label="Address — ZIP code" class="input" placeholder="ZIP"><input aria-label="Address — country" class="input" value="India"></div></div>
         </div></div></div>
 
@@ -239,7 +259,15 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl" for="salesSel">Salesperson <span class="ab">AUTO</span></label><select  class="select auto" id="salesSel" tabindex="-1"><option value="">— Select —</option></select></div>
           <div class="fld"><label class="lbl" for="salesTeamSel">Sales team <span class="ab">AUTO</span></label><select  class="select auto" id="salesTeamSel" tabindex="-1"><option value="">— Select —</option><option>Walkin Callers Team</option><option>Physiotherapy Telecaller Team</option></select></div>
           <div class="fld"><label class="lbl" for="hcSel">HC assigned <span class="nb">NEW</span></label><select  class="select" id="hcSel" onchange="window._hcAssignedChange()"><option value="">— Select —</option></select></div>
-          <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div></div>
+          <!-- 4-level priority (27-Aug-2026): Poor ★ → High ★★★★, category named above each star.
+               The .star spans MUST stay direct-ordered inside #stars — profile capture reads
+               "#stars .star" positionally (a 4th span extends old 3-length saves compatibly). -->
+          <div class="fld"><label class="lbl">Priority</label><div class="stars" id="stars">
+            <span class="starw"><i class="starlbl">Poor</i><span class="star">★</span></span>
+            <span class="starw"><i class="starlbl">Low</i><span class="star">★</span></span>
+            <span class="starw"><i class="starlbl">Mid</i><span class="star">★</span></span>
+            <span class="starw"><i class="starlbl">High</i><span class="star">★</span></span>
+          </div></div>
           <!-- Probability retired from the UI. The input STAYS in the DOM: collectAdvisorProfile
                serialises this panel's inputs POSITIONALLY and restores them by index (els[i]), so
                deleting it would shift every field after it and every saved profile would reload its

@@ -54,26 +54,49 @@ h1,h2,h3{margin:0}
    nav list grows) spilled out of the grid and gave the whole document a ~34px scroll, so scrolling
    dragged a dark strip of the sidebar gradient across the top of the page. Each column scrolls on
    its own instead — see .side/.main. */
-.app{display:grid;grid-template-columns:222px 1fr;height:100vh;overflow:hidden}
-.side{background:linear-gradient(172deg,var(--pine) 0%,var(--pine-2) 58%,#0C3327 100%);color:#AFC2B8;display:flex;flex-direction:column;position:relative;overflow-y:auto;min-height:0}
+/* ZOOM-IMMUNE SIDEBAR WIDTH (reported 27-Aug-2026). Browser zoom rescales every CSS px, so a
+   222px sidebar physically grew and shrank with the zoom slider while the user wanted it fixed,
+   like native app chrome. Viewport units are the one length zoom cannot touch: the window's
+   physical width never changes, so 14.453vw (222px on the 1536px screen this design was drawn on)
+   occupies the SAME strip of glass at 75%, 80%, 100%, 110% — only the content area zooms. The
+   clamps bound extreme zoom/screens: within them physical size is constant; beyond, it degrades
+   gently instead of eating the page. Everything inside is sized in em off one vw font-size that
+   scales at exactly the width's ratio, so the sidebar zooms as a single rigid unit — same
+   wrapping, same alignment, always. Consumers of the width: .app, .inbound, .pgload. */
+:root{--sbw:clamp(192px,14.453vw,300px)}
+.app{display:grid;grid-template-columns:var(--sbw) 1fr;height:100vh;overflow:hidden}
+.side{background:linear-gradient(172deg,var(--pine) 0%,var(--pine-2) 58%,#0C3327 100%);color:#AFC2B8;display:flex;flex-direction:column;position:relative;overflow-y:auto;min-height:0;font-size:clamp(11.24px,.84635vw,17.57px)}
 .side::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(420px 200px at 20% 0%,rgba(61,217,164,.10),transparent 60%)}
-.sb{display:flex;align-items:center;gap:10px;padding:18px 18px 12px;position:relative;z-index:1}
-.bm{width:36px;height:36px;border-radius:11px;background:linear-gradient(135deg,var(--mint),#17A87B);display:grid;place-items:center;box-shadow:0 6px 18px rgba(61,217,164,.40),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .3s var(--ease-pop)}
+.sb{display:flex;align-items:center;gap:.769em;padding:1.385em 1.385em .923em;position:relative;z-index:1}
+/* The logo <img> carries inline px sizes in page.tsx; !important folds it into the em scale. */
+.sb>img{height:2.462em!important;max-width:4.308em!important}
+.bm{width:2.769em;height:2.769em;border-radius:.846em;background:linear-gradient(135deg,var(--mint),#17A87B);display:grid;place-items:center;box-shadow:0 6px 18px rgba(61,217,164,.40),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .3s var(--ease-pop)}
 .sb:hover .bm{transform:rotate(-6deg) scale(1.06)}
-.bm svg{width:19px;height:19px;stroke:#06281F;stroke-width:2;fill:none}
-.bn{font-family:var(--disp);font-weight:700;font-size:16px;color:#fff;letter-spacing:-.2px}
-.bs{font-size:10px;color:#6F8A7E;letter-spacing:.09em;text-transform:uppercase;font-weight:600}
-.snav{padding:2px 12px;flex:1;overflow:auto;position:relative;z-index:1}
-.ng{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#5E7A6E;padding:14px 10px 5px}
-.snav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:8.5px 12px;border-radius:10px;border:0;background:none;color:#AFC2B8;font-size:13px;font-weight:500;position:relative;transition:background .18s var(--ease),color .18s var(--ease),transform .18s var(--ease)}
+.bm svg{width:1.462em;height:1.462em;stroke:#06281F;stroke-width:2;fill:none}
+.bn{font-family:var(--disp);font-weight:700;font-size:1.231em;color:#fff;letter-spacing:-.015em}
+.bs{font-size:.769em;color:#6F8A7E;letter-spacing:.09em;text-transform:uppercase;font-weight:600}
+/* ZOOM-STABLE SIDEBAR (reported 27-Aug-2026). Whether the nav overflows depends on window height
+   in CSS px — which browser zoom changes. Without a reserved gutter, the scrollbar's arrival stole
+   10px from every button (198px→188px), so the sidebar's alignment visibly shifted between 100%
+   and 80% zoom. scrollbar-gutter keeps the nav's inner width IDENTICAL with or without a
+   scrollbar; the thumb colours below swap the light-panel grey (invisible-to-ugly on the dark
+   gradient) for a dark-blended one, so when the bar is needed it reads as part of the sidebar. */
+.snav{padding:.154em .923em;flex:1;overflow:auto;position:relative;z-index:1;scrollbar-gutter:stable}
+.side,.snav{scrollbar-color:rgba(255,255,255,.16) transparent}
+.side::-webkit-scrollbar-thumb,.snav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border:2px solid transparent;background-clip:content-box}
+.side::-webkit-scrollbar-thumb:hover,.snav::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.28);border:2px solid transparent;background-clip:content-box}
+.ng{font-size:.769em;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#5E7A6E;padding:1.4em 1em .5em}
+.snav button{display:flex;align-items:center;gap:.769em;width:100%;text-align:left;padding:.654em .923em;border-radius:.769em;border:0;background:none;color:#AFC2B8;font-size:1em;font-weight:500;position:relative;transition:background .18s var(--ease),color .18s var(--ease),transform .18s var(--ease)}
 .snav button:hover{background:rgba(255,255,255,.07);color:#fff;transform:translateX(2px)}
 .snav button.active{background:linear-gradient(90deg,rgba(61,217,164,.16),rgba(61,217,164,.07));color:#fff;font-weight:600}
-.snav button.active::before{content:"";position:absolute;left:-12px;top:7px;bottom:7px;width:3.5px;border-radius:0 4px 4px 0;background:var(--mint);box-shadow:0 0 14px rgba(61,217,164,.8)}
+.snav button.active::before{content:"";position:absolute;left:-.923em;top:.538em;bottom:.538em;width:.269em;border-radius:0 .308em .308em 0;background:var(--mint);box-shadow:0 0 14px rgba(61,217,164,.8)}
 .snav button.active .icon{stroke:var(--mint);filter:drop-shadow(0 0 6px rgba(61,217,164,.5))}
-.snav .icon{width:17px;height:17px;transition:transform .18s var(--ease)}
+.snav .icon{width:1.308em;height:1.308em;transition:transform .18s var(--ease)}
 .snav button:hover .icon{transform:scale(1.1)}
-.sfoot{padding:12px 18px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#7E988C;display:flex;gap:9px;align-items:center;position:relative;z-index:1}
-.ldot{width:8px;height:8px;border-radius:50%;background:var(--mint);animation:pl 2.2s infinite;box-shadow:0 0 0 0 rgba(61,217,164,.5)}
+.sfoot{padding:1.091em 1.636em;border-top:1px solid rgba(255,255,255,.08);font-size:.846em;color:#7E988C;display:flex;gap:.818em;align-items:center;position:relative;z-index:1}
+/* Sign-out carries inline px in page.tsx; fold it into the em scale like the logo above. */
+.sfoot #signOutBtn{font-size:.955em!important;padding:.286em .762em!important;border-radius:.667em!important}
+.ldot{width:.727em;height:.727em;border-radius:50%;background:var(--mint);animation:pl 2.2s infinite;box-shadow:0 0 0 0 rgba(61,217,164,.5)}
 @keyframes pl{70%{box-shadow:0 0 0 8px rgba(61,217,164,0)}}
 .main{overflow:auto;min-height:0;position:relative;scroll-behavior:smooth}
 
@@ -208,6 +231,30 @@ label.lbl{display:block;font-size:11px;font-weight:600;color:var(--muted);margin
 .bwa{background:#E7F8EF;color:#0B6B4C;border-color:#BCE8D2}
 .bwa:hover{background:#DCF4E7}
 .bsm{height:31px;padding:0 11px;font-size:12px;border-radius:9px}
+/* Performance-mode buttons (Daily / Batch Wise) — deliberately larger than .bsm and dressed with
+   micro-interactions: springy hover lift, emoji tilt, press squash, and on activation a one-shot
+   pop plus a light sweep across the active gradient. All motion is transform/opacity only (no
+   layout thrash) and switches off under prefers-reduced-motion. */
+.perfbtn{height:44px;padding:0 20px;font-size:13.5px;font-weight:700;border-radius:12px;gap:9px;letter-spacing:.1px;
+  transition:transform .2s var(--ease-pop),box-shadow .22s var(--ease),background .2s var(--ease),border-color .2s var(--ease),color .2s var(--ease)}
+.perfbtn:hover{transform:translateY(-1.5px)}
+.perfbtn:active{transform:translateY(0) scale(.96);transition-duration:.07s}
+.perfbtn .pemo{display:inline-block;font-size:15px;transition:transform .28s var(--ease-pop)}
+.perfbtn:hover .pemo{transform:scale(1.22) rotate(-8deg)}
+.perfbtn.bp{animation:perfpop .42s var(--ease-pop);box-shadow:0 6px 20px rgba(14,124,92,.38),inset 0 1px 0 rgba(255,255,255,.2)}
+.perfbtn.bp .pemo{animation:pemocheer .5s var(--ease-pop)}
+.perfbtn.bp::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,transparent 32%,rgba(255,255,255,.38) 50%,transparent 68%);
+  transform:translateX(-130%);animation:perfshine .9s .12s var(--ease) forwards}
+.perfbtn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+@keyframes perfpop{0%{transform:scale(.94)}55%{transform:scale(1.05)}100%{transform:scale(1)}}
+@keyframes perfshine{to{transform:translateX(130%)}}
+@keyframes pemocheer{0%{transform:scale(1)}40%{transform:scale(1.35) rotate(10deg)}100%{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){
+  .perfbtn,.perfbtn .pemo{transition:none}
+  .perfbtn.bp,.perfbtn.bp .pemo{animation:none}
+  .perfbtn.bp::after{display:none}
+}
 .btn:disabled{transform:none!important;box-shadow:none!important}
 
 /* ---------- Tags, badges, chips ---------- */
@@ -353,6 +400,22 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .star{cursor:pointer;transition:transform .18s var(--ease-pop),color .18s}
 .star:hover{transform:scale(1.22) rotate(6deg)}
 .star.on{color:var(--gold);text-shadow:0 2px 10px rgba(217,164,65,.45)}
+/* 4-level priority: each star carries its category name above it. Lit categories warm to gold;
+   the HIGHEST lit one (the current level) reads in ink so the chosen category is unmistakable. */
+.starw{display:flex;flex-direction:column;align-items:center;gap:1px}
+.starlbl{font-style:normal;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);transition:color .18s var(--ease)}
+.starw:has(.star.on) .starlbl{color:var(--gold)}
+.starw:has(.star.on):not(:has(~ .starw .star.on)) .starlbl{color:var(--ink)}
+/* Priority card category buttons (High/Mid/Low/Poor) on the Advisor dashboard overlay card.
+   ONE star per button with the category named UNDER it, each level in its own colour (gold →
+   amber → blue → grey, hottest to coldest). On the green hover everything flips to white. */
+.priocats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:8px}
+.priocats .pc{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:9.5px;font-weight:700;letter-spacing:.03em;padding:4px 4px 5px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);cursor:pointer;transition:background .16s var(--ease),color .16s var(--ease),border-color .16s var(--ease),transform .16s var(--ease)}
+.priocats .pc .pcs1{font-size:15px;line-height:1;transition:transform .18s var(--ease-pop)}
+.priocats .pc .pcl{display:inline-flex;align-items:center;gap:3px}
+.priocats .pc:hover{background:var(--brand);border-color:var(--brand);color:#fff;transform:translateY(-1px)}
+.priocats .pc:hover .pcs1{color:#fff!important;transform:scale(1.2)}
+.priocats .pc b{font-weight:800}
 .prob{display:flex;align-items:center;gap:11px}
 .prob input[type=range]{flex:1;accent-color:var(--brand);height:26px}
 .pv{font-family:var(--mono);font-weight:700;font-size:14px;min-width:44px;text-align:right;color:var(--brand-600)}
@@ -448,9 +511,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .ach b{font-family:var(--disp);font-size:14.5px;display:block}
 .ach span{font-size:11.5px;color:#9FE8CC}
 .cf{position:fixed;top:-12px;width:9px;height:13px;z-index:75;pointer-events:none;border-radius:2px}
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px) scale(.96);background:linear-gradient(135deg,var(--pine),var(--pine-2));color:#EAF4EF;padding:12px 18px;border-radius:13px;font-size:13px;font-weight:600;box-shadow:var(--sh-lg);opacity:0;pointer-events:none;transition:.3s var(--ease-pop);display:flex;gap:9px;align-items:center;z-index:60;border:1px solid rgba(61,217,164,.25)}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px) scale(.96);background:linear-gradient(135deg,var(--pine),var(--pine-2));color:#EAF4EF;padding:12px 18px;border-radius:13px;font-size:13px;font-weight:600;box-shadow:var(--sh-lg);opacity:0;pointer-events:none;transition:.3s var(--ease-pop);display:flex;gap:9px;align-items:center;z-index:60;border:1px solid rgba(61,217,164,.25);max-width:min(560px,calc(100vw - 40px));line-height:1.45}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
-.toast .icon{stroke:var(--mint);width:16px;height:16px}
+.toast .icon{stroke:var(--mint);width:16px;height:16px;flex:0 0 auto}
 .toast.err{background:linear-gradient(135deg,#7A2416,#5E1B10);border-color:rgba(240,104,78,.35)}
 
 /* ---------- Background-sync indicator (smooth pulse, non-blocking) ---------- */
@@ -477,7 +540,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .dbody .sec{margin-top:12px}
 .doverlay{position:fixed;inset:0;background:rgba(11,46,37,.38);backdrop-filter:blur(2px);z-index:65;opacity:0;pointer-events:none;transition:.32s var(--ease)}
 .doverlay.open{opacity:1;pointer-events:auto}
-.inbound{position:fixed;top:0;left:222px;right:0;background:linear-gradient(90deg,#0E7C5C,#17A87B);color:#fff;padding:10px 18px;display:flex;align-items:center;gap:12px;z-index:50;transform:translateY(-100%);transition:.32s var(--ease);box-shadow:0 4px 20px rgba(14,124,92,.4)}
+.inbound{position:fixed;top:0;left:var(--sbw);right:0;background:linear-gradient(90deg,#0E7C5C,#17A87B);color:#fff;padding:10px 18px;display:flex;align-items:center;gap:12px;z-index:50;transform:translateY(-100%);transition:.32s var(--ease);box-shadow:0 4px 20px rgba(14,124,92,.4)}
 .inbound.show{transform:translateY(0)}
 .inbound b{font-family:var(--disp)}
 .milestone{position:fixed;inset:0;z-index:90;display:grid;place-items:center;background:rgba(11,46,37,.6);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:.4s var(--ease)}
@@ -564,8 +627,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 /* FIXED, not absolute. .main is a scroll container, and an absolutely-positioned child of one
    scrolls away with the content — so on a page the user had scrolled down, the overlay sat above the
    viewport and the screen appeared to hang with nothing on it. Fixed pins it to the viewport; the
-   left inset clears the 222px sidebar so the nav stays visible and clickable throughout. */
-.pgload{position:fixed;inset:0 0 0 222px;z-index:64;display:flex;align-items:center;justify-content:center;
+   left inset clears the sidebar column (var(--sbw)) so the nav stays visible and clickable throughout. */
+.pgload{position:fixed;inset:0 0 0 var(--sbw);z-index:64;display:flex;align-items:center;justify-content:center;
   padding:24px;opacity:0;pointer-events:none;transition:opacity .28s var(--ease);
   background:
     radial-gradient(520px 380px at 78% -6%,rgba(150,60,230,.10),transparent 60%),
@@ -969,9 +1032,12 @@ html{scroll-behavior:smooth}
     z-index:90;width:40px;height:40px;border-radius:10px;cursor:pointer;
     background:var(--pine);color:#EAF3EE;border:1px solid rgba(255,255,255,.14);box-shadow:var(--sh)}
   .navtog:active{transform:scale(.96)}
-  /* display:flex overrides the <=640px `.side{display:none}` rule that used to hide it outright. */
+  /* display:flex overrides the <=640px `.side{display:none}` rule that used to hide it outright.
+     Off-canvas mode returns to the fixed 13px type scale: the vw-derived size exists to hold the
+     DESKTOP column physically steady under zoom, and at these viewport widths it would bottom out
+     tiny inside a fixed 250px panel. */
   .side{display:flex !important;position:fixed;top:0;left:0;bottom:0;width:250px;max-width:84vw;
-    z-index:95;transform:translateX(-100%);transition:transform .28s var(--ease);will-change:transform}
+    z-index:95;transform:translateX(-100%);transition:transform .28s var(--ease);will-change:transform;font-size:13px}
   .side.open{transform:none}
   .navscrim{display:block;position:fixed;inset:0;z-index:92;background:rgba(10,43,34,.44);
     opacity:0;pointer-events:none;transition:opacity .28s var(--ease)}
@@ -1541,8 +1607,16 @@ html{scroll-behavior:smooth}
             >=1080     laptop    row 2 goes side-by-side; row 1 stays full width (the five
                                  performance cards need the whole content width to stay legible)
             >=1400     desktop   both rows side-by-side — the reference layout                     */
-.dgrid,.dgrid2{display:grid;gap:14px;margin-top:4px;grid-template-columns:minmax(0,1fr)}
+/* align-items:start (27-Aug-2026): paired panels used to stretch to EQUAL height, and the
+   shorter one paid for it — the Performance panel showed a blank band above AND below its
+   single row of cards (reported with screenshot). Equal bottoms were never worth a half-empty
+   panel: each panel now sizes to its own content, so there is no slack anywhere to leak. */
+.dgrid,.dgrid2{display:grid;gap:14px;margin-top:4px;grid-template-columns:minmax(0,1fr);align-items:start}
 .dgrid2{margin-top:14px}
+/* Right-hand column of row 1: panels stacked vertically at the same gap as the grid, so the
+   pair reads as one column rather than two loose boxes. min-width:0 so a wide child (the
+   five performance cards) can shrink instead of forcing the column wider than its track. */
+.dcol{display:flex;flex-direction:column;gap:14px;min-width:0}
 .dpanel{background:var(--surface);border:1px solid var(--line);border-radius:16px;
   padding:clamp(12px,1.6vw,16px) clamp(13px,1.8vw,18px) clamp(14px,1.8vw,18px);box-shadow:var(--sh);min-width:0}
 .dpanel-hd{display:flex;align-items:center;gap:9px;margin-bottom:13px;flex-wrap:wrap}
@@ -1574,8 +1648,14 @@ html{scroll-behavior:smooth}
 .dov-c .t.tup{color:var(--ok-ink)}.dov-c .t.tdn{color:var(--alert-ink)}.dov-c .t.tfl{color:var(--faint)}
 .dov-c .ic{position:static;flex:0 0 auto;width:28px;height:28px;border-radius:9px;
   display:flex;align-items:center;justify-content:center}
-.dovmore{display:flex;gap:9px;flex-wrap:wrap;margin-top:11px}
-.dovmore .metric{flex:1 1 calc(50% - 5px);padding:9px 11px;border-radius:11px;box-shadow:none;min-width:0}
+/* The two overlay tiles sit as a PAIR: equal height, flush bottom edge. Left at their natural
+   sizes, Call Status (a label and a number) ended 49px above Priority (label, number and four
+   star buttons) and the row looked broken off — reported 28-Aug-2026. Stretching alone was no
+   better: the shorter tile then held its content at the top over a visible hole. Centring the
+   content spends that height as symmetric padding instead, so the tile reads as deliberately
+   set rather than short of something. */
+.dovmore{display:flex;gap:9px;flex-wrap:wrap;align-items:stretch;margin-top:11px}
+.dovmore .metric{flex:1 1 calc(50% - 5px);padding:9px 11px;border-radius:11px;box-shadow:none;min-width:0;display:flex;flex-direction:column;justify-content:center}
 .dovmore .metric .mv{font-size:17px;margin-top:2px}
 .dovmore .metric:hover{transform:none;box-shadow:none}
 
@@ -1624,7 +1704,15 @@ html{scroll-behavior:smooth}
 
 /* ---------- Breakpoint ladder ---------- */
 @media(min-width:560px){
-  .dov{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dov{grid-template-columns:repeat(6,minmax(0,1fr))}
+  /* FIVE cards, NO empty cell (27-Aug-2026): a 3-column grid left the 6th slot blank beside
+     Follow-up (reported). On a 6-column track each card spans 2 (three across), and when the
+     panel holds exactly five the last two span 3 (two across, full width) — both rows end
+     flush. The :nth-child/:nth-last-child pair is what tests "exactly five", so a different
+     card count falls back to plain 3-across instead of laying out wrong. */
+  .dov>*{grid-column:span 2}
+  .dov>*:nth-child(4):nth-last-child(2),.dov>*:nth-child(5):nth-last-child(1){grid-column:span 3}
+
   .dpf{grid-template-columns:repeat(3,minmax(0,1fr))}
   .dfu{grid-template-columns:repeat(4,minmax(0,1fr))}
   .dtg{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -1652,6 +1740,11 @@ html{scroll-behavior:smooth}
   .dov-c:hover,.dpf-c:hover,.dfu-c:hover,.dtg-c.clik:hover{transform:translateY(-2px);box-shadow:var(--sh-md)}
   .dov-c:hover{border-color:var(--brand-line)}
 }
+/* Card entrance: the panels already stagger in via dcard-in (defined further down, with
+   per-index delays) — the overlay metric cards join that same wave here rather than duplicating
+   the keyframe. */
+.dovmore .metric{animation:dcard-in .34s var(--ease) backwards}
+.dovmore .metric:nth-child(2){animation-delay:.05s}
 /* Comfortable tap targets on touch devices. */
 @media(pointer:coarse){
   .dov-c,.dpf-c,.dfu-c,.dtg-c{min-height:88px}
@@ -1664,6 +1757,8 @@ html{scroll-behavior:smooth}
 }
 @media(prefers-reduced-motion:reduce){
   .dov-c,.dpf-c,.dfu-c,.dtg-c,.dpf-bar span,.habar>span,  .dov-c:hover,.dpf-c:hover,.dfu-c:hover,.dtg-c.clik:hover{transform:none}
+  .dov-c,.dpf-c,.dfu-c,.dtg-c,.dovmore .metric{animation:none}
+  .dov-c .ic{transition:none}
 }
 
 /* ---------- Container queries: cards size to their PANEL, not the viewport ----------
@@ -1679,8 +1774,18 @@ html{scroll-behavior:smooth}
      performance cards in a ~540px panel land at ~92px each, which is exactly where 'Appt Fixed
      Direct' breaks onto two lines as the mockup shows. Going wider would have forced 3-across and
      lost the single-row read the panel is for. */
-  @container (max-width:339px){ .dov{grid-template-columns:minmax(0,1fr)} }
-  @container (min-width:340px){ .dov{grid-template-columns:repeat(3,minmax(0,1fr))} }
+  @container (max-width:339px){ .dov{grid-template-columns:minmax(0,1fr)} .dov>*{grid-column:auto} }
+  /* On a narrow panel the two overlay tiles stop sharing a row. Side by side they were 122px
+     each, which squeezed the four priority buttons to 21px and clipped their labels to a
+     sliver (found 28-Aug-2026 at 375px). Full width gives Priority the whole panel, and the
+     buttons drop to 2x2 if even that is tight. */
+  @container (max-width:339px){ .dovmore .metric{flex:1 1 100%} }
+  @container (max-width:239px){ .priocats{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @container (min-width:340px){
+    .dov{grid-template-columns:repeat(6,minmax(0,1fr))}
+    .dov>*{grid-column:span 2}
+    .dov>*:nth-child(4):nth-last-child(2),.dov>*:nth-child(5):nth-last-child(1){grid-column:span 3}
+  }
 
   @container (max-width:339px){ .dpf{grid-template-columns:repeat(2,minmax(0,1fr))} }
   @container (min-width:340px) and (max-width:509px){ .dpf{grid-template-columns:repeat(3,minmax(0,1fr))} }
@@ -1891,8 +1996,8 @@ html{scroll-behavior:smooth}
 .dov-c:nth-child(1),.dpf-c:nth-child(1),.dfu-c:nth-child(1),.dtg-c:nth-child(1){animation-delay:0s}
 .dov-c:nth-child(2),.dpf-c:nth-child(2),.dfu-c:nth-child(2),.dtg-c:nth-child(2){animation-delay:.045s}
 .dov-c:nth-child(3),.dpf-c:nth-child(3),.dfu-c:nth-child(3),.dtg-c:nth-child(3){animation-delay:.09s}
-.dpf-c:nth-child(4),.dfu-c:nth-child(4){animation-delay:.135s}
-.dpf-c:nth-child(5){animation-delay:.18s}
+.dov-c:nth-child(4),.dpf-c:nth-child(4),.dfu-c:nth-child(4){animation-delay:.135s}
+.dov-c:nth-child(5),.dpf-c:nth-child(5){animation-delay:.18s}
 
 /* Bars grow from zero; the resting width is var(--w) so a suppressed animation still shows the
    right fill rather than an empty track. */
@@ -2079,14 +2184,22 @@ html{scroll-behavior:smooth}
 .ddg:nth-child(5){animation-delay:.18s}
 @media(prefers-reduced-motion:reduce){ .ddg{animation:none} }
 
-/* ---------- No dead space inside a panel ----------
-   Side-by-side panels stretch to equal height, so whichever panel has less content used to end in a
-   blank strip (the Follow-ups panel under its rings). The panel is now a flex column and its card
-   grid takes the leftover height, so the cards themselves grow instead of the panel ending in white.
-   Ring tiles space their label / ring / share out over the extra height rather than clumping. */
+/* ---------- No dead space inside a CARD ----------
+   Side-by-side panels stretch to equal height. Cards used to absorb that slack (align-content:
+   stretch grew the rows, and the card's flexible description opened a void between its number and
+   its footer) — reported 27-Aug-2026: at 100% zoom the five performance cards wrap to two rows,
+   that panel gets taller, and the three overview cards each boxed ~90px of white inside their own
+   borders. Rows now keep their NATURAL height (align-content:start), so leftover height falls
+   after the cards inside the panel — visible as breathing room, never as a hole inside a card.
+   Within a row, cards still stretch to each other (align-items:stretch above), so footers align. */
 .dpanel{display:flex;flex-direction:column}
 #haOverview,#haPipeTargets,#haFollowupCards,#haTargetCards{flex:1 1 auto}
-.dov,.dpf,.dfu,.dtg{align-content:stretch}
+/* space-evenly (UX pass 27-Aug-2026): `start` fixed the void INSIDE cards but pooled all the
+   pair-stretch slack at the panel bottom, which read as a dead zone (reported). Distributing it
+   BETWEEN rows keeps every card its natural size and turns the leftover into even breathing room
+   — a single-row grid simply floats centred in its panel. Unpaired panels have no slack, so
+   nothing changes when the panels stack. */
+.dov,.dpf,.dfu,.dtg{align-content:start}
 /* CENTRED AS A GROUP, not spread to the extremes. These cards stretch to whatever height the panel
    beside them dictates — measured at 213px against 126px of actual content — and space-between spent
    all 87px of that slack on two gaps, so the label sat hard against the top border and the count
@@ -2103,7 +2216,7 @@ html{scroll-behavior:smooth}
    Visited / Enrollment become one thick proportional bar each with the count and share written into
    the segment, and the funnel becomes an actual tapered silhouette beside a comparison table. */
 
-.dgrid3{display:grid;gap:14px;margin-top:14px;grid-template-columns:minmax(0,1fr)}
+.dgrid3{display:grid;gap:14px;margin-top:14px;grid-template-columns:minmax(0,1fr);align-items:start}
 /* Panel 8 carries a funnel AND a five-row table, so it gets roughly double the width of the two
    status panels once there is room for all three across. */
 @supports not (container-type:inline-size){

@@ -17,7 +17,9 @@ import {
   fetchCallRecords,
   configuredCallerNumbers,
   isOwnCallRecord,
-} from '../services/tata';
+  hangupCall,
+  liveCalls,
+  findLiveCallFor,} from '../services/tata';
 
 // ============================================================
 // POST /api/calls/initiate/:contactId — click-to-call the lead's mobile.
@@ -81,7 +83,25 @@ async function initiate(req: Request, res: Response) {
       r = await clickToCallSupport({ destinationNumber: callerId, customerNumber: destination, didNumber: callerId });
     }
     console.log('[call-initiate] smartflo ok=%s status=%s callId=%s raw=%j', r.ok, r.status, r.callId, r.raw);
-    if (!r.ok) { res.status(502).json({ ok: false, error: r.error || 'Call could not be placed', provider: r.raw, providerStatus: r.status }); return; }
+    if (!r.ok) {
+      // Smartflo's raw strings are accurate but unactionable on their own — "Agent is Offline"
+      // reached the user as a bare red toast with no way to know WHICH phone was rung or what to
+      // do about it (reported 28-Aug-2026). Click-to-call rings the AGENT extension first and only
+      // bridges the customer once it answers, so an unregistered softphone fails every call while
+      // the identical request succeeds minutes later once someone logs in. Name the extension, say
+      // whose it is, and point at the two places that fix it.
+      const providerMsg = String(r.error || '');
+      let errMsg = providerMsg || 'Call could not be placed';
+      if (/agent\s*(is\s*)?offline|agent\s*not\s*(available|online)/i.test(providerMsg)) {
+        errMsg = 'Agent is offline — Smartflo could not ring extension ' + agent + ', so the call was never placed. '
+          + 'Click-to-call rings that extension first and only then the customer, so it has to be logged in and Available in the Tata/Smartflo agent app (softphone or desk phone). '
+          + (cfg.perUser
+              ? 'That is your own extension from Settings → Users & Assignees.'
+              : 'That is the shared ' + (role || 'default') + ' extension — everyone on this page dials through it. Set your own DID + Extension in Settings → Users & Assignees so calls ring your phone instead.');
+      }
+      res.status(502).json({ ok: false, error: errMsg, provider: r.raw, providerStatus: r.status, agent, perUser: !!cfg.perUser });
+      return;
+    }
 
     const logId = r.callId ? String(r.callId) : ('init-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
     let logged = true;
@@ -97,10 +117,60 @@ async function initiate(req: Request, res: Response) {
         // _loadAdvCallStats — the bug this closes: a call someone else placed was being counted
         // against whichever advisor the lead happens to be assigned to today).
         initiated_by_email: req.user?.email || null, initiated_by_name: req.user?.name || null,
+        // The provider's originate reference. /v1/call/hangup accepts it, so storing it is what
+        // lets End Call drop THIS call later even if the browser reloaded in between.
+        provider_ref_id: r.refId || null,
       }, { onConflict: 'call_id' });
       if (error) logged = false;
     } catch (_) { logged = false; }
-    res.json({ ok: true, callId: r.callId || null, logged, agent, agentType: useExt ? 'ext' : 'mobile', callerId, role: role || null, provider: r.raw });
+    res.json({ ok: true, callId: r.callId || null, refId: r.refId || null, logId, destination, logged, agent, agentType: useExt ? 'ext' : 'mobile', callerId, role: role || null, provider: r.raw });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message || 'server error' });
+  }
+}
+
+// ============================================================
+// POST /api/calls/hangup — drop a live call from the app's own End Call button.
+// Click-to-call places the agent leg on a real handset, so nothing in the browser can end it; only
+// the provider can tear the bridge down. Smartflo's /v1/call/hangup takes either identifier, so we
+// try the originate ref_id first and fall back to the live-call list for a real call_id (an
+// answered leg can outlive its originate reference). A 200 only means ACCEPTED, so the response
+// also reports whether the line is actually gone from live_calls — the UI states the difference
+// instead of claiming success it cannot see.
+// ============================================================
+async function hangup(req: Request, res: Response) {
+  try {
+    const refId = String(req.body?.refId || '').trim() || null;
+    const callIdIn = String(req.body?.callId || '').trim() || null;
+    const destination = String(req.body?.destination || '').trim();
+    if (!refId && !callIdIn && !destination) { res.status(400).json({ ok: false, error: 'Nothing to hang up — no call reference was supplied.' }); return; }
+
+    let live = await liveCalls();
+    let liveMatch = destination ? findLiveCallFor(live, destination) : null;
+    // Nothing live for this lead: the call already ended on its own (the usual case when someone
+    // hangs up the handset first). Report it as ended rather than as a failed hangup.
+    if (!liveMatch && !refId && !callIdIn) { res.json({ ok: true, alreadyEnded: true, verified: true }); return; }
+
+    let r = await hangupCall({ callId: callIdIn || (liveMatch && (liveMatch.call_id || liveMatch.callId)) || null, refId });
+    if (!r.ok && !callIdIn) {
+      const cid = liveMatch && (liveMatch.call_id || liveMatch.callId);
+      if (cid) r = await hangupCall({ callId: String(cid) });
+    }
+
+    // Verify against the provider rather than trusting the acknowledgement.
+    let verified = false;
+    if (r.ok && destination) {
+      await new Promise((rs) => setTimeout(rs, 1200));
+      live = await liveCalls();
+      verified = !findLiveCallFor(live, destination);
+    }
+    if (!r.ok && destination) {
+      live = await liveCalls();
+      if (!findLiveCallFor(live, destination)) { res.json({ ok: true, alreadyEnded: true, verified: true }); return; }
+    }
+    console.log('[call-hangup] ref=%s callId=%s dest=%s ok=%s verified=%s raw=%j', refId, callIdIn, destination, r.ok, verified, r.raw);
+    if (!r.ok) { res.status(502).json({ ok: false, error: r.error || 'The provider would not end the call', provider: r.raw }); return; }
+    res.json({ ok: true, verified });
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e?.message || 'server error' });
   }
@@ -395,6 +465,7 @@ export function registerCallRoutes(app: Express) {
   // gated by requireAuth: it's called by the telephony provider, not a logged-in browser session —
   // it gets its own signature/shared-secret verification instead (see webhook()).
   app.post('/api/calls/initiate/:contactId', requireAuth, initiate);
+  app.post('/api/calls/hangup', requireAuth, hangup);
   app.post('/api/calls/webhook/recording', webhook);
   app.put('/api/calls/:contactId/latest-type', requireAuth, latestType);
   app.get('/api/calls/:contactId/recordings', requireAuth, recordings);

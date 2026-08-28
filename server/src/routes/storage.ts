@@ -35,7 +35,11 @@ export function registerStorageRoutes(app: Express) {
   // patient's payment proof / office-visit recording with no credentials at all. GET accepts the
   // session token via ?token= too (see session.ts) since a plain <img src>/download link can't
   // carry a header.
-  app.post('/storage/upload', express.json({ limit: '64mb' }), requireAuth, upload);
+  // 150mb (raised from 64mb, 28-Aug-2026): base64 inflates a file by a third, so the cap has to
+  // be ~1.34x the largest audio we mean to accept. Consultations record at a measured ~128 kbps
+  // (15.5 kB/s), so 150mb of REQUEST carries roughly 112 MB of audio — about two hours. The
+  // 87-minute recording that could not be saved posts ~105 MB, which the old 64mb cap refused.
+  app.post('/storage/upload', express.json({ limit: '150mb' }), requireAuth, upload);
   // List what is actually stored under a prefix. Needed to RECOVER a file whose URL was never
   // recorded: proofs used to be saved as a bare filename, so the BDM saw dead text ("no link
   // saved") for a PDF sitting on disk the whole time. The upload path is <bucket>/<leadId>/

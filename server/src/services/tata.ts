@@ -61,6 +61,10 @@ export function tataConfig(role?: string) {
     agentNumber: resolve('tata_tele_default_agent_number', 'TATA_TELE_DEFAULT_AGENT_NUMBER'),
     useSupportFallback: envAny('tata_tele_use_support_fallback', 'TATA_TELE_USE_SUPPORT_FALLBACK') === '1',
     role: r || null,
+    // Always present so every caller can ask "is this the user's OWN extension or the shared role
+    // one?" without narrowing a union — tataConfigForUser overrides it to true when app_users
+    // supplied a DID/extension. The call-failure message says which, so the fix is unambiguous.
+    perUser: false,
   };
 }
 
@@ -235,7 +239,7 @@ export async function fetchCallRecords(fromDate: string, toDate: string, limit =
   } catch (_) { return []; }
 }
 
-export interface CallResult { ok: boolean; callId?: string | null; status?: number; error?: string; raw?: any; }
+export interface CallResult { ok: boolean; callId?: string | null; refId?: string | null; status?: number; error?: string; raw?: any; }
 
 // Primary: JSON click_to_call. Rings the agent first, then bridges the customer.
 export async function clickToCall(opts: { agentNumber: string; destinationNumber: string; callerId: string; customIdentifier: any; }): Promise<CallResult> {
@@ -262,7 +266,12 @@ export async function clickToCall(opts: { agentNumber: string; destinationNumber
     return { ok: false, status: res.status, error: (json && (json.message || json.error)) || text || 'call failed', raw: json };
   }
   const callId = json.call_id || json.callId || (json.data && json.data.call_id) || null;
-  return { ok: true, callId, raw: json };
+  // Smartflo answers a click-to-call with {success, message:"Originate successfully queued", ref_id}
+  // — no call_id at all. ref_id is what /v1/call/hangup accepts, so keeping it is what makes the
+  // app's own End Call button able to drop the line (28-Aug-2026); without it the only way to end
+  // a call was to hang up the handset.
+  const refId = json.ref_id || json.refId || (json.data && json.data.ref_id) || null;
+  return { ok: true, callId, refId, raw: json };
 }
 
 // Optional fallback: form-urlencoded support endpoint with Bearer auth.
@@ -327,4 +336,62 @@ export async function downloadRecordingToStorage(url: string, callId: string): P
     const { data } = supabase.storage.from(RECORD_BUCKET).getPublicUrl(path);
     return { publicUrl: (data && data.publicUrl) || '', path };
   } catch (_) { return null; }
+}
+
+
+// ---- Hangup (POST /v1/call/hangup) --------------------------------------------------------
+// Documented contract: body carries EITHER call_id or ref_id; 200 means the request was accepted
+// for processing, not that the line is already down — the webhook/CDR remains the source of truth
+// for the final state, which is why the caller still reconciles afterwards.
+const SMARTFLO_HANGUP_URL = 'https://api-smartflo.tatateleservices.com/v1/call/hangup';
+export async function hangupCall(opts: { callId?: string | null; refId?: string | null }): Promise<CallResult> {
+  const key = tataConfig().apiKey;
+  if (!key) return { ok: false, error: 'tata_tele_api_key not configured' };
+  const body: any = {};
+  if (opts.callId) body.call_id = opts.callId;
+  else if (opts.refId) body.ref_id = opts.refId;
+  else return { ok: false, error: 'no call_id or ref_id to hang up' };
+  let res: Response, text: string;
+  try {
+    res = await fetch(SMARTFLO_HANGUP_URL, {
+      method: 'POST',
+      headers: { 'Authorization': key, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    text = await res.text();
+  } catch (e: any) { return { ok: false, error: 'network: ' + (e?.message || 'fetch failed') }; }
+  let json: any = {}; try { json = JSON.parse(text); } catch (_) { json = {}; }
+  if (!res.ok || bodyLooksFailed(text)) {
+    return { ok: false, status: res.status, error: (json && (json.message || json.error)) || text || 'hangup failed', raw: json };
+  }
+  return { ok: true, raw: json };
+}
+
+// Live calls for this account. Used to find the real call_id when the ref_id is rejected (an
+// answered leg can outlive the originate reference), and to VERIFY the line actually dropped
+// rather than trusting the 200 above.
+const SMARTFLO_LIVE_URL = 'https://api-smartflo.tatateleservices.com/v1/live_calls';
+export async function liveCalls(): Promise<any[]> {
+  const key = tataConfig().apiKey;
+  if (!key) return [];
+  try {
+    const r = await fetch(SMARTFLO_LIVE_URL, { headers: { 'Authorization': key, 'Accept': 'application/json' } });
+    if (!r.ok) return [];
+    const j: any = await r.json();
+    return Array.isArray(j) ? j : (j?.data || j?.results || []);
+  } catch (_) { return []; }
+}
+
+// The live call matching this destination, if any. Smartflo formats numbers inconsistently across
+// endpoints, so match on the last 10 digits rather than the full string.
+export function findLiveCallFor(calls: any[], destination: string): any | null {
+  const d10 = digits10(destination);
+  if (!d10) return null;
+  return calls.find((c: any) => {
+    const cand = [c?.customer_number, c?.destination, c?.destination_number, c?.des, c?.to_number];
+    // `destination` arrives as a COMMA-SEPARATED list on multi-destination calls
+    // ("+9196...,+9196..."), so each entry is compared on its own — taking the last 10 digits of
+    // the joined string would compare a number that spans the comma and belongs to nobody.
+    return cand.some((v: any) => v && String(v).split(',').some((one) => digits10(one.trim()) === d10));
+  }) || null;
 }

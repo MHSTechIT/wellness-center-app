@@ -6,7 +6,15 @@
 // uses, so app.ts needs zero changes.
 // ============================================================
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+const _rawBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+// "auto" resolves the API from WHEREVER THE PAGE WAS LOADED (that host, port 4100) instead of a
+// baked IP. DHCP moved this machine's LAN address twice in one week (.121 -> .3 -> .25), and each
+// time every request silently hung against the stale IP until someone edited .env.local. With
+// "auto", localhost serves localhost, and a laptop opening http://<ip>:3000 talks to <ip>:4100 -
+// whatever the ip happens to be today. "" still means same-origin (the production single-server).
+const API_BASE = _rawBase === "auto"
+  ? (typeof window !== "undefined" ? window.location.protocol + "//" + window.location.hostname + ":4100" : "")
+  : _rawBase;
 const api = (p: string) => API_BASE + p;
 const SESSION_KEY = "wos_session";
 // Guards against a reload loop: if a stale/invalid token in localStorage keeps getting rejected
@@ -160,11 +168,45 @@ function storageBucket(bucket: string) {
   return {
     async upload(path: string, file: any, _opts?: any) {
       try {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        let bin = ""; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
-        const dataB64 = btoa(bin);
+        // Base64 WITHOUT a byte-by-byte JS string. The old loop appended one character per byte,
+        // so a 78 MB recording built a ~157 MB UTF-16 string before btoa() even started, then two
+        // more copies for the base64 and the JSON body — enough to stall or crash the tab on a
+        // normal laptop, which would have made the raised 150mb cap unusable in practice.
+        // FileReader does the same encoding natively with no intermediate string; the chunked loop
+        // stays as a fallback for anywhere FileReader is missing.
+        let dataB64 = "";
+        if (typeof FileReader !== "undefined" && file && typeof file.arrayBuffer === "function") {
+          dataB64 = await new Promise<string>((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => { const s = String(fr.result || ""); const i = s.indexOf(","); resolve(i >= 0 ? s.slice(i + 1) : ""); };
+            fr.onerror = () => reject(fr.error || new Error("could not read the file"));
+            fr.readAsDataURL(file);
+          });
+        } else {
+          const buf = new Uint8Array(await file.arrayBuffer());
+          let bin = ""; const CH = 0x8000;
+          for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CH)));
+          dataB64 = btoa(bin);
+        }
         const r = await fetch(api("/storage/upload"), { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ path: bucket + "/" + path, dataB64, contentType: file.type || "application/octet-stream" }) });
-        const j = await r.json();
+        // A size cap IN FRONT of the API (nginx & friends answer an oversize body with their own
+        // HTML page — nginx's 413 body begins "<html>" then "<head><title>413 Request Entity
+        // Too Large") means the response is
+        // not JSON at all, and r.json() then threw "Unexpected token '<'". That parser complaint
+        // reached the user verbatim on a recovered 87-minute recording (28-Aug-2026) and told them
+        // nothing about what to do. Read the body as text and translate it into the real cause.
+        const ct = r.headers.get("content-type") || "";
+        const rawBody = await r.text();
+        if (ct.indexOf("json") < 0) {
+          const mb = Math.round(dataB64.length / 1048576);
+          const tooBig = r.status === 413 || /too large|entity too large/i.test(rawBody);
+          return { data: null, error: { message: tooBig
+            ? ("Upload rejected as too large (~" + mb + " MB). The request was refused before it reached the app, so the size limit in front of the server is what has to allow it. The file is not lost.")
+            : ("The server returned an unexpected " + r.status + " response instead of JSON, so the upload did not complete. The file is not lost.") } };
+        }
+        let j: any = {};
+        try { j = JSON.parse(rawBody); }
+        catch (_) { return { data: null, error: { message: "The server sent a malformed response (HTTP " + r.status + "). The file is not lost." } }; }
         if (j.error) return { data: null, error: { message: j.error } };
         return { data: { path: j.path }, error: null };
       } catch (e: any) { return { data: null, error: { message: e?.message || "upload error" } }; }

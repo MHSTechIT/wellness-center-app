@@ -28,6 +28,14 @@ type Step = { name: string; sql: string };
 
 const STEPS: Step[] = [
   {
+    // Smartflo's originate reference for a click-to-call. The provider returns ref_id (never a
+    // call_id) when the call is queued, and /v1/call/hangup accepts it — so this is what lets the
+    // app's own End Call button drop a live call, including after a page reload. Added
+    // 28-Aug-2026; NULL on every historical row, which is correct — those calls are long over.
+    name: 'call_recordings.provider_ref_id',
+    sql: `ALTER TABLE call_recordings ADD COLUMN IF NOT EXISTS provider_ref_id TEXT`,
+  },
+  {
     // The advisor's manual "Confirmed" milestone (Open → Confirm → Visited). Set only by
     // the Confirm button; NULL means not confirmed, which is correct for every existing row.
     name: 'leads.confirmed_at',
