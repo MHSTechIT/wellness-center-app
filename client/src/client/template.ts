@@ -482,7 +482,12 @@ export function getMainContent(): string {
                dictaphone or Zoom belongs on the same client profile as one recorded here, so it
                lands in the SAME office_recordings list and player rather than a parallel place. -->
           <div class="ovup" id="ovrUpWrap">
-            <input type="file" id="ovrFileInput" style="display:none" aria-label="Choose a recording to upload"
+            <!-- data-nocap is MANDATORY here. This panel captures its fields POSITIONALLY, so an
+                 unmarked input does two bad things at once: it shifts every field after it by one
+                 index, and applyCoachProfile then tries to assign a value to it — which a file
+                 input rejects outright ("may only be programmatically set to the empty string"),
+                 the error reported 28-Aug-2026. Any new control added to this panel needs it. -->
+            <input type="file" id="ovrFileInput" data-nocap style="display:none" aria-label="Choose a recording to upload"
                    accept=".mp4,.mov,.webm,.mp3,.wav,.m4a,.aac,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac"
                    onchange="window._ovrFileChosen(this)">
             <div class="ovup-drop" id="ovrDrop" role="button" tabindex="0" onclick="window._ovrPickFile()"

@@ -512,8 +512,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;border:1px solid 
 .att .icon{width:14px;height:14px;stroke:var(--brand)}
 .att.add{border-style:dashed;color:var(--brand);font-weight:600;cursor:pointer}
 .att.add:hover{background:var(--brand-tint);border-color:var(--brand)}
-.ach{position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-90px);background:linear-gradient(135deg,var(--pine),var(--pine-2));color:#fff;padding:14px 22px;border-radius:15px;box-shadow:var(--sh-lg);display:flex;gap:13px;align-items:center;z-index:80;transition:.45s var(--ease-pop)}
-.ach.show{transform:translateX(-50%) translateY(0)}
+/* The celebration popup hid itself by sliding up 90px — but it is 70px tall at top:24px, so it needed
+   94px and left a 4px dark strip pinned across the top of every screen (reported 26-Aug-2026 as a
+   "black line in the header"). A bigger negative offset would fix today's number and break again the
+   moment the text wraps to a second line, so visibility does the hiding now and the transform is left
+   to do only the animation. */
+.ach{position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-90px);background:linear-gradient(135deg,var(--pine),var(--pine-2));color:#fff;padding:14px 22px;border-radius:15px;box-shadow:var(--sh-lg);display:flex;gap:13px;align-items:center;z-index:80;transition:transform .45s var(--ease-pop),opacity .45s var(--ease-pop),visibility 0s linear .45s;opacity:0;visibility:hidden;pointer-events:none}
+.ach.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible;pointer-events:auto;transition:transform .45s var(--ease-pop),opacity .45s var(--ease-pop),visibility 0s}
 .ach .em{font-size:27px}
 .ach b{font-family:var(--disp);font-size:14.5px;display:block}
 .ach span{font-size:11.5px;color:#9FE8CC}
@@ -1665,7 +1670,7 @@ html{scroll-behavior:smooth}
    one 3 / 3 / 3 block rather than a grid with two loose tiles under it. They keep their own
    .metric markup — moved, not rebuilt, so their handlers survive — and only need to be dressed
    like the cards beside them. The grid sizes them, so no flex-basis here. */
-.dov .metric{padding:11px 13px;border-radius:13px;border:1px solid var(--line);background:var(--surface);
+.dov .metric{padding:12px 13px 11px;border-radius:13px;border:1px solid var(--line);background:var(--surface);
   box-shadow:none;min-width:0;display:flex;flex-direction:column;justify-content:center}
 .dov .metric .ml{font-size:11px;color:var(--muted);font-weight:700}
 .dov .metric .mv{font-family:var(--disp);font-size:clamp(20px,2vw,24px);font-weight:800;letter-spacing:-.5px;margin-top:2px}
@@ -2322,7 +2327,13 @@ html{scroll-behavior:smooth}
    identical layout, whatever the zoom level or screen size behind it. */
 @supports (container-type:inline-size){
   #advDashSections{container-type:inline-size}
-  @container (min-width:860px){ .dgrid{grid-template-columns:minmax(0,1fr) minmax(0,1.32fr)} }
+  /* The LEFT column is the wider one now (28-Aug-2026). Pipeline overview grew from three cards
+     to nine and is the taller panel by far, yet it was being given the NARROWER track (1 against
+     1.32) — which squeezed its cards to ~125px, wrapped every description onto three lines and
+     pushed the panel to 604px against the right column's 476px. That 128px difference was the
+     blank strip beside Follow-ups. Wider cards wrap less, the panel gets shorter, and the two
+     columns end far closer together. */
+  @container (min-width:860px){ .dgrid{grid-template-columns:minmax(0,1.24fr) minmax(0,1fr)} }
   @container (min-width:780px){ .dgrid2{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr)} }
   /* Panels 6 and 7 are compact (one bar and a total); panel 8 carries a funnel AND a five-row table.
      Three equal columns stretched the two short panels to the tall one and left ~315px of white
@@ -2634,3 +2645,33 @@ html[data-boot="sess"] #appLoading{display:flex!important}
   .tgt-row,.tgt-d,.tgt-d.bump,.tgt-d.bump .mv{animation:none}
   #tgtAdvTbl input[data-tgt],#tgtCoachTbl input[data-tgt],.tgt-row{transition:none}
 }
+
+/* ===== Pipeline-overview card ALIGNMENT (28-Aug-2026) ======================================
+   Reported: the nine cards did not line up. Three separate causes, all of them about where a
+   card's parts sit rather than how big the card is.
+
+   1. LABELS WRAP TO DIFFERENT HEIGHTS. "Unauthorized Lead" takes two lines where "Open" takes
+      one, so its number started ~15px lower than its neighbours'. The label now reserves two
+      lines whatever it needs, and every number in the row begins at the same height.
+   2. THE TWO MOVED TILES CENTRED THEMSELVES. Call Status and Priority came from a container that
+      vertically centred its content, so their numbers floated mid-card against neighbours whose
+      numbers sat at the top. They now top-align like everything else in the grid.
+   3a. AND THEIR PADDING WAS 11px WHERE THE CARDS USE 12px, which left their numbers sitting one
+      pixel higher than the card beside them — invisible alone, but the row is read as a line.
+   3. THEIR NUMBER WAS A DIFFERENT SIZE — 20-24px against the cards' 24-28px, which read as two
+      kinds of card sitting in one grid. Same scale now.
+   Footers already align: .d takes the slack, and cards stretch to their row. */
+.dov-c .k,.dov .metric .ml{line-height:1.35;min-height:2.7em}
+.dov .metric{justify-content:flex-start}
+.dov .metric .mv{font-family:var(--disp);font-size:clamp(24px,2.4vw,28px);font-weight:800;
+  letter-spacing:-.7px;line-height:1.1;margin:3px 0 2px}
+/* The priority buttons are the tile's own footer — pushed to the bottom so the tile has the same
+   label / number / content rhythm as the cards beside it. */
+.dov .metric .priocats{margin-top:auto;padding-top:8px}
+/* The tiles' subtitle matches the cards' description — same size, same colour, same place —
+   so a row of nine reads as one set rather than seven cards and two odd ones. */
+/* margin-top:auto puts the subtitle on the card's BASELINE, level with the footer row of the
+   cards beside it. Sitting straight under the number instead, it left all the leftover height
+   pooled at the bottom — 80px of it in the tallest row — which is the empty box that kept
+   being reported. The space now falls between number and subtitle, where it reads as spacing. */
+.dov .metric .msub{font-size:10.5px;color:var(--faint);line-height:1.4;margin-top:auto;padding-top:8px}

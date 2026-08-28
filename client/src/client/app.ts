@@ -1704,6 +1704,75 @@ export function initApp(root: HTMLElement) {
     // Top-centre notification stack — deduped, capped, and auto-dismissing so the same
     // alert never piles up. type: 'warn' (60s) | 'ok' (6s).
     const _NOTIF_MAX=6;   // at most this many popups on screen; oldest is dropped past it
+    // ===== "New lead assigned" notification ==================================================
+    // Auto-assignment already ends with broadcastChange("leads"), so every open browser is told
+    // that leads changed. What was missing is turning that into "one was just given to YOU".
+    //
+    // The names are resolved HERE, on the client, from the book this user is already authorised to
+    // read - deliberately not carried on the event stream. /events is unauthenticated by design
+    // (EventSource cannot send an Authorization header) and its own header states it carries no row
+    // data and no identifiers; putting a patient name on it would leak to anyone who reaches the URL.
+    // This is the same shape broadcastCheer already uses for the check-in celebration.
+    let _asgSeen:Record<string,string>|null=null;   // leadId -> advisor, as of the last look
+    const ASG_FRESH_MS=10*60*1000;                  // only announce assignments made just now
+    /** Who may hear about an assignment: the advisor who got it, plus the oversight roles. */
+    function _asgAudienceFor(advisor:string):boolean{
+      if(_holdsFullViewRole()) return true;                       // Super Admin / Manager / Branch Manager
+      if(_rolesOf(_currentUser).includes("Admin")) return true;   // if an Admin role is ever added
+      const me=_advisorName();
+      return !!me&&me.toLowerCase()===String(advisor||"").toLowerCase();
+    }
+    function _asgNotify(name:string,advisor:string,mine:boolean){
+      const stack=_notifStackEl();
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const key="asg:"+advisor+":"+name;
+      const arm=(el:HTMLElement)=>{ const t=(el as any)._t; if(t)clearTimeout(t);
+        (el as any)._t=setTimeout(()=>{ if(el.parentNode) el.parentNode.removeChild(el); },10000); };
+      // Same dedupe the other alerts use: an identical notice already up just resets its timer.
+      const existing=Array.from(stack.children).find((c:any)=>c.getAttribute("data-msg")===key)as HTMLElement|undefined;
+      if(existing){ arm(existing); return; }
+      while(stack.children.length>=_NOTIF_MAX){ const f=stack.firstElementChild as HTMLElement|null; if(!f)break;
+        const ft=(f as any)._t; if(ft)clearTimeout(ft); stack.removeChild(f); }
+      const wrap=document.createElement("div"); wrap.setAttribute("data-msg",key);
+      wrap.style.cssText="pointer-events:auto;display:flex;align-items:flex-start;gap:9px;padding:10px 12px;"
+        +"border-radius:10px;box-shadow:0 6px 22px rgba(0,0,0,0.16);font-size:12.5px;line-height:1.5;"
+        +"background:var(--surface,#fff);border:1px solid var(--line);border-left:3px solid var(--ok-ink,#10794A);max-width:330px";
+      wrap.innerHTML='<span style="font-size:14px;flex-shrink:0">&#128100;</span><div style="flex:1">'
+        +'<div style="font-weight:800;margin-bottom:2px">New Lead Assigned</div>'
+        +'<div>Lead: <b>'+e(name||"Lead")+'</b></div>'
+        +'<div>Assigned to: <b>'+e(advisor||"&mdash;")+'</b>'+(mine?' <span class="chipb ok" style="margin-left:4px">You</span>':"")+'</div></div>'
+        +'<button aria-label="Dismiss" style="background:none;border:0;cursor:pointer;color:var(--faint);font-size:15px;line-height:1;padding:0 2px">&times;</button>';
+      (wrap.querySelector("button")as HTMLElement).onclick=()=>{ const t=(wrap as any)._t; if(t)clearTimeout(t);
+        if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
+      stack.appendChild(wrap); arm(wrap);
+    }
+    /** Diff the book against the last look and announce anything newly assigned. */
+    function _asgCheckNew(){
+      if(!_currentUser) return;
+      const book=[..._metaLeads,..._assignedExtras];
+      const now:Record<string,string>={};
+      book.forEach((l:any)=>{ const id=String((l&&l.id)||""); if(!id) return; now[id]=String((l&&l.assignedTo)||"").trim(); });
+      // The FIRST look only records the baseline. Without it, signing in would announce every lead
+      // the advisor already owns as if it had just arrived.
+      if(_asgSeen===null){ _asgSeen=now; return; }
+      const prev=_asgSeen;
+      book.forEach((l:any)=>{
+        const id=String((l&&l.id)||""); if(!id) return;
+        // TRIMMED: a whitespace-only assigned_to is not an assignment, but " " is truthy and
+        // would have announced a lead as assigned to nobody.
+        const adv=String((l&&l.assignedTo)||"").trim(); if(!adv) return;
+        if((prev[id]||"")===adv) return;                    // nothing changed for this lead
+        // Only announce a genuinely RECENT assignment. A lead whose row merely arrived in this
+        // browser for the first time (paging, a filter change) is not news.
+        const at=new Date(String((l&&l.assignedAt)||"")).getTime();
+        if(!at||isNaN(at)||Date.now()-at>ASG_FRESH_MS) return;
+        if(!_asgAudienceFor(adv)) return;
+        const me=_advisorName();
+        _asgNotify(String((l&&l.name)||"Lead"),adv,!!me&&me.toLowerCase()===adv.toLowerCase());
+      });
+      _asgSeen=now;
+    }
+    w._asgCheckNew=_asgCheckNew;
     function _notifStackEl(){
       let s=document.getElementById("metaNotifStack")as HTMLElement|null;
       if(!s){ s=document.createElement("div"); s.id="metaNotifStack";
@@ -7550,7 +7619,12 @@ export function initApp(root: HTMLElement) {
         // (activity date), and its drill-down opens that same set. Without one it stays the
         // filter-cohort size it always was.
         if(!_btView){ const _csWin=!!(_haWinT().fromT||_haWinT().toT);
-          cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\''+(_csWin?'ev:status':'callstatus')+'\')"><div class="ml">'+(filter==="all"?(_csWin?"Call Status Updated":"Call Status"):_haFilterLabel(filter))+'</div>'+mv(_csWin?ev.statusChanged.length:book.length)+'</div>'); }
+          cards.push('<div class="metric" style="cursor:pointer" onclick="window._haCardClick(\''+(_csWin?'ev:status':'callstatus')+'\')"><div class="ml">'+(filter==="all"?(_csWin?"Call Status Updated":"Call Status"):_haFilterLabel(filter))+'</div>'+mv(_csWin?ev.statusChanged.length:book.length)
+            // A subtitle, like every other card in this grid carries. Without one the tile was a
+            // label and a number in a card sized by its taller neighbours, which read as half
+            // empty (reported 28-Aug-2026) - and it also says WHICH number this is, which the
+            // label alone never did.
+            +'<div class="msub">'+(_csWin?"Statuses set in the selected dates":(filter==="all"?"All leads in this book":"Leads at this status"))+'</div>'+'</div>'); }
         // Call KPIs — aggregated over the SAME filtered book as every card above, so they reflect
         // the advisor's own leads and the active filters rather than clinic-wide totals. Both drill
         // into the same lead set (leads with at least one connected call); "Connected Calls" ranks it
@@ -8515,7 +8589,7 @@ export function initApp(root: HTMLElement) {
       // bug: 4 leads assigned → Advisor still showed the old count until refreshed). Same-browser
       // tabs pick this up instantly; a different device is caught by the poll timer below.
       try{ _broadcastLeadSync({type:"assignment"}); }catch(_){}
-      return loadAssignmentExtras().then(()=>{ rebuildPoolFromDB(); renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard(); });
+      return loadAssignmentExtras().then(()=>{ try{ _asgCheckNew(); }catch(_){}  rebuildPoolFromDB(); renderUnassignedPool();renderMetaPage();renderImport();renderAdvisorLoad();renderAssigneesTable();renderAssignedLeads();renderHealthDashboard(); });
     }
     // Assign a set of leads to ONE advisor (Assign selected). assigned_at is best-effort
     // so assignment still works before the deviation migration is run.
@@ -9085,7 +9159,7 @@ export function initApp(root: HTMLElement) {
       // Re-reading the row re-derives the board's date, coach and booked slot in one step.
       if(scr==="advisor"&&table==="appointments"&&_advLeadId){ try{ _advLoadAppt(_advLeadId); }catch(_){} }
       if(table==="leads"){
-        loadAssignmentExtras().then(()=>{ try{ rebuildPoolFromDB(); renderAssignedLeads(); renderHealthDashboard(); if(scr==="abm"){ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); } }catch(_){} });
+        loadAssignmentExtras().then(()=>{ try{ _asgCheckNew(); }catch(_){}  try{ rebuildPoolFromDB(); renderAssignedLeads(); renderHealthDashboard(); if(scr==="abm"){ renderUnassignedPool(); renderAdvisorLoad(); renderAssigneesTable(); } }catch(_){} });
       }
       if(scr==="reception"&&(table==="appointments"||table==="payments"||table==="leads")){ try{ loadReceptionData(); }catch(_){} }
       // "appointments" belongs here: the client's Health Coach is read from appointments.hc_pt, so a
@@ -9924,7 +9998,7 @@ export function initApp(root: HTMLElement) {
     // Sweep expired CSV duplicates (>10 min) and keep the countdown chips fresh.
     // (Removed) the 30s sweep that auto-deleted duplicates older than 10 min — duplicates now persist
     // until the user explicitly Keeps or Deletes them. _csvSweepTimer stays null (cleanup is a no-op).
-    loadAssignmentExtras().then(()=>{rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
+    loadAssignmentExtras().then(()=>{ try{ _asgCheckNew(); }catch(_){} rebuildPoolFromDB();renderUnassignedPool();renderAssignedLeads();renderHealthDashboard();});
     loadAssignmentHistory();   // Assigned Leads History audit table
     loadZoomCheckins();        // Zoom appointments awaiting check-in
 
@@ -12742,7 +12816,7 @@ export function initApp(root: HTMLElement) {
         // Same-browser tabs: near-instant. A different device/browser (the normal case — an
         // Admin assigning from one machine while an Advisor views another) can't receive a
         // BroadcastChannel message at all, so this is backstopped by the poll below.
-        loadAssignmentExtras().then(()=>{ try{ rebuildPoolFromDB(); renderUnassignedPool(); renderMetaPage(); renderImport(); renderAdvisorLoad(); renderAssigneesTable(); renderAssignedLeads(); renderHealthDashboard(); }catch(_){} });
+        loadAssignmentExtras().then(()=>{ try{ _asgCheckNew(); }catch(_){}  try{ rebuildPoolFromDB(); renderUnassignedPool(); renderMetaPage(); renderImport(); renderAdvisorLoad(); renderAssigneesTable(); renderAssignedLeads(); renderHealthDashboard(); }catch(_){} });
         return;
       }
       if(!m.leadId) return; const id=String(m.leadId);
