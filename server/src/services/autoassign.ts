@@ -92,6 +92,9 @@ export type AssignResult = {
   rows: AssignPlanRow[];
   /** Leads whose service matched no team and had no default to fall back on — left pooled. */
   unrouted?: number;
+  /** Physiotherapy leads deliberately left for a human to place. Reported rather than silently
+   *  dropped, so "5 leads arrived and 0 were assigned" has a visible reason. */
+  manualOnly?: number;
   /** How many of today's leads each team was handed, for the preview. */
   teams?: { service: string; leads: number }[];
   rotation?: { order: string[]; chunks: number[]; lastServed: string | null; nextStart: string | null };
@@ -168,6 +171,43 @@ export async function isAutoAssignOn(): Promise<{ on: boolean; day: string | nul
   }
 }
 
+/** Services that are MANUAL ONLY — never placed by the allocator, by any path (requested
+ *  01-Sep-2026). Physiotherapy leads are triaged by a person before anyone owns them, so they must
+ *  stay in Assign & approve until somebody picks them up. */
+const MANUAL_ONLY_SERVICE = /phys/i;
+/** Say it out loud, on the preview AND the real run. A run that places nothing because every
+ *  lead was physiotherapy must not read the same as a run that found nothing to do. */
+const manualOnlyReason = (n: number): string | undefined => n
+  ? n + ' physiotherapy lead' + (n === 1 ? '' : 's') + ' left unassigned — physiotherapy is assigned manually'
+  : undefined;
+
+/** The service a lead ACTUALLY belongs to. The Meta crawl writes leads.service = "Diabetes" for
+ *  every campaign whatever it sells, so the stored column alone cannot tell a physiotherapy lead
+ *  from a diabetes one — which is exactly how five physio leads were auto-assigned to the default
+ *  team: their service read "Diabetes", matched no physio team, and fell through to the fallback.
+ *  The Meta Campaign → Service mapping (Meta leads page, app_settings) is the human-supplied truth
+ *  and is consulted first, the same order the client resolves it in.
+ *
+ *  Used ONLY to decide whether a lead is manual-only. Team routing still keys off leads.service
+ *  exactly as before, so no other service's assignment changes. */
+async function loadCampaignServiceMap(): Promise<Map<string, string>> {
+  const m = new Map<string, string>();
+  try {
+    const { rows } = await pool.query(
+      `SELECT value FROM app_settings WHERE key = 'meta_campaign_services' LIMIT 1`);
+    const v = rows[0]?.value;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      for (const svc of Object.keys(v)) {
+        for (const camp of (Array.isArray(v[svc]) ? v[svc] : [])) {
+          const c = String(camp || '').trim();
+          if (c) m.set(c, String(svc));
+        }
+      }
+    }
+  } catch { /* no mapping configured yet is a valid state, not a failure */ }
+  return m;
+}
+
 export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force?: boolean } = {}): Promise<AssignResult> {
   const dryRun = !!opts.dryRun;
   const by = opts.by || 'auto-assign';
@@ -225,7 +265,7 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
   //     28-Aug-2026), so every lead that arrives today is placed and nothing is left pooled merely
   //     because somebody hit a number.
   const { rows: leadRows } = await pool.query(
-    `SELECT meta_lead_id, coalesce(service,'') AS service
+    `SELECT meta_lead_id, coalesce(service,'') AS service, coalesce(campaign,'') AS campaign
        FROM leads
       WHERE coalesce(is_assigned,false) = false
         AND coalesce(btrim(assigned_to),'') = ''
@@ -263,8 +303,14 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
   // 4 — SPLIT BY RATIO, team by team. Leads keep their arrival order within a team so the earliest
   //     lead is still placed first.
   const byTeam = new Map<string, string[]>();
+  const campSvc = await loadCampaignServiceMap();
   let unrouted = 0;
+  let manualOnly = 0;
   for (const r of leadRows) {
+    // MANUAL-ONLY services never enter the split. Checked against the RESOLVED service (campaign
+    // mapping first) because the stored column says "Diabetes" for every Meta lead.
+    const effective = campSvc.get(String(r.campaign || '').trim()) || String(r.service || '');
+    if (MANUAL_ONLY_SERVICE.test(effective)) { manualOnly++; continue; }
     const t = teamFor(String(r.service || ''));
     if (t === null) { unrouted++; continue; }   // no team for this service and no default — stays pooled
     const arr = byTeam.get(t) || [];
@@ -304,7 +350,8 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
   if (dryRun) {
     // The preview runs the identical split and writes nothing.
     return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan,
-      unrouted, teams: Array.from(byTeam, ([k, v]) => ({ service: k, leads: v.length })) };
+      unrouted, manualOnly, teams: Array.from(byTeam, ([k, v]) => ({ service: k, leads: v.length })),
+      reason: manualOnlyReason(manualOnly) };
   }
 
   // 5 — write. One statement per advisor, each re-checking that the lead is still unassigned, so a
@@ -356,5 +403,6 @@ export async function runAutoAssign(opts: { dryRun?: boolean; by?: string; force
   }
 
   return { ok: true, assigned, poolSeen, poolLeft: Math.max(0, poolSeen - assigned), rows: plan,
-    unrouted, teams: Array.from(byTeam, ([k, v]) => ({ service: k, leads: v.length })) };
+    unrouted, manualOnly, teams: Array.from(byTeam, ([k, v]) => ({ service: k, leads: v.length })),
+    reason: manualOnlyReason(manualOnly) };
 }

@@ -3525,6 +3525,17 @@ export function initApp(root: HTMLElement) {
       return String((d&&d.service)||(l&&l.service)||"");
     };
     const _advLeadSvc=(l:any)=>_advSvcOf(l)||"Diabetes";
+    /** The service that decides which PROFILE LAYOUT a lead opens with. Same resolution as the
+     *  dashboard's Service filter — the Meta Campaign → Service mapping first, then the stored row —
+     *  so a lead that the dashboard counts as Physiotherapy also OPENS as Physiotherapy.
+     *
+     *  Without this the layout read leads.service alone, which the Meta crawl writes as "Diabetes"
+     *  for every campaign whatever it sells: a lead on "Longerlife Wellness - Physio" opened with
+     *  the Sugar & medical work-up while a manually entered physio lead opened correctly, and the
+     *  two disagreed on the same screen. Manual, Walk-in / Referral and Telecalling leads carry a
+     *  real service on the row and are unaffected — they fall straight through to the same value
+     *  they always used. `.svc` stays in the chain: some callers pass that shape. */
+    const _advProfileSvc=(l:any)=>_advSvcOf(l)||String((l&&l.svc)||"");
     const _advLeadAsgd=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return fmtIST((d&&d.assigned_at)||l.poolAddedAt||l.createdAt); };
     const _advLeadNextFu=(l:any)=>{ const nf=_haFuNext(l); return nf?_dIST(nf):"—"; };
     const _advLeadLastFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.last_fu)||"—"; };
@@ -4958,7 +4969,7 @@ export function initApp(root: HTMLElement) {
       // A chosen blood-test package belongs to ONE lead — clear it before the layout renders, or the
       // previous client's plan stays ticked on the next profile opened.
       _advBtPlan="";
-      try{ _advApplyServiceLayout(l.service||l.svc||""); }catch(_){}
+      try{ _advApplyServiceLayout(_advProfileSvc(l)); }catch(_){}
       _advFuNotes=[]; renderAdvFuNotes();
       populateAdvisorDropdowns();   // Salesperson + HC options from the live Assignees master
       const setV=(sel:string,v:string)=>{const el=root.querySelector(sel)as HTMLInputElement;if(el)el.value=v||"";};
@@ -5463,7 +5474,7 @@ export function initApp(root: HTMLElement) {
             // Always call _advApplyEnrolled (not only when enrolled): it also manages the call-status
             // dropdown lock, so a non-enrolled lead opened after an enrolled one must run it to UNLOCK.
             _advApplyEnrolled(l.callStatus,l.enrolledAt,l.enrolledLevel||"");
-            _advApplyServiceLayout(l.service||l.svc||"");   // re-assert the physio/default layout after restore
+            _advApplyServiceLayout(_advProfileSvc(l));   // re-assert the physio/default layout after restore
             _advSetLeadSource(l);                          // ...and the AUTO lead source the restore just overwrote
           }
         }catch(_){}
