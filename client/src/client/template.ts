@@ -791,6 +791,15 @@ export function getMainContent(): string {
     <!-- overflow:visible on BOTH the card and its body: the Campaign/Form menus are absolutely
          positioned inside this card, and .sec clips its content by default — which is why the
          dropdown appeared cut off after the first row. Same fix the pool "Assign to" menu uses. -->
+    <!-- ===== Campaigns by service — the manual campaign→service mapping =====================
+         Sits ABOVE the filter row on purpose: you decide which service you are looking at first,
+         then the Campaign filter below reflects that choice. The cards are built entirely in
+         _mSvcRender(); this is only the shell so the section keeps its place in the page. -->
+    <div class="sec msvc-sec" style="margin-bottom:12px">
+      <div class="sec-hd" style="cursor:default"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-split"></use></svg> Campaigns by service
+        <span class="msvc-hint">Pick which campaigns belong to each service — the mapping is saved for everyone.</span></div>
+      <div class="sec-bd"><div id="mSvcCards" class="msvc-grid"><div class="msvc-none">Loading…</div></div></div>
+    </div>
     <div class="sec" style="margin-bottom:12px;overflow:visible"><div class="sec-bd" style="overflow:visible">
       <div class="g4" style="overflow:visible">
         <div class="fld"><label class="lbl" for="mlAcct">Ad account</label><select class="select" id="mlAcct" onchange="window._mlRender()"><option value="all">All ad accounts</option></select></div>
@@ -2635,6 +2644,41 @@ export function getMainContent(): string {
           <button class="btn" onclick="window._haEditModalClose()">Cancel</button>
           <button class="btn bp" id="haEditSendBtn" onclick="window._haEditSend()">Send to BDM</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch Wise Performance date range. Batch mode scopes every card on the Health Advisor page to
+       the leads RECEIVED in a range, so the range is not optional — the button opens this first and
+       only turns the mode on once a range is chosen. Two months side by side because a batch almost
+       always straddles a month boundary, and a preset rail because most batches are a named window.
+       Body is built by _prRender(); this is the shell. Lives OUTSIDE #s-advisor so its inputs never
+       enter the advisor panel's positional field capture. -->
+  <div class="umodal" id="prModal" role="dialog" aria-modal="true" aria-labelledby="prTitle">
+    <div class="umodal-card pr-card">
+      <div class="umodal-hd">
+        <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-cal"></use></svg>
+        <h2 id="prTitle">Batch wise — pick the intake dates</h2>
+        <button class="umodal-x" aria-label="Close" onclick="window._prClose()"><svg class="icon" style="width:15px;height:15px"><use href="#i-x"></use></svg></button>
+      </div>
+      <div class="umodal-bd pr-bd">
+        <div class="pr-wrap">
+          <div class="pr-presets" id="prPresets"></div>
+          <div class="pr-cals">
+            <div class="pr-head">
+              <button type="button" class="pr-nav" id="prPrev" aria-label="Previous month">&larr;</button>
+              <span class="pr-range" id="prRangeLbl">Select a start date</span>
+              <button type="button" class="pr-nav" id="prNext" aria-label="Next month">&rarr;</button>
+            </div>
+            <div class="pr-months" id="prMonths"></div>
+            <p class="pr-tz">Dates are read as Chennai (IST) days — the same day stamped on the lead.</p>
+          </div>
+        </div>
+      </div>
+      <div class="pr-foot">
+        <span class="pr-count" id="prCount"></span>
+        <button type="button" class="btn" onclick="window._prClose()">Cancel</button>
+        <button type="button" class="btn bp" id="prApply" onclick="window._prApply()">Show this batch</button>
       </div>
     </div>
   </div>

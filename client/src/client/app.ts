@@ -685,6 +685,10 @@ export function initApp(root: HTMLElement) {
       loadReceptionData();
       try{ _advLocLoad(); }catch(_){}   // advisor Location dropdown: merge the shared added-locations list
       try{ _slotRangeLoad(); }catch(_){}   // slot-board date window: one setting, both boards
+      // Meta campaign→service mapping. Loaded at sign-in rather than on the Meta page, because
+      // the Lead Import feed decides every row’s Service from it and is usually the first screen
+      // someone opens — waiting for a visit to Meta leads would show the raw crawl value first.
+      try{ _mSvcLoad(); }catch(_){}
       try{ loadBtMaster(); }catch(_){}   // Blood Test pricing master (Settings CRUD + Collect Payment + intake) — post-auth so the gateway has a session
       try{ loadTgtMaster(); }catch(_){}  // Advisor targets master (Settings CRUD + the Advisor dashboard's targets)
       try{ loadPhysioPricing(); }catch(_){}   // Physio pricing master (Settings CRUD + Physio page card + payment defaults)
@@ -1912,6 +1916,23 @@ export function initApp(root: HTMLElement) {
     // every service filter matches through _svcCanonMatch so legacy/combined stored values (e.g.
     // "Diabetes", "Physio", "Diabetes + Blood test") still filter correctly against the new labels.
     const SERVICE_MASTER=["Diabetes Counselling","Weight Loss Counselling","Sauna Bath","Cold Plunge","Physiotherapy","Blood Test","HBOT (Hyperbaric Oxygen Therapy)"];
+    // ===== Meta campaign → service mapping (state) =====
+    // Declared HERE, beside the service master it is keyed by, rather than next to the Meta
+    // page’s UI that edits it: the Lead Import feed reads this map while building its column
+    // specs, which run far earlier than the Meta block. A let declared further down would be
+    // in its temporal dead zone at that point. The editor still lives with the Meta page.
+    const _MSVC_KEY="meta_campaign_services";
+    let _mSvcMap:Record<string,string[]>={};
+    let _mSvcEditing:string|null=null;   // which service’s picker is open, if any
+    let _mSvcQuery="";
+    let _mSvcLoaded=false;
+    /** The service a Meta lead belongs to: the campaign’s mapped service when one is set,
+     *  otherwise whatever the crawl stored on the row. Display/filter only — nothing here
+     *  writes leads.service, so the advisor and coach screens keep reading the stored value. */
+    function _svcForLead(l:any):string{
+      const mapped=_mSvcOf(String((l&&l.campaign)||""));
+      return mapped||String((l&&l.service)||"");
+    }
     // ===== Reception-only service allow-list (UI ONLY) =====
     // Reception currently works three lines. This narrows what the RECEPTION screen offers and shows
     // — the service master above, the database, and every other screen still carry all 7 services, so
@@ -2341,7 +2362,7 @@ export function initApp(root: HTMLElement) {
     // Leads belonging to the given source(s), honoring the active dashboard filter.
     function _srcLeadsFor(names:string[]){
       const set=new Set(names);
-      return feedAll().filter((l:any)=>set.has(feedSrcName(l))&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service));
+      return feedAll().filter((l:any)=>set.has(feedSrcName(l))&&leadPasses(new Date(l.createdAt),feedSrcName(l),_svcForLead(l)));
     }
     function _downloadCsv(filename:string,rows:string[][]){
       const esc=(v:any)=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
@@ -2610,7 +2631,7 @@ export function initApp(root: HTMLElement) {
     function feedDupGroups(){
       return _dupGroupsFrom(
         feedAll(),
-        feedAll().filter((l:any)=>feedMatchesQuery(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service)),
+        feedAll().filter((l:any)=>feedMatchesQuery(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),_svcForLead(l))),
         (l:any)=>!feedIsProcessed(l),
         _manualDupPhones
       );
@@ -2668,7 +2689,7 @@ export function initApp(root: HTMLElement) {
     }
     // Active (unprocessed) incoming leads matching the active dashboard filters + search.
     function feedActive(){
-      return feedAll().filter((l:any)=>!feedIsProcessed(l) && feedMatchesQuery(l) && leadPasses(new Date(l.createdAt),feedSrcName(l),l.service));
+      return feedAll().filter((l:any)=>!feedIsProcessed(l) && feedMatchesQuery(l) && leadPasses(new Date(l.createdAt),feedSrcName(l),_svcForLead(l)));
     }
     // Leads matching the active dashboard filters AND the current tab view.
     function feedFiltered(){
@@ -2741,7 +2762,7 @@ export function initApp(root: HTMLElement) {
     // Rebuild the shared IMP dataset = Meta leads + other-source leads.
     function rebuildIMP(){
       IMP.length=0;
-      _metaLeads.forEach((ld:any)=>IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",service:ld.service||"Diabetes",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned}));
+      _metaLeads.forEach((ld:any)=>IMP.push({id:ld.id,name:ld.name,source:"Meta Ads",service:_svcForLead(ld)||"Diabetes",date:new Date(ld.createdAt),isValid:!!ld.isValid,isDuplicate:!!ld.isDuplicate,isAssigned:!!ld.isAssigned}));
       _otherLeads.forEach((o:any)=>IMP.push(o));
     }
 
@@ -2842,7 +2863,7 @@ export function initApp(root: HTMLElement) {
       {key:"city",label:"City",filter:true,text:(l:any)=>l.city||""},
       {key:"street",label:"Street",filter:true,text:(l:any)=>l.street||""},
       {key:"source",label:"Source",filter:true,text:(l:any)=>l.source||""},
-      {key:"service",label:"Service",filter:true,text:(l:any)=>l.service||""},
+      {key:"service",label:"Service",filter:true,text:(l:any)=>_svcForLead(l)},
       {key:"lang",label:"Language",filter:true,text:(l:any)=>l.lang||""},
       {key:"received",label:"Received",filter:true,text:(l:any)=>l.received||""},
       {key:"dedup",label:"Dedup",filter:true,text:(l:any)=>feedIsValid(l)?"Valid":"Invalid"},
@@ -2860,7 +2881,7 @@ export function initApp(root: HTMLElement) {
       {key:"city",label:"City",filter:true,text:(g:any)=>g.rep.city||""},
       {key:"street",label:"Street",filter:true,text:(g:any)=>g.rep.street||""},
       {key:"source",label:"Source",filter:true,text:(g:any)=>(g.sources||[]).join(" ")},
-      {key:"service",label:"Service",filter:true,text:(g:any)=>g.rep.service||""},
+      {key:"service",label:"Service",filter:true,text:(g:any)=>_svcForLead(g.rep)},
       {key:"lang",label:"Language",filter:true,text:(g:any)=>g.rep.lang||""},
       {key:"lastAssignedAt",label:"Last Assigned Date & Time",filter:true,text:(g:any)=>g.lastAssignedAt?fmtIST(g.lastAssignedAt):"Not Assigned"},
       {key:"lastAssigned",label:"Last Assigned Advisor",filter:true,text:(g:any)=>g.lastAssigned||"Not Assigned"},
@@ -2934,7 +2955,7 @@ export function initApp(root: HTMLElement) {
       {key:"city",label:"City",filter:true,text:(g:any)=>g.rep.city||""},
       {key:"street",label:"Street",filter:true,text:(g:any)=>g.rep.street||""},
       {key:"source",label:"Source",filter:true,text:(g:any)=>(g.sources||[]).join(" ")},
-      {key:"service",label:"Service",filter:true,text:(g:any)=>g.rep.service||""},
+      {key:"service",label:"Service",filter:true,text:(g:any)=>_svcForLead(g.rep)},
       {key:"lang",label:"Language",filter:true,text:(g:any)=>g.rep.lang||""},
       {key:"lastAssignedAt",label:"Last Assigned Date & Time",filter:true,text:(g:any)=>g.lastAssignedAt?fmtIST(g.lastAssignedAt):"Not Assigned"},
       {key:"lastAssigned",label:"Last Assigned Advisor",filter:true,text:(g:any)=>g.lastAssigned||"Not Assigned"},
@@ -3058,7 +3079,7 @@ export function initApp(root: HTMLElement) {
       // Leads that WERE in this feed (same date/source/service scope) but have since been
       // assigned or sent to the pool — they now live in Assign & approve, not here. Shown as a
       // note so the feed count reconciles with the Total Leads card (feed = Total − routed).
-      const _routedInScope=feedAll().filter((l:any)=>feedIsProcessed(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),l.service)).length;
+      const _routedInScope=feedAll().filter((l:any)=>feedIsProcessed(l)&&leadPasses(new Date(l.createdAt),feedSrcName(l),_svcForLead(l))).length;
       const _routedNote=_routedInScope?" · "+_routedInScope+" assigned → Assign & approve":"";
       if(_feedView==="dup"){
         // Collapsed view: one row per duplicate phone, with Repeat Leads Count + all sources.
@@ -3088,7 +3109,7 @@ export function initApp(root: HTMLElement) {
               +'<td>'+esc(ld.city||"—")+'</td>'
               +'<td>'+esc(ld.street||"—")+'</td>'
               +'<td>'+(g.sources.map((s:string)=>'<span class="tag" style="margin:0 3px 3px 0;display:inline-block">'+esc(s)+'</span>').join("")||"—")+'</td>'
-              +'<td>'+esc(ld.service)+'</td>'
+              +'<td>'+esc(_svcForLead(ld))+'</td>'
               +'<td>'+esc(ld.lang)+'</td>'
               +'<td class="mono" style="font-size:11.5px;white-space:nowrap">'+(g.lastAssignedAt?esc(fmtIST(g.lastAssignedAt)):'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
               +'<td>'+(g.lastAssigned?'<span class="chipb vio">'+esc(g.lastAssigned)+'</span>':'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
@@ -3123,7 +3144,7 @@ export function initApp(root: HTMLElement) {
               +'<td>'+esc(ld.city||"—")+'</td>'
               +'<td>'+esc(ld.street||"—")+'</td>'
               +'<td><span class="tag">'+esc(ld.source)+'</span></td>'
-              +'<td>'+esc(ld.service)+'</td>'
+              +'<td>'+esc(_svcForLead(ld))+'</td>'
               +'<td>'+esc(ld.lang)+'</td>'
               +'<td class="mono">'+esc(ld.received)+'</td>'
               +'<td>'+(feedIsValid(ld)?'<span class="chipb ok">Valid</span>':'<span class="chipb warn">Invalid</span>')+'</td>'
@@ -3391,7 +3412,19 @@ export function initApp(root: HTMLElement) {
     const _advLeadsBtnLabel=()=>_advLeadsAdv.size===0?"All Advisors":(_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0]:_advLeadsAdv.size+" advisors selected");
     const _advLeadsWhoLabel=()=>_advLeadsAdv.size===0?"all advisors":(_advLeadsAdv.size===1?Array.from(_advLeadsAdv)[0]:_advLeadsAdv.size+" advisors");
     const _haBucketLabel=(cs:string)=>{ const k=haBucketOf(cs); const c=HA_CARDS.find((x:any)=>x.key===k); return c?c.label:"Open Leads"; };
-    const _advLeadSvc=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.service)||l.service||"Diabetes"; };
+    // A Meta lead’s row carries whatever the crawl wrote in leads.service — in practice "Diabetes"
+    // for every campaign, whatever that campaign actually sells. So the Service top filter, which
+    // matched that column alone, showed a Physiotherapy book of Manual and Walk-in leads only,
+    // while Lead Import — which resolves the same lead through the Meta Campaign → Service map —
+    // listed the Meta ones too. Same map, same precedence, so the two pages agree:
+    //   mapped campaign  >  the live leads row  >  whatever is on the in-memory object.
+    // Read-only: nothing here writes leads.service, and assignment is untouched.
+    const _advSvcOf=(l:any)=>{
+      const mapped=_mSvcOf(String((l&&l.campaign)||"")); if(mapped) return mapped;
+      const d=_advLeadsDet[String(l&&l.id)];
+      return String((d&&d.service)||(l&&l.service)||"");
+    };
+    const _advLeadSvc=(l:any)=>_advSvcOf(l)||"Diabetes";
     const _advLeadAsgd=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return fmtIST((d&&d.assigned_at)||l.poolAddedAt||l.createdAt); };
     const _advLeadNextFu=(l:any)=>{ const nf=_haFuNext(l); return nf?_dIST(nf):"—"; };
     const _advLeadLastFu=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return (d&&d.last_fu)||"—"; };
@@ -3807,35 +3840,68 @@ export function initApp(root: HTMLElement) {
     }
     // Live totals as the admin types, without re-rendering the rows (which would steal focus).
     w._alcInput=()=>{ try{ _alcRenderFoot(); }catch(_){} };
+    // Whether a gateway error genuinely means "this table does not exist yet". Only these two say
+    // so: the /db gate's own refusal, and Postgres 42P01. Everything else about advisor_alloc — a
+    // check-constraint violation, a bad value, a permission problem — is a DIFFERENT failure that
+    // restarting cannot fix, and telling someone to restart for it sends them round a loop that
+    // never ends. (This is what the old test did: it matched the table NAME, which every Postgres
+    // error on the table contains, so every failure read as "restart the server first".)
+    const _alcTableMissing=(msg:string)=>/unknown table/i.test(msg)
+      ||(/does not exist/i.test(msg)&&/relation|table/i.test(msg));
     w._alcSave=async()=>{
       const vals=_alcReadInputs();
       const names=Object.keys(vals);
       if(!names.length){ toast("Add advisors to this team first"); return; }
       const by=(_currentUser&&(_currentUser.name||_currentUser.email))||"Admin";
       const svc=_alcSvc;
-      let ok=0;
+      const failed:string[]=[];
+      let firstErr="";
       for(const n of names){
         // One standing row per (service, advisor) — not one per day. A member set back to 0 is kept
         // rather than deleted, so the team still lists them and a share can be restored in a click.
         const res:any=await supabase.from("advisor_alloc")
           .upsert({service:svc,advisor:n,pct:vals[n],updated_at:new Date().toISOString(),updated_by:by},{onConflict:"service,advisor"});
-        if(!(res&&res.error)) ok++;
-        else if(/advisor_alloc|relation|exist|unknown table/i.test(String(res.error.message||""))){
-          toastErr("Restart the server first — the allocation table is created by the self-applying schema on boot");
+        // The /db gateway RESOLVES with {error} rather than throwing, so this is the only place a
+        // failure shows up. An error that fell through the old regex was silently skipped and the
+        // save still finished with a green "Saved …" toast, having written nothing.
+        const msg=String((res&&res.error&&res.error.message)||"");
+        if(!msg) continue;
+        if(_alcTableMissing(msg)){
+          // Two different situations produce this, and only one is a restart: a server that has
+          // not booted since the table was added to the schema, or a server running a build
+          // that predates it. Name both, or a redeploy-shaped problem reads as a restart-shaped
+          // one and the restart keeps not working.
+          toastErr("advisor_alloc is missing on the API server — restart it (the schema creates the table on boot), or redeploy if it is running an older build");
           return;
         }
+        failed.push(n); if(!firstErr) firstErr=msg;
+      }
+      if(failed.length){
+        // Say what actually went wrong and for whom. Leave _alcAlloc alone: overwriting it here
+        // would leave the table showing shares the database never accepted, and the next save would
+        // diff against those phantom values when deciding who to remove.
+        toastErr("Couldn’t save "+failed.length+" of "+names.length+" ("+failed.join(", ")+") — "+firstErr);
+        return;
       }
       // Anyone REMOVED from the team in this edit has to lose their row, or the server would keep
-      // sending them leads from a team the admin can no longer see them on.
+      // sending them leads from a team the admin can no longer see them on. Checked, not wrapped in
+      // a dead try/catch: the gateway never throws, so a failed delete used to vanish and the
+      // advisor kept receiving leads while the screen showed them gone.
       const before=Object.keys(_alcAlloc[svc]||{});
+      const stuck:string[]=[];
       for(const gone of before.filter(a=>names.indexOf(a)<0)){
-        try{ await supabase.from("advisor_alloc").delete().eq("service",svc).eq("advisor",gone); }catch(_){}
+        const res:any=await supabase.from("advisor_alloc").delete().eq("service",svc).eq("advisor",gone);
+        if(res&&res.error) stuck.push(gone);
       }
       _alcAlloc[svc]={}; names.forEach(n=>{ _alcAlloc[svc][n]=vals[n]; });
+      // A member who could not be removed is still on the team in the database, so keep them on it
+      // here too rather than showing a team the auto-assigner does not agree with.
+      stuck.forEach(a=>{ _alcAlloc[svc][a]=0; });
       _alcFillServiceSelect();
       renderAdvisorLeadCounts();
       const tot=Math.round(names.reduce((a,n)=>a+vals[n],0)*1000)/1000;
-      toast("Saved "+_alcSvcLabel(svc)+" \u2014 "+ok+" advisor"+(ok===1?"":"s")+" \u00b7 "+tot+"%");
+      if(stuck.length){ toastErr("Saved the shares, but couldn’t remove "+stuck.join(", ")+" — they still receive leads"); return; }
+      toast("Saved "+_alcSvcLabel(svc)+" — "+names.length+" advisor"+(names.length===1?"":"s")+" · "+tot+"%");
     };
     // ---- Auto-assignment ON/OFF (Super Admin only) --------------------------------------------
     // The switch is stored per DAY, so "stop today" and "arm tomorrow" are separate rows and neither
@@ -6779,7 +6845,7 @@ export function initApp(root: HTMLElement) {
       return list.filter((l:any)=>{
         if(!_serviceAllows(l,svcScope)) return false;
         if(src!=="all"&&(l.source||"")!==src) return false;
-        if(svc!=="all"&&!_svcCanonMatch(l.service,svc)) return false;
+        if(svc!=="all"&&!_svcCanonMatch(_advSvcOf(l),svc)) return false;   // campaign map first — see _advSvcOf
         if(adv&&adv!=="all"&&(l.assignedTo||"")!==adv) return false;   // advisor is a TOP filter → drives dashboard + table
         if(fromT||toT){ const dv=_asnDateVal(l); const t=dv?new Date(dv).getTime():0; if(fromT&&t<fromT) return false; if(toT&&t>toT) return false; }
         return true;
@@ -6882,7 +6948,7 @@ export function initApp(root: HTMLElement) {
     // A due lead's service line, normalised to the SERVICE_MASTER label so the drawer's per-service
     // split uses the same vocabulary as every other service filter in the app. Leads that name no
     // service land under "Unassigned" rather than being silently dropped from the breakdown.
-    const _fuSvcOf=(l:any)=>{ const d=_advLeadsDet[String(l.id)]; return normService(String((d&&d.service)||l.service||""))||SVC_UNASSIGNED; };
+    const _fuSvcOf=(l:any)=>normService(_advSvcOf(l))||SVC_UNASSIGNED;   // same resolution as the top filter
     // The rail is 360px wide — the full master labels ("HBOT (Hyperbaric Oxygen Therapy)") would wrap
     // three chips deep, so the strip shows the short form of the SAME canonical service.
     const _fuSvcShort=(s:string)=>String(s).replace(/\s*\(.*\)\s*/,"").replace(/\s+Counselling$/i,"").trim()||s;
@@ -7395,15 +7461,167 @@ export function initApp(root: HTMLElement) {
           +(n==null?"":n+" ")+"lead(s) received in the selected dates — their full journey (statuses, appointments, visits, enrolments, calls). Click again for the standard view.")
         :"";
     }
-    w._perfSetMode=(m:any)=>{
-      _perfMode=_perfMode===m?"":(m==="daily"?"daily":"batch");
+    // ===== Batch Wise date-range picker (requested 01-Sep-2026) =============================
+    // Batch mode scopes EVERY card on this page to the leads received in a date range, so the range
+    // is not an optional extra — it is the whole definition of the batch. The button used to guess
+    // (last 10 days when the top-bar dates happened to be empty), which meant the numbers changed
+    // under you without anyone choosing anything. Now the button opens this, and batch mode turns on
+    // only once a range is picked; Cancel leaves the mode off and the dashboard untouched.
+    //
+    // Everything here works in IST CALENDAR DAYS as "YYYY-MM-DD" strings, never Date arithmetic on
+    // the browser's clock — the same day the lead's own date carries. A Date built from a local
+    // midnight and read back in another zone is how "Today" starts meaning yesterday.
+    const _prPad=(n:number)=>String(n).padStart(2,"0");
+    const _prKey=(y:number,m:number,d:number)=>y+"-"+_prPad(m+1)+"-"+_prPad(d);
+    /** Today in Chennai, as YYYY-MM-DD. */
+    const _prToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata"}).format(new Date());
+    /** Shift an IST day key by n days. Noon anchor, so a DST-free +/- day can never slip a date. */
+    function _prShift(key:string,n:number):string{
+      const d=new Date(key+"T12:00:00"); d.setDate(d.getDate()+n);
+      return _prKey(d.getFullYear(),d.getMonth(),d.getDate());
+    }
+    const _prMonthOf=(key:string)=>({y:Number(key.slice(0,4)),m:Number(key.slice(5,7))-1});
+    const PR_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const PR_DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    // Presets. Each returns [from,to] as IST day keys. "Maximum" hands back the oldest lead this
+    // dashboard can see rather than an arbitrary epoch, so it means "everything", not "since 1970".
+    const PR_PRESETS:{k:string;label:string;range:()=>[string,string]}[]=[
+      {k:"today",     label:"Today",         range:()=>{const t=_prToday(); return [t,t];}},
+      {k:"yest",      label:"Yesterday",     range:()=>{const y=_prShift(_prToday(),-1); return [y,y];}},
+      {k:"ty",        label:"Today & yesterday", range:()=>[_prShift(_prToday(),-1),_prToday()]},
+      {k:"d7",        label:"Last 7 days",   range:()=>[_prShift(_prToday(),-6),_prToday()]},
+      {k:"d14",       label:"Last 14 days",  range:()=>[_prShift(_prToday(),-13),_prToday()]},
+      {k:"d28",       label:"Last 28 days",  range:()=>[_prShift(_prToday(),-27),_prToday()]},
+      {k:"d30",       label:"Last 30 days",  range:()=>[_prShift(_prToday(),-29),_prToday()]},
+      {k:"tweek",     label:"This week",     range:()=>{const t=_prToday(); const dw=new Date(t+"T12:00:00").getDay(); return [_prShift(t,-dw),t];}},
+      {k:"lweek",     label:"Last week",     range:()=>{const t=_prToday(); const dw=new Date(t+"T12:00:00").getDay();
+                                                       const end=_prShift(t,-dw-1); return [_prShift(end,-6),end];}},
+      {k:"tmonth",    label:"This month",    range:()=>{const t=_prToday(); return [t.slice(0,8)+"01",t];}},
+      {k:"lmonth",    label:"Last month",    range:()=>{const t=_prToday(); const first=t.slice(0,8)+"01";
+                                                       const end=_prShift(first,-1); return [end.slice(0,8)+"01",end];}},
+      {k:"max",       label:"Maximum",       range:()=>{
+        let min=""; _perfUniverse().forEach((l:any)=>{ const c=String(l&&l.createdAt||""); if(!c) return;
+          const k=_prIstDay(c); if(k&&(!min||k<min)) min=k; });
+        return [min||_prShift(_prToday(),-364),_prToday()];
+      }},
+    ];
+    /** The IST calendar day an ISO timestamp falls on. */
+    function _prIstDay(iso:string):string{
+      const d=new Date(iso); if(isNaN(d.getTime())) return "";
+      try{ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata"}).format(d); }catch(_){ return ""; }
+    }
+    let _prFrom="", _prTo="", _prAnchor:{y:number;m:number}={y:0,m:0}, _prPreset="";
+    /** How many leads the current selection would actually scope the page to. Answered from the
+     *  SAME universe _perfCohortIds counts, so the modal cannot promise a number the page then
+     *  contradicts. */
+    function _prCohortSize():number{
+      if(!_prFrom||!_prTo) return -1;
+      const lo=_prFrom<=_prTo?_prFrom:_prTo, hi=_prFrom<=_prTo?_prTo:_prFrom;
+      let n=0;
+      _perfUniverse().forEach((l:any)=>{ const k=_prIstDay(String(l&&l.createdAt||"")); if(k&&k>=lo&&k<=hi) n++; });
+      return n;
+    }
+    w._prClose=()=>{ const m=root.querySelector("#prModal")as HTMLElement|null; if(m) m.classList.remove("open"); };
+    w._prOpen=()=>{
+      const m=root.querySelector("#prModal")as HTMLElement|null; if(!m) return;
+      // Prefill from whatever the top bar already holds, so re-opening shows the batch you are on
+      // rather than making you re-pick it.
+      const g=(id:string)=>String(((root.querySelector("#"+id)as HTMLInputElement|null)?.value)||"");
+      _prFrom=g("asnFrom"); _prTo=g("asnTo"); _prPreset="";
+      const anchor=_prTo||_prFrom||_prToday();
+      _prAnchor=_prMonthOf(anchor);
+      // Show the END month on the right so the selection is visible without paging back.
+      _prAnchor.m-=1; if(_prAnchor.m<0){ _prAnchor.m=11; _prAnchor.y-=1; }
+      m.classList.add("open");
+      _prRender();
+    };
+    w._prPreset=(k:string)=>{
+      const p=PR_PRESETS.find(x=>x.k===k); if(!p) return;
+      const [a,b]=p.range(); _prFrom=a; _prTo=b; _prPreset=k;
+      _prAnchor=_prMonthOf(b); _prAnchor.m-=1; if(_prAnchor.m<0){ _prAnchor.m=11; _prAnchor.y-=1; }
+      _prRender();
+    };
+    w._prNavMonth=(d:number)=>{
+      _prAnchor.m+=d;
+      while(_prAnchor.m>11){ _prAnchor.m-=12; _prAnchor.y+=1; }
+      while(_prAnchor.m<0){ _prAnchor.m+=12; _prAnchor.y-=1; }
+      _prRender();
+    };
+    w._prPick=(key:string)=>{
+      // First click starts a range, second closes it. Clicking before the start moves the start
+      // instead of producing a backwards range nobody meant.
+      if(!_prFrom||(_prFrom&&_prTo)){ _prFrom=key; _prTo=""; }
+      else if(key<_prFrom){ _prFrom=key; }
+      else { _prTo=key; }
+      _prPreset="";
+      _prRender();
+    };
+    w._prApply=()=>{
+      if(!_prFrom){ toast("Pick a start date first"); return; }
+      const from=_prFrom, to=_prTo||_prFrom;   // a single day is a legitimate batch
       const set=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
-      const today=_perfIstToday();
-      if(_perfMode==="daily"){ set("asnFrom",today); set("asnTo",today); }
-      if(_perfMode==="batch"){
-        const f=(root.querySelector("#asnFrom")as HTMLInputElement|null)?.value||"";
-        if(!f){ set("asnFrom",new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata"}).format(new Date(Date.now()-9*864e5))); set("asnTo",today); }
+      set("asnFrom",from<=to?from:to); set("asnTo",from<=to?to:from);
+      w._prClose();
+      _perfMode="batch";
+      try{ (w as any)._topFilterApply(); }catch(_){ try{ renderHealthDashboard(); }catch(__){} }
+      try{ _perfPaint(); }catch(_){}
+    };
+    function _prMonthHtml(y:number,m:number){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const first=new Date(y,m,1).getDay();
+      const days=new Date(y,m+1,0).getDate();
+      const today=_prToday();
+      const lo=_prFrom&&_prTo?(_prFrom<=_prTo?_prFrom:_prTo):_prFrom;
+      const hi=_prFrom&&_prTo?(_prFrom<=_prTo?_prTo:_prFrom):_prFrom;
+      let cells="";
+      for(let i=0;i<first;i++) cells+='<span class="pr-d pr-blank"></span>';
+      for(let d=1;d<=days;d++){
+        const k=_prKey(y,m,d);
+        const isEnd=k===_prFrom||k===_prTo;
+        const inRange=!!(lo&&hi&&k>lo&&k<hi);
+        const future=k>today;   // a batch cannot have been received tomorrow
+        cells+='<button type="button" class="pr-d'+(isEnd?" on":"")+(inRange?" mid":"")+(k===today?" today":"")+'"'
+          +(future?" disabled":"")+' data-k="'+e(k)+'" onclick="window._prPick(&quot;'+e(k)+'&quot;)">'+d+'</button>';
       }
+      return '<div class="pr-month"><div class="pr-mname">'+e(PR_MONTHS[m]+" "+y)+'</div>'
+        +'<div class="pr-dow">'+PR_DOW.map(x=>'<span>'+x+'</span>').join("")+'</div>'
+        +'<div class="pr-grid">'+cells+'</div></div>';
+    }
+    function _prRender(){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const pre=root.querySelector("#prPresets")as HTMLElement|null;
+      if(pre) pre.innerHTML='<div class="pr-ptitle">Quick ranges</div>'+PR_PRESETS.map(p=>
+        '<button type="button" class="pr-p'+(_prPreset===p.k?" on":"")+'" onclick="window._prPreset(&quot;'+e(p.k)+'&quot;)">'+e(p.label)+'</button>').join("");
+      const mo=root.querySelector("#prMonths")as HTMLElement|null;
+      if(mo){
+        const a=_prAnchor;
+        let y2=a.y, m2=a.m+1; if(m2>11){ m2=0; y2+=1; }
+        mo.innerHTML=_prMonthHtml(a.y,a.m)+_prMonthHtml(y2,m2);
+      }
+      const lbl=root.querySelector("#prRangeLbl");
+      if(lbl) lbl.textContent=!_prFrom?"Select a start date"
+        :(!_prTo?_prFrom+"  →  select an end date":(_prFrom<=_prTo?_prFrom+"  →  "+_prTo:_prTo+"  →  "+_prFrom));
+      // Say how many leads this batch holds BEFORE applying it — an empty range is otherwise only
+      // discoverable by watching every card fall to zero.
+      const cnt=root.querySelector("#prCount");
+      const n=_prCohortSize();
+      if(cnt) cnt.textContent=n<0?"":(n+" lead"+(n===1?"":"s")+" received in this range");
+      const ap=root.querySelector("#prApply")as HTMLButtonElement|null;
+      if(ap){ ap.disabled=!_prFrom; ap.style.opacity=_prFrom?"1":".5"; ap.style.cursor=_prFrom?"pointer":"not-allowed"; }
+      const prev=root.querySelector("#prPrev"), next=root.querySelector("#prNext");
+      if(prev&&!(prev as any)._wired){ (prev as any)._wired=1; prev.addEventListener("click",()=>w._prNavMonth(-1)); }
+      if(next&&!(next as any)._wired){ (next as any)._wired=1; next.addEventListener("click",()=>w._prNavMonth(1)); }
+    }
+    w._perfSetMode=(m:any)=>{
+      // Turning a mode OFF is always immediate — clicking the lit button clears it, as before.
+      if(_perfMode===m){ _perfMode=""; try{ (w as any)._topFilterApply(); }catch(_){ try{ renderHealthDashboard(); }catch(__){} } try{ _perfPaint(); }catch(_){} return; }
+      const set=(id:string,v:string)=>{ const el=root.querySelector("#"+id)as HTMLInputElement|null; if(el) el.value=v; };
+      // BATCH needs a range before it means anything, so it opens the picker instead of guessing
+      // one. The mode is switched on by _prApply, never here — Cancel must leave the page alone.
+      if(m==="batch"){ try{ w._prOpen(); }catch(_){} return; }
+      _perfMode="daily";
+      const today=_perfIstToday();
+      set("asnFrom",today); set("asnTo",today);
       try{ (w as any)._topFilterApply(); }catch(_){ try{ renderHealthDashboard(); }catch(__){} }
       try{ _perfPaint(); }catch(_){}
     };
@@ -7561,17 +7779,15 @@ export function initApp(root: HTMLElement) {
       const fullBook=haCommonFilter(haBook());
       let book=fullBook;
       if(filter!=="all") book=book.filter((l:any)=>_haPassesFilter(l,filter));
-      // TOTAL LEADS with a date window = EVERY lead CREATED in that window — assigned or not —
-      // which is the Admin Report's number (locked rule: Total Leads = Created Date). The card used
-      // to be the assigned book only, so brand-new unassigned arrivals were missing and the two
-      // screens disagreed (28 vs 24, 22-Aug validation). Unassigned sources join only for the
-      // count; every other card still works the assigned book. No window → whole book, unchanged.
-      const _totWin=_haWinT();
-      const _totalLeads=(!_totWin.fromT&&!_totWin.toT)?fullBook.length:(()=>{
-        const seen=new Set<string>();
-        const uni=[...haBook(),..._metaLeads.filter((l:any)=>!(l.isAssigned&&l.assignedTo)),..._poolExtras,..._otherFeedLeads];
-        return haCommonFilter(uni).filter((l:any)=>{ const id=String(l.id); if(seen.has(id)) return false; seen.add(id); return true; }).length;
-      })();
+      // TOTAL LEADS = EVERY lead the filters admit — assigned or still in intake — which is the
+      // Admin Report's and Lead Import's number (locked rule: Total Leads = Created Date).
+      // This used to apply only when a date window was set and fall back to the assigned book
+      // otherwise, which is why Physiotherapy read 32 here against Lead Import's 64 for the same
+      // filter: same leads, two different populations depending on a field nobody had filled in.
+      // One expression, one answer, both modes. Unassigned sources join for the COUNT only; every
+      // other card still works the assigned book, because an unassigned lead has no advisor journey.
+      // (_haOvUniverse is the same union this used to inline, deduped by lead id.)
+      const _totalLeads=_haOvUniverse().length;
       // ACTIVITY-DATED sets (20-Aug-2026): each activity card counts the ACTION inside the applied
       // date range — appointment fixed on its booking date, Confirmed/Visited/Enrolled on their own
       // stamps, dispositions on their change date — over the book WITHOUT the created-date window,
@@ -7622,7 +7838,7 @@ export function initApp(root: HTMLElement) {
         const _shownCards=_btView?HA_CARDS.filter(c=>_btKeys.indexOf(c.key)>=0):[];
         cards.push(..._shownCards.map(c=>'<div class="metric '+c.c+'" style="cursor:pointer"'
           +(c.key==="health"?' title="Leads sitting at the Visited stage right now. Anyone who has since reached Payment, Enrolled or Closed is counted on that card instead, which is why the nine stage cards add up to Total Leads."':'')
-          +(c.key==="total"?' title="The advisor\'s whole book. Open + Appointment Direct + Appointment Home + Visited + Payment + Enrolled + Follow-up + Closed adds up to exactly this number. (Confirmed is a milestone that overlaps them, so it is not part of the sum.)"':'')
+          +(c.key==="total"?' title="The advisor\'s whole assigned book. Open + Appointment Direct + Appointment Home + Visited + Payment + Enrolled + Follow-up + Closed adds up to the ASSIGNED count — Total also counts leads still in intake, which have no stage yet. (Confirmed is a milestone that overlaps them, so it is not part of the sum.)"':'')
           +' onclick="window._haCardClick(\''+c.key+'\')"><div class="ml">'+((_btView&&c.key==="apptZoom")?"Appointment Fixed – Home":c.label)+'</div>'+mv(counts[c.key])+'</div>'));
         // With a date window the Call Status card counts status UPDATES performed in the window
         // (activity date), and its drill-down opens that same set. Without one it stays the
@@ -7827,19 +8043,16 @@ export function initApp(root: HTMLElement) {
       };
       const openList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="open");
       const fuList=book.filter((l:any)=>haBucketOf(haEffStatus(l))==="followup");
-      // Same created-in-window rule as counts.total (see renderHealthDashboard): with a date
-      // window the headline card counts EVERY lead created in it, assigned or not — the Admin
-      // Report's number. Without one it remains the assigned book.
       const _ovWin=_haWinT();
       const _ovWinOn=!!(_ovWin.fromT||_ovWin.toT);
-      // The assignment split (requested 27-Aug-2026): the same universe the windowed Total counts,
-      // divided by whether an advisor holds the lead. With a window, Total = Assigned + Unassigned
-      // exactly; without one the Total card keeps its historical "assigned book" meaning while
-      // Unassigned still shows who is waiting in intake/pool right now.
+      // The assignment split (requested 27-Aug-2026): ONE universe, divided by whether an advisor
+      // holds the lead. Total = Assigned + Unassigned in every mode now — the no-window branch used
+      // to count the assigned book instead, so the row contradicted itself (32 / 32 / 32) and read
+      // low against Lead Import.
       const _ovUni=_haOvUniverse();
       const _ovAsg=_ovUni.filter(_haOvAssigned);
       const _ovUn=_ovUni.filter((l:any)=>!_haOvAssigned(l));
-      const _ovTotal=(!_ovWin.fromT&&!_ovWin.toT)?fullBook.length:_ovUni.length;
+      const _ovTotal=_ovUni.length;
       // Same shared engine the drill-downs use, so the cards and their tables cannot disagree.
       const _ovAuth=_haAuthSets(book);
       set("#haOverview",
@@ -7847,7 +8060,7 @@ export function initApp(root: HTMLElement) {
         // ROW ORDER (UX pass 27-Aug-2026): row 1 is the universe split (Total = Assigned +
         // Unassigned), row 2 is the workload (Open, Follow-up) — reads as a narrative instead of
         // the split straddling two rows.
-        ovCard("Total Leads",_ovTotal,(!_ovWin.fromT&&!_ovWin.toT)?"All assigned leads":"Created in the selected dates · incl. unassigned","i-user","var(--brand)",fullBook,"total",1)
+        ovCard("Total Leads",_ovTotal,_ovWinOn?"Created in the selected dates · assigned + unassigned":"Every source for this filter · assigned + unassigned","i-user","var(--brand)",_ovUni,"total",1)
         +ovCard("Assigned Leads",_ovAsg.length,_ovWinOn?"Created in range · assigned to an advisor":"Assigned to an advisor","i-split","var(--ok)",_ovAsg,"ov:assigned",1)
         +ovCard("Unassigned",_ovUn.length,_ovWinOn?"Created in range · not yet assigned":"Waiting in intake / pool · not yet assigned","i-inbox","#2A5378",_ovUn,"ov:unassigned",-1)
         +ovCard("Open",openList.length,"No progress yet","i-inbox","#C07F0E",openList,"open",-1)
@@ -8379,9 +8592,11 @@ export function initApp(root: HTMLElement) {
             if(_haActiveBucket==="callsout")  return !!f&&Math.max(0,(f.total||0)-(f.inbound||0))>0;
             if(_haActiveBucket==="calltouch") return _touchMs(l)>0;
             const st=_scopedCallStats[String(l.id)]; return !!st&&((st.app||0)>0||st.connected>0); })
-        // Total Leads = the advisor's whole book, so it deliberately ignores the status dropdown
-        // (every other card is a subset of it).
-        : (_haActiveBucket==="total"?fullBook
+        // Total Leads = the same universe its card counts (assigned + still in intake), so the
+        // table under it has exactly as many rows as the number on its face. It deliberately
+        // ignores the status dropdown. The STAGE cards stay subsets of the ASSIGNED book, which is
+        // what Assigned Leads counts — an unassigned lead has no advisor journey to be a stage of.
+        : (_haActiveBucket==="total"?_haOvUniverse()
         // The Visited CARD drills into its stage bucket (falling through below, so the table matches
         // the number on its face). Its sub-line drills here instead: everyone who has ever visited,
         // including those who have since moved on.
@@ -9188,6 +9403,9 @@ export function initApp(root: HTMLElement) {
       // Slot date range is one shared setting — a change made by an admin has to reach the boards
       // other people already have open, or two devices book against different windows.
       if(table==="app_settings"){ try{ _slotRangeLoad(); }catch(_){} }
+      // …and so is the Meta campaign→service mapping: one person tidying it up on the Meta page
+      // must not leave every other open browser filtering on the old grouping.
+      if(table==="app_settings"&&_mSvcLoaded){ try{ _mSvcLoad(); }catch(_){} }
       // Screening / Accounts / Lead import / Reports were the remaining screens with NO live refresh —
       // a save made anywhere (check-in, payment, verification, CSV promotion) only appeared after a
       // manual reload ("data shows only after refresh"). Same active-screen pattern as the rest:
@@ -21837,6 +22055,9 @@ export function initApp(root: HTMLElement) {
         }catch(_){ /* keep whatever we had */ }
       }catch(_){ _mlAll=[]; }
       _mlFillSelects(); try{ w._mlRender(); }catch(_){}
+      // The service mapping is fetched once per session; every later load just repaints the cards,
+      // whose campaign counts come from the freshly loaded rows.
+      if(!_mSvcLoaded) _mSvcLoad(); else { try{ _mSvcRender(); }catch(_){} }
     }
     const _mlVal=(id:string)=>((root.querySelector("#"+id)as HTMLSelectElement|null)?.value)||"all";
     function _mlFillSelects(){
@@ -21922,6 +22143,145 @@ export function initApp(root: HTMLElement) {
     // status, ordered Active → Paused → other/archived → unknown, then alphabetically inside each
     // group. Campaigns Meta knows about but that have produced no lead yet are included too, so the
     // list matches Ads Manager rather than only what happens to have arrived.
+    // ===== Meta campaigns organised BY SERVICE (requested 28-Aug-2026) ======================
+    // A campaign name says nothing about which service it sells - "C004 | 199 MAIN VSL FUNNEL |
+    // TAMILNADU" could be diabetes or physio, and only the person who briefed the ad knows. So the
+    // mapping is MANUAL and stored, never guessed from the name: one card per service in
+    // SERVICE_MASTER, each holding the campaigns somebody picked for it.
+    //
+    // Stored in app_settings under one key - the same place the slot-date range and advisor
+    // locations live - so it is shared by every device and survives a redeploy. Absent means
+    // nothing is mapped yet, which is a legitimate starting state rather than an error.
+    //
+    // Every handler here is bound with addEventListener against a data-attribute, NOT an inline
+    // onclick. Meta campaign names carry quotes and pipes ('C004 | 199 "MAIN" VSL') and would break
+    // an onclick="..._fn(&quot;name&quot;)" string the moment one appeared.
+    async function _mSvcLoad(){
+      try{
+        const res:any=await supabase.from("app_settings").select("value").eq("key",_MSVC_KEY).limit(1);
+        const v=res&&res.data&&res.data[0]&&res.data[0].value;
+        if(v&&typeof v==="object"&&!Array.isArray(v)) _mSvcMap=v;
+      }catch(_){/* nothing mapped yet is a valid state, not a failure */}
+      _mSvcLoaded=true;
+      try{ _mSvcRender(); }catch(_){}
+      _mSvcRepaintDeps();
+    }
+    /** Screens whose numbers are derived from this map: the Lead Import feed (Service column,
+     *  its column filter, the KPI cards) and the Health Advisor dashboard (the Service top
+     *  filter, via _advSvcOf). A mapping that arrives, or changes here or on another device, has
+     *  to repaint them, or they keep answering from the raw crawl value. _renderVisibleOrDefer
+     *  paints whichever is on screen and marks the rest dirty, so this stays cheap. */
+    function _mSvcRepaintDeps(){ try{ rebuildIMP(); _renderVisibleOrDefer(); }catch(_){} }
+    async function _mSvcSave(){
+      return await _dbOk(supabase.from("app_settings").upsert(
+        {key:_MSVC_KEY,value:_mSvcMap,updated_at:new Date().toISOString()},{onConflict:"key"}),
+        "Saving the campaign mapping");
+    }
+    /** Which service a campaign sits under, or "" - the reverse of the stored map. */
+    function _mSvcOf(camp:string):string{
+      const c=String(camp||"").trim(); if(!c) return "";
+      const svcs=Object.keys(_mSvcMap);
+      for(let i=0;i<svcs.length;i++){ if((_mSvcMap[svcs[i]]||[]).indexOf(c)>=0) return svcs[i]; }
+      return "";
+    }
+    async function _mSvcPick(svc:string,camp:string,on:boolean){
+      // A campaign belongs to exactly ONE service. Left in two, every lead it brought in would be
+      // counted twice - which is the whole reason this mapping exists. So a tick MOVES it.
+      Object.keys(_mSvcMap).forEach(s=>{ _mSvcMap[s]=(_mSvcMap[s]||[]).filter(c=>c!==camp); });
+      if(on) _mSvcMap[svc]=(_mSvcMap[svc]||[]).concat([camp]);
+      _mSvcRender(); _mSvcRepaintDeps();
+      await _mSvcSave();
+    }
+    /** Tick this service's campaigns into the Campaign filter - the point of the whole mapping. */
+    function _mSvcApply(svc:string){
+      const list=(_mSvcMap[svc]||[]).slice();
+      if(!list.length){ toast("No campaigns are mapped to "+svc+" yet"); return; }
+      _mlCampSel.clear(); list.forEach(c=>_mlCampSel.add(c));
+      _mlPageN=1;
+      try{ _mlRenderCampMenu(); }catch(_){}
+      try{ w._mlRender(); }catch(_){}
+      toast(svc+" - showing "+list.length+" campaign"+(list.length===1?"":"s"));
+    }
+    /** True when the Campaign filter currently holds exactly this service's campaigns. */
+    function _mSvcIsActive(svc:string):boolean{
+      const list=_mSvcMap[svc]||[];
+      if(!list.length||_mlCampSel.size!==list.length) return false;
+      return list.every(c=>_mlCampSel.has(c));
+    }
+    function _mSvcRenderPicker(){
+      const box=root.querySelector("#mSvcPickList")as HTMLElement|null;
+      const svc=_mSvcEditing; if(!box||!svc) return;
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const q=_mSvcQuery.trim().toLowerCase();
+      const list=_mlCampList().filter((c:any)=>!q||String(c.name).toLowerCase().indexOf(q)>=0);
+      const mine=_mSvcMap[svc]||[];
+      box.innerHTML=list.length?list.map((c:any)=>{
+        const on=mine.indexOf(c.name)>=0;
+        const other=on?"":_mSvcOf(c.name);
+        return '<label class="msvc-row'+(other?" taken":"")+'">'
+          +'<input type="checkbox" data-msvc-pick="'+e(c.name)+'"'+(on?" checked":"")+'>'
+          +'<span class="msvc-dot" style="background:'+e(c.st&&c.st.dot||"#cbd5e1")+'"></span>'
+          +'<span class="msvc-nm">'+e(c.name)+'</span>'
+          +(c.n?'<span class="msvc-n">'+c.n+'</span>':'')
+          // Say WHERE a campaign already sits rather than moving it out from under a service silently.
+          +(other?'<span class="msvc-taken" title="Currently under '+e(other)+' - ticking moves it here">'+e(other)+'</span>':'')
+          +'</label>';
+      }).join(""):'<div class="msvc-empty">No campaigns match.</div>';
+      box.querySelectorAll("input[data-msvc-pick]").forEach((el:any)=>{
+        el.addEventListener("change",()=>{ _mSvcPick(svc,String(el.getAttribute("data-msvc-pick")||""),!!el.checked); });
+      });
+    }
+    function _mSvcRender(){
+      const host=root.querySelector("#mSvcCards")as HTMLElement|null; if(!host) return;
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const mapped=new Set<string>();
+      Object.keys(_mSvcMap).forEach(s=>(_mSvcMap[s]||[]).forEach(c=>mapped.add(c)));
+      const unmapped=_mlCampList().filter((c:any)=>!mapped.has(c.name));
+      host.innerHTML=SERVICE_MASTER.map((svc:string)=>{
+        const list=(_mSvcMap[svc]||[]).slice().sort((a,b)=>a.localeCompare(b));
+        const open=_mSvcEditing===svc;
+        const live=_mSvcIsActive(svc);
+        return '<div class="msvc-card'+(open?" open":"")+(live?" live":"")+'">'
+          +'<div class="msvc-hd"><span class="msvc-t">'+e(svc)+'</span>'
+          +'<button type="button" class="msvc-edit" data-msvc-edit="'+e(svc)+'">'+(open?"Done":"Edit")+'</button></div>'
+          +'<div class="msvc-cnt">'+list.length+' campaign'+(list.length===1?"":"s")+'</div>'
+          +(list.length?'<div class="msvc-list">'+list.map(c=>'<span class="msvc-chip" title="'+e(c)+'">'+e(c)+'</span>').join("")+'</div>'
+            :'<div class="msvc-none">No campaigns selected yet.</div>')
+          +(list.length?'<button type="button" class="msvc-apply" data-msvc-apply="'+e(svc)+'">'+(live?"Showing these leads":"Show these leads")+'</button>':'')
+          +(open?'<div class="msvc-pick"><input class="msvc-search" id="mSvcSearch" placeholder="Search campaigns..." value="'+e(_mSvcQuery)+'"><div id="mSvcPickList" class="msvc-picklist"></div></div>':'')
+          +'</div>';
+      }).join("")
+      // Anything not yet placed. Without this the page looks complete while campaigns quietly sit
+      // outside every service and never turn up in a service-filtered view.
+      +(unmapped.length?'<div class="msvc-card msvc-un"><div class="msvc-hd"><span class="msvc-t">Unmapped</span></div>'
+        +'<div class="msvc-cnt">'+unmapped.length+' campaign'+(unmapped.length===1?"":"s")+' not under a service</div>'
+        +'<div class="msvc-list">'+unmapped.slice(0,8).map((c:any)=>'<span class="msvc-chip flat" title="'+e(c.name)+'">'+e(c.name)+'</span>').join("")
+        +(unmapped.length>8?'<span class="msvc-chip flat">+'+(unmapped.length-8)+' more</span>':'')+'</div></div>':"")
+      +(!_mSvcLoaded?'<div class="msvc-card msvc-un"><div class="msvc-cnt">Loading the saved mapping...</div></div>':"");
+      host.querySelectorAll("[data-msvc-edit]").forEach((el:any)=>{
+        el.addEventListener("click",()=>{ const s=String(el.getAttribute("data-msvc-edit")||"");
+          _mSvcEditing=_mSvcEditing===s?null:s; _mSvcQuery=""; _mSvcRender(); });
+      });
+      host.querySelectorAll("[data-msvc-apply]").forEach((el:any)=>{
+        el.addEventListener("click",()=>{ _mSvcApply(String(el.getAttribute("data-msvc-apply")||"")); });
+      });
+      const sb=root.querySelector("#mSvcSearch")as HTMLInputElement|null;
+      if(sb) sb.addEventListener("input",()=>{ _mSvcQuery=sb.value||""; _mSvcRenderPicker(); });
+      if(_mSvcEditing) _mSvcRenderPicker();
+    }
+    /** Repaint ONLY the active-card highlight. Called from _mlRenderCampMenu, which fires on
+     *  every keystroke of the campaign search — a full _mSvcRender() there would re-filter the
+     *  whole lead set to recount campaigns, for a change that is two class names wide. */
+    function _mSvcSyncLive(){
+      const host=root.querySelector("#mSvcCards")as HTMLElement|null; if(!host) return;
+      host.querySelectorAll(".msvc-card").forEach((el:any)=>{
+        const btn=el.querySelector("[data-msvc-apply]")as HTMLElement|null; if(!btn) return;
+        const live=_mSvcIsActive(String(btn.getAttribute("data-msvc-apply")||""));
+        el.classList.toggle("live",live);
+        btn.textContent=live?"Showing these leads":"Show these leads";
+      });
+    }
+    w._mSvcRender=_mSvcRender;
     function _mlCampList(){
       const seen:Record<string,boolean>={};
       const out:{name:string;st:any;n:number}[]=[];
@@ -21968,6 +22328,11 @@ export function initApp(root: HTMLElement) {
           +'<span style="width:7px;height:7px;border-radius:50%;background:'+st.dot+'"></span>'+_orgEsc(c)
           +'<span style="cursor:pointer;font-weight:700" onclick="window._mlCampToggleOne(null,\''+_orgEsc(c).replace(/'/g,"&#39;")+'\')">×</span></span>';
       }).join("");
+      // Keep the service cards’ “Showing these leads” state honest: the Campaign filter can also
+      // be changed from its own menu, and a card would otherwise still claim to be active. This
+      // is the CLASS-ONLY sync, not a rebuild — this function runs on every keystroke in the
+      // campaign search box, and _mSvcRender() re-filters every lead to recount the campaigns.
+      try{ _mSvcSyncLive(); }catch(_){}
     }
     // ---- Ad multi-select: same contract as Campaign, keyed on the creative's ad name ----
     function _mlAdList(){
