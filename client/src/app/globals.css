@@ -1738,12 +1738,18 @@ html{scroll-behavior:smooth}
   .dov>*:nth-child(4):nth-last-child(2),.dov>*:nth-child(5):nth-last-child(1){grid-column:span 3}
 
   .dpf{grid-template-columns:repeat(3,minmax(0,1fr))}
+  /* Four cards (Physiotherapy, no Enrolled) go 2x2 here rather than 3 + 1. */
+  .dpf.dpf-4{grid-template-columns:repeat(2,minmax(0,1fr))}
   .dfu{grid-template-columns:repeat(4,minmax(0,1fr))}
   .dtg{grid-template-columns:repeat(2,minmax(0,1fr))}
   .dovmore .metric{flex:1 1 118px}
 }
 @media(min-width:860px){
   .dpf{grid-template-columns:repeat(5,minmax(0,1fr))}
+  /* Mirrors the .dpf-4 rule in the container layer below. BOTH layers are live in a browser that
+     supports container queries, so stating it in only one leaves the other painting five columns
+     for four cards — a fifth of the row empty on the right. */
+  .dpf.dpf-4{grid-template-columns:repeat(4,minmax(0,1fr))}
   .dtg{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 /* Row 2 pairs up first: four rings and three target cards survive the narrower column, while the five
@@ -1821,6 +1827,12 @@ html{scroll-behavior:smooth}
      width "Appt Fixed - Direct" needs even on two lines. 510 gives ~94px, the reference's card size.
      Between the two the row steps down to three readable cards rather than five crushed ones. */
   @container (min-width:510px){ .dpf{grid-template-columns:repeat(5,minmax(0,1fr))} }
+  /* The Physiotherapy view drops the Enrolled card, so this row carries FOUR. The counts above are
+     written for five and would leave a fifth of the row empty on the right, or split 3+1 in the
+     middle band. Stated explicitly rather than switched to auto-fit: auto-fit silently rebalances
+     the five-card row too, which is the trap the comment above these thresholds is about. */
+  @container (min-width:510px){ .dpf.dpf-4{grid-template-columns:repeat(4,minmax(0,1fr))} }
+  @container (min-width:340px) and (max-width:509px){ .dpf.dpf-4{grid-template-columns:repeat(2,minmax(0,1fr))} }
 
   @container (max-width:389px){ .dfu{grid-template-columns:repeat(2,minmax(0,1fr))} }
   @container (min-width:390px){ .dfu{grid-template-columns:repeat(4,minmax(0,1fr))} }
@@ -2781,3 +2793,31 @@ html[data-boot="sess"] #appLoading{display:flex!important}
 .pr-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line);
   background:var(--surface-2);flex:0 0 auto;flex-wrap:wrap}
 .pr-count{flex:1;min-width:0;font-size:11.5px;font-weight:600;color:var(--muted)}
+
+/* Service filter above the Target Sheet's advisor roster. Sits on the row before the team
+   heading, matching the allocation panel's "Assign to · service" control. */
+.tgt-svcbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0}
+.tgt-svcbar .lbl{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+/* Says how many people the filter is hiding, and that their saved shares are safe — a roster that
+   silently shrinks reads like data loss. */
+.tgt-svcnote{font-size:11px;color:var(--faint);font-weight:500}
+
+/* ===== Reception appointment-reminder popup =================================================
+   Rides the existing .umodal shell. Raised by the 15-minute chime and by the Appointment button
+   on a reminder row — one renderer, so the two can never show different details. */
+.rempop-card{width:min(440px,100%)}
+.rempop-card .umodal-hd .rem-tier{flex:0 0 auto}
+.rempop-bd{padding:4px 20px 14px}
+.rempop-r{display:flex;gap:12px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line-soft)}
+.rempop-r:last-child{border-bottom:0}
+.rempop-r .k{flex:0 0 108px;font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--faint)}
+.rempop-r .v{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--ink);overflow-wrap:anywhere}
+/* Time remaining is the one number that decides whether reception acts now or later. */
+.rempop-r .v.big{font-family:var(--disp);font-size:16px;font-weight:800;letter-spacing:-.2px;color:var(--brand)}
+.rempop-r .v.warn{color:var(--warn-ink,#B26A00)}
+.rempop-r .v.mono,.rempop-r .v.mono a{font-family:var(--mono);font-size:13.5px;letter-spacing:-.2px}
+.rempop-r .v a{color:var(--brand);text-decoration:none}
+.rempop-r .v a:hover{text-decoration:underline}
+.rempop-ft{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 20px;
+  border-top:1px solid var(--line);background:var(--surface-2)}

@@ -85,7 +85,10 @@ export function getMainContent(): string {
             <div id="haDispo" class="hadisp"></div>
           </div>
 
-          <div class="dgrid3">
+          <!-- Panels 6-8 share one row, and the Physiotherapy view drops all three together (a
+               physio lead has no visited/enrolment journey and no conversion funnel), so the row
+               carries an id and is hidden as a unit rather than leaving an empty grid behind. -->
+          <div class="dgrid3" id="haStatusRow">
             <div class="dpanel">
               <div class="dpanel-hd"><span class="dnum">6</span><h4>Visited status</h4></div>
               <div class="dsub">Track leads across the visited journey</div>
@@ -2508,6 +2511,15 @@ export function getMainContent(): string {
                in the sheet, never inputs, so they are shown rather than entered. -->
           <div id="tgtDerived" class="metrics" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0 0 14px"></div>
 
+          <!-- Service filter for the advisor roster (requested 01-Sep-2026). Same contract as the
+               allocation panel's "Assign to · service": it narrows WHO is listed and nothing else.
+               Shares stay stored per person, so filtering can never rewrite or drop a saved target
+               — _tgtSaveSheet explicitly preserves the people this filter is hiding. -->
+          <div class="tgt-svcbar">
+            <label class="lbl" for="tgtAdvSvc" style="margin:0">Service</label>
+            <select class="select" id="tgtAdvSvc" onchange="window._tgtAdvSvcChange()" style="height:32px;font-size:12px;max-width:250px"></select>
+            <span class="tgt-svcnote" id="tgtAdvSvcNote"></span>
+          </div>
           <div class="tgt-team"><span class="ic" aria-hidden="true">A</span><span class="nm">Health Advisor Team</span><span class="ct" id="tgtAdvCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">percentages in, counts out</span></div>
           <div class="tscroll"><table class="tbl" style="min-width:1180px" id="tgtAdvTbl"><thead><tr>
             <th scope="col">Advisor</th><th scope="col" style="text-align:right">Leads %</th><th scope="col" style="text-align:right">Leads</th>

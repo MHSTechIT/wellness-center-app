@@ -163,51 +163,98 @@ const auth = {
   onAuthStateChange(_cb: any) { return { data: { subscription: { unsubscribe() { /* no-op */ } } } }; },
 };
 
+// Base64 for ONE slice. FileReader encodes natively with no intermediate JS string; the chunked
+// loop is the fallback for anywhere FileReader is missing. Applied per part, so peak memory is
+// one part rather than the whole recording — the old whole-file path built a ~157 MB UTF-16
+// string for a 78 MB recording and then two more copies for the base64 and the JSON body.
+async function toB64(part: Blob): Promise<string> {
+  if (typeof FileReader !== "undefined") {
+    return await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => { const s = String(fr.result || ""); const i = s.indexOf(","); resolve(i >= 0 ? s.slice(i + 1) : ""); };
+      fr.onerror = () => reject(fr.error || new Error("could not read the file"));
+      fr.readAsDataURL(part);
+    });
+  }
+  const buf = new Uint8Array(await part.arrayBuffer());
+  let bin = ""; const CH = 0x8000;
+  for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CH)));
+  return btoa(bin);
+}
+
+// 6 MB of raw bytes becomes ~8 MB of base64 — a request comfortably inside every limit in the
+// path. Small enough that nothing in front of the API has an opinion about it; large enough that
+// a two-hour recording is ~10 requests, not hundreds.
+const PART_BYTES = 6 * 1024 * 1024;
+// Below this a single request is simpler and one round trip faster, and it keeps every existing
+// caller (payment proofs, report attachments) on exactly the path it has always used.
+const CHUNK_ABOVE = 8 * 1024 * 1024;
+
+/** Read a server response that may not be JSON at all. A size cap IN FRONT of the API (nginx and
+ *  friends) answers an oversize body with its own HTML page, and r.json() then threw
+ *  "Unexpected token '<'" — a parser complaint that reached the user verbatim on a recovered
+ *  87-minute recording and told them nothing. Translate it into the real cause instead. */
+async function readUploadReply(r: Response, approxMb: number): Promise<any> {
+  const ct = r.headers.get("content-type") || "";
+  const rawBody = await r.text();
+  if (ct.indexOf("json") < 0) {
+    const tooBig = r.status === 413 || /too large|entity too large/i.test(rawBody);
+    return { error: tooBig
+      ? ("Upload rejected as too large (~" + approxMb + " MB). The request was refused before it reached the app, so the size limit in front of the server is what has to allow it. The file is not lost.")
+      : ("The server returned an unexpected " + r.status + " response instead of JSON, so the upload did not complete. The file is not lost.") };
+  }
+  try { return JSON.parse(rawBody); }
+  catch (_) { return { error: "The server sent a malformed response (HTTP " + r.status + "). The file is not lost." }; }
+}
+
 // ---- Storage (files → backend disk, replaces Supabase Storage) ----
 function storageBucket(bucket: string) {
   return {
-    async upload(path: string, file: any, _opts?: any) {
+    /** `onProgress(sent, total)` reports bytes accepted by the server, so a long upload can show
+     *  movement instead of looking hung for a minute and a half. */
+    async upload(path: string, file: any, _opts?: any, onProgress?: (sent: number, total: number) => void) {
+      const full = bucket + "/" + path;
+      const size = Number(file && file.size) || 0;
       try {
-        // Base64 WITHOUT a byte-by-byte JS string. The old loop appended one character per byte,
-        // so a 78 MB recording built a ~157 MB UTF-16 string before btoa() even started, then two
-        // more copies for the base64 and the JSON body — enough to stall or crash the tab on a
-        // normal laptop, which would have made the raised 150mb cap unusable in practice.
-        // FileReader does the same encoding natively with no intermediate string; the chunked loop
-        // stays as a fallback for anywhere FileReader is missing.
-        let dataB64 = "";
-        if (typeof FileReader !== "undefined" && file && typeof file.arrayBuffer === "function") {
-          dataB64 = await new Promise<string>((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => { const s = String(fr.result || ""); const i = s.indexOf(","); resolve(i >= 0 ? s.slice(i + 1) : ""); };
-            fr.onerror = () => reject(fr.error || new Error("could not read the file"));
-            fr.readAsDataURL(file);
-          });
-        } else {
-          const buf = new Uint8Array(await file.arrayBuffer());
-          let bin = ""; const CH = 0x8000;
-          for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CH)));
-          dataB64 = btoa(bin);
+        // ---- Large file: send it in PARTS. This is what makes duration stop mattering. One
+        // request per 6 MB means a two-hour consultation and a two-minute one take the same path,
+        // and neither goes anywhere near a body limit. See /storage/upload-part for the rest.
+        if (size > CHUNK_ABOVE && typeof file.slice === "function") {
+          const uploadId = "up" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+          const parts = Math.ceil(size / PART_BYTES);
+          for (let i = 0; i < parts; i++) {
+            const slice = file.slice(i * PART_BYTES, Math.min(size, (i + 1) * PART_BYTES));
+            const dataB64 = await toB64(slice);
+            let j: any = null, lastErr = "";
+            // A part is small enough to be worth retrying: a network blip during a long upload
+            // should cost one part, not the whole consultation.
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const r = await fetch(api("/storage/upload-part"), {
+                  method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+                  body: JSON.stringify({ uploadId, path: full, seq: i, dataB64, last: i === parts - 1, contentType: file.type || "application/octet-stream" }),
+                });
+                j = await readUploadReply(r, Math.round(dataB64.length / 1048576));
+                if (!j.error) break;
+                lastErr = j.error;
+              } catch (e: any) { lastErr = e?.message || "network error"; }
+              await new Promise((r2) => setTimeout(r2, 400 * (attempt + 1)));
+            }
+            if (!j || j.error) {
+              // Leave no half-written scratch file behind for a recording that never completed.
+              try { await fetch(api("/storage/upload-abort"), { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ uploadId }) }); } catch (_) { /* the server sweeps it anyway */ }
+              return { data: null, error: { message: (lastErr || "upload failed") + " (part " + (i + 1) + " of " + parts + ")" } };
+            }
+            if (onProgress) { try { onProgress(Math.min(size, (i + 1) * PART_BYTES), size); } catch (_) { /* reporting must never break the upload */ } }
+          }
+          return { data: { path: full }, error: null };
         }
-        const r = await fetch(api("/storage/upload"), { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ path: bucket + "/" + path, dataB64, contentType: file.type || "application/octet-stream" }) });
-        // A size cap IN FRONT of the API (nginx & friends answer an oversize body with their own
-        // HTML page — nginx's 413 body begins "<html>" then "<head><title>413 Request Entity
-        // Too Large") means the response is
-        // not JSON at all, and r.json() then threw "Unexpected token '<'". That parser complaint
-        // reached the user verbatim on a recovered 87-minute recording (28-Aug-2026) and told them
-        // nothing about what to do. Read the body as text and translate it into the real cause.
-        const ct = r.headers.get("content-type") || "";
-        const rawBody = await r.text();
-        if (ct.indexOf("json") < 0) {
-          const mb = Math.round(dataB64.length / 1048576);
-          const tooBig = r.status === 413 || /too large|entity too large/i.test(rawBody);
-          return { data: null, error: { message: tooBig
-            ? ("Upload rejected as too large (~" + mb + " MB). The request was refused before it reached the app, so the size limit in front of the server is what has to allow it. The file is not lost.")
-            : ("The server returned an unexpected " + r.status + " response instead of JSON, so the upload did not complete. The file is not lost.") } };
-        }
-        let j: any = {};
-        try { j = JSON.parse(rawBody); }
-        catch (_) { return { data: null, error: { message: "The server sent a malformed response (HTTP " + r.status + "). The file is not lost." } }; }
+        // ---- Small file: one request, exactly the path every other caller has always used. ----
+        const dataB64 = await toB64(file);
+        const r = await fetch(api("/storage/upload"), { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ path: full, dataB64, contentType: file.type || "application/octet-stream" }) });
+        const j: any = await readUploadReply(r, Math.round(dataB64.length / 1048576));
         if (j.error) return { data: null, error: { message: j.error } };
+        if (onProgress) { try { onProgress(size, size); } catch (_) { /* as above */ } }
         return { data: { path: j.path }, error: null };
       } catch (e: any) { return { data: null, error: { message: e?.message || "upload error" } }; }
     },
