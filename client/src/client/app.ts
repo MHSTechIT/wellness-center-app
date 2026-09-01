@@ -2396,7 +2396,59 @@ export function initApp(root: HTMLElement) {
       {key:"status",label:"Status",filter:true,text:(r:any)=>(r.isDuplicate?"Duplicate":(r.isValid?"Valid":"Invalid"))},
       {key:"assignedTo",label:"Assigned To",filter:true,text:(r:any)=>r.assignedTo||"Not Assigned"},
       {key:"act",label:"Action",filter:false,text:()=>""},
+      // Deleting a lead is Super-Admin-only (requested 01-Sep-2026). The column is not merely
+      // disabled for everyone else — it is not rendered at all, so nobody is shown a control they
+      // cannot use. The rule is enforced on the SERVER as well (validateLeadDelete in
+      // routes/data.ts); this only decides what gets drawn.
+      ...(_impCanDelete()?[{key:"del",label:"Delete",filter:false,text:()=>""}]:[]),
     ];
+    const _impCanDelete=()=>_rolesOf(_currentUser).some((r:string)=>String(r).trim().toLowerCase()==="super admin");
+    /** Delete one lead, permanently. Nothing in the database protects the records that hang off a
+     *  lead: appointments, payments and recordings all key off meta_lead_id with NO foreign key, so
+     *  the row goes and they are orphaned. That is why this counts what is attached and says so
+     *  BEFORE asking, rather than after. */
+    w._impDeleteLead=async(id:string)=>{
+      const leadId=String(id||"").trim(); if(!leadId) return;
+      if(!_impCanDelete()){ toastErr("Only a Super Admin can delete a lead"); return; }
+      const row=_impDrillRows().find((r:any)=>String(r.id)===leadId);
+      const who=(row&&(row.name||row.phone))||("lead "+leadId);
+      // Count first. A lead that has taken money is a CLIENT, and deleting it would leave paid
+      // rows in the accounts reports pointing at nothing — refuse that outright and say why.
+      let appts=0,pays=0,paid=0,recs=0;
+      try{
+        const [a,p2,r2]:any[]=await Promise.all([
+          supabase.from("appointments").select("id").eq("lead_id",leadId).limit(500),
+          supabase.from("payments").select("id,status").eq("lead_id",leadId).limit(500),
+          supabase.from("office_recordings").select("id").eq("lead_id",leadId).limit(500),
+        ]);
+        appts=((a&&a.data)||[]).length;
+        const prows=((p2&&p2.data)||[]);
+        pays=prows.length; paid=prows.filter((x:any)=>String(x.status||"").toLowerCase()==="paid").length;
+        recs=((r2&&r2.data)||[]).length;
+      }catch(_){ /* counting is best-effort; the warning below still names the risk */ }
+      if(paid>0){
+        toastErr("Can’t delete "+who+" — "+paid+" paid payment"+(paid===1?"":"s")+" are recorded against this lead. Deleting it would leave that money in the reports with no client attached. Void or move the payment first.");
+        return;
+      }
+      const bits:string[]=[];
+      if(appts) bits.push(appts+" appointment"+(appts===1?"":"s"));
+      if(pays) bits.push(pays+" unpaid payment row"+(pays===1?"":"s"));
+      if(recs) bits.push(recs+" recording"+(recs===1?"":"s"));
+      csvConfirm("Delete <b>"+_orgEsc(who)+"</b> permanently?"
+        +(bits.length?("<br><br>This lead also has "+bits.join(", ")+". They are NOT deleted and will be left with no lead to belong to."):"")
+        +"<br><br>This cannot be undone.",async()=>{
+        if(!(await _dbOk(supabase.from("leads").delete().eq("meta_lead_id",leadId),"Deleting the lead"))) return;
+        toast("Deleted "+who);
+        // Drop it from every in-memory list so the row disappears without a reload, then repaint
+        // whichever screen is in view.
+        [_metaLeads,_assignedExtras,_poolExtras,_otherFeedLeads].forEach((arr:any[])=>{
+          for(let i=arr.length-1;i>=0;i--) if(String(arr[i]&&arr[i].id)===leadId) arr.splice(i,1);
+        });
+        try{ rebuildIMP(); }catch(_){}
+        try{ renderImpDrill(); }catch(_){}
+        try{ _renderVisibleOrDefer(); }catch(_){}
+      });
+    };
     // NOTE: this table's regGrid(...) registration lives further down, with every other table's —
     // it cannot run here because regGrid touches the `_grids` map, which is declared later in this
     // scope (calling it this early throws "Cannot access '_grids' before initialization").
@@ -2425,7 +2477,14 @@ export function initApp(root: HTMLElement) {
         +'<td>'+(r.isDuplicate?'<span class="chipb warn">Duplicate</span>':(r.isValid?'<span class="chipb ok">Valid</span>':'<span class="chipb al">Invalid</span>'))+'</td>'
         +'<td>'+(r.assignedTo?e(r.assignedTo):'<span style="color:var(--faint)">Not Assigned</span>')+'</td>'
         +'<td>'+(r._hasProfile?'<button class="btn bsm" onclick="window._openLeadProfile(\''+e(String(r.id))+'\')">Open</button>':'<span style="color:var(--faint)" title="Not yet sent to assignment — no lead record to open">—</span>')+'</td>'
-        +'</tr>').join(""):'<tr><td colspan="13" style="text-align:center;color:var(--faint);padding:18px">No leads match this view</td></tr>';
+        // A row with no lead record has nothing in `leads` to delete — it is still only a CSV or
+        // feed row, so offering Delete would fail silently and look like it had worked.
+        +(_impCanDelete()
+          ?('<td>'+(r._hasProfile
+            ?'<button class="btn bsm" style="color:var(--alert-ink)" onclick="window._impDeleteLead(&quot;'+e(String(r.id))+'&quot;)">Delete</button>'
+            :'<span style="color:var(--faint)" title="Not yet a lead record — nothing to delete">—</span>')+'</td>')
+          :"")
+        +'</tr>').join(""):'<tr><td colspan='+_impDrillCols().length+' style="text-align:center;color:var(--faint);padding:18px">No leads match this view</td></tr>';
       const info=root.querySelector("#impDrillPageInfo"); if(info) info.textContent="Page "+_impDrillPg+" of "+pages;
       const dis=(sel:string,off:boolean)=>{ const b=root.querySelector(sel)as HTMLButtonElement|null; if(b){ b.disabled=off; b.style.opacity=off?"0.5":""; } };
       dis("#impDrillFirstBtn",_impDrillPg<=1); dis("#impDrillPrevBtn",_impDrillPg<=1);
@@ -3123,7 +3182,9 @@ export function initApp(root: HTMLElement) {
     // The dates are filter:false — every row's timestamp is unique, so a distinct-values dropdown
     // would just list the whole table. Source and Lang are separate columns (were one "Source ·
     // Lang" cell) so each gets its own filter.
-    const _haResCols:any[]=[
+    // SUPER ADMIN ONLY (requested 01-Sep-2026). Declared above the column lists that consult it.
+    const _retSrcAllowed=()=>_rolesOf(_currentUser).some((r:string)=>String(r).trim().toLowerCase()==="super admin");
+    const _haResCols=():any[]=>[
       {key:"created",label:"Lead Generated Date & Time",filter:false,text:(l:any)=>l.createdAt?fmtIST(l.createdAt):"—"},
       {key:"assignedat",label:"Assigned Date & Time",filter:false,text:(l:any)=>l.assignedAt?fmtIST(l.assignedAt):"—"},
       {key:"lead",label:"Lead",filter:true,text:(l:any)=>l.name||""},
@@ -3131,8 +3192,41 @@ export function initApp(root: HTMLElement) {
       {key:"lang",label:"Lang",filter:true,text:(l:any)=>l.source==="Manual"?"—":(l.lang||"Tamil")},
       {key:"assigned",label:"Assigned to",filter:true,text:(l:any)=>l.assignedTo||"—"},
       {key:"status",label:"Call status",filter:true,text:(l:any)=>haEffStatus(l)},
+      // Rendered only for a Super Admin — the column itself, not just a disabled button, so the
+      // table keeps its width for everyone else. See _retSrcAllowed.
+      ...(_retSrcAllowed()?[{key:"act",label:"Action",filter:false,text:()=>""}]:[]),
     ];
-    regGrid("haResults", ()=>_haResCols, ()=>renderHaResults());
+    regGrid("haResults", _haResCols, ()=>renderHaResults());
+    // ===== Return to Source (requested 01-Sep-2026) ==========================================
+    // Hands a lead back to the unassigned pool so it can be picked up again — the same action
+    // Assign & approve already offers as "Return to pool", reused rather than re-implemented so it
+    // keeps that path's activity log, assignment-history row and cross-tab broadcast.
+    //
+    // SUPER ADMIN ONLY, as asked. Reversing somebody's assignment is a supervisor's call, not an
+    // advisor's. The button is not rendered for anyone else, and the handler re-checks — a button
+    // that is merely hidden is still callable from the console.
+    /** One button, wherever it appears. `who` only makes the confirm readable. */
+    const _retSrcBtn=(id:any,who:any)=>_retSrcAllowed()
+      ? '<button class="btn bsm" title="Send this lead back to the unassigned pool" onclick="window._retToSource(&quot;'
+        +_orgEsc(String(id))+'&quot;,&quot;'+_orgEsc(String(who||""))+'&quot;)">↩ Return to Source</button>'
+      : "";
+    w._retToSource=(id:string,who?:string)=>{
+      const leadId=String(id||"").trim(); if(!leadId) return;
+      if(!_retSrcAllowed()){ toastErr("Only a Super Admin can return a lead to the source"); return; }
+      const name=String(who||"").trim()||("lead "+leadId);
+      csvConfirm("Return <b>"+_orgEsc(name)+"</b> to the unassigned pool?"
+        +"<br><br>The advisor loses it and it reappears in Assign &amp; approve for someone to pick up. "
+        +"Its call status and history are kept.",
+        async()=>{
+          try{ await w._unassignLead(leadId); }catch(_){ toastErr("Could not return the lead"); return; }
+          // _unassignLead refreshes the assignment screens; the coach list is its own dataset and
+          // would otherwise keep showing the advisor it was just taken from.
+          const c=_coachClients.find((x:any)=>String(x.id)===leadId); if(c) c.assignedTo="";
+          try{ renderCoachClientsTable(); }catch(_){}
+          try{ renderHaResults(); }catch(_){}
+        },
+        "Return to Source");
+    };
     // The Follow-up card opens its OWN table (planned date, follow-up state) rather than the generic
     // one above, so it needs its own grid or its headers render as plain <th> with no filter control —
     // which is exactly why that table had none. These three derive the values ONCE so the filter
@@ -8867,8 +8961,10 @@ export function initApp(root: HTMLElement) {
         // generic "Enrolled" chip, so the stage is readable without opening the lead.
         +'<td>'+(l.enrolledAt
             ?'<span class="chipb ok" style="white-space:normal;line-height:1.5">'+e(_enrollStatusLine(String(l.id),l.enrolledLevel||"",_advProgPay))+'</span>'
-            :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td></tr>').join("")
-        :'<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads in this status')+'</td></tr>';
+            :'<span class="chipb '+(haBucketOf(haEffStatus(l))==="closed"?"warn":"ok")+'">'+e(haEffStatus(l))+'</span>')+'</td>'
+        +(_retSrcAllowed()?('<td>'+(l.assignedTo?_retSrcBtn(l.id,l.name):'<span style="color:var(--faint)" title="Already unassigned">—</span>')+'</td>'):"")
+        +'</tr>').join("")
+        :'<tr><td colspan="'+_haResCols().length+'" style="text-align:center;color:var(--faint);padding:16px">'+(_haQuery?('No match for “'+e(_haQuery)+'”'):'No leads in this status')+'</td></tr>';
     }
     w._haCardClick=(key:string)=>{_haActiveBucket=key;renderHaResults();if(key==="enrolled"){_advLoadEnrollProgress().then(()=>{if(_haActiveBucket==="enrolled")renderHaResults();});}
       // Call stats load lazily on first dashboard paint. If a card is clicked before that finished,
@@ -16323,7 +16419,7 @@ export function initApp(root: HTMLElement) {
         // Each retry drops one generation of columns, so the page degrades to "those fields read
         // blank" instead of "there are no clients".
         const _coachSel=(cols:string)=>supabase.from("leads").select(cols).not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
-        const CORE="meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at";
+        const CORE="meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at,assigned_to";
         const IMPORT_COLS=",hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price";
         let res=await _coachSel(CORE+",screening_vitals"+IMPORT_COLS);
         if(res.error&&/column/i.test(res.error.message||"")) res=await _coachSel(CORE+",screening_vitals") as any;
@@ -16369,7 +16465,7 @@ export function initApp(root: HTMLElement) {
           else if(apptStage==="consultation"||apptStage==="health") stage="consultation";
           else if(cp&&cp.f&&cp.f.length>3) stage="assessment";
           else if(sv&&sv.screened_at) stage="assessment";
-          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:_cons,callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_lvl};
+          return {id:r.meta_lead_id,name:r.name,phone:r.phone,source:r.source,lang:r.language,assignedTo:r.assigned_to||"",service:r.service||"",isValid:r.is_valid,sugar:r.sugar_poll||"",coachProfile:cp||null,_stage:stage,visitedAt:r.visited_at,hc:apptHc[r.meta_lead_id]||r.hc_assigned||"",_imp:{dur:r.diabetes_duration||"",prog:r.program_suggested||"",method:r.payment_method||"",l1:r.l1_price||"",l2:r.l2_price||""},consStatus:_cons,callStatus:r.call_status||"",enrolledAt:r.enrolled_at||"",enrolledLevel:_lvl};
         });
         // Health Coach queue = Diabetes only: drop leads whose service is a non-diabetes modality
         // (Blood Test / Physiotherapy / etc.) so they no longer clutter the queue. Applied at the
@@ -16657,7 +16753,7 @@ export function initApp(root: HTMLElement) {
           // Order must mirror _coachCliColsFn: these two sit directly after Visited Date & Time.
           +(_showInst2Col()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachInst1At(c))+'</td>'):'')
           +(_showInst2Col()?('<td class="mono" style="font-size:11px;white-space:nowrap">'+e(_coachBalDueAt(c))+'</td>'):'')
-          +'<td><button class="btn bsm bp" onclick="window._coachOpen(\''+e(String(c.id))+'\')">Open</button></td></tr>';
+          +'<td><button class="btn bsm bp" onclick="window._coachOpen(\''+e(String(c.id))+'\')">Open</button>'+(_retSrcAllowed()&&c.assignedTo?(' '+_retSrcBtn(c.id,c.name)):'')+'</td></tr>';
       // colspan must track the columns actually rendered: base 8, +1 Commitment, +3 for the
       // Instalment-2 view (Pending Installment, Inst-1 date, Balance due date).
       }).join(""):'<tr><td colspan="'+(8+(_showCommitCol()?1:0)+(_showInst2Col()?3:0))+'" style="text-align:center;color:var(--faint);padding:18px">No visited clients match the filters</td></tr>';

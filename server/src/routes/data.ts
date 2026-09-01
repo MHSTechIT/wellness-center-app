@@ -63,6 +63,18 @@ function validateOrgWrite(q: any, user: any): string | null {
   return 'Only an admin can change services and roles.';
 }
 
+// Deleting a lead is irreversible and takes its history with it: appointments, payments, call and
+// office recordings all key off meta_lead_id and NO foreign key protects them, so the row simply
+// vanishes and its records are orphaned. The Lead-import table offers the button to a Super Admin
+// only — and this is where that actually holds, because hiding the button stops nobody who can post
+// to this endpoint directly (the same reasoning as the two guards above).
+// Exported so the rule can be tested against the REAL function rather than a copy of it.
+export function validateLeadDelete(q: any, user: any): string | null {
+  if (!q || String(q.table) !== 'leads' || String(q.action) !== 'delete') return null;
+  if (String(user?.role || '') === 'Super Admin') return null;
+  return 'Only a Super Admin can delete a lead.';
+}
+
 export function registerDataRoutes(app: Express) {
   app.post('/db/query', requireAuth, async (req: Request, res: Response) => {
     const q = req.body || {};
@@ -70,6 +82,8 @@ export function registerDataRoutes(app: Express) {
     if (tErr) { res.status(403).json({ data: null, error: { message: tErr }, count: null }); return; }
     const oErr = validateOrgWrite(q, req.user);
     if (oErr) { res.status(403).json({ data: null, error: { message: oErr }, count: null }); return; }
+    const dErr = validateLeadDelete(q, req.user);
+    if (dErr) { res.status(403).json({ data: null, error: { message: dErr }, count: null }); return; }
     // Domain rule (mirrors the frontend): a coach profile whose consultation status is
     // "Will Join Immediately" MUST carry a review date. Enforced here too so the DB can never
     // hold a "join" record without the follow-up date, even if the client check is bypassed.
