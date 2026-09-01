@@ -1719,20 +1719,23 @@ export function initApp(root: HTMLElement) {
     // This is the same shape broadcastCheer already uses for the check-in celebration.
     let _asgSeen:Record<string,string>|null=null;   // leadId -> advisor, as of the last look
     const ASG_FRESH_MS=10*60*1000;                  // only announce assignments made just now
-    /** Who may hear about an assignment: the advisor who got it, plus the oversight roles. */
+    /** Who may hear about an assignment: the advisor who got it, plus the oversight roles.
+     *  BDM was missing (requested 01-Sep-2026) — it is an oversight role on this pipeline and was
+     *  the only one of the three named that fell through to the assignee-only test below. */
+    const _ASG_OVERSIGHT=["Admin","BDM"];
     function _asgAudienceFor(advisor:string):boolean{
       if(_holdsFullViewRole()) return true;                       // Super Admin / Manager / Branch Manager
-      if(_rolesOf(_currentUser).includes("Admin")) return true;   // if an Admin role is ever added
+      if(_rolesOf(_currentUser).some((r:string)=>_ASG_OVERSIGHT.includes(String(r).trim()))) return true;
       const me=_advisorName();
       return !!me&&me.toLowerCase()===String(advisor||"").toLowerCase();
     }
-    function _asgNotify(name:string,advisor:string,mine:boolean){
+    /** One popup card. Shared by the arrival alert and the not-called reminder so the two cannot
+     *  drift into looking like different features. `key` is the dedupe identity: an identical card
+     *  already on screen just has its dismiss timer reset. */
+    function _asgCard(key:string,accent:string,icon:string,bodyHtml:string){
       const stack=_notifStackEl();
-      const e=(v:any)=>_orgEsc(String(v==null?"":v));
-      const key="asg:"+advisor+":"+name;
       const arm=(el:HTMLElement)=>{ const t=(el as any)._t; if(t)clearTimeout(t);
         (el as any)._t=setTimeout(()=>{ if(el.parentNode) el.parentNode.removeChild(el); },10000); };
-      // Same dedupe the other alerts use: an identical notice already up just resets its timer.
       const existing=Array.from(stack.children).find((c:any)=>c.getAttribute("data-msg")===key)as HTMLElement|undefined;
       if(existing){ arm(existing); return; }
       while(stack.children.length>=_NOTIF_MAX){ const f=stack.firstElementChild as HTMLElement|null; if(!f)break;
@@ -1740,15 +1743,19 @@ export function initApp(root: HTMLElement) {
       const wrap=document.createElement("div"); wrap.setAttribute("data-msg",key);
       wrap.style.cssText="pointer-events:auto;display:flex;align-items:flex-start;gap:9px;padding:10px 12px;"
         +"border-radius:10px;box-shadow:0 6px 22px rgba(0,0,0,0.16);font-size:12.5px;line-height:1.5;"
-        +"background:var(--surface,#fff);border:1px solid var(--line);border-left:3px solid var(--ok-ink,#10794A);max-width:330px";
-      wrap.innerHTML='<span style="font-size:14px;flex-shrink:0">&#128100;</span><div style="flex:1">'
-        +'<div style="font-weight:800;margin-bottom:2px">New Lead Assigned</div>'
-        +'<div>Lead: <b>'+e(name||"Lead")+'</b></div>'
-        +'<div>Assigned to: <b>'+e(advisor||"&mdash;")+'</b>'+(mine?' <span class="chipb ok" style="margin-left:4px">You</span>':"")+'</div></div>'
+        +"background:var(--surface,#fff);border:1px solid var(--line);border-left:3px solid "+accent+";max-width:330px";
+      wrap.innerHTML='<span style="font-size:14px;flex-shrink:0">'+icon+'</span><div style="flex:1">'+bodyHtml+'</div>'
         +'<button aria-label="Dismiss" style="background:none;border:0;cursor:pointer;color:var(--faint);font-size:15px;line-height:1;padding:0 2px">&times;</button>';
       (wrap.querySelector("button")as HTMLElement).onclick=()=>{ const t=(wrap as any)._t; if(t)clearTimeout(t);
         if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
       stack.appendChild(wrap); arm(wrap);
+    }
+    function _asgNotify(name:string,advisor:string,mine:boolean){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      _asgCard("asg:"+advisor+":"+name,"var(--ok-ink,#10794A)","&#128100;",
+        '<div style="font-weight:800;margin-bottom:2px">New Lead Assigned</div>'
+        +'<div>Lead: <b>'+e(name||"Lead")+'</b></div>'
+        +'<div>Assigned to: <b>'+e(advisor||"&mdash;")+'</b>'+(mine?' <span class="chipb ok" style="margin-left:4px">You</span>':"")+'</div>');
     }
     /** Diff the book against the last look and announce anything newly assigned. */
     function _asgCheckNew(){
@@ -1775,8 +1782,101 @@ export function initApp(root: HTMLElement) {
         _asgNotify(String((l&&l.name)||"Lead"),adv,!!me&&me.toLowerCase()===adv.toLowerCase());
       });
       _asgSeen=now;
+      // A newly assigned lead must be able to remind, even if this lead id was reminded about
+      // under a PREVIOUS advisor — the key carries the advisor, so a reassignment re-arms it.
+      try{ _asgCheckUncalled(); }catch(_){}
     }
     w._asgCheckNew=_asgCheckNew;
+    // ===== "Assigned, but nobody has called yet" reminder (requested 01-Sep-2026) =============
+    // A lead handed to an advisor who never rings it is the quietest way this clinic loses money.
+    // The assignment alert says a lead ARRIVED; this says one has been sitting.
+    //
+    // Bounded on purpose. The book currently holds 305 assigned leads with no call against them —
+    // firing one popup each would bury the screen and teach everyone to dismiss these on sight. So:
+    //   - the FIRST pass takes a baseline and never pops individually. A backlog that existed
+    //     before you signed in is a report, not a reminder; it gets ONE summary line instead.
+    //   - after that, only a lead that CROSSES the grace line while the app is open pops.
+    //   - at most three per tick, oldest first, and once per lead per assignment.
+    // Reassigning to somebody else re-arms it, because it is a new person's responsibility.
+    const ASG_CALL_GRACE_MS=30*60*1000;   // how long an advisor has before the reminder appears
+    const ASG_CALL_MAX_AGE_MS=24*60*60*1000;   // older than this belongs to the dashboard backlog cards
+    const ASG_REM_KEY="wos_asg_uncalled";
+    const ASG_REM_PER_TICK=3;
+    let _asgRemMap:Record<string,number>={};
+    try{ _asgRemMap=JSON.parse(localStorage.getItem(ASG_REM_KEY)||"{}")||{}; }catch(_){ _asgRemMap={}; }
+    function _asgRemSave(){
+      // Keep the store from growing without bound across months of use: anything older than the
+      // window it guards can never suppress a reminder again.
+      const cut=Date.now()-ASG_CALL_MAX_AGE_MS*2;
+      Object.keys(_asgRemMap).forEach(k=>{ if((_asgRemMap[k]||0)<cut) delete _asgRemMap[k]; });
+      try{ localStorage.setItem(ASG_REM_KEY,JSON.stringify(_asgRemMap)); }catch(_){}
+    }
+    /** Has anyone actually worked this lead? A recorded call OR a disposition the advisor set by
+     *  hand both count — someone who marked a lead RNR has tried, and nagging them for "no call"
+     *  would be wrong and would train them to ignore the notice. */
+    function _asgWorked(l:any,facts:Record<string,any>):boolean{
+      const id=String((l&&l.id)||"");
+      const f=facts[id];
+      if(f&&(f.total||0)>0) return true;
+      return !!String((l&&l.callStatus)||"").trim();
+    }
+    function _asgRemindCard(name:string,advisor:string,mine:boolean,mins:number){
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const hm=mins>=60?(Math.floor(mins/60)+"h"+(mins%60?" "+(mins%60)+"m":"")):(mins+" min");
+      _asgCard("rem:"+advisor+":"+name,"var(--warn-ink,#B26A00)","&#9200;",
+        '<div style="font-weight:800;margin-bottom:2px">No call yet</div>'
+        +'<div>Lead: <b>'+e(name||"Lead")+'</b></div>'
+        +'<div>Assigned to: <b>'+e(advisor||"&mdash;")+'</b>'+(mine?' <span class="chipb ok" style="margin-left:4px">You</span>':"")+'</div>'
+        +'<div style="color:var(--muted)">Waiting '+e(hm)+' with no call logged</div>');
+    }
+    let _asgRemBaselined=false;
+    function _asgCheckUncalled(){
+      if(!_currentUser) return;
+      // The call rows arrive AFTER the first paint. Running before they land would see zero calls
+      // against every lead and remind about all of them — the loudest possible false alarm.
+      if(!_advCallLoaded||!_advCallRows.length) return;
+      const facts=_haCallFacts();
+      const now=Date.now();
+      const me=_advisorName();
+      const due:{l:any;adv:string;at:number}[]=[];
+      [..._metaLeads,..._assignedExtras].forEach((l:any)=>{
+        const id=String((l&&l.id)||""); if(!id) return;
+        const adv=String((l&&l.assignedTo)||"").trim(); if(!adv) return;
+        const at=new Date(String((l&&l.assignedAt)||"")).getTime();
+        if(!at||isNaN(at)) return;
+        const age=now-at;
+        if(age<ASG_CALL_GRACE_MS||age>ASG_CALL_MAX_AGE_MS) return;
+        if(_asgWorked(l,facts)) return;
+        if(!_asgAudienceFor(adv)) return;
+        if(_asgRemMap[id+"|"+adv.toLowerCase()]) return;
+        due.push({l,adv,at});
+      });
+      if(!due.length){ _asgRemBaselined=true; return; }
+      due.sort((a,b)=>a.at-b.at);   // longest-waiting first
+      if(!_asgRemBaselined){
+        // First pass: record the backlog without popping it, and say once how big it is.
+        due.forEach(d=>{ _asgRemMap[String(d.l.id)+"|"+d.adv.toLowerCase()]=now; });
+        _asgRemSave(); _asgRemBaselined=true;
+        const e=(v:any)=>_orgEsc(String(v==null?"":v));
+        const who=(!_holdsFullViewRole()&&me)?"you":"the team";
+        _asgCard("rem:backlog","var(--warn-ink,#B26A00)","&#9200;",
+          '<div style="font-weight:800;margin-bottom:2px">Leads waiting for a first call</div>'
+          +'<div><b>'+due.length+'</b> lead'+(due.length===1?"":"s")+' assigned to '+e(who)+' in the last 24h have no call logged.</div>'
+          +'<div style="color:var(--muted)">New ones will be flagged individually from now on.</div>');
+        return;
+      }
+      due.slice(0,ASG_REM_PER_TICK).forEach(d=>{
+        _asgRemMap[String(d.l.id)+"|"+d.adv.toLowerCase()]=now;
+        _asgRemindCard(String((d.l&&d.l.name)||"Lead"),d.adv,!!me&&me.toLowerCase()===d.adv.toLowerCase(),
+          Math.round((now-d.at)/60000));
+      });
+      _asgRemSave();
+    }
+    w._asgCheckUncalled=_asgCheckUncalled;
+    // A lead crosses the grace line with no interaction at all, so this cannot wait for the next
+    // SSE push or navigation the way the arrival alert can.
+    if(!(w as any).__asgRemTimer) (w as any).__asgRemTimer=setInterval(()=>{ try{ _asgCheckUncalled(); }catch(_){} },60000);
+
     function _notifStackEl(){
       let s=document.getElementById("metaNotifStack")as HTMLElement|null;
       if(!s){ s=document.createElement("div"); s.id="metaNotifStack";
