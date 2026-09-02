@@ -119,6 +119,10 @@ export function initApp(root: HTMLElement) {
     // their own advisor leads on the Advisor page (and, symmetrically, only their coach clients on the
     // Coach page). Oversight roles (Super Admin / Manager / Branch Manager) still see everything even
     // if they also carry an Advisor/Coach tag — they must never be silently narrowed to one book.
+    /** The single Super Admin test for destructive actions. Older per-feature copies of this exist
+     *  in the allocation panel, the Lead-import table and the Return-to-Source button; new code
+     *  uses this one. */
+    const _isSuperAdmin=()=>_rolesOf(_currentUser).some((r:string)=>String(r).trim().toLowerCase()==="super admin");
     function _holdsFullViewRole():boolean{ return _rolesOf(_currentUser).some((r:string)=>_SERVICE_BYPASS_ROLES.includes(r)); }
     function _isAdvisorRole():boolean{ return !!_currentUser && !_holdsFullViewRole() && _rolesOf(_currentUser).includes("Advisor"); }
     // Resolve the login account to its advisor NAME: prefer an assignee whose "Login email"
@@ -15209,29 +15213,59 @@ export function initApp(root: HTMLElement) {
     let _coachApplying=false;
     let _coachClients:any[]=[];
     function _coachPanelEl(){ return root.querySelector('#s-coach .c-p[data-p="health2"]')as HTMLElement|null; }
-    // ===== Trainee audit (coach page) =====================================================
-    // Mirrors the Advisor's BDM audit. Every control is data-nocap and persistence is by NAME
-    // (coach_profile.traineeAudit) — the positional field/pill/chip capture never sees it, so
-    // adding this section shifted nothing in existing saved profiles.
+    // ===== The coach page's three audit blocks ============================================
+    // Self-audit → Trainee audit → BDM feedback, in that order on screen. All three share this
+    // code, keyed by an id prefix, so they cannot drift apart.
+    //
+    // CAPTURE SAFETY, which is the whole reason they are built this way: the coach profile is a
+    // POSITIONAL array (coach_profile.f[] / pills[]) serialized by DOM index, so an element
+    // inserted anywhere in the panel shifts every later index and silently corrupts every profile
+    // already saved. Every control here is data-nocap and none is .pill / .chip-o, so the
+    // positional capture never sees them, and each block persists by NAME instead.
+    const COACH_AUDITS=[
+      {key:"selfAudit",  pre:"chs", score:false},   // Health coach self-audit
+      {key:"traineeAudit",pre:"trn", score:true },  // Trainee audit
+      {key:"bdmAudit",   pre:"cbd", score:true },   // BDM feedback
+    ];
     w._trnScore=(b:HTMLElement)=>{
       const box=b&&b.parentElement; if(!box) return;
       const was=b.classList.contains("on");
       box.querySelectorAll("button").forEach((x:any)=>x.classList.remove("on"));
       if(!was) b.classList.add("on");   // click the lit score again to clear it
     };
-    function _trnCollect(){
+    /** One block's values. `pre` is its id prefix — chs / trn / cbd. */
+    function _audCollectOne(pre:string,withScore:boolean){
       const g=(id:string)=>String(((root.querySelector("#"+id)as any)?.value)||"").trim();
-      const on=root.querySelector("#trnScore button.on");
-      return { good:g("trnGood"), notGood:g("trnNotGood"), improve:g("trnImprove"),
-               score:on?(Number((on.textContent||"").trim())||0):0, status:g("trnStatus")||"Open" };
+      const cap=pre.charAt(0).toUpperCase()+pre.slice(1);
+      const out:any={ good:g(pre+"Good"), notGood:g(pre+"NotGood"), improve:g(pre+"Improve") };
+      if(withScore){
+        const on=root.querySelector("#"+pre+"Score button.on");
+        out.score=on?(Number((on.textContent||"").trim())||0):0;
+        out.status=g(pre+"Status")||"Open";
+      }
+      return out;
     }
-    function _trnApply(a:any){
+    function _audApplyOne(pre:string,withScore:boolean,a:any){
       a=a||{};
       const s=(id:string,v:any,dflt:string)=>{ const el=root.querySelector("#"+id)as any; if(el) el.value=String(v||dflt); };
-      s("trnGood",a.good,""); s("trnNotGood",a.notGood,""); s("trnImprove",a.improve,""); s("trnStatus",a.status,"Open");
+      s(pre+"Good",a.good,""); s(pre+"NotGood",a.notGood,""); s(pre+"Improve",a.improve,"");
+      if(!withScore) return;
+      s(pre+"Status",a.status,"Open");
       const n=Number(a.score)||0;
-      root.querySelectorAll("#trnScore button").forEach((b:any)=>b.classList.toggle("on",Number((b.textContent||"").trim())===n));
+      root.querySelectorAll("#"+pre+"Score button").forEach((b:any)=>b.classList.toggle("on",Number((b.textContent||"").trim())===n));
     }
+    /** All three blocks, as {selfAudit, traineeAudit, bdmAudit} — merged into the saved profile. */
+    function _audCollectAll(){
+      const out:any={};
+      COACH_AUDITS.forEach(a=>{ out[a.key]=_audCollectOne(a.pre,a.score); });
+      return out;
+    }
+    function _audApplyAll(obj:any){
+      COACH_AUDITS.forEach(a=>{ _audApplyOne(a.pre,a.score,obj?obj[a.key]:null); });
+    }
+    // Kept as the trainee block's own names so the existing call sites read unchanged.
+    const _trnCollect=()=>_audCollectOne("trn",true);
+    const _trnApply=(a:any)=>_audApplyOne("trn",true,a);
     function collectCoachProfile(){
       const p=_coachPanelEl(); if(!p) return null;
       // [data-nocap] elements (the payment Status dropdowns, which mirror the existing hidden
@@ -15244,7 +15278,9 @@ export function initApp(root: HTMLElement) {
         // EMI payment proofs {name,url} — a NAMED key (not positional), so old profiles are
         // unaffected. Without this they lived only in the tab's memory and were gone on reopen.
         emiProofs:(_payProofsAll["emiProofs"]||[]).slice(),
-        traineeAudit:_trnCollect(),
+        // All three audit blocks (self / trainee / BDM feedback) as NAMED keys, spread here so the
+        // positional arrays above are untouched.
+        ..._audCollectAll(),
         consStatus:_coachConsStatus,commitDate:((root.querySelector("#fuCommitDate")as HTMLInputElement|null)?.value)||"",reviewDate:((root.querySelector("#haReviewDate")as HTMLInputElement|null)?.value)||""};
     }
     function applyCoachProfile(obj:any){
@@ -15283,7 +15319,7 @@ export function initApp(root: HTMLElement) {
               if(first) box.insertBefore(tag,first); else box.appendChild(tag); });
           }
         }catch(_){}
-        try{ _trnApply((obj as any).traineeAudit); }catch(_){}
+        try{ _audApplyAll(obj); }catch(_){}
         // Restores the saved-assessment lock for this client (absent on profiles saved before this
         // feature — those stay editable, which is the safe direction: nothing is retro-locked).
         _haSavedAt=String((obj as any).haSavedAt||"1970-01-01T00:00:00.000Z");
@@ -16304,7 +16340,7 @@ export function initApp(root: HTMLElement) {
       _coachAttachments=[]; renderCoachAtts();
       Object.keys(_payProofs).forEach(k=>delete _payProofs[k]);   // clear per-client payment proofs
       Object.keys(_payProofsAll).forEach(k=>delete _payProofsAll[k]);
-      try{ _trnApply(null); }catch(_){}   // fresh client -> blank trainee audit until its profile restores
+      try{ _audApplyAll(null); }catch(_){}   // fresh client -> all three audits blank until its profile restores
       // Reset the EMI proof container to its three Attach buttons — restored files (if any) are
       // re-rendered by applyCoachProfile from the saved profile.
       try{ root.querySelectorAll("#emiProofs .att:not(.add)").forEach((t:any)=>t.remove()); }catch(_){}
@@ -17947,7 +17983,19 @@ export function initApp(root: HTMLElement) {
       const scope=String(svc||"all");
       const seen=new Set<string>();
       const out:{name:string;role:string}[]=[];
-      _assignableAdvisors(scope).forEach((a:any)=>{
+      // The ADVISOR roster keeps its original source: _assignableAdvisors is the app's single
+      // definition of who may receive leads, and that is the right population for advisor targets.
+      //
+      // The COACH roster cannot use it. _assignableAdvisors requires an ADVISOR-GRADE role
+      // (_isAdvisorAssignRole matches Advisor / Senior Advisor / Telecaller, never Health Coach),
+      // so every pure Health Coach was discarded before the /coach/i test below ever ran — the team
+      // could only ever list someone who happened to hold an advisor role as well. Seven active
+      // coaches, one listed. Coaches are drawn from the assignee master directly instead, with the
+      // same active and service gates the advisor path applies.
+      const pool:any[]=team==="advisor"
+        ? _assignableAdvisors(scope)
+        : _assignees.filter((a:any)=>a.is_active&&_advisorInService(a,scope));
+      pool.forEach((a:any)=>{
         const roles=_rolesOf(a).filter(Boolean);
         if(!roles.some((r:string)=>want.test(String(r)))) return;
         const name=String(a.name||"").trim(); if(!name||seen.has(name)) return;
@@ -22012,7 +22060,13 @@ export function initApp(root: HTMLElement) {
         // Method cell carries the installment number so the pair reads 1-of-2 / 2-of-2.
         const isDue=p.status==="due";
         const stChip=isDue?'<span class="chipb warn">Due · not collected</span>':(p.verified?'<span class="chipb ok">Verified</span>':'<span class="chipb warn">Unverified</span>');
-        const act=isDue?'—':(p.verified?'—':'<button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button>');
+        // Verify is unchanged — it still only appears on a collected, unverified payment. Delete is
+        // Super-Admin-only and offered on EVERY row, including due and verified ones: a wrongly
+        // raised due row is exactly the kind of mistake that needs removing. The rule is enforced on
+        // the server too (RESTRICTED_DELETE in routes/data.ts).
+        const verifyBtn=(isDue||p.verified)?'':'<button class="btn bsm bp" onclick="window._accVerify('+p.id+')">Verify</button>';
+        const delBtn=_isSuperAdmin()?'<button class="btn bsm" style="color:var(--alert-ink)" title="Delete this transaction permanently" onclick="window._accTxDelete('+p.id+')">Delete</button>':'';
+        const act=(verifyBtn||delBtn)?('<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">'+verifyBtn+delBtn+'</div>'):'—';
         const methodLbl=(p.payment_type||"full")+(p.installment_number?(" "+p.installment_number+(p.total_installments?"/"+p.total_installments:"")):"")+" · "+(p.method||"—");
         txH+='<tr'+(isDue?' style="background:var(--warn-bg,#FFF9EC)"':'')+'>'
           +'<td><input type="checkbox" class="accTxChk" data-id="'+p.id+'"'+(sel?" checked":"")+' onchange="window._accTxRowSel(this)" style="accent-color:var(--brand)"></td>'
@@ -22212,6 +22266,39 @@ export function initApp(root: HTMLElement) {
       _accPays.filter((p:any)=>String(p.refund_status||"")==="paid"&&_accTblMatch(p,_accRefHistQuery)),"Paid");
     // Bulk verify: runs the SAME per-row verification (update + Diabetes-only enrollment) for every
     // selected row, then reloads once at the end instead of once per row.
+    /** Delete one transaction, permanently. A payment IS the revenue record: removing it changes
+     *  what Revenue by service, the Transaction history and every report say was collected. So the
+     *  confirm states the amount and, for a verified row, that the money is already counted —
+     *  before asking, not after. Super Admin only, enforced on the server as well. */
+    w._accTxDelete=async(id:any)=>{
+      const pid=String(id||"").trim(); if(!pid) return;
+      if(!_isSuperAdmin()){ toastErr("Only a Super Admin can delete a transaction"); return; }
+      const p=(_accPays||[]).find((x:any)=>String(x.id)===pid);
+      if(!p){ toastErr("That transaction is no longer on screen — reload and try again"); return; }
+      const e=(v:any)=>_orgEsc(String(v==null?"":v));
+      const money=(n:any)=>"₹"+Number(n||0).toLocaleString("en-IN");
+      const isDue=String(p.status||"")==="due";
+      const bits:string[]=[];
+      bits.push("<b>"+e(p.clientName||"Client")+"</b>"+(p.clientPhone?(" · "+e(p.clientPhone)):""));
+      bits.push(money(p.amount)+" · "+e(p.service||"no service")+" · "+e((p.payment_type||"full")+" / "+(p.method||"—")));
+      if(p.txn_ref) bits.push("Ref "+e(p.txn_ref));
+      if(p.installment_number) bits.push("Instalment "+e(p.installment_number)+(p.total_installments?(" of "+e(p.total_installments)):""));
+      // The three states differ in what deleting actually costs, so say which one this is.
+      const warn=isDue
+        ? "This is an uncollected DUE row — deleting it removes the outstanding amount from Accounts, so nobody will chase it."
+        : (p.verified
+          ? "This payment is VERIFIED — it is already counted in reported revenue and in the transaction history. Deleting it will change those figures."
+          : "This payment is collected but unverified — it is counted in Revenue by service.");
+      csvConfirm(bits.join("<br>")+"<br><br>"+warn+"<br><br>This cannot be undone.",async()=>{
+        if(!(await _dbOk(supabase.from("payments").delete().eq("id",Number(pid)||pid),"Deleting the transaction"))) return;
+        // Drop it locally so the row, the totals and the service cards all move together rather
+        // than the table emptying while the figures above it still count the deleted amount.
+        for(let i=(_accPays||[]).length-1;i>=0;i--) if(String(_accPays[i].id)===pid) _accPays.splice(i,1);
+        _accTxSel.delete(pid);
+        toast("Transaction deleted");
+        try{ _accRenderAll(); }catch(_){ try{ loadAccountsData(); }catch(__){} }
+      },"Delete transaction");
+    };
     w._accVerifySelected=async()=>{
       const ids=Array.from(_accVerSel);
       if(!ids.length){ toast("Select one or more payments to verify"); return; }

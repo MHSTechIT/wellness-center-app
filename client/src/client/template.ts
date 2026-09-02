@@ -359,11 +359,11 @@ export function getMainContent(): string {
           <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="Sales caller self-audit — ✗ Not good" class="area"></textarea></div>
           <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="Sales caller self-audit — ▲ Improve" class="area"></textarea></div></div></div></div></div>
 
-      <div class="sec closed" id="advBdmAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> BDM audit <span class="nb">NEW</span> <span class="arr">▾</span></div>
+      <div class="sec closed" id="advBdmAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> BDM feedback <span class="nb">NEW</span> <span class="arr">▾</span></div>
         <div class="sec-bd"><div class="aud"><div class="ahd">BDM evaluation</div><div class="g3">
-          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="BDM audit — ✓ Good" class="area"></textarea></div>
-          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="BDM audit — ✗ Not good" class="area"></textarea></div>
-          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="BDM audit — ▲ Improve" class="area"></textarea></div></div>
+          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="BDM feedback — ✓ Good" class="area"></textarea></div>
+          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="BDM feedback — ✗ Not good" class="area"></textarea></div>
+          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="BDM feedback — ▲ Improve" class="area"></textarea></div></div>
           <div class="g3" style="margin-top:4px">
             <div class="fld"><label class="lbl">BDM score</label><div class="score" id="bdm"><button>1</button><button>2</button><button>3</button><button class="on">4</button><button>5</button></div></div>
             <div class="fld"><label class="lbl">Status</label><select aria-label="Status" class="select"><option>Open</option><option selected>Done</option></select></div></div></div></div></div>
@@ -736,6 +736,17 @@ export function getMainContent(): string {
             <div class="pills"><button class="pill p-ok" onclick="toast('Kit issued · logged')">Given</button><button class="pill p-warn">Need to Ship</button><button class="pill p-vio on">Not Required</button></div></div>
         </div></div></div>
 
+      <!-- HEALTH COACH SELF-AUDIT — the coach's own read on the consultation, first of the three
+           audit blocks (self → trainee → BDM feedback). Same CAPTURE SAFETY as the trainee block
+           below: every control is data-nocap and nothing is .pill / .chip-o, so the coach profile's
+           positional arrays are untouched and existing saved profiles restore unchanged. Values
+           persist by NAME (coach_profile.selfAudit). -->
+      <div class="sec closed" id="coachSelfAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> Health coach self-audit <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="aud"><div class="ahd">Self evaluation</div><div class="g3">
+          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="Health coach self-audit — ✓ Good" class="area" id="chsGood" data-nocap></textarea></div>
+          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="Health coach self-audit — ✗ Not good" class="area" id="chsNotGood" data-nocap></textarea></div>
+          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="Health coach self-audit — ▲ Improve" class="area" id="chsImprove" data-nocap></textarea></div></div></div></div></div>
+
       <!-- TRAINEE AUDIT (Health Coach) — mirrors the Advisor page's BDM audit block (Good / Not
            good / Improve + score + status), sitting directly above the Activity log. CAPTURE
            SAFETY: every control carries data-nocap and the score buttons are NOT .pill / .chip-o,
@@ -749,6 +760,18 @@ export function getMainContent(): string {
           <div class="g3" style="margin-top:4px">
             <div class="fld"><label class="lbl">Trainee score</label><div class="score" id="trnScore"><button type="button" onclick="window._trnScore(this)">1</button><button type="button" onclick="window._trnScore(this)">2</button><button type="button" onclick="window._trnScore(this)">3</button><button type="button" onclick="window._trnScore(this)">4</button><button type="button" onclick="window._trnScore(this)">5</button></div></div>
             <div class="fld"><label class="lbl">Status</label><select aria-label="Trainee audit status" class="select" id="trnStatus" data-nocap><option>Open</option><option>Done</option></select></div></div></div></div></div>
+
+      <!-- BDM FEEDBACK (Health Coach) — last of the three audit blocks, same shape as the
+           Advisor page's. Capture-safe on the same terms as the two above; persists by NAME
+           (coach_profile.bdmAudit). -->
+      <div class="sec closed" id="coachBdmAuditSec"><div class="sec-hd" onclick="togSec(this)"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-audit"></use></svg> BDM feedback <span class="nb">NEW</span> <span class="arr">▾</span></div>
+        <div class="sec-bd"><div class="aud"><div class="ahd">BDM evaluation</div><div class="g3">
+          <div class="fld"><label class="lbl glbl">✓ Good</label><textarea aria-label="BDM feedback — ✓ Good" class="area" id="cbdGood" data-nocap></textarea></div>
+          <div class="fld"><label class="lbl blbl">✗ Not good</label><textarea aria-label="BDM feedback — ✗ Not good" class="area" id="cbdNotGood" data-nocap></textarea></div>
+          <div class="fld"><label class="lbl ilbl">▲ Improve</label><textarea aria-label="BDM feedback — ▲ Improve" class="area" id="cbdImprove" data-nocap></textarea></div></div>
+          <div class="g3" style="margin-top:4px">
+            <div class="fld"><label class="lbl">BDM score</label><div class="score" id="cbdScore"><button type="button" onclick="window._trnScore(this)">1</button><button type="button" onclick="window._trnScore(this)">2</button><button type="button" onclick="window._trnScore(this)">3</button><button type="button" onclick="window._trnScore(this)">4</button><button type="button" onclick="window._trnScore(this)">5</button></div></div>
+            <div class="fld"><label class="lbl">Status</label><select aria-label="BDM feedback status" class="select" id="cbdStatus" data-nocap><option>Open</option><option>Done</option></select></div></div></div></div></div>
 
       <!-- ACTIVITY LOG (Health Coach) — placed exactly where the Advisor has it: the last section of
            the record, immediately above the Save button, so it is read in the same place on both

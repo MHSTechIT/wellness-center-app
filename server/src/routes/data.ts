@@ -68,11 +68,21 @@ function validateOrgWrite(q: any, user: any): string | null {
 // vanishes and its records are orphaned. The Lead-import table offers the button to a Super Admin
 // only — and this is where that actually holds, because hiding the button stops nobody who can post
 // to this endpoint directly (the same reasoning as the two guards above).
+// Deletes that destroy a business record, restricted to a Super Admin. Both are irreversible and
+// both take history with them: a lead's appointments, payments and recordings key off
+// meta_lead_id with NO foreign key, and a payment IS the revenue record — removing one changes
+// what every report says was collected.
+const RESTRICTED_DELETE: Record<string, string> = {
+  leads: 'Only a Super Admin can delete a lead.',
+  payments: 'Only a Super Admin can delete a payment.',
+};
 // Exported so the rule can be tested against the REAL function rather than a copy of it.
 export function validateLeadDelete(q: any, user: any): string | null {
-  if (!q || String(q.table) !== 'leads' || String(q.action) !== 'delete') return null;
+  if (!q || String(q.action) !== 'delete') return null;
+  const msg = RESTRICTED_DELETE[String(q.table)];
+  if (!msg) return null;
   if (String(user?.role || '') === 'Super Admin') return null;
-  return 'Only a Super Admin can delete a lead.';
+  return msg;
 }
 
 export function registerDataRoutes(app: Express) {

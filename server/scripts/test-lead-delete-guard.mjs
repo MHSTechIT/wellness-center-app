@@ -1,4 +1,4 @@
-// Deleting a lead is Super-Admin-only, and the rule that matters is the SERVER one: the client
+// Deleting a lead or a payment is Super-Admin-only, and the rule that matters is the SERVER one: the client
 // hides the button, but anyone who can post to /db/query could send the delete themselves.
 // This exercises the real guard from routes/data.ts.
 //
@@ -23,6 +23,17 @@ check('Advisor may still UPDATE a lead',   !blocked({ table: 'leads', action: 'u
 check('Advisor may still SELECT leads',    !blocked({ table: 'leads', action: 'select' }, 'Advisor'));
 check('Advisor may still INSERT a lead',   !blocked({ table: 'leads', action: 'insert' }, 'Advisor'));
 check('deletes on OTHER tables untouched', !blocked({ table: 'csv_leads', action: 'delete' }, 'Advisor'));
+
+// A payment IS the revenue record, so its delete is restricted the same way.
+const delPay = { table: 'payments', action: 'delete' };
+console.log('\nOnly a Super Admin may delete a payment\n');
+check('Super Admin may delete a payment',   !blocked(delPay, 'Super Admin'));
+for (const role of ['Manager', 'Accounts', 'Admin', 'Advisor', 'Receptionist', '']) {
+  check(('"' + role + '" may not').padEnd(28), blocked(delPay, role));
+}
+check('Accounts may still UPDATE a payment', !blocked({ table: 'payments', action: 'update' }, 'Accounts'));
+check('Accounts may still INSERT a payment', !blocked({ table: 'payments', action: 'insert' }, 'Accounts'));
+check('verifying a payment is unaffected',   !blocked({ table: 'payments', action: 'update' }, 'Receptionist'));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
