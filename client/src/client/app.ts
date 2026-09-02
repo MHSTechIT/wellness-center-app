@@ -16484,7 +16484,16 @@ export function initApp(root: HTMLElement) {
         // query, which blanked the entire Health Coach page to zeros in production (20-Aug-2026).
         // Each retry drops one generation of columns, so the page degrades to "those fields read
         // blank" instead of "there are no clients".
-        const _coachSel=(cols:string)=>supabase.from("leads").select(cols).not("visited_at","is",null).order("visited_at",{ascending:false}).limit(100);
+        // EVERY visited client, not the newest 100. The cap silently hid clients from this page:
+        // production has 142 visited leads, so the 42 oldest — including enrolled ones — were never
+        // fetched at all, and the page looked like their enrolment had not synced (reported
+        // 02-Sep-2026 for Jayachandran, who ranks 138th by visit date). Nothing was wrong with the
+        // DATA; it simply was not being asked for. Paged with a meta_lead_id tiebreaker, the same
+        // way the Meta feed reads its rows, so a page boundary cannot drop or repeat a client.
+        const _coachSel=(cols:string)=>_pageAll((from:number,to:number)=>supabase.from("leads").select(cols)
+          .not("visited_at","is",null)
+          .order("visited_at",{ascending:false}).order("meta_lead_id",{ascending:false})
+          .range(from,to)).then((rows:any[])=>({data:rows,error:null}),(e:any)=>({data:null,error:e}));
         const CORE="meta_lead_id,name,phone,source,language,service,is_valid,sugar_poll,coach_profile,visited_at,call_status,enrolled_at,assigned_to";
         const IMPORT_COLS=",hc_assigned,diabetes_duration,program_suggested,payment_method,l1_price,l2_price";
         let res=await _coachSel(CORE+",screening_vitals"+IMPORT_COLS);
