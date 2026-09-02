@@ -2562,7 +2562,7 @@ export function getMainContent(): string {
                switching service never discards a coach share that was already typed or saved. -->
           <div id="tgtCoachBlock">
           <div class="tgt-team"><span class="ic" aria-hidden="true">C</span><span class="nm">Health Coach Team</span><span class="ct" id="tgtCoachCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">configured separately from the advisors</span></div>
-          <div class="tscroll"><table class="tbl" style="min-width:1240px" id="tgtCoachTbl"><thead><tr>
+          <div class="tscroll"><table class="tbl" style="min-width:1240px" id="tgtCoachTbl"><thead><tr>
             <th scope="col">Coach</th><th scope="col" style="text-align:right">Consultation %</th><th scope="col" style="text-align:right">Consultations</th>
             <th scope="col" style="text-align:right">Conversion %</th><th scope="col" style="text-align:right">Conversions</th>
             <th scope="col" style="text-align:right">Revenue</th>
