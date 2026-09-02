@@ -16612,6 +16612,10 @@ export function initApp(root: HTMLElement) {
     function _coachConsMatch(c:any,label:string){
       if(label==="Instalment 2 pending") return _coachInst2Pending(c);   // payment state, not a consStatus
       const s=_coachConsOf(c);
+      // The roll-up card: every enrolled client whatever their level, so clicking it opens all of
+      // them rather than one level. Checked BEFORE the per-level branch below, which would
+      // otherwise read "Total Enrolled" as a level name and match nobody.
+      if(label==="Total Enrolled") return /enrol/i.test(s);
       if(/^Enrolled/i.test(label)){
         if(!/enrol/i.test(s)) return false;
         const sl1=/l1/i.test(s), sl2=/l2/i.test(s);
@@ -16675,7 +16679,7 @@ export function initApp(root: HTMLElement) {
     // past Total Leads, which read as the dashboard losing count (reported). "Enrolled – Level
     // pending" catches an enrolled client whose program isn't recorded yet — without it those
     // clients appeared on NO card at all. It renders only when non-empty.
-    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Enrolled – L1 + L2","Enrolled – Level pending","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund","Instalment 2 pending"];
+    const _coachStatusCards=["Open","Will Join Immediately","This Week","End of Month","Next Month","Enrolled – L1","Enrolled – L2","Enrolled – L1 + L2","Enrolled – Level pending","Total Enrolled","Already Paid – Before Consultation","Already Paid – After Consultation","Not Interested","Refund","Instalment 2 pending"];
     let _coachDashSel="";
     // "Instalment 2 pending" is a PAYMENT state, not a consultation status: installment 1 collected
     // for some program but installment 2 not yet. Derived from the same guarded per-lead program
@@ -16720,6 +16724,12 @@ export function initApp(root: HTMLElement) {
         }
       });
       counts["Instalment 2 pending"]=list.filter(_coachInst2Pending).length;   // payment state, orthogonal to consStatus
+      // Total Enrolled is a ROLL-UP of the level cards, not a bucket of its own: every enrolled
+      // client is already counted on exactly one of L1 / L2 / L1 + L2 / Level pending. Summing
+      // those four rather than re-testing the list makes it arithmetically impossible for this card
+      // to disagree with the cards it totals, which is the whole point of showing it.
+      counts["Total Enrolled"]=["Enrolled – L1","Enrolled – L2","Enrolled – L1 + L2","Enrolled – Level pending"]
+        .reduce((n,k)=>n+(counts[k]||0),0);
       const e=(s:string)=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
       // Total Leads leads the set and doubles as "show everything" (clicking clears the selection).
       // The status cards sum to it; Instalment 2 pending sits OUTSIDE the sum — it is a payment
@@ -16730,7 +16740,8 @@ export function initApp(root: HTMLElement) {
       el.innerHTML='<div class="metric" title="Every client in this view — clears the card filter" style="cursor:pointer'+(on0?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\'\')"><div class="ml">Total Leads</div><div class="mv">'+total+'</div></div>'
       +_coachStatusCards.filter(l=>l!=="Enrolled – Level pending"||(counts[l]||0)>0).map(l=>{
         const on=_coachDashSel===l;
-        const tip=l==="Instalment 2 pending"?' title="Payment state — these clients are already counted on their status card"':'';
+        const tip=l==="Instalment 2 pending"?' title="Payment state — these clients are already counted on their status card"'
+          :(l==="Total Enrolled"?' title="Every enrolled client, whatever their level — the sum of the Enrolled cards beside it. A roll-up, so these clients are already counted there and it stays outside the sum to Total Leads."':'');
         return '<div class="metric"'+tip+' style="cursor:pointer'+(on?';outline:2px solid var(--brand);outline-offset:-1px':'')+'" onclick="window._coachDashClick(\''+e(l).replace(/'/g,"\\'")+'\')"><div class="ml">'+e(l)+'</div><div class="mv">'+(counts[l]||0)+'</div></div>';
       }).join("");
     }
