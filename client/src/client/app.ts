@@ -18109,7 +18109,14 @@ export function initApp(root: HTMLElement) {
       // target, are stated rather than quietly absorbed.
       _tgtRenderAdvFoot(advTot,d,t);
       // ---- Health Coach team (configured separately) ----
-      const coPeople=_tgtPeople("coach");   // unscoped: the filter above is the advisor roster's
+      // The Health Coach team is a DIABETES function here — the coach queue itself drops every
+      // non-diabetes modality — so the block is shown only on Diabetes Counselling and on the
+      // default "All services" view, and hidden for the other six lines. Hidden, never emptied:
+      // the rows stay in the DOM so switching service cannot discard a share already typed, and
+      // _tgtSaveSheet keeps collecting them exactly as before.
+      const _coachApplies=_tgtAdvSvc==="all"||_tgtAdvSvc==="Diabetes Counselling";
+      { const cb=root.querySelector("#tgtCoachBlock")as HTMLElement|null; if(cb) cb.style.display=_coachApplies?"":"none"; }
+      const coPeople=_tgtPeople("coach");   // unscoped: the Service filter picks WHETHER the block shows, not who is on it
       const coBody=root.querySelector("#tgtCoachBody");
       const coTot={c:0,cv:0,rev:0,pct:0};
       if(coBody) coBody.innerHTML=coPeople.length?coPeople.map((pp,pi)=>{
@@ -20969,14 +20976,37 @@ export function initApp(root: HTMLElement) {
     async function loadAccountsData__inner(){
       _fillSvcMaster("#accSvcF");   // standardized master list — a new service shows up here on its own
       try{
-        const [pr,ar,lr]=await Promise.all([
-          supabase.from("payments").select("*").order("created_at",{ascending:false}).limit(1000),
-          supabase.from("appointments").select("id,client_name,phone,service").limit(2000),
-          supabase.from("leads").select("meta_lead_id,name,phone,service").limit(10000)
+        // Payments first, then look up ONLY the leads and appointments those payments reference.
+        //
+        // This used to pull the whole leads table with .limit(10000) and build the lookup from
+        // that. The /db gateway caps a select at MAX_SELECT_LIMIT = 5000 and clamps silently, so on
+        // a book of 6,268 leads it returned the first 5,000 — with no ORDER BY, an arbitrary 5,000 —
+        // and every payment whose client fell in the missing 1,268 rendered as "Client" with no
+        // phone. Eighteen of thirty-six rows on production. The appointments fetch had the same
+        // shape and the same fate waiting at 2,000.
+        //
+        // Fetching by id cannot truncate: at most 1,000 payments reference at most 1,000 of each,
+        // and the chunking keeps every request well inside the cap.
+        const pr:any=await supabase.from("payments").select("*").order("created_at",{ascending:false}).limit(1000);
+        const payRows:any[]=(pr&&pr.data)||[];
+        const uniq=(v:any[])=>Array.from(new Set(v.map((x)=>String(x||"")).filter(Boolean)));
+        const leadIds=uniq(payRows.map((p:any)=>p.lead_id));
+        const apptIds=uniq(payRows.map((p:any)=>p.appointment_id));
+        const chunked=async(ids:string[],run:(c:string[])=>Promise<any>)=>{
+          const out:any[]=[];
+          for(let i=0;i<ids.length;i+=400){
+            const r:any=await run(ids.slice(i,i+400));
+            if(r&&r.data) out.push(...r.data);
+          }
+          return out;
+        };
+        const [apptRows,leadRows]=await Promise.all([
+          apptIds.length?chunked(apptIds,(c)=>supabase.from("appointments").select("id,client_name,phone,service,lead_id").in("id",c)):Promise.resolve([]),
+          leadIds.length?chunked(leadIds,(c)=>supabase.from("leads").select("meta_lead_id,name,phone,service").in("meta_lead_id",c)):Promise.resolve([]),
         ]);
-        _accAppts={}; (ar.data||[]).forEach((a:any)=>{ _accAppts[a.id]=a; });
-        const leadBy:Record<string,any>={}; (lr.data||[]).forEach((l:any)=>{ leadBy[String(l.meta_lead_id)]=l; });
-        _accPays=(pr.data||[]).map((p:any)=>{
+        _accAppts={}; apptRows.forEach((a:any)=>{ _accAppts[a.id]=a; });
+        const leadBy:Record<string,any>={}; leadRows.forEach((l:any)=>{ leadBy[String(l.meta_lead_id)]=l; });
+        _accPays=payRows.map((p:any)=>{
           const appt=_accAppts[p.appointment_id]||{};
           // Coach-collected rows carry lead_id ONLY (no appointment link), so the appointment join
           // resolved them ALL to "Client" with no phone — distinct clients rendered as identical

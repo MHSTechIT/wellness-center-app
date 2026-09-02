@@ -2556,8 +2556,13 @@ export function getMainContent(): string {
             <th scope="col" style="text-align:right">Offline Con %</th><th scope="col" style="text-align:right">Offline Conv</th>
           </tr></thead><tbody id="tgtAdvBody"></tbody><tfoot id="tgtAdvFoot"></tfoot></table></div>
 
+          <!-- The Health Coach team is a DIABETES function in this clinic (the coach queue itself
+               drops every non-diabetes modality), so the sheet hides this whole block when the
+               Service filter names another line. Hidden, not removed: the rows stay in the DOM so
+               switching service never discards a coach share that was already typed or saved. -->
+          <div id="tgtCoachBlock">
           <div class="tgt-team"><span class="ic" aria-hidden="true">C</span><span class="nm">Health Coach Team</span><span class="ct" id="tgtCoachCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">configured separately from the advisors</span></div>
-          <div class="tscroll"><table class="tbl" style="min-width:1240px" id="tgtCoachTbl"><thead><tr>
+          <div class="tscroll"><table class="tbl" style="min-width:1240px" id="tgtCoachTbl"><thead><tr>
             <th scope="col">Coach</th><th scope="col" style="text-align:right">Consultation %</th><th scope="col" style="text-align:right">Consultations</th>
             <th scope="col" style="text-align:right">Conversion %</th><th scope="col" style="text-align:right">Conversions</th>
             <th scope="col" style="text-align:right">Revenue</th>
@@ -2566,6 +2571,7 @@ export function getMainContent(): string {
             <th scope="col" style="text-align:right">Offline Consult %</th><th scope="col" style="text-align:right">Offline Consults</th>
             <th scope="col" style="text-align:right">Offline Conv %</th><th scope="col" style="text-align:right">Offline Conv</th>
           </tr></thead><tbody id="tgtCoachBody"></tbody><tfoot id="tgtCoachFoot"></tfoot></table></div>
+          </div>
 
           <p style="font-size:11.5px;color:var(--faint);margin-top:10px">Targets do not roll over — each month is set explicitly, so a missed month never silently inflates the next one. A person with no share for the month simply has no target, and the dashboard falls back to deriving one from their own book size.</p>
         </div></div>
