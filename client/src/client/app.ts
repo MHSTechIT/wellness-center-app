@@ -1757,10 +1757,40 @@ export function initApp(root: HTMLElement) {
         +'<div>Lead: <b>'+e(name||"Lead")+'</b></div>'
         +'<div>Assigned to: <b>'+e(advisor||"&mdash;")+'</b>'+(mine?' <span class="chipb ok" style="margin-left:4px">You</span>':"")+'</div>');
     }
+    // Freshly assigned leads, read straight from the database rather than inferred from the book.
+    //
+    // This exists because the book could not see the assignment that matters most. The SSE "leads"
+    // event calls loadAssignmentExtras(), and BOTH of its queries carry .neq("source","Meta Ads") —
+    // so _assignedExtras never holds a Meta lead, and _metaLeads is only rebuilt by
+    // fetchMetaLiveFeed(), which that path never calls and nothing polls. An auto-assigned Meta
+    // lead — the overwhelmingly common case — therefore left _metaLeads still showing it as
+    // unassigned, the diff below saw no change, and NO popup was ever raised. Manual and walk-in
+    // leads worked, which is why it looked like the feature was working.
+    //
+    // One narrow query: only leads assigned inside the freshness window the alert already uses, so
+    // it stays a handful of rows however large the book grows.
+    let _asgFresh:any[]=[];
+    async function _asgSyncFresh(){
+      try{
+        const since=new Date(Date.now()-ASG_FRESH_MS).toISOString();
+        const res:any=await supabase.from("leads")
+          .select("meta_lead_id,name,assigned_to,assigned_at")
+          .eq("is_assigned",true).gte("assigned_at",since).limit(200);
+        _asgFresh=(((res&&res.data)||[]) as any[]).map((r:any)=>({
+          id:String(r.meta_lead_id),name:r.name,
+          assignedTo:String(r.assigned_to||"").trim(),assignedAt:r.assigned_at}));
+      }catch(_){ _asgFresh=[]; }   // offline → fall back to whatever the book knows
+    }
+    /** Pull the fresh rows, THEN diff. Every existing caller stays a plain call. */
+    function _asgCheckNew(){ _asgSyncFresh().then(()=>{ try{ _asgDiff(); }catch(_){} }); }
     /** Diff the book against the last look and announce anything newly assigned. */
-    function _asgCheckNew(){
+    function _asgDiff(){
       if(!_currentUser) return;
-      const book=[..._metaLeads,..._assignedExtras];
+      // Fresh database rows WIN over the in-memory copy — that is the whole point of the pull.
+      const seenId=new Set<string>();
+      const book:any[]=[];
+      _asgFresh.forEach((l:any)=>{ const id=String(l&&l.id||""); if(id&&!seenId.has(id)){ seenId.add(id); book.push(l); } });
+      [..._metaLeads,..._assignedExtras].forEach((l:any)=>{ const id=String(l&&l.id||""); if(id&&!seenId.has(id)){ seenId.add(id); book.push(l); } });
       const now:Record<string,string>={};
       book.forEach((l:any)=>{ const id=String((l&&l.id)||""); if(!id) return; now[id]=String((l&&l.assignedTo)||"").trim(); });
       // The FIRST look only records the baseline. Without it, signing in would announce every lead
@@ -17833,7 +17863,45 @@ export function initApp(root: HTMLElement) {
     w._tgtPeriodChange=()=>{ loadTgtMaster(); };
     // Live recalculation as the plan is typed — reading the inputs, not the saved row, so the
     // consequences of a change are visible before it is committed.
-    w._tgtRecalc=()=>{ try{ _tgtRender(); }catch(_){} };
+    // Typing recomputes the DERIVED numbers and touches nothing else.
+    //
+    // It used to call _tgtRender(), which rewrites the table body — so the field being typed into
+    // was destroyed and rebuilt on every keystroke. Focus was lost after a single digit (you had to
+    // click back in for the next one), and .tgt-row's staggered entrance animation replayed across
+    // every row at the same time. The allocation panel already learned this: _alcInput repaints
+    // only its footer for exactly this reason.
+    //
+    // Inputs are never written here — not their value, not their markup — so the caret stays put.
+    w._tgtRecalc=()=>{
+      try{
+        const t=_tgtPlan();
+        const d=_tsTeamDerived(t);
+        const setTxt=(sel:string,v:any)=>{ const el=root.querySelector(sel); const s2=String(v); if(el&&el.textContent!==s2) el.textContent=s2; };
+        // Team-plan consequence cards: no inputs inside, so a full rewrite is safe and keeps the
+        // change-pulse behaviour the cards already have.
+        _tgtRenderDerivedCards(d);
+        // Per-person rows: text only, addressed by data-o.
+        const tot={leads:0,appts:0,visits:0,con:0,rev:0,pct:0};
+        _tgtPeople("advisor",_tgtAdvSvc).forEach((pp:any)=>{
+          const p=pp.name;
+          const pc:any={leadsPct:_tgtPct("advisor",p,"leadsPct"),appPct:_tgtPct("advisor",p,"appPct"),
+            visitPct:_tgtPct("advisor",p,"visitPct"),conPct:_tgtPct("advisor",p,"conPct"),
+            onlineAppPct:_tgtPct("advisor",p,"onlineAppPct"),onlineConPct:_tgtPct("advisor",p,"onlineConPct"),
+            offlineAppPct:_tgtPct("advisor",p,"offlineAppPct"),offlineConPct:_tgtPct("advisor",p,"offlineConPct")};
+          const r=_tsAdvisorRow(t,pc);
+          tot.leads+=r.leads; tot.appts+=r.appts; tot.visits+=r.visits; tot.con+=r.con; tot.rev+=r.revenue;
+          tot.pct+=Number(pc.leadsPct)||0;
+          const cell=(k:string)=>'[data-o="advisor|'+String(p).replace(/"/g,'\\"')+'|'+k+'"]';
+          setTxt(cell("leads"),_tsI(r.leads)); setTxt(cell("appts"),_tsI(r.appts));
+          setTxt(cell("visits"),_tsI(r.visits)); setTxt(cell("con"),_tsR(r.con));
+          setTxt(cell("revenue"),_tsInr(r.revenue));
+          setTxt(cell("onlineAppts"),_tsI(r.onlineAppts)); setTxt(cell("onlineCon"),_tsR(r.onlineCon));
+          setTxt(cell("offlineAppts"),_tsI(r.offlineAppts)); setTxt(cell("offlineCon"),_tsR(r.offlineCon));
+        });
+        _tgtRenderAdvFoot(tot,d,t);   // footer holds no inputs
+        _tgtRenderInfo(t,d);
+      }catch(_){}
+    };
     // Which service line the advisor roster is showing. "all" is the full team, the sheet's
     // original behaviour and its default.
     let _tgtAdvSvc="all";
@@ -17905,11 +17973,13 @@ export function initApp(root: HTMLElement) {
       const m=_tgtMembers[team+"|"+person]||{};
       return m[key]!=null?m[key]:"";
     };
-    function _tgtRender(){
-      const t=_tgtPlan();
-      const d=_tsTeamDerived(t);
-      const e=(x:any)=>(x==null?"":String(x)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-      // ---- the team plan's own consequences ----
+    /** Green when the shares reconcile to 100%, amber when they do not. Both footers use it. */
+    const _tgtOkPct=(v:number)=>Math.abs(v-100)<0.05?"var(--ok-ink)":"var(--warn-ink)";
+    const _tgtEsc=(x:any)=>(x==null?"":String(x)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    /** The team plan's own consequences. Holds no inputs, so it is safe to rewrite while typing —
+     *  which is why it lives here rather than inside _tgtRender. */
+    function _tgtRenderDerivedCards(d:any){
+      const e=_tgtEsc;
       const dv=root.querySelector("#tgtDerived");
       if(dv) dv.innerHTML=[
         ["CPL","₹"+_tsR(d.cpl),"spend ÷ leads"],
@@ -17927,10 +17997,36 @@ export function initApp(root: HTMLElement) {
         return '<div class="metric tgt-d'+(chg?" bump":"")+'" style="--i:'+di+'"><div class="ml">'+e(k)+'</div>'
           +'<div class="mv">'+e(v)+'</div><div class="msub">'+e(sub)+'</div></div>';
       }).join("");
+    }
+    /** The reconciliation row: shares that miss 100%, or revenue that misses the team target, are
+     *  stated rather than quietly absorbed. Holds no inputs, so the live recalc rewrites it freely. */
+    function _tgtRenderAdvFoot(tot:any,d:any,t:any){
       const num='class="mono" style="text-align:right;white-space:nowrap"';
-      const inp=(team:string,person:string,key:string)=>'<td style="text-align:right"><input class="input mono" type="number" min="0" max="100" step="0.1"'
+      const foot=root.querySelector("#tgtAdvFoot"); if(!foot) return;
+      foot.innerHTML='<tr style="border-top:2px solid var(--line)"><td style="font-weight:700">Team</td>'
+        +'<td '+num+' style="font-weight:700;color:'+_tgtOkPct(tot.pct)+'">'+_tsR(tot.pct)+'%</td>'
+        +'<td '+num+' style="font-weight:700">'+_tsI(tot.leads)+'</td><td></td><td '+num+'>'+_tsI(tot.appts)+'</td>'
+        +'<td></td><td '+num+'>'+_tsI(tot.visits)+'</td><td></td><td '+num+'>'+_tsR(tot.con)+' / '+_tsI(d.enrolments)+'</td>'
+        +'<td '+num+' style="font-weight:700;color:'+(Math.abs(tot.rev-t.revenue)<1?"var(--ok-ink)":"var(--warn-ink)")+'">'+_tsInr(tot.rev)+'</td>'
+        +'<td colspan="8"></td></tr>';
+    }
+    function _tgtRenderInfo(t:any,d:any){
+      const info=root.querySelector("#tgtInfo");
+      if(info) info.textContent=t.leads?(_tsI(t.leads)+" leads · "+_tsI(d.enrolments)+" enrolments · "+_tsInr(t.revenue)+" · "+_tgtPeriod()):"No team plan for "+_tgtPeriod();
+    }
+    function _tgtRender(){
+      const t=_tgtPlan();
+      const d=_tsTeamDerived(t);
+      const e=_tgtEsc;
+      _tgtRenderDerivedCards(d);
+      const num='class="mono" style="text-align:right;white-space:nowrap"';
+      // Sizing lives in .tgt-pct, not inline: this sheet carries 18 columns, and at the old table
+      // width each cell collapsed to roughly 59px — of which 22px was padding and ~16px the number
+      // spinners, leaving about one digit visible. onwheel blurs because a wheel over a FOCUSED
+      // number input changes its value, and this table is scrolled sideways to reach these columns.
+      const inp=(team:string,person:string,key:string)=>'<td style="text-align:right"><input class="input mono tgt-pct" type="number" min="0" max="100" step="0.1"'
         +' data-tgt="'+e(team+"|"+person+"|"+key)+'" value="'+e(_tgtPct(team,person,key))+'" oninput="window._tgtRecalc()"'
-        +' style="height:30px;max-width:74px;text-align:right"></td>';
+        +' onwheel="this.blur()"></td>';
       // ---- Health Advisor team ----
       try{ _tgtFillAdvSvc(); }catch(_){}
       const advPeople=_tgtPeople("advisor",_tgtAdvSvc);
@@ -17947,27 +18043,23 @@ export function initApp(root: HTMLElement) {
         const r=_tsAdvisorRow(t,pc);
         advTot.leads+=r.leads; advTot.appts+=r.appts; advTot.visits+=r.visits; advTot.con+=r.con; advTot.rev+=r.revenue;
         advTot.pct+=Number(pc.leadsPct)||0;
+        // Every derived cell carries data-o so _tgtRecalc can rewrite its TEXT in place. Rebuilding
+        // the row to update these is what made the sheet impossible to type in — see _tgtRecalc.
+        const o=(key:string,val:any,extra?:string)=>'<td '+num+(extra||"")+' data-o="advisor|'+e(p)+'|'+key+'">'+val+'</td>';
         return '<tr class="tgt-row" style="--i:'+pi+'"><td><div class="tgt-nm">'+e(p)+'</div><div class="tgt-role">'+e(pp.role)+'</div></td>'
-          +inp("advisor",p,"leadsPct")+'<td '+num+'>'+_tsI(r.leads)+'</td>'
-          +inp("advisor",p,"appPct")+'<td '+num+'>'+_tsI(r.appts)+'</td>'
-          +inp("advisor",p,"visitPct")+'<td '+num+'>'+_tsI(r.visits)+'</td>'
-          +inp("advisor",p,"conPct")+'<td '+num+'>'+_tsR(r.con)+'</td>'
-          +'<td '+num+' style="font-weight:700">'+_tsInr(r.revenue)+'</td>'
-          +inp("advisor",p,"onlineAppPct")+'<td '+num+'>'+_tsI(r.onlineAppts)+'</td>'
-          +inp("advisor",p,"onlineConPct")+'<td '+num+'>'+_tsR(r.onlineCon)+'</td>'
-          +inp("advisor",p,"offlineAppPct")+'<td '+num+'>'+_tsI(r.offlineAppts)+'</td>'
-          +inp("advisor",p,"offlineConPct")+'<td '+num+'>'+_tsR(r.offlineCon)+'</td></tr>';
+          +inp("advisor",p,"leadsPct")+o("leads",_tsI(r.leads))
+          +inp("advisor",p,"appPct")+o("appts",_tsI(r.appts))
+          +inp("advisor",p,"visitPct")+o("visits",_tsI(r.visits))
+          +inp("advisor",p,"conPct")+o("con",_tsR(r.con))
+          +o("revenue",_tsInr(r.revenue),' style="font-weight:700"')
+          +inp("advisor",p,"onlineAppPct")+o("onlineAppts",_tsI(r.onlineAppts))
+          +inp("advisor",p,"onlineConPct")+o("onlineCon",_tsR(r.onlineCon))
+          +inp("advisor",p,"offlineAppPct")+o("offlineAppts",_tsI(r.offlineAppts))
+          +inp("advisor",p,"offlineConPct")+o("offlineCon",_tsR(r.offlineCon))+'</tr>';
       }).join(""):'<tr><td colspan="18" style="text-align:center;color:var(--faint);padding:14px">No advisors found — add them in Settings → Users &amp; Assignees.</td></tr>';
       // The footer is the reconciliation: shares that miss 100%, or revenue that misses the team
       // target, are stated rather than quietly absorbed.
-      const foot=root.querySelector("#tgtAdvFoot");
-      const okPct=(v:number)=>Math.abs(v-100)<0.05?"var(--ok-ink)":"var(--warn-ink)";
-      if(foot) foot.innerHTML='<tr style="border-top:2px solid var(--line)"><td style="font-weight:700">Team</td>'
-        +'<td '+num+' style="font-weight:700;color:'+okPct(advTot.pct)+'">'+_tsR(advTot.pct)+'%</td>'
-        +'<td '+num+' style="font-weight:700">'+_tsI(advTot.leads)+'</td><td></td><td '+num+'>'+_tsI(advTot.appts)+'</td>'
-        +'<td></td><td '+num+'>'+_tsI(advTot.visits)+'</td><td></td><td '+num+'>'+_tsR(advTot.con)+' / '+_tsI(d.enrolments)+'</td>'
-        +'<td '+num+' style="font-weight:700;color:'+(Math.abs(advTot.rev-t.revenue)<1?"var(--ok-ink)":"var(--warn-ink)")+'">'+_tsInr(advTot.rev)+'</td>'
-        +'<td colspan="8"></td></tr>';
+      _tgtRenderAdvFoot(advTot,d,t);
       // ---- Health Coach team (configured separately) ----
       const coPeople=_tgtPeople("coach");   // unscoped: the filter above is the advisor roster's
       const coBody=root.querySelector("#tgtCoachBody");
@@ -17990,7 +18082,7 @@ export function initApp(root: HTMLElement) {
       }).join(""):'<tr><td colspan="14" style="text-align:center;color:var(--faint);padding:14px">No health coaches found — add them in Settings → Users &amp; Assignees.</td></tr>';
       const cfoot=root.querySelector("#tgtCoachFoot");
       if(cfoot) cfoot.innerHTML='<tr style="border-top:2px solid var(--line)"><td style="font-weight:700">Team</td>'
-        +'<td '+num+' style="font-weight:700;color:'+okPct(coTot.pct)+'">'+_tsR(coTot.pct)+'%</td>'
+        +'<td '+num+' style="font-weight:700;color:'+_tgtOkPct(coTot.pct)+'">'+_tsR(coTot.pct)+'%</td>'
         +'<td '+num+' style="font-weight:700">'+_tsI(coTot.c)+'</td><td></td>'
         +'<td '+num+'>'+_tsR(coTot.cv)+' / '+_tsI(d.enrolments)+'</td>'
         +'<td '+num+' style="font-weight:700;color:'+(Math.abs(coTot.rev-t.revenue)<1?"var(--ok-ink)":"var(--warn-ink)")+'">'+_tsInr(coTot.rev)+'</td>'
@@ -18004,8 +18096,7 @@ export function initApp(root: HTMLElement) {
         if(sn) sn.textContent=(_tgtAdvSvc==="all"||_hid<1)?""
           :_hid+" of "+advAll.length+" advisors hidden · their saved shares are untouched";
         const c=root.querySelector("#tgtCoachCount"); if(c) c.textContent=coPeople.length+" coach"+(coPeople.length===1?"":"es"); }
-      const info=root.querySelector("#tgtInfo");
-      if(info) info.textContent=t.leads?(_tsI(t.leads)+" leads · "+_tsI(d.enrolments)+" enrolments · "+_tsInr(t.revenue)+" · "+_tgtPeriod()):"No team plan for "+_tgtPeriod();
+      _tgtRenderInfo(t,d);
     }
     w._tgtSaveSheet=async()=>{
       const per=_tgtPeriod();

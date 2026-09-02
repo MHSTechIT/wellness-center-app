@@ -2821,3 +2821,18 @@ html[data-boot="sess"] #appLoading{display:flex!important}
 .rempop-r .v a:hover{text-decoration:underline}
 .rempop-ft{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 20px;
   border-top:1px solid var(--line);background:var(--surface-2)}
+
+/* ===== Target Sheet percentage inputs ======================================================
+   The advisor sheet carries 18 columns. At the table's old min-width each percentage cell came
+   out around 59px, and .input spends 22px of that on padding while the number spinners take
+   another ~16px — leaving roughly one digit visible, which is why a typed share could not be
+   read back. The table is wider now; these give the field a floor it cannot be squeezed below. */
+.tgt-pct{min-width:66px;max-width:84px;height:30px;padding:0 8px;text-align:right;
+  font-variant-numeric:tabular-nums}
+/* Spinners are dead weight on a field this narrow — the value is typed, not stepped. */
+.tgt-pct::-webkit-outer-spin-button,
+.tgt-pct::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.tgt-pct{-moz-appearance:textfield;appearance:textfield}
+/* Nothing in these two tables should wrap: a wrapped header doubles the row height and squeezes
+   the columns further, which is half of how the fields got this tight. */
+#tgtAdvTbl th,#tgtAdvTbl td,#tgtCoachTbl th,#tgtCoachTbl td{white-space:nowrap}

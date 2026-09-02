@@ -2521,7 +2521,7 @@ export function getMainContent(): string {
             <span class="tgt-svcnote" id="tgtAdvSvcNote"></span>
           </div>
           <div class="tgt-team"><span class="ic" aria-hidden="true">A</span><span class="nm">Health Advisor Team</span><span class="ct" id="tgtAdvCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">percentages in, counts out</span></div>
-          <div class="tscroll"><table class="tbl" style="min-width:1180px" id="tgtAdvTbl"><thead><tr>
+          <div class="tscroll"><table class="tbl" style="min-width:1520px" id="tgtAdvTbl"><thead><tr>
             <th scope="col">Advisor</th><th scope="col" style="text-align:right">Leads %</th><th scope="col" style="text-align:right">Leads</th>
             <th scope="col" style="text-align:right">App %</th><th scope="col" style="text-align:right">Appts</th>
             <th scope="col" style="text-align:right">Visit %</th><th scope="col" style="text-align:right">Visits</th>
@@ -2534,7 +2534,7 @@ export function getMainContent(): string {
           </tr></thead><tbody id="tgtAdvBody"></tbody><tfoot id="tgtAdvFoot"></tfoot></table></div>
 
           <div class="tgt-team"><span class="ic" aria-hidden="true">C</span><span class="nm">Health Coach Team</span><span class="ct" id="tgtCoachCount">—</span><span class="sp"></span><span style="font-size:11px;color:var(--faint)">configured separately from the advisors</span></div>
-          <div class="tscroll"><table class="tbl" style="min-width:1080px" id="tgtCoachTbl"><thead><tr>
+          <div class="tscroll"><table class="tbl" style="min-width:1240px" id="tgtCoachTbl"><thead><tr>
             <th scope="col">Coach</th><th scope="col" style="text-align:right">Consultation %</th><th scope="col" style="text-align:right">Consultations</th>
             <th scope="col" style="text-align:right">Conversion %</th><th scope="col" style="text-align:right">Conversions</th>
             <th scope="col" style="text-align:right">Revenue</th>
